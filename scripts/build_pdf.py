@@ -12,11 +12,29 @@ from reportlab.lib.fonts import addMapping
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONT_DIR = os.path.join(ROOT, "fonts")
 
-# Register TrueType fonts with reportlab (regular + bold) so box-drawing
-# characters in the diagrams render correctly, then expose them to xhtml2pdf.
+# Preferred fonts first, bundled fallback second. Segoe UI / Consolas are
+# Windows-only and can't be redistributed, so DejaVu (Bitstream Vera license,
+# full box-drawing coverage) ships in fonts/ and is used when they're absent.
+_FONT_CHOICES = [
+    ("Sans", ["segoeui.ttf", "DejaVuSans.ttf"], ["segoeuib.ttf", "DejaVuSans-Bold.ttf"]),
+    ("Mono", ["consola.ttf", "DejaVuSansMono.ttf"], ["consolab.ttf", "DejaVuSansMono-Bold.ttf"]),
+]
+
+
+def pick_font(candidates):
+    """Return the first candidate present in fonts/, else raise a clear error."""
+    for name in candidates:
+        path = os.path.join(FONT_DIR, name)
+        if os.path.exists(path):
+            return path
+    raise SystemExit(
+        f"No font found in {FONT_DIR}. Looked for: {', '.join(candidates)}"
+    )
+
+
 _FONTS = [
-    ("Sans", os.path.join(FONT_DIR, "segoeui.ttf"), os.path.join(FONT_DIR, "segoeuib.ttf")),
-    ("Mono", os.path.join(FONT_DIR, "consola.ttf"), os.path.join(FONT_DIR, "consolab.ttf")),
+    (family, pick_font(regular), pick_font(bold))
+    for family, regular, bold in _FONT_CHOICES
 ]
 for family, regular, bold in _FONTS:
     pdfmetrics.registerFont(TTFont(family, regular))

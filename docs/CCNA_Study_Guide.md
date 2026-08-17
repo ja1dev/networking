@@ -34,6 +34,7 @@
 23. [Troubleshooting Toolbox](#chapter-23)
 24. [Exam Tips & Study Plan](#chapter-24)
 25. [Glossary](#glossary)
+26. [Appendix: Exam Blueprint Coverage Map](#blueprint)
 
 ---
 
@@ -178,6 +179,148 @@ Cut into packets:
 
 They travel separately, then get rebuilt at the other end. ✅
 ```
+
+---
+
+## 1.7 How Networks Are Shaped: Design Architectures
+
+We've met the devices. But **how do you arrange them** when you're building a network for a real company? You don't just plug everything into everything — networks follow **standard shapes** (architectures) that engineers reuse because they're predictable, easy to grow, and easy to troubleshoot.
+
+### The 3-Tier (Hierarchical) Design
+
+The classic campus design splits the network into **three layers**, each with one job:
+
+```
+              ┌───────────────┐
+   CORE       │  Fast backbone │      "Move traffic FAST. Nothing else."
+              └───────┬───────┘
+                  ┌───┴───┐
+ DISTRIBUTION  ┌──┴──┐ ┌──┴──┐        "Routing, filtering, policy."
+               └──┬──┘ └──┬──┘
+                ┌─┴─┐   ┌─┴─┐
+   ACCESS       │SW │   │SW │         "Where PCs, phones & APs plug in."
+                └─┬─┘   └─┬─┘
+                 💻       ☎️
+```
+
+| Layer | Job | Typical gear |
+|-------|-----|--------------|
+| **Access** | Where **end devices plug in** (PCs, phones, APs). Port security, VLANs, PoE. | Layer 2 switches |
+| **Distribution** | The **middle manager**: routing between VLANs, ACLs/policy, aggregates access switches. | Layer 3 switches |
+| **Core** | The **highway**: moves huge amounts of traffic between distribution blocks as fast as possible. | High-speed L3 switches |
+
+**Why split it into layers at all — why not just one big flat switch network?** Because of **scale and blast radius**. In a flat network, every switch connects to every other switch in a tangle: adding one more switch means touching many devices, one loop can take down everything, and troubleshooting means checking everywhere. Layers fix this by giving each device **one clear job and one clear place**:
+
+- **Growth becomes copy-paste.** Need a new building? Add an access/distribution "block" and connect it to the core. You don't redesign anything else.
+- **Failures stay contained.** A problem at an access switch affects that closet, not the company.
+- **Troubleshooting has a map.** "Users on floor 3 can't reach the server" immediately tells you *which* block to look at.
+- **Policy has a home.** Filtering happens at distribution — one predictable place — instead of scattered randomly.
+
+**The Collapsed Core (2-Tier)** — for smaller networks, the core and distribution layers are **merged into one layer**:
+
+```
+   COLLAPSED CORE   ┌─────┐ ┌─────┐    (core + distribution combined)
+                    └──┬──┘ └──┬──┘
+   ACCESS           ┌──┴──┐ ┌──┴──┐
+                    └─────┘ └─────┘
+```
+
+**Why collapse them?** Because a separate core only pays off when you have **enough distribution blocks to justify it**. In a single-building company, a dedicated core layer would just be extra hardware forwarding traffic between two switches — expensive, and more devices to manage for no benefit. *The rule of thumb: 3-tier for large multi-building campuses, 2-tier (collapsed core) for smaller sites.*
+
+### Spine-Leaf (The Data Center Shape)
+
+Data centers use a different shape. Every **leaf** connects to **every spine** — and leaves never connect to each other:
+
+```
+   SPINE     ┌────┐        ┌────┐
+             │ S1 │        │ S2 │
+             └─┬─┬┘        └┬─┬─┘
+          ┌────┘ └────┐ ┌───┘ └────┐
+   LEAF ┌─┴──┐     ┌──┴─┴─┐     ┌──┴─┐
+        │ L1 │     │  L2  │     │ L3 │
+        └────┘     └──────┘     └────┘
+        (servers hang off the leaves)
+```
+
+**Why does the data center need its own shape?** Because traffic patterns changed. Old networks were mostly **north-south** (user → server → internet), which the 3-tier design handles well. Modern data centers are mostly **east-west** — servers talking to *other servers* (a web app querying a database, virtual machines syncing). In a 3-tier design, two servers on different access switches must travel *up* to distribution or core and back *down* — and the path length depends on where they happen to sit.
+
+Spine-leaf makes every server **exactly the same distance from every other server**: leaf → spine → leaf. Always two hops. That's called **predictable latency**, and it's the whole point. Need more capacity? Add a spine — every leaf instantly gets more bandwidth. Need more servers? Add a leaf. *Same idea as the hierarchy above — one job per layer — but tuned for server-to-server traffic instead of user-to-internet traffic.*
+
+## 1.8 SOHO, On-Premises & Cloud
+
+Not every network is a campus. The exam expects you to recognize a few common **deployment styles**.
+
+**SOHO (Small Office / Home Office)** is your house or a small shop. The defining feature: **one box does everything**. Your home "router" is secretly a router *plus* a switch *plus* a wireless access point *plus* a firewall *plus* a DHCP server *plus* a NAT device — all in one plastic case.
+
+**Why combine them at home but separate them at work?** Cost and scale. A home has a handful of devices and no IT staff, so a single cheap all-in-one is perfect. A company has thousands of devices, needs each function to scale independently (more switch ports without buying more firewalls), and needs redundancy — so those functions get split into dedicated, replaceable devices. *Same functions, different packaging.*
+
+**On-premises** means the servers live **in your building**, on hardware you bought and maintain. **Cloud** means they live in someone else's data center (AWS, Azure) and you rent them.
+
+| Aspect | On-Premises | Cloud |
+|---|---|---|
+| **Hardware** | You buy and own it | Provider owns it |
+| **Cost shape** | Big up-front purchase | Pay monthly for what you use |
+| **Scaling** | Buy and install more (weeks) | Click a button (minutes) |
+| **Maintenance** | Your team | Provider |
+| **Control** | Total | Limited to what the provider exposes |
+
+Many companies run **hybrid** — some systems on-premises (sensitive data, legacy apps), some in the cloud (websites, backups). *Why hybrid? Because the trade-offs above land differently per application, so the sensible answer is rarely "all one way."*
+
+## 1.9 Virtualization: One Machine Pretending to Be Many
+
+Here's something that seems like magic: a **single physical server** can run **twenty separate "computers"** at once, each with its own operating system, IP address, and reboot button.
+
+### Virtual Machines & Hypervisors
+
+A **virtual machine (VM)** is a complete pretend computer — pretend CPU, pretend disk, pretend network card — running as software on a real one. The program that creates and manages VMs is the **hypervisor**.
+
+```
+ ┌──────────────────────────────────────────┐
+ │  VM 1     │  VM 2     │  VM 3            │
+ │  Windows  │  Linux    │  Linux           │  ← each has its own full OS
+ ├──────────────────────────────────────────┤
+ │            HYPERVISOR                    │  ← divides up the real hardware
+ ├──────────────────────────────────────────┤
+ │      PHYSICAL SERVER (CPU, RAM, NIC)     │
+ └──────────────────────────────────────────┘
+```
+
+**Why bother? Why not just use the physical server directly?** Because a physical server running one application typically uses **5–15% of its power** — the rest is wasted, but you still pay for the box, the rack space, the electricity, and the cooling. Virtualization lets one strong server do the work of many weak ones. And you gain things physical servers can't do: **snapshots** (save a machine's exact state before a risky change and roll back in seconds), **moving a running server** to different hardware without downtime, and **creating a new server in a minute** instead of ordering hardware. *It turns servers from things you buy into things you create.*
+
+### Containers
+
+A **container** is a lighter-weight idea. Instead of virtualizing the whole computer, containers **share the host's operating system** and package just the application plus what it needs to run.
+
+```
+ ┌────────────────────────────────────────┐
+ │ App A  │ App B  │ App C  │  ← containers (no OS inside each!)
+ ├────────────────────────────────────────┤
+ │        CONTAINER ENGINE (e.g. Docker)  │
+ ├────────────────────────────────────────┤
+ │        ONE SHARED OPERATING SYSTEM     │
+ ├────────────────────────────────────────┤
+ │        PHYSICAL SERVER                 │
+ └────────────────────────────────────────┘
+```
+
+| Aspect | Virtual Machine | Container |
+|---|---|---|
+| **Contains** | Full OS + app | Just the app + its dependencies |
+| **Size** | Gigabytes | Megabytes |
+| **Start time** | Minutes | Seconds |
+| **Isolation** | Stronger (separate OS) | Lighter (shared OS kernel) |
+
+**Why does the shared OS matter so much?** Because the operating system is the *heavy* part. Ten VMs mean ten copies of Windows or Linux booting, patching, and eating RAM. Ten containers share one. That's why containers start in seconds and you can pack far more onto one server — the trade-off being **weaker isolation**, since they all trust the same kernel. *VMs when you need strong separation or different operating systems; containers when you want many small, fast, identical app instances.*
+
+### VRFs — Virtualization Inside a Router
+
+**VRF (Virtual Routing and Forwarding)** does for a **router** what a hypervisor does for a server: it splits one physical router into **several independent virtual routers**, each with its **own separate routing table**.
+
+**Why would you want that?** Because sometimes two networks must stay *completely* separate even though they share hardware. Picture a building shared by two companies, or a hospital keeping medical devices apart from guest Wi-Fi. Without VRFs, all their routes live in one routing table — so if both use `192.168.1.0/24`, they collide, and worse, traffic could leak between them.
+
+With VRFs, each gets its own routing table that **cannot see the other**. They can even use identical, overlapping IP ranges without conflict, because those routes live in different tables entirely.
+
+*The neat way to remember it:* **VLANs separate at Layer 2, VRFs separate at Layer 3.** A VLAN splits one switch into many broadcast domains; a VRF splits one router into many routing tables. Same instinct — one physical box, several isolated logical ones.
 
 ---
 
@@ -612,6 +755,44 @@ Wi‑Fi uses **radio waves** (invisible signals through the air) instead of cabl
 - **SFP/SFP+ slots:** Small slots where you plug fiber or copper modules — flexible!
 - **Console port:** A special port used to **configure** a Cisco device directly with a laptop (usually rollover cable or USB). This is your first way to talk to a brand-new switch.
 - **USB ports:** For files, or console access on newer gear.
+
+---
+
+## 3.7 Power over Ethernet (PoE) — Data *and* Electricity on One Cable
+
+Here's a genuinely useful trick: an Ethernet cable can carry **electrical power** alongside the data. That's **Power over Ethernet (PoE)**, and it's why the phone on an office desk and the access point on the ceiling have **only one cable** going to them — no power brick, no wall outlet.
+
+```
+            ONE CABLE carries both
+  ┌──────────┐  ──── data ────►  ┌──────────┐
+  │  SWITCH  │                   │    AP    │
+  │  (PoE)   │  ──── power ───►  │  ☎️ / 📷  │
+  └──────────┘                   └──────────┘
+     "PSE"                          "PD"
+  Power Sourcing                Powered Device
+    Equipment
+```
+
+**Why is this such a big deal?** Think about where these devices live: an access point on a **ceiling**, a security camera on an **outside wall**, a phone in the middle of an open-plan floor. Running an electrical outlet to each of those spots means an electrician, conduit, and real money — often more than the device costs. PoE means the network cable you were *already going to run* delivers power too. And there's a bonus: because the power comes from the switch in the wiring closet, plugging that **switch** into a UPS keeps every phone and camera alive during a power cut — one battery protects them all.
+
+### The Standards (Know the Power Levels)
+
+| Standard | Common name | Power at the switch port | Typically powers |
+|----------|-------------|--------------------------|------------------|
+| **802.3af** | PoE | ~15.4 W | IP phones, basic APs |
+| **802.3at** | PoE+ | ~30 W | Modern APs, PTZ cameras |
+| **802.3bt** | PoE++ / UPoE | ~60–100 W | Video screens, laptops, lighting |
+
+Note that the **device receives slightly less** than the port supplies — some power is lost as heat in the cable run. That's why an 802.3af port is listed as 15.4 W at the switch but only about 12.95 W at the device.
+
+**Does PoE risk frying a device that isn't built for it?** No — and the reason is worth knowing. Before sending real power, the switch performs a **detection** step: it applies a small voltage and looks for a specific electrical signature that powered devices are built to present. No signature, no power — so your laptop plugged into a PoE port receives **only data**, exactly as normal. After detection, the switch **classifies** the device to learn how much power it actually wants, and grants only that. *Negotiate first, then deliver — the same "check before you commit" pattern you'll see all over networking.*
+
+**The gotcha to watch for:** a switch has a **total power budget** shared by all its ports. A switch advertising 370 W of PoE cannot run 48 ports at 30 W each (that would need 1,440 W). Fill a switch with hungry devices and later ports simply get **denied power** — they'll look dead while their link light works fine. Check with:
+
+```
+SW# show power inline                 ! per-port draw + remaining budget
+SW# show power inline gi1/0/5         ! detail for one port
+```
 
 ---
 
@@ -1469,6 +1650,87 @@ SW1(config)# spanning-tree vlan 10 priority 4096
 
 ---
 
+## 9.8 STP Flavors — PVST+, Rapid PVST+ and Why Cisco Runs One Per VLAN
+
+So far we've talked about "STP" as one thing. In reality there are several **versions**, and the exam expects you to tell them apart.
+
+| Flavor | Standard | Speed | Instances |
+|--------|----------|-------|-----------|
+| **STP** | 802.1D | Slow (30–50 s) | One for the whole switch |
+| **PVST+** | Cisco | Slow (30–50 s) | **One per VLAN** |
+| **RSTP** | 802.1w | Fast (seconds) | One for the whole switch |
+| **Rapid PVST+** | Cisco (802.1w per VLAN) | **Fast (seconds)** | **One per VLAN** |
+
+**Rapid PVST+ is the Cisco default on modern switches**, and it's the one to assume unless a question says otherwise.
+
+**Why run a separate spanning tree for every VLAN — isn't that a lot of extra work?** It is more work, and it buys something valuable: **you can use all your links instead of wasting half of them.** Remember what plain STP does — it blocks redundant links to break loops. With one spanning tree for everything, a blocked link is blocked for *all* traffic; you bought a second uplink and it sits idle doing nothing until something breaks.
+
+With one tree per VLAN, you can deliberately make **different switches the root for different VLANs**:
+
+```
+   VLAN 10 root = SW1              VLAN 20 root = SW2
+        SW1 ═══════ SW2                SW1 ═══════ SW2
+         ║  (blocked  ║                 ║ (forwarding ║
+         ║  for V20)  ║                 ║  for V20)   ║
+        SW3 ─────────┘                 SW3 ──────────┘
+
+   Result: VLAN 10 traffic takes the left path,
+           VLAN 20 traffic takes the right path — BOTH links carry traffic.
+```
+
+Now each link is blocked for *some* VLANs and forwarding for *others*, so both uplinks carry real traffic and you get crude **load balancing** — while each VLAN still has a perfectly loop-free tree. *You pay in CPU (each VLAN runs its own election) and gain link utilization. That trade is why Cisco made per-VLAN the default.*
+
+The command that sets which switch wins the election is per-VLAN for exactly this reason:
+
+```
+SW1(config)# spanning-tree mode rapid-pvst        ! the modern default
+SW1(config)# spanning-tree vlan 10 root primary   ! SW1 = root for VLAN 10
+SW2(config)# spanning-tree vlan 20 root primary   ! SW2 = root for VLAN 20
+```
+
+## 9.9 Protecting the Topology: Root Guard, Loop Guard & BPDU Filter
+
+PortFast and BPDU Guard (section 9.6) protect **access ports**. There are two more guards the exam asks about, and each defends against a *different* accident. The trick is keeping them straight — so here's what each one is afraid of.
+
+### Root Guard — "You Are Not Allowed to Become the Root"
+
+**The fear:** someone plugs a switch into your network that has a **better (lower) bridge priority** than your carefully chosen root — maybe an old switch from a cupboard with priority 4096 still configured, or a small unmanaged switch someone brought from home. STP does exactly what it's designed to do: it holds a new election, that switch **wins**, and suddenly your entire network's traffic is being funneled through a slow switch sitting under someone's desk. Nothing is "broken" — everything is just mysteriously terrible.
+
+**The fix:** on ports where a root bridge should **never** appear (ports facing access switches or other companies), enable Root Guard. If a **superior BPDU** arrives, the port is put into **root-inconsistent** state — it stops forwarding until the offending switch stops shouting.
+
+```
+SW(config-if)# spanning-tree guard root
+SW# show spanning-tree inconsistentports
+```
+
+### Loop Guard — "I Stopped Hearing From You, So I'll Stay Cautious"
+
+**The fear:** this one is subtle. A **blocking** port stays blocking only because it keeps *receiving* BPDUs from the neighbor. If those BPDUs stop arriving — not because the link died, but because of a one-way (unidirectional) failure, like a broken fiber strand in one direction — the blocked port thinks *"no more BPDUs, the loop must be gone,"* and helpfully **starts forwarding**. The link is still physically up in the other direction, so you've just created a **real loop** — a broadcast storm caused by the loop-prevention protocol itself.
+
+**The fix:** Loop Guard says *"if a port that was receiving BPDUs suddenly stops, don't assume the loop is gone — assume something is wrong."* The port goes into **loop-inconsistent** state instead of forwarding, and recovers automatically when BPDUs return.
+
+```
+SW(config-if)# spanning-tree guard loop
+```
+
+### BPDU Filter — "Don't Even Talk About Spanning Tree Here"
+
+BPDU Filter **suppresses BPDUs** on a port. It's the odd one out, because it's the only one that makes the network *less* protected, and it's genuinely dangerous: filtering on a port that turns out to connect to another switch means **STP is blind to that link**, and a loop there will never be blocked. Use it only on ports facing networks you deliberately don't share STP with.
+
+### Keeping Them Straight (Exam Gold)
+
+| Feature | Put it on | Triggers when | Reasoning |
+|---------|-----------|---------------|-----------|
+| **PortFast** | Access ports (PCs) | — | Skip the wait; PCs don't cause loops |
+| **BPDU Guard** | Access ports (PCs) | A BPDU **arrives** | A PC port should *never* see a switch |
+| **Root Guard** | Toward other switches | A **superior** BPDU arrives | That switch may not become root |
+| **Loop Guard** | Blocking/non-designated ports | BPDUs **stop arriving** | Silence is suspicious, not safe |
+| **BPDU Filter** | Rare, edge cases | — | Stops sending/processing BPDUs |
+
+*The one-line memory hook:* **BPDU Guard reacts to a BPDU showing up where it shouldn't. Loop Guard reacts to a BPDU disappearing where it should still be.* One fears noise, the other fears silence.
+
+---
+
 <a name="chapter-10"></a>
 # Chapter 10: EtherChannel — Bundling Cables
 
@@ -2023,6 +2285,97 @@ Gi0/1       10.0.0.1      YES manual up      up
 
 ---
 
+## 14.7 First Hop Redundancy (FHRP & HSRP) — A Backup for the Default Gateway
+
+Back in section 11.6 we learned that every device needs a **default gateway** — the router it hands packets to when the destination isn't local. Now let's ask an uncomfortable question about that arrangement.
+
+**What happens when the default gateway dies?**
+
+```
+   PC1 ──┐
+   PC2 ──┼── SW ── R1 (192.168.1.1) ──► 🌍   ← default gateway
+   PC3 ──┘         💀 R1 fails
+
+   Every PC still sends to 192.168.1.1... and nothing answers.
+   The whole subnet is offline. 😱
+```
+
+Here's the painful part: **you can add a second router, and it doesn't help.** Suppose you install R2 with address `192.168.1.2` as a backup. R2 is powered on, healthy, and perfectly capable of forwarding traffic — but every PC on the subnet was configured (by DHCP or by hand) to use `192.168.1.1`. They will keep sending frames to a router that no longer exists. The backup sits there unused while everyone is offline.
+
+**Why don't the PCs just switch to the other router?** Because a PC's default gateway is a **single, static setting**. A PC has no protocol for discovering "my gateway died, let me find another one" — that's simply not part of how hosts work. You could reconfigure every PC by hand, or wait for DHCP leases to renew with a new gateway, but both take far too long during an outage.
+
+So the problem is really this: *the hosts can't change, so **the routers must pretend to be one router**.*
+
+### The Solution: A Virtual Router
+
+**FHRP (First Hop Redundancy Protocol)** is the family of protocols that solves this. Two or more real routers share a **virtual IP address** and a **virtual MAC address**. The PCs use that virtual IP as their default gateway and never know — or care — which physical router is actually doing the work.
+
+```
+                    Virtual IP: 192.168.1.1  ← what the PCs are configured with
+                    Virtual MAC: 0000.0c07.acXX
+                 ┌──────────────┴──────────────┐
+            R1 (192.168.1.2)            R2 (192.168.1.3)
+              ACTIVE  ✅                  STANDBY  💤
+              (forwards traffic)          (watching, ready)
+
+   R1 fails ──► R2 takes over the SAME virtual IP and MAC.
+   PCs notice nothing. They keep sending to 192.168.1.1. ✨
+```
+
+**Why does the virtual MAC address matter as much as the virtual IP?** This is the detail that makes the whole thing work invisibly, and it's a favorite exam point. Remember how a PC actually sends a packet off-subnet: it ARPs for the gateway's IP, caches the resulting **MAC address**, and addresses its frames to that MAC. If failover only moved the *IP*, every PC would still be sending frames to R1's old MAC — stuck in their ARP caches for minutes — and traffic would keep flowing to a dead router.
+
+By moving the **virtual MAC** to the standby router as well, the frames PCs are already sending arrive at the new active router **unchanged**. No ARP cache needs to expire, no host needs to relearn anything. *The hosts genuinely cannot tell that anything happened — which is the entire goal.*
+
+### The Three FHRPs
+
+| Protocol | Origin | Roles | Notes |
+|----------|--------|-------|-------|
+| **HSRP** | Cisco proprietary | Active / Standby | The Cisco classic — know this one best |
+| **VRRP** | Open standard (RFC) | Master / Backup | Same idea, vendor-neutral |
+| **GLBP** | Cisco proprietary | AVG / AVF | Also **load balances** across routers |
+
+**Why does GLBP exist if HSRP already works?** Because HSRP and VRRP are **active/standby** — the backup router forwards *nothing* while the primary is healthy. You bought two routers and use one. GLBP shares the load across several routers at once by handing out **different virtual MACs** to different PCs when they ARP, so traffic naturally splits. *You can get similar load sharing from HSRP by running two groups and making each router active for one — a common real-world trick.*
+
+### How HSRP Elects Its Active Router
+
+Routers in the same **HSRP group** exchange hello messages (every 3 seconds by default) and elect an active router:
+
+1. **Highest priority wins** (default 100, range 0–255).
+2. **Tie? Highest interface IP address wins.**
+
+If hellos stop arriving for the **hold time** (10 seconds by default), the standby declares the active router dead and takes over.
+
+### Configuring HSRP
+
+```
+R1(config)# interface gi0/0
+R1(config-if)# ip address 192.168.1.2 255.255.255.0
+R1(config-if)# standby 1 ip 192.168.1.1        ! the VIRTUAL IP the PCs use
+R1(config-if)# standby 1 priority 110          ! higher = preferred active
+R1(config-if)# standby 1 preempt               ! take the job back after recovery
+
+R2(config)# interface gi0/0
+R2(config-if)# ip address 192.168.1.3 255.255.255.0
+R2(config-if)# standby 1 ip 192.168.1.1        ! SAME virtual IP, SAME group
+R2(config-if)# standby 1 preempt
+```
+
+**Why is `preempt` needed — and what breaks without it?** Without it, a recovered router **stays standby forever**. Picture it: R1 (priority 110) is active, it reboots, R2 takes over. R1 comes back healthy — and simply stays the backup, because HSRP won't disturb a working active router without being told to. Your carefully designed "the powerful router should be primary" plan is now silently inverted, and it stays that way until someone notices. `preempt` means *"when I'm healthy and I have the better priority, take the role back."* **Note that the router with the higher priority needs `preempt`** for this to work at all — it's the one doing the taking.
+
+### Verifying
+
+```
+R1# show standby brief
+Interface  Grp  Pri P State    Active          Standby         Virtual IP
+Gi0/0      1    110 P Active   local           192.168.1.3     192.168.1.1
+
+R1# show standby             ! full detail: timers, virtual MAC, state changes
+```
+
+Read that output as a sentence: *group 1, priority 110, P = preempt enabled, this router is **Active**, the standby is at .3, and together they present 192.168.1.1 to the world.*
+
+---
+
 <a name="chapter-15"></a>
 # Chapter 15: Static Routing
 
@@ -2232,6 +2585,92 @@ If any of these differ, they won't become neighbors — a very common exam troub
 
 ---
 
+## 16.10 OSPF Network Types & the DR/BDR Election
+
+Section 16.9 listed what must match for OSPF neighbors to form. One item on that list — **network type** — deserves a proper explanation, because it changes *how* OSPF behaves on a link and it brings in two roles the exam loves: **DR** and **BDR**.
+
+### The Problem: Too Many Friendships
+
+Picture five OSPF routers all connected to the **same switch** (one shared Ethernet segment). OSPF's instinct is for every router to become neighbors with every other router. How many adjacencies is that?
+
+```
+   Full mesh of 5 routers = 10 adjacencies
+
+        R1 ─────── R2
+        │ ╲     ╱  │
+        │   ╲ ╱    │        Formula: n(n-1)/2
+        │   ╱ ╲    │        5 routers → 5(4)/2 = 10
+        R3 ─────── R4       10 routers → 10(9)/2 = 45!
+          ╲   │   ╱
+            ╲ │ ╱
+             R5
+```
+
+Every one of those adjacencies means hellos, database exchanges, and updates. Add a router and the count grows roughly with the **square** of the number of routers. On a segment with 20 routers that's 190 adjacencies flooding the same information over and over — enormous waste, since they're all on **one shared segment where everyone hears everything anyway**.
+
+### The Solution: Elect a Spokesperson
+
+On broadcast segments, OSPF elects a **Designated Router (DR)** and a **Backup Designated Router (BDR)**. Every other router (called **DROTHER**) forms a full adjacency **only with the DR and BDR** — not with each other.
+
+```
+              R1 (DR)  ◄──── everyone talks to me
+                 │
+        ┌────────┼────────┐
+       R3       R4       R5      ← DROTHERs: adjacent to DR/BDR only
+        └────────┼────────┘
+              R2 (BDR)  ◄──── I'm listening, ready to take over
+
+   Adjacencies drop from 10 to 7 — and the gap widens fast as routers are added.
+```
+
+Routers send updates to the DR at multicast address **224.0.0.6**; the DR redistributes to everyone at **224.0.0.5**. *The DR is a librarian: instead of every router telling every other router the news, everyone tells the librarian and the librarian announces it once.*
+
+**Why is there a BDR — why not just re-elect a new DR if the DR fails?** Because a fresh election plus rebuilding every adjacency takes time, and OSPF would be blind during it. The BDR has been **listening to everything all along**, so its database is already current — it can step up almost instantly. *The backup is pre-warmed, not recruited after the fire starts.*
+
+### How the DR Is Elected
+
+1. **Highest OSPF priority wins** (default 1; range 0–255).
+2. **Tie? Highest Router ID wins** (the same RID from section 16.7).
+3. **Priority 0 means "never eligible"** — a useful way to keep a weak router out of the job.
+
+```
+R1(config-if)# ip ospf priority 100     ! make this router the DR
+R1(config-if)# ip ospf priority 0       ! this router must never be DR/BDR
+```
+
+**The trap that catches people:** the DR election is **not preemptive**. Bring a brand-new router with priority 255 onto a segment that already has a DR, and it will *not* take over — it becomes a DROTHER and waits. The existing DR keeps the job until it fails or OSPF is restarted (`clear ip ospf process`). *This is the opposite of HSRP with `preempt` — a classic exam comparison, so keep them apart: HSRP can be told to take its role back; an OSPF DR never takes the role back on its own.*
+
+### The Two Network Types You Must Know
+
+| Network type | Where it's used | DR/BDR? | Hello / Dead timers |
+|--------------|-----------------|---------|---------------------|
+| **Broadcast** | Ethernet (LANs, switches) | **Yes** | 10 s / 40 s |
+| **Point-to-point** | Serial links, router-to-router | **No** | 10 s / 40 s |
+
+**Why does point-to-point skip the election entirely?** Because the whole DR concept solves a problem that doesn't exist there. With exactly **two** routers on a link, there's only one possible adjacency — n(n-1)/2 = 1. Electing a spokesperson to reduce one adjacency to one adjacency would just add delay for nothing. *No crowd, no need for a spokesperson.*
+
+This is also why a common optimization exists: a link between two routers on Ethernet is *technically* a broadcast segment, so OSPF holds a pointless election and waits through it. Telling OSPF the truth about the link skips that:
+
+```
+R1(config-if)# ip ospf network point-to-point   ! only 2 routers here — skip DR/BDR
+```
+
+**Remember from 16.9:** hello and dead timers **must match** between neighbors, and network type must be compatible — mismatches are a top cause of adjacencies that never form.
+
+### Verifying
+
+```
+R1# show ip ospf neighbor
+Neighbor ID   Pri  State           Dead Time  Address      Interface
+2.2.2.2       1    FULL/DR         00:00:35   10.1.1.2     GigabitEthernet0/0
+3.3.3.3       1    FULL/BDR        00:00:33   10.1.1.3     GigabitEthernet0/0
+4.4.4.4       1    2WAY/DROTHER    00:00:31   10.1.1.4     GigabitEthernet0/0
+```
+
+**Read that third line carefully — `2WAY/DROTHER` is not a failure.** Two DROTHERs on a segment deliberately stop at **2WAY** and never reach FULL with each other, because they only need full adjacency with the DR and BDR. Seeing 2WAY between DROTHERs is **normal and correct**; panicking about it is a classic beginner mistake. *FULL with the DR and BDR, 2WAY with everyone else — that's a healthy broadcast segment.*
+
+---
+
 <a name="chapter-17"></a>
 # Chapter 17: DHCP, DNS, NAT & Other Helpers
 
@@ -2343,6 +2782,31 @@ R1(config-if)# ip nat outside             ! the internet side
 R1(config)# ip nat inside source list 1 interface gi0/1 overload   ! PAT!
 ```
 
+### Configuring Static NAT (One-to-One)
+```
+R1(config)# ip nat inside source static 192.168.1.50 203.0.113.10
+R1(config)# interface gi0/0
+R1(config-if)# ip nat inside
+R1(config)# interface gi0/1
+R1(config-if)# ip nat outside
+```
+**When would you want this instead of PAT?** When traffic needs to reach *in* from the internet — a web or mail server. PAT builds its table only when an **inside** device starts a conversation, so an outsider has no entry to match and can't get in. A **static** mapping is permanent and works in **both** directions, giving that one server a fixed, reachable public address.
+
+### Configuring Dynamic NAT with a Pool
+```
+R1(config)# ip nat pool MYPOOL 203.0.113.10 203.0.113.20 netmask 255.255.255.0
+R1(config)# access-list 1 permit 192.168.1.0 0.0.0.255
+R1(config)# ip nat inside source list 1 pool MYPOOL      ! add 'overload' for PAT on the pool
+```
+Here devices are handed a public address from the pool **as needed**. *The catch:* when the pool runs out, further devices simply **fail** to get translated — which is exactly why PAT (with `overload`) is far more common. Adding `overload` to the same command lets the whole pool be shared by ports too, combining both ideas.
+
+### Verifying Any Flavor of NAT
+```
+R1# show ip nat translations      ! the live translation table
+R1# show ip nat statistics        ! hits, misses, which pool/ACL is in use
+R1# clear ip nat translation *    ! wipe dynamic entries (useful when testing)
+```
+
 **Why must you label interfaces `inside` and `outside`?** Because NAT has to know *which direction* traffic is going to translate it correctly — it rewrites private→public on the way *out* and public→private on the way *back in*. Telling the router which side is the private "inside" and which is the internet-facing "outside" is what lets it apply the translation in the right direction. And the keyword **`overload`** is literally what turns plain NAT into *PAT* — it means "overload one public address with many conversations by using ports," exactly the port-tracking trick above.
 
 ## 17.4 NTP — Keeping Time in Sync
@@ -2372,6 +2836,68 @@ R1(config)# ntp server 129.6.15.28        ! sync to a time server
 ## 17.6 SNMP — Watching Devices
 
 **SNMP (Simple Network Management Protocol)** lets a management station monitor and manage many devices (CPU, memory, interface stats). Version **SNMPv3** adds encryption and authentication — always prefer it for security.
+
+---
+
+## 17.7 QoS — Deciding Who Goes First When the Road Is Full
+
+Every service so far has been about *making things work*. QoS is about what happens when the network is **busy** and not everything can go at once.
+
+**Why is this needed at all — doesn't the network just deliver everything?** It does, until a link fills up. When more traffic arrives at an interface than the link can send, the excess waits in a **queue**. If the queue fills, packets are **dropped**. By default that happens **blindly** — first come, first served — and that default is a disaster for certain traffic:
+
+- A **file download** that arrives 200 ms late: nobody notices. TCP resends a lost packet and the file is fine.
+- A **voice call** that arrives 200 ms late: the call breaks up. And a resent voice packet is *useless* — the moment it belonged to has already passed.
+
+That's the core insight: **different traffic has different needs, and the network can't guess them.** A big backup transfer will happily consume every bit of bandwidth available, drowning out the phone call sharing that link — not maliciously, just because nothing told it otherwise. QoS is how you tell the network what matters when there isn't room for everything.
+
+### What Voice and Video Actually Need
+
+| Term | Means | Voice tolerance |
+|------|-------|-----------------|
+| **Bandwidth** | How much capacity | Small (~80 Kbps per call) |
+| **Delay (latency)** | How long the trip takes | < 150 ms one way |
+| **Jitter** | *Variation* in delay | < 30 ms |
+| **Loss** | Packets dropped | < 1% |
+
+**Why does jitter get its own row — isn't it just delay again?** No, and it's the one people underestimate. Voice must be played back at a **steady rate**. If packets arrive at 20 ms, then 60 ms, then 15 ms apart, the audio stutters even though the *average* delay looks acceptable. Consistency matters more than speed here — *a steady 100 ms beats an erratic 40 ms.*
+
+### The QoS Toolkit (Per-Hop Behavior)
+
+QoS is applied **hop by hop** — each device makes its own decision about traffic passing through it. That's the **PHB (Per-Hop Behavior)**.
+
+**1. Classification** — identify what the traffic *is* (voice? video? email?), by port number, protocol, or incoming marking.
+
+**2. Marking** — write that decision **into the packet header** so later devices don't have to redo the work. The Layer 3 marking is **DSCP** (6 bits in the IP header's ToS field); the Layer 2 marking is **CoS** (3 bits in the 802.1Q tag).
+
+| Traffic | Common DSCP | Value |
+|---------|-------------|-------|
+| Voice | **EF** (Expedited Forwarding) | 46 |
+| Interactive video | AF41 | 34 |
+| Signaling (call setup) | CS3 | 24 |
+| Best effort (everything else) | BE / Default | 0 |
+
+**Why mark once at the edge instead of classifying at every hop?** Because deep inspection is expensive, and every router repeating it wastes effort. Classify once where the traffic **enters** the network, stamp the verdict on the packet, and every device afterward just reads the stamp. *Do the hard thinking at the door; everyone downstream reads the badge.*
+
+This is also why **trust boundaries** matter: a device decides whether to *believe* incoming markings. You trust the marking from a company IP phone; you do **not** trust it from a random PC, because any user could mark their game traffic EF and promote themselves to the front of every queue.
+
+**3. Queuing** — when traffic is waiting, decide the order it leaves. **LLQ (Low Latency Queuing)** gives voice a **strict priority queue** that is always served first.
+
+**4. Congestion avoidance** — rather than letting a queue fill and then dropping everything at once (**tail drop**), **WRED** drops *some* lower-priority packets early to signal TCP senders to slow down. **Why deliberately drop packets early?** Because tail drop causes **global synchronization**: every TCP sender loses packets simultaneously, all back off together, the link empties, all speed up together, and the link floods again — a sawtooth that wastes capacity. Dropping a few early and selectively keeps the flow smooth.
+
+**5. Policing vs. Shaping** — both limit traffic to a rate, but they differ in what they do with the excess, and that difference is a favorite exam question:
+
+```
+   POLICING                          SHAPING
+   Over the limit? DROP it.          Over the limit? BUFFER it, send later.
+
+   ▲                                 ▲
+   │ ╱╲    ╱╲   ← chopped off        │  ╱‾‾╲___╱‾‾╲   ← smoothed out
+   │╱  ╲__╱  ╲                       │ ╱
+   └──────────────►                  └──────────────►
+   Harsh, no delay added             Gentle, adds delay (needs buffers)
+```
+
+*Policing throws away the excess; shaping makes it wait its turn.* Policing is typically applied to **incoming** traffic (an ISP enforcing what you paid for), shaping to **outgoing** traffic (smoothing your own traffic so the far end doesn't have to drop it).
 
 ---
 
@@ -2493,6 +3019,38 @@ A **VPN (Virtual Private Network)** creates an **encrypted tunnel** across the p
          (data is scrambled so snoops
           on the internet see gibberish)
 ```
+
+---
+
+## 18.8 Beyond Passwords — MFA, Certificates & Biometrics
+
+Section 18.5 covered making passwords strong. But the exam also expects you to know **why the industry is moving past passwords entirely**, and what replaces them.
+
+**What's actually wrong with passwords?** Every weakness comes from the same root: a password is **something you know**, and knowledge can be copied without you noticing. If someone phishes, guesses, or steals your password from a breached website, they now have *exactly* what you have — and nothing about the login looks unusual. You can't tell "the real user typed it" from "an attacker typed it," because they're the same event.
+
+### The Three Authentication Factors
+
+| Factor | Means | Examples |
+|--------|-------|----------|
+| **Something you know** | Knowledge | Password, PIN |
+| **Something you have** | Possession | Phone app, token, smart card |
+| **Something you are** | Inherence | Fingerprint, face, retina |
+
+**MFA (Multi-Factor Authentication)** requires **two or more different factors**. The emphasis on *different* is the whole point: a password plus a security question is **not** MFA, because both are things you know and a single phishing page harvests both. A password plus a code from your phone *is* MFA — the attacker now needs to steal a **physical object** too, which is dramatically harder to do remotely and at scale.
+
+**Certificates** replace the shared secret with a **key pair**. Your device proves its identity by signing something with a private key that **never leaves the device** — so there's no secret in transit to intercept and nothing on the server worth stealing. This is what 802.1X (section 18.6) uses in its strongest form, and why certificate-based Wi-Fi authentication beats a shared password.
+
+**Biometrics** are convenient but come with a permanent catch worth stating plainly: **you can't change your fingerprint.** A leaked password is replaced in seconds; leaked biometric data is compromised for life. That's why biometrics are best used as *one* factor unlocking a local device — not as the single credential guarding a system.
+
+## 18.9 Security Is People, Too — Program Elements
+
+Every control so far has been technical. The exam explicitly covers the **non-technical** side, and there's a good reason: attackers routinely skip the technology entirely.
+
+**Why does this belong in a networking exam?** Because the strongest firewall on earth does nothing when an employee is talked into handing over a password by someone claiming to be IT, or when a visitor walks into an unlocked wiring closet and plugs into a switch. Those attacks don't defeat your controls — they go **around** them. A security program has to cover the paths that aren't cables.
+
+- **User awareness** — organization-wide communication that keeps threats visible: simulated phishing emails, posters, reminders about tailgating. The goal is *recognition* — an employee who has seen a fake login page before is far likelier to spot a real attack.
+- **User training** — deeper, often role-specific instruction, usually formal and repeated: how to handle sensitive data, how to report an incident, acceptable use. Awareness raises alertness; training builds skill.
+- **Physical access control** — locks, badge readers, cameras, and secured server rooms and wiring closets. **Why does this matter so much?** Because physical access effectively defeats most software security: someone at your switch can plug into any port, reset a device's password through the console, or simply walk out with hardware. *Console access and a paperclip beat any password you configured.*
 
 ---
 
@@ -2829,6 +3387,31 @@ An **API (Application Programming Interface)** is a way for programs to talk to 
 
 REST APIs usually exchange data in **JSON** format.
 
+**Those four methods have a name: CRUD** — **C**reate, **R**ead, **U**pdate, **D**elete. They're the four things you can do to any piece of data, and REST deliberately maps them onto HTTP verbs that already existed:
+
+| CRUD action | HTTP verb |
+|-------------|-----------|
+| **C**reate | POST |
+| **R**ead | GET |
+| **U**pdate | PUT / PATCH |
+| **D**elete | DELETE |
+
+**Why reuse web verbs instead of inventing something for networking?** Because the entire internet already speaks HTTP. Every programming language, firewall, load balancer, and proxy handles it, and any engineer already knows what GET means. Reusing it meant network APIs worked everywhere on day one, with no new protocol to learn — *the same reason we don't invent a new alphabet every time we write a new book.*
+
+**REST APIs are also stateless:** every request must carry **everything** needed to answer it (including authentication) — the server remembers nothing between calls. **Why insist on that?** Because a server that remembers nothing is a server you can duplicate freely. Any of ten identical servers can answer any request, so you scale by adding more, and a crashed server loses no conversation. *Statelessness is what makes an API scalable.*
+
+The reply carries a **status code** telling you what happened — worth recognizing on sight:
+
+| Code | Family | Meaning |
+|------|--------|---------|
+| **200 / 201** | 2xx Success | OK / Created |
+| **400** | 4xx **Your** mistake | Bad request (malformed) |
+| **401 / 403** | 4xx Your mistake | Not authenticated / not allowed |
+| **404** | 4xx Your mistake | Not found |
+| **500** | 5xx **Server's** mistake | Internal server error |
+
+*The shortcut: **4xx means you sent something wrong, 5xx means the server broke.* That one distinction tells you immediately whether to fix your script or go look at the controller.
+
 ## 22.5 Data Formats: JSON, XML, YAML
 
 **JSON** (most common) — uses `{ }` and `key: value`:
@@ -2859,14 +3442,60 @@ enabled: true
 | Tool | Language | Style | Agent Needed? |
 |------|----------|-------|---------------|
 | **Ansible** | YAML | Push, simple | No (agentless) |
+| **Terraform** | HCL | Declarative, push | No (agentless) |
 | **Puppet** | Ruby-like | Pull | Yes (agent) |
 | **Chef** | Ruby | Pull | Yes (agent) |
 
 **Ansible** is the CCNA favorite because it's **agentless** (nothing to install on devices) and uses easy-to-read YAML "playbooks."
 
+**Ansible and Terraform are the two named in the current (v1.1) exam blueprint** — Puppet and Chef are worth recognizing, but they're the older, agent-based generation. **Why does "agentless" keep coming up as an advantage?** Because an agent is software you must install, update, and secure **on every single device** — and plenty of network gear won't let you install anything at all. Agentless tools connect over SSH or an API that the device *already* offers, so there's nothing to deploy before you can start. *See 22.9 for how Terraform's declarative style differs from a playbook that runs steps in order.*
+
 ## 22.7 Config Management Idea: Intent & Consistency
 
 Automation lets you describe the network you WANT ("intent"), and tools make reality match it — and keep it that way. No more "snowflake" devices that all drifted to slightly different settings.
+
+---
+
+## 22.8 AI & Machine Learning in Network Operations
+
+Automation (so far) does **what you told it to do**, exactly and repeatedly. The newer question is whether the network can help decide **what should be done** — and this is now an explicit exam topic.
+
+**Why bring AI into networking at all?** Because of a mismatch that keeps getting worse: a modern network produces a **staggering** amount of telemetry — every device, interface, wireless client, and application reporting constantly. No human team can read it all. So traditional monitoring uses **fixed thresholds** ("alert if CPU > 80%"), which fail in both directions: they scream about a harmless spike at 2 a.m., and they stay silent while a link slowly degrades from 5 ms to 40 ms of latency — never crossing a threshold, but ruining every call in the building.
+
+Machine learning attacks that differently. Instead of a human guessing the right number, the system **learns what normal looks like** for *this* network — including that Monday mornings are busy and the backup runs at 1 a.m. — and flags **deviations from that baseline**. Nobody has to define "normal" in advance.
+
+| Term | What it means |
+|------|---------------|
+| **AI** | The broad goal: machines performing tasks that need human-like judgment |
+| **ML** | The practical method: learning patterns from data instead of following fixed rules |
+| **AIOps** | Applying AI/ML to IT and network operations |
+| **Predictive analytics** | Spotting a trend and warning **before** it becomes an outage |
+
+Where it shows up in real networks:
+
+- **Anomaly detection** — "this switch's traffic pattern is unlike anything in the last 90 days."
+- **Predictive maintenance** — "this AP's error rate is rising steadily; it will likely fail soon."
+- **Root cause analysis** — collapsing 400 simultaneous alarms into one sentence: *"this uplink went down; everything else is a symptom."*
+- **Wireless optimization** — learning interference patterns and adjusting channels and power automatically.
+- **Capacity planning** — projecting when a link will saturate based on real growth, not guesswork.
+
+**The honest limits** — worth knowing, because the exam frames AI as an aid rather than a replacement. ML systems learn from **historical data**, so they inherit its blind spots: a network that was misconfigured for a year has learned that misconfiguration as "normal." They produce **probabilities, not certainties**, so they can be confidently wrong. And many models can't fully explain *why* they flagged something, which is uncomfortable when you're deciding whether to reroute production traffic. *AI is a very fast assistant that reads everything and never gets tired — not an engineer. A human still owns the decision.*
+
+## 22.9 Infrastructure as Code — Terraform & Friends
+
+Section 22.6 introduced automation tools. One idea underneath them deserves its own name, because it's how modern infrastructure is actually managed: **Infrastructure as Code (IaC)** — you describe the **desired state** in a text file, keep that file in version control, and let a tool make reality match it.
+
+**Why is writing a file better than just configuring the device?** Because a config typed into a device is **invisible history**. Six months later, nobody knows who changed that ACL, why, or what it looked like before. When the file is the source of truth, your infrastructure gains everything software engineering already figured out: **version control** (every change dated and attributed), **code review** (a second person checks before it ships), **rollback** (restore the previous file), and **reproducibility** (build an identical test environment from the same description).
+
+| Tool | Style | Agent needed? | Typical use |
+|------|-------|---------------|-------------|
+| **Ansible** | Procedural-ish, push over SSH/API | **Agentless** | Device configuration, ad-hoc tasks |
+| **Terraform** | **Declarative**, state-file driven | Agentless | Provisioning infrastructure (cloud, network) |
+| **Puppet / Chef** | Pull-based, agent on each node | **Agent** | Server config (older, less common in CCNA v1.1) |
+
+**Declarative vs. procedural** is the distinction to hold onto. A **procedural** tool is a recipe: *"add this VLAN, then this interface."* Run it twice and you may get errors or duplicates. A **declarative** tool is a description: *"this network has VLANs 10, 20, 30."* The tool inspects what exists, computes the difference, and changes **only what doesn't match**. Run it ten times and nothing extra happens — a property called **idempotence**. *You describe the destination, not the driving directions.*
+
+Terraform is the exam's named example of this style: it keeps a **state file** recording what it built, so it always knows the gap between "what you asked for" and "what exists."
 
 ---
 
@@ -2948,6 +3577,45 @@ If one side is full-duplex and the other half-duplex, you'll see **errors and sl
 
 ---
 
+## 23.6 Checking IP Settings on a PC (Windows, macOS & Linux)
+
+Troubleshooting usually starts at the **user's computer**, not the router — and the exam expects you to know the client-side commands on all three operating systems.
+
+| Task | Windows | macOS | Linux |
+|------|---------|-------|-------|
+| **Show IP / mask / gateway** | `ipconfig` (`/all` for detail) | `ifconfig` | `ip address` (`ip a`) |
+| **Show routing table** | `route print` | `netstat -rn` | `ip route` |
+| **Show default gateway** | `ipconfig` | `netstat -rn \| grep default` | `ip route` |
+| **DNS lookup** | `nslookup name` | `nslookup` / `dig` | `nslookup` / `dig` |
+| **Show ARP cache** | `arp -a` | `arp -a` | `ip neighbor` |
+| **Release / renew DHCP** | `ipconfig /release`<br>`ipconfig /renew` | `sudo ipconfig set en0 DHCP` | `sudo dhclient -r`<br>`sudo dhclient` |
+| **Clear DNS cache** | `ipconfig /flushdns` | `sudo dscacheutil -flushcache` | varies by distro |
+| **Trace the path** | `tracert` | `traceroute` | `traceroute` |
+
+*The one that catches people:* the trace command is **`tracert`** on Windows and **`traceroute`** everywhere else — an easy exam point to lose.
+
+### What Four Numbers to Read, and What Each Wrong Value Means
+
+When you run `ipconfig /all`, four values tell you almost everything:
+
+```
+   IPv4 Address. . . . . . . . . . . : 192.168.1.47      ← do I have an address?
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0     ← right size network?
+   Default Gateway . . . . . . . . . : 192.168.1.1       ← can I leave the subnet?
+   DNS Servers . . . . . . . . . . . : 8.8.8.8           ← can I resolve names?
+```
+
+**Reading the address is the fastest diagnosis in networking**, because certain values are confessions:
+
+- **169.254.x.x** — this is **APIPA**, the address a host assigns itself when **DHCP got no answer**. It is a symptom, not a configuration. It means the DHCP server is down, the cable/VLAN is wrong, or a relay (`ip helper-address`) is missing. *Seeing 169.254 tells you to stop looking at the PC and go find out why DHCP is silent.*
+- **No default gateway** — local devices work, nothing outside the subnet does. Perfectly explains "I can reach the file server but not the internet."
+- **Wrong subnet mask** — the sneaky one. The PC miscalculates which addresses are local, so *some* destinations work and others don't, seemingly at random.
+- **Address correct, DNS blank or wrong** — `ping 8.8.8.8` succeeds but `ping google.com` fails. *That exact pairing is the classic signature of a DNS problem*, and it's a favorite exam scenario.
+
+Follow the layered method from 23.1: confirm the PC's own settings first, then the gateway, then beyond. Most "the internet is broken" tickets are answered by these four lines.
+
+---
+
 <a name="chapter-24"></a>
 # Chapter 24: Exam Tips & Study Plan
 
@@ -3011,6 +3679,100 @@ If one side is full-duplex and the other half-duplex, you'll see **errors and sl
 **TCP handshake:** SYN → SYN-ACK → ACK.
 
 **Wildcard mask:** flip the subnet mask (0 = match, 255 = any).
+
+---
+
+<a name="blueprint"></a>
+# 🗺️ Appendix: Exam Blueprint Coverage Map
+
+Cisco publishes an official topic list for the **CCNA 200-301 (v1.1)** exam. This table maps **every** blueprint item to where it's covered in this guide — use it as a final checklist before exam day, and to find the right section fast when a practice question catches you out.
+
+## 1.0 Network Fundamentals (20%)
+
+| # | Blueprint topic | Where |
+|---|-----------------|-------|
+| 1.1 | Role and function of network components | 1.4, 1.5, 3.7 (PoE), 20.6 (WLC/AP) |
+| 1.2 | Network topology architectures (2-tier, 3-tier, spine-leaf, WAN, SOHO, cloud) | 1.3, **1.7**, **1.8** |
+| 1.3 | Physical interface and cabling types | 3.2, 3.3, 3.6 |
+| 1.4 | Identify interface and cable issues | 3.5, 23.4, 23.5 |
+| 1.5 | Compare TCP to UDP | 2.5, 2.6 |
+| 1.6 | Configure and verify IPv4 addressing and subnetting | 11, 12 (+ drill sheet) |
+| 1.7 | Private IPv4 addressing | 11.4 |
+| 1.8 | Configure and verify IPv6 addressing and prefix | 13.2–13.6 |
+| 1.9 | IPv6 address types | 13.4 |
+| 1.10 | Verify IP parameters for client OS | **23.6** |
+| 1.11 | Wireless principles (channels, SSID, RF, encryption) | 20.1–20.4 |
+| 1.12 | Virtualization fundamentals (VMs, containers, VRFs) | **1.9** |
+| 1.13 | Switching concepts (MAC learning/aging, flooding, MAC table) | 6.1, 6.2 |
+
+## 2.0 Network Access (20%)
+
+| # | Blueprint topic | Where |
+|---|-----------------|-------|
+| 2.1 | Configure and verify VLANs across switches | 7.1–7.5 |
+| 2.2 | Interswitch connectivity (trunks, 802.1Q, native VLAN) | 8.1, 8.2 |
+| 2.3 | Layer 2 discovery protocols (CDP, LLDP) | 21.2 |
+| 2.4 | EtherChannel (LACP) | 10.1–10.3 |
+| 2.5 | Rapid PVST+ (root bridge, port states, PortFast, guards) | 9.1–9.7, **9.8**, **9.9** |
+| 2.6 | Cisco wireless architectures and AP modes | 20.6 |
+| 2.7 | Physical infrastructure of WLAN components | 20.6 |
+| 2.8 | AP and WLC management access connections | 20.6, 21.1 |
+| 2.9 | Wireless LAN GUI configuration for client connectivity | 20.5, 20.6 |
+
+## 3.0 IP Connectivity (25%)
+
+| # | Blueprint topic | Where |
+|---|-----------------|-------|
+| 3.1 | Components of the routing table | 14.2, 14.4, 14.5 |
+| 3.2 | How a router makes forwarding decisions | 14.3, 14.4, 14.5 |
+| 3.3 | IPv4 and IPv6 static routing | 15.1–15.6 |
+| 3.4 | Single-area OSPFv2 (adjacencies, point-to-point, broadcast DR/BDR, RID) | 16.3–16.9, **16.10** |
+| 3.5 | First hop redundancy protocols (FHRP) | **14.7** |
+
+## 4.0 IP Services (10%)
+
+| # | Blueprint topic | Where |
+|---|-----------------|-------|
+| 4.1 | Inside source NAT (static and pools) | 17.3 |
+| 4.2 | NTP in client and server mode | 17.4 |
+| 4.3 | Role of DHCP and DNS | 17.1, 17.2 |
+| 4.4 | Function of SNMP | 17.6 |
+| 4.5 | Syslog features (facilities and levels) | 17.5 |
+| 4.6 | DHCP client and relay | 17.1 |
+| 4.7 | Per-hop behavior for QoS (classification, marking, queuing, policing, shaping) | **17.7** |
+| 4.8 | Remote access using SSH | 6.6 |
+| 4.9 | Capabilities of TFTP/FTP | 21.3, 21.4 |
+
+## 5.0 Security Fundamentals (15%)
+
+| # | Blueprint topic | Where |
+|---|-----------------|-------|
+| 5.1 | Key security concepts (threats, vulnerabilities, exploits, mitigation) | 18.1, 18.2 |
+| 5.2 | Security program elements (awareness, training, physical access) | **18.9** |
+| 5.3 | Device access control using local passwords | 6.5, 18.5 |
+| 5.4 | Password policies and alternatives (MFA, certificates, biometrics) | 18.5, **18.8** |
+| 5.5 | IPsec remote access and site-to-site VPNs | 18.7 |
+| 5.6 | Configure and verify ACLs | 19.1–19.8 |
+| 5.7 | Layer 2 security (DHCP snooping, DAI, port security) | 6.8, 18.3 |
+| 5.8 | AAA concepts | 18.4 |
+| 5.9 | Wireless security protocols (WPA, WPA2, WPA3) | 20.5 |
+| 5.10 | Configure WLAN using WPA2 PSK in the GUI | 20.5, 20.6 |
+
+## 6.0 Automation and Programmability (10%)
+
+| # | Blueprint topic | Where |
+|---|-----------------|-------|
+| 6.1 | How automation impacts network management | 22.1 |
+| 6.2 | Traditional vs. controller-based networking | 22.2 |
+| 6.3 | Controller-based, software-defined architecture (overlay, underlay, fabric) | 22.2, 22.3 |
+| 6.4 | AI and machine learning in network operations | **22.8** |
+| 6.5 | Characteristics of REST-based APIs (CRUD, HTTP verbs, data encoding) | 22.4 |
+| 6.6 | Configuration management mechanisms (Ansible, Terraform) | 22.6, **22.9** |
+| 6.7 | Interpret JSON-encoded data | 22.5 |
+
+> **Bold** sections are the ones most often skipped by self-study candidates — FHRP, QoS, virtualization, the STP guards, DR/BDR, and AI/ML. They're small topics individually, but together they're worth a meaningful slice of the exam. Don't leave them for the last night. 🎯
+
+---
 
 ---
 

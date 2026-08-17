@@ -26,12 +26,34 @@ BOTTOM = PH - MB
 BTN_H = 18
 GAP = 4
 
-ARCH = pymupdf.Archive(os.path.join(ROOT, "fonts"))
+FONT_DIR = os.path.join(ROOT, "fonts")
+ARCH = pymupdf.Archive(FONT_DIR)
 
-CSS = """
-@font-face { font-family: Sans; src: url(segoeui.ttf); }
-@font-face { font-family: SansB; src: url(segoeuib.ttf); }
-@font-face { font-family: Mono; src: url(consola.ttf); }
+
+def pick_font(candidates):
+    """Return the first candidate present in fonts/, else raise a clear error.
+
+    Segoe UI / Consolas are Windows-only and can't be redistributed, so DejaVu
+    (Bitstream Vera license, full box-drawing coverage) ships in fonts/ and is
+    used whenever they're absent.
+    """
+    for name in candidates:
+        if os.path.exists(os.path.join(FONT_DIR, name)):
+            return name
+    raise SystemExit(
+        f"No font found in {FONT_DIR}. Looked for: {', '.join(candidates)}"
+    )
+
+
+F_SANS = pick_font(["segoeui.ttf", "DejaVuSans.ttf"])
+F_SANS_B = pick_font(["segoeuib.ttf", "DejaVuSans-Bold.ttf"])
+F_MONO = pick_font(["consola.ttf", "DejaVuSansMono.ttf"])
+
+CSS = f"""
+@font-face {{ font-family: Sans; src: url({F_SANS}); }}
+@font-face {{ font-family: SansB; src: url({F_SANS_B}); }}
+@font-face {{ font-family: Mono; src: url({F_MONO}); }}
+""" + """
 * { font-family: Sans; }
 body { font-family: Sans; font-size: 10.5px; color: #1a1a1a; line-height: 1.35; }
 p { margin: 3px 0; }

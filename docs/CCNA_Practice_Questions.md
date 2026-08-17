@@ -1,5 +1,5 @@
 # 📝 CCNA Practice Question Bank
-### 100+ Exam-Style Questions with Answers & Full Explanations
+### 140+ Exam-Style Questions with Answers & Full Explanations
 
 > **How to use it:** Try each question BEFORE reading the answer. The explanation tells you *why* the right answer is right AND why the traps are wrong — that's what builds real understanding. Aim to consistently score **85%+** before your exam. Questions are grouped by the 6 official exam domains.
 
@@ -1192,6 +1192,503 @@ A. /26  B. /27  C. /28  D. /25
 <details><summary>Answer</summary>
 
 **B. /27.** /27 gives 8 subnets (≥6) and 30 hosts each (≥25). /26 gives only 4 subnets (too few); /28 gives 14 hosts (too few).
+</details>
+
+---
+
+# Domain 9 — Often-Missed Blueprint Topics
+
+> These cover the areas self-study candidates most often skip: FHRP, QoS, network architectures, virtualization, PoE, the STP guards, OSPF DR/BDR, and AI/ML. Small topics individually — a meaningful slice of the exam together.
+
+---
+
+**Q106.** A subnet's default gateway router fails. A second, healthy router exists on the same subnet with a different IP. Why do the PCs still lose internet access?
+
+A. The second router needs OSPF configured
+B. Hosts use a single statically-configured gateway address and cannot switch on their own
+C. The switch blocks the second router's port
+D. ARP automatically finds the new router within 30 seconds
+
+<details><summary>Answer</summary>
+
+**B.** A host's default gateway is **one fixed setting** (from DHCP or typed in). Hosts have no mechanism to discover that their gateway died and find another. *This is precisely the problem FHRPs solve.* *Trap:* A is irrelevant — routing protocols help routers, not hosts; D is wrong because ARP resolves an address you already decided to use.
+</details>
+
+---
+
+**Q107.** Which FHRP is a Cisco-proprietary protocol that uses Active and Standby roles?
+
+A. VRRP  B. GLBP  C. HSRP  D. LACP
+
+<details><summary>Answer</summary>
+
+**C. HSRP.** Cisco proprietary, roles are **Active/Standby**. *Trap:* **VRRP** is the open standard (Master/Backup); **GLBP** is Cisco but adds load balancing (AVG/AVF); **LACP** is EtherChannel, not an FHRP.
+</details>
+
+---
+
+**Q108.** Besides a virtual IP address, what else do routers in an HSRP group share — and why does it matter?
+
+A. A virtual MAC address, so hosts' ARP caches stay valid after failover
+B. A virtual serial number, for licensing
+C. The same physical IP, to avoid conflicts
+D. A shared routing table
+
+<details><summary>Answer</summary>
+
+**A.** Hosts address frames to the **MAC** they cached from ARP. If only the IP moved, hosts would keep sending to the dead router's MAC until their ARP cache expired. Moving the **virtual MAC** too makes failover invisible. *This is a very common exam question.*
+</details>
+
+---
+
+**Q109.** R1 (priority 110) is the HSRP active router. It reboots and R2 takes over. R1 returns to service but stays in Standby. Why?
+
+A. R1's priority reset to 100
+B. `preempt` is not configured on R1
+C. HSRP requires a manual `clear` command
+D. R2 now has higher priority
+
+<details><summary>Answer</summary>
+
+**B.** Without **`standby <grp> preempt`**, a recovered router will **not** reclaim the active role even with a better priority — HSRP won't disturb a working active router unless told to. Configure `preempt` on the router with the higher priority.
+</details>
+
+---
+
+**Q110.** Which two commands configure a router as the preferred HSRP active router for group 1 using virtual IP 10.1.1.1? (Choose two.)
+
+A. `standby 1 ip 10.1.1.1`
+B. `standby 1 priority 50`
+C. `standby 1 priority 120`
+D. `hsrp 1 address 10.1.1.1`
+
+<details><summary>Answer</summary>
+
+**A and C.** `standby 1 ip 10.1.1.1` sets the virtual IP; priority **120** beats the default of 100. *Trap:* B (50) would make it *less* likely to be active; D is not valid IOS syntax.
+</details>
+
+---
+
+**Q111.** In a three-tier campus design, at which layer do end devices such as PCs and access points connect?
+
+A. Core  B. Distribution  C. Access  D. Backbone
+
+<details><summary>Answer</summary>
+
+**C. Access.** The access layer is where end devices plug in — it handles VLAN assignment, port security, and PoE. Distribution does routing and policy; core moves traffic fast between distribution blocks.
+</details>
+
+---
+
+**Q112.** A single-building company merges its core and distribution functions into one layer. What is this design called?
+
+A. Spine-leaf  B. Collapsed core  C. Full mesh  D. Flat network
+
+<details><summary>Answer</summary>
+
+**B. Collapsed core** (a two-tier design). A dedicated core layer only pays off when there are enough distribution blocks to justify it; in a single site it would be extra cost and management for no benefit.
+</details>
+
+---
+
+**Q113.** Why is spine-leaf preferred in modern data centers?
+
+A. It eliminates the need for VLANs
+B. It gives predictable, equal latency for east-west (server-to-server) traffic
+C. It removes the need for spanning tree in all designs
+D. It requires fewer cables than three-tier
+
+<details><summary>Answer</summary>
+
+**B.** Every leaf connects to every spine, so any server is the same distance from any other: leaf → spine → leaf. Data center traffic is mostly **east-west**, and this makes latency predictable regardless of which leaf a server sits on. *Trap:* D is wrong — spine-leaf typically uses **more** cabling.
+</details>
+
+---
+
+**Q114.** Which statement correctly compares virtual machines and containers?
+
+A. Containers include a full guest OS; VMs do not
+B. VMs share the host OS kernel; containers each run a full OS
+C. Containers share the host OS kernel and are smaller and faster to start than VMs
+D. They are identical technologies with different names
+
+<details><summary>Answer</summary>
+
+**C.** A VM includes a **complete guest OS** (gigabytes, boots in minutes). A container packages only the app and its dependencies and **shares the host kernel** (megabytes, starts in seconds) — the trade-off being lighter isolation.
+</details>
+
+---
+
+**Q115.** What does a VRF provide on a router?
+
+A. Multiple separate routing tables on one physical router
+B. Redundancy for the default gateway
+C. Encryption for routing updates
+D. Faster convergence for OSPF
+
+<details><summary>Answer</summary>
+
+**A.** **VRF (Virtual Routing and Forwarding)** splits one physical router into several virtual routers, each with its **own isolated routing table** — so two tenants can even use overlapping IP ranges. *Memory hook:* **VLANs separate at Layer 2, VRFs separate at Layer 3.**
+</details>
+
+---
+
+**Q116.** An access point requires 25 W. Which PoE standard is the minimum that supports it?
+
+A. 802.3af (PoE)  B. 802.3at (PoE+)  C. 802.3bt (PoE++)  D. 802.3ad
+
+<details><summary>Answer</summary>
+
+**B. 802.3at (PoE+)** supplies up to ~30 W. **802.3af** tops out around 15.4 W — not enough. *Trap:* **802.3ad** is link aggregation (EtherChannel), not power.
+</details>
+
+---
+
+**Q117.** A technician plugs a laptop into a PoE switch port and worries it will be damaged. What actually happens?
+
+A. The laptop receives power and may be damaged
+B. The port shuts down
+C. The switch detects no powered-device signature and sends data only
+D. The port must be manually configured as non-PoE first
+
+<details><summary>Answer</summary>
+
+**C.** The switch performs **detection** first — it looks for the electrical signature of a powered device before supplying power. No signature, no power. It then **classifies** compliant devices to grant only the power they request.
+</details>
+
+---
+
+**Q118.** Several PoE devices on a fully populated switch fail to power on, though their ports show link. What is the most likely cause?
+
+A. Duplex mismatch
+B. The switch's total PoE power budget is exhausted
+C. STP is blocking the ports
+D. The devices need 802.1X
+
+<details><summary>Answer</summary>
+
+**B.** A switch has a **total power budget** shared across all ports — a 370 W budget cannot run 48 ports at 30 W. Later devices are denied power while their data link works fine. Check with `show power inline`.
+</details>
+
+---
+
+**Q119.** Which feature prevents a newly connected switch from taking over as the STP root bridge?
+
+A. BPDU Guard  B. Root Guard  C. Loop Guard  D. PortFast
+
+<details><summary>Answer</summary>
+
+**B. Root Guard.** If a **superior BPDU** arrives on a guarded port, the port goes to **root-inconsistent** state rather than allowing that switch to win the election. *Trap:* BPDU Guard shuts the port on **any** BPDU (used on PC-facing access ports), not just superior ones.
+</details>
+
+---
+
+**Q120.** A blocking port stops receiving BPDUs because of a unidirectional link failure and begins forwarding, creating a loop. Which feature prevents this?
+
+A. Root Guard  B. BPDU Filter  C. Loop Guard  D. PortFast
+
+<details><summary>Answer</summary>
+
+**C. Loop Guard.** A blocking port stays blocking only while it keeps *hearing* BPDUs. If they stop, it would normally assume the loop is gone and start forwarding. Loop Guard treats that silence as suspicious and moves the port to **loop-inconsistent** state instead.
+</details>
+
+---
+
+**Q121.** What is the key difference between BPDU Guard and Loop Guard?
+
+A. They are the same feature with different names
+B. BPDU Guard reacts to BPDUs arriving; Loop Guard reacts to BPDUs stopping
+C. BPDU Guard is for trunks; Loop Guard is for access ports
+D. Loop Guard disables spanning tree on the port
+
+<details><summary>Answer</summary>
+
+**B.** *The memory hook:* **BPDU Guard fears noise** (a BPDU where none should appear — on a PC port). **Loop Guard fears silence** (BPDUs disappearing from a port that should still receive them).
+</details>
+
+---
+
+**Q122.** What is the default spanning-tree mode on modern Cisco switches, and what is its main advantage?
+
+A. 802.1D STP — lowest CPU usage
+B. Rapid PVST+ — fast convergence with a separate instance per VLAN
+C. MST — one instance for all VLANs
+D. PortFast — instant forwarding everywhere
+
+<details><summary>Answer</summary>
+
+**B. Rapid PVST+.** It combines 802.1w's fast convergence with a **per-VLAN** instance, which lets different switches be root for different VLANs so **both uplinks carry traffic** instead of one sitting idle. The cost is extra CPU.
+</details>
+
+---
+
+**Q123.** Why does OSPF elect a DR and BDR on a broadcast segment?
+
+A. To encrypt LSA exchanges
+B. To reduce the number of adjacencies and duplicate flooding on a shared segment
+C. To choose the best path to each network
+D. Because OSPF cannot run on Ethernet without one
+
+<details><summary>Answer</summary>
+
+**B.** Without a DR, *n* routers would form **n(n-1)/2** adjacencies — 10 routers means 45. Every router instead becomes fully adjacent only to the **DR and BDR**, which act as a central point for flooding.
+</details>
+
+---
+
+**Q124.** Which is used to elect the OSPF DR, in order?
+
+A. Lowest priority, then lowest router ID
+B. Highest priority, then highest router ID
+C. Highest IP address only
+D. Lowest cost to the root
+
+<details><summary>Answer</summary>
+
+**B.** **Highest OSPF interface priority** wins (default 1); ties are broken by **highest Router ID**. A priority of **0** makes a router permanently ineligible.
+</details>
+
+---
+
+**Q125.** A new router with priority 255 is added to a segment that already has a DR. What happens?
+
+A. It immediately becomes the DR
+B. It becomes the BDR
+C. It becomes a DROTHER — the DR election is not preemptive
+D. The OSPF process restarts on all routers
+
+<details><summary>Answer</summary>
+
+**C.** The DR election is **not preemptive**. The existing DR keeps the role until it fails or the OSPF process is cleared. *Compare with HSRP, where `preempt` explicitly allows reclaiming the active role — a classic exam contrast.*
+</details>
+
+---
+
+**Q126.** `show ip ospf neighbor` shows two neighbors in `2WAY/DROTHER`. What should you do?
+
+A. Nothing — this is normal between DROTHERs
+B. Reset the OSPF process
+C. Fix the mismatched hello timers
+D. Change the network type to point-to-point
+
+<details><summary>Answer</summary>
+
+**A. Nothing.** Two DROTHERs deliberately stop at **2WAY** and never reach FULL with each other — they only need full adjacency with the **DR and BDR**. Panicking about 2WAY between DROTHERs is a classic beginner mistake.
+</details>
+
+---
+
+**Q127.** Which command tells OSPF to skip the DR/BDR election on a link between exactly two routers?
+
+A. `ip ospf priority 0`
+B. `ip ospf network point-to-point`
+C. `no ip ospf dr`
+D. `ip ospf broadcast disable`
+
+<details><summary>Answer</summary>
+
+**B.** With only two routers there is just one possible adjacency, so an election adds delay for nothing. *Trap:* `ip ospf priority 0` only makes **this** router ineligible — the election still happens.
+</details>
+
+---
+
+**Q128.** Which NAT type should be used so an internet host can initiate a connection to an internal web server?
+
+A. PAT (overload)  B. Dynamic NAT  C. Static NAT  D. VRF
+
+<details><summary>Answer</summary>
+
+**C. Static NAT.** It creates a **permanent, bidirectional** one-to-one mapping. PAT and dynamic NAT build entries only when an **inside** host starts a conversation, so an inbound connection has no entry to match.
+</details>
+
+---
+
+**Q129.** Which command shows the current active NAT translations?
+
+A. `show ip nat statistics`
+B. `show ip nat translations`
+C. `show nat pool`
+D. `show ip route nat`
+
+<details><summary>Answer</summary>
+
+**B. `show ip nat translations`** lists the live table (inside local/global, outside local/global). `show ip nat statistics` shows hit/miss counters and which ACL and pool are in use.
+</details>
+
+---
+
+**Q130.** In dynamic NAT without `overload`, what happens when the address pool is exhausted?
+
+A. Additional hosts share the last address by port
+B. Additional hosts fail to be translated and cannot reach outside
+C. The router creates new public addresses automatically
+D. The oldest translation is dropped immediately
+
+<details><summary>Answer</summary>
+
+**B.** Without `overload`, mappings are strictly one-to-one, so when the pool is empty further hosts simply fail. *This is exactly why PAT (`overload`) is far more common.*
+</details>
+
+---
+
+**Q131.** Which QoS marking is recommended for voice traffic?
+
+A. CS3  B. AF41  C. EF (DSCP 46)  D. BE (DSCP 0)
+
+<details><summary>Answer</summary>
+
+**C. EF — Expedited Forwarding, DSCP 46.** *Trap:* **CS3** is call **signaling** (setting up the call), **AF41** is interactive video, **BE** is default best-effort.
+</details>
+
+---
+
+**Q132.** What is the difference between policing and shaping?
+
+A. Policing buffers excess traffic; shaping drops it
+B. Policing drops (or re-marks) excess traffic; shaping buffers it to send later
+C. Both drop excess traffic identically
+D. Shaping only applies to inbound traffic
+
+<details><summary>Answer</summary>
+
+**B.** *Policing throws the excess away; shaping makes it wait.* Shaping adds delay and needs buffers but is gentler; policing adds no delay but loses data. Policing is typically inbound, shaping outbound.
+</details>
+
+---
+
+**Q133.** Why is jitter a separate concern from delay for voice traffic?
+
+A. Jitter only affects video
+B. Voice must be played back at a steady rate, so *variation* in delay causes choppy audio
+C. Jitter is another word for packet loss
+D. Jitter only matters on wireless links
+
+<details><summary>Answer</summary>
+
+**B.** Jitter is the **variation** in delay. Audio played back at an uneven rate stutters even when the *average* delay is fine — *a steady 100 ms beats an erratic 40 ms.* Target is under **30 ms** of jitter for voice.
+</details>
+
+---
+
+**Q134.** Why should a switch not trust QoS markings from a user PC?
+
+A. PCs cannot set DSCP values
+B. Any user could mark their own traffic EF and jump every queue
+C. Marking is only valid at Layer 2
+D. It would exhaust the switch's power budget
+
+<details><summary>Answer</summary>
+
+**B.** This is the **trust boundary** concept. Markings from a corporate IP phone are trusted; markings from an arbitrary PC are not, because a user could self-promote their game or download traffic to the highest-priority queue.
+</details>
+
+---
+
+**Q135.** How does machine learning improve on fixed-threshold monitoring?
+
+A. It removes the need for network telemetry
+B. It learns a baseline of normal behavior and flags deviations, catching gradual degradation
+C. It guarantees zero false positives
+D. It replaces the need for network engineers
+
+<details><summary>Answer</summary>
+
+**B.** Fixed thresholds fail in both directions — alerting on harmless spikes while missing a link that slowly degrades from 5 ms to 40 ms without ever crossing a limit. ML learns what normal looks like *for this network*. *Trap:* C and D overstate it — ML gives probabilities, not certainties, and a human still owns the decision.
+</details>
+
+---
+
+**Q136.** What does CRUD map to in a REST API?
+
+A. Connect, Read, Update, Disconnect
+B. Create=POST, Read=GET, Update=PUT/PATCH, Delete=DELETE
+C. Create=GET, Read=POST, Update=DELETE, Delete=PUT
+D. Copy, Restore, Undo, Deploy
+
+<details><summary>Answer</summary>
+
+**B.** CRUD is the four things you can do to data, mapped onto HTTP verbs that already existed — which is why REST APIs work with existing web infrastructure everywhere.
+</details>
+
+---
+
+**Q137.** A REST API call returns **401**. What does that indicate?
+
+A. The server crashed
+B. The resource was not found
+C. Authentication failed — a client-side problem
+D. The request succeeded
+
+<details><summary>Answer</summary>
+
+**C.** **401 = not authenticated.** *The shortcut worth memorizing:* **4xx means you sent something wrong; 5xx means the server broke.** (404 = not found, 403 = authenticated but not allowed, 500 = server error.)
+</details>
+
+---
+
+**Q138.** Which describes a declarative tool such as Terraform, compared with a procedural playbook?
+
+A. You describe the desired end state and the tool computes what to change
+B. You list each step in order and the tool executes them exactly
+C. It requires an agent on every managed device
+D. It can only manage cloud resources
+
+<details><summary>Answer</summary>
+
+**A.** *You describe the destination, not the driving directions.* The tool compares desired state to actual state and changes only the difference — so running it repeatedly is safe, a property called **idempotence**. *Trap:* C is wrong — Terraform and Ansible are both **agentless**.
+</details>
+
+---
+
+**Q139.** Which combination is true multi-factor authentication?
+
+A. A password and a security question
+B. A password and a PIN
+C. A password and a one-time code from a phone app
+D. Two different passwords
+
+<details><summary>Answer</summary>
+
+**C.** MFA requires **different factor types**. A password (something you *know*) plus a phone code (something you *have*) qualifies. *Trap:* A, B, and D are all "something you know" twice — a single phishing page harvests both.
+</details>
+
+---
+
+**Q140.** A user's PC shows IP address 169.254.12.7. What does this indicate?
+
+A. A valid public address
+B. The PC failed to reach a DHCP server and self-assigned an APIPA address
+C. The default gateway is misconfigured
+D. The subnet mask is wrong
+
+<details><summary>Answer</summary>
+
+**B.** **169.254.x.x is APIPA** — a self-assigned address used when **DHCP got no answer**. It's a symptom: check the DHCP server, the VLAN/cabling, or a missing `ip helper-address` relay. *Stop troubleshooting the PC and go find out why DHCP is silent.*
+</details>
+
+---
+
+**Q141.** On a Windows PC, which command displays the IP address, subnet mask, default gateway, and DNS servers in full detail?
+
+A. `ifconfig`  B. `ip address`  C. `ipconfig /all`  D. `netstat -rn`
+
+<details><summary>Answer</summary>
+
+**C. `ipconfig /all`.** *Know all three platforms:* Windows uses **`ipconfig`**, macOS uses **`ifconfig`**, modern Linux uses **`ip address`**. Also remember the trace command differs: **`tracert`** on Windows, **`traceroute`** everywhere else.
+</details>
+
+---
+
+**Q142.** A PC can `ping 8.8.8.8` successfully but cannot `ping google.com`. What is the most likely cause?
+
+A. The default gateway is down
+B. The subnet mask is wrong
+C. A DNS problem
+D. The NIC is disabled
+
+<details><summary>Answer</summary>
+
+**C. DNS.** Reaching an **IP** proves routing and the gateway work; failing on a **name** isolates the problem to name resolution. *That exact pairing is the classic signature of a DNS issue* and a favorite exam scenario.
 </details>
 
 ---

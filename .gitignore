@@ -1,5 +1,2 @@
 __pycache__/
 *.pyc
-
-# Fonts are copied in locally, not committed
-fonts/
