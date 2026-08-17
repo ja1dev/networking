@@ -9,8 +9,12 @@ import sys
 import markdown
 import pymupdf
 
-SRC = sys.argv[1] if len(sys.argv) > 1 else r"u:\Users\Misc\CCNA_Practice_Questions.md"
-OUT = sys.argv[2] if len(sys.argv) > 2 else r"u:\Users\Misc\CCNA_Practice_Questions_Interactive.pdf"
+# Repo root, so fonts and default paths resolve no matter where this is run from.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "CCNA_Practice_Questions.md")
+OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
+    ROOT, "pdf", "CCNA_Practice_Questions_Interactive.pdf")
 TITLE = sys.argv[3] if len(sys.argv) > 3 else "CCNA Practice Questions"
 SLICE = int(sys.argv[4]) if len(sys.argv) > 4 else 0   # 0 = all; N = first N answers only
 
@@ -22,7 +26,7 @@ BOTTOM = PH - MB
 BTN_H = 18
 GAP = 4
 
-ARCH = pymupdf.Archive("fonts")
+ARCH = pymupdf.Archive(os.path.join(ROOT, "fonts"))
 
 CSS = """
 @font-face { font-family: Sans; src: url(segoeui.ttf); }

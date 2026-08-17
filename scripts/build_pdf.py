@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 import markdown
@@ -7,11 +8,15 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.fonts import addMapping
 
+# Repo root, so fonts and default paths resolve no matter where this is run from.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FONT_DIR = os.path.join(ROOT, "fonts")
+
 # Register TrueType fonts with reportlab (regular + bold) so box-drawing
 # characters in the diagrams render correctly, then expose them to xhtml2pdf.
 _FONTS = [
-    ("Sans", "fonts/segoeui.ttf", "fonts/segoeuib.ttf"),
-    ("Mono", "fonts/consola.ttf", "fonts/consolab.ttf"),
+    ("Sans", os.path.join(FONT_DIR, "segoeui.ttf"), os.path.join(FONT_DIR, "segoeuib.ttf")),
+    ("Mono", os.path.join(FONT_DIR, "consola.ttf"), os.path.join(FONT_DIR, "consolab.ttf")),
 ]
 for family, regular, bold in _FONTS:
     pdfmetrics.registerFont(TTFont(family, regular))
@@ -20,9 +25,9 @@ for family, regular, bold in _FONTS:
     addMapping(family, 1, 0, family + "-Bold")
     x2p_default.DEFAULT_FONT[family.lower()] = family
 
-# Usage: python build_pdf.py [source.md] [output.pdf] [footer title]
-SRC = sys.argv[1] if len(sys.argv) > 1 else r"u:\Users\Misc\CCNA_Study_Guide.md"
-OUT = sys.argv[2] if len(sys.argv) > 2 else r"u:\Users\Misc\CCNA_Study_Guide.pdf"
+# Usage: python scripts/build_pdf.py [source.md] [output.pdf] [footer title]
+SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "CCNA_Study_Guide.md")
+OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "pdf", "CCNA_Study_Guide.pdf")
 FOOTER_TITLE = sys.argv[3] if len(sys.argv) > 3 else "CCNA Study Guide"
 
 with open(SRC, "r", encoding="utf-8") as f:
@@ -150,7 +155,7 @@ html = f"""<!DOCTYPE html>
 
 with open(OUT, "wb") as out_file:
     result = pisa.CreatePDF(html, dest=out_file, encoding="utf-8",
-                            path=r"u:\Users\Misc\\")
+                            path=ROOT + os.sep)
 
 if result.err:
     print(f"FAILED with {result.err} errors")
