@@ -34,15 +34,13 @@ Everything lives under `ccna/`. The markdown in `ccna/docs/` is the single
 source of truth — the PDFs in `ccna/pdf/` are generated from it, so edit the
 markdown and rebuild rather than editing a PDF.
 
-| Source | PDF output |
+One source, one PDF, no extra copies:
+
+| Source (edit) | PDF (read) |
 | --- | --- |
 | `ccna/docs/CCNA_Study_Guide.md` | `ccna/pdf/CCNA_Study_Guide.pdf` |
-| `ccna/docs/CCNA_Practice_Questions.md` | `ccna/pdf/CCNA_Practice_Questions.pdf`, `ccna/pdf/CCNA_Practice_Questions_Interactive.pdf` |
-| `ccna/docs/CCNA_Subnetting_Drills.md` | `ccna/pdf/CCNA_Subnetting_Drills.pdf`, `ccna/pdf/CCNA_Subnetting_Drills_Interactive.pdf` |
-
-Each Q&A document builds in two flavours: a **standard** PDF with answers shown
-inline, and an **interactive** one where every answer is hidden behind a
-Show / Hide button.
+| `ccna/docs/CCNA_Practice_Questions.md` | `ccna/pdf/CCNA_Practice_Questions.pdf` |
+| `ccna/docs/CCNA_Subnetting_Drills.md` | `ccna/pdf/CCNA_Subnetting_Drills.pdf` |
 
 ## Building
 
@@ -65,18 +63,28 @@ python ccna/scripts/build_pdf.py ccna/docs/CCNA_Study_Guide.md ccna/pdf/CCNA_Stu
 python ccna/scripts/build_pdf.py ccna/docs/CCNA_Practice_Questions.md ccna/pdf/CCNA_Practice_Questions.pdf "CCNA Practice Questions"
 python ccna/scripts/build_pdf.py ccna/docs/CCNA_Subnetting_Drills.md ccna/pdf/CCNA_Subnetting_Drills.pdf "CCNA Subnetting Drills"
 
-# Interactive PDFs — build_interactive.py [source.md] [output.pdf] [title] [answer limit]
+```
+
+Run the script with no arguments and it defaults to the study guide. Paths
+resolve against `ccna/` (derived from the script's own location), so the
+commands work from any working directory.
+
+### Optional: self-testing quiz PDFs
+
+`build_interactive.py` turns either Q&A document into a **tap-to-reveal** PDF —
+each answer becomes a hidden layer behind a Show / Hide button, so you can quiz
+yourself without seeing the answer first. These are **built on demand and not
+committed** (they're the same content as the PDFs above, so keeping them in the
+repo would just be a second copy); `*_Interactive.pdf` is gitignored.
+
+```bash
+# build_interactive.py [source.md] [output.pdf] [title] [answer limit]
 python ccna/scripts/build_interactive.py ccna/docs/CCNA_Practice_Questions.md ccna/pdf/CCNA_Practice_Questions_Interactive.pdf "CCNA Practice Questions"
 python ccna/scripts/build_interactive.py ccna/docs/CCNA_Subnetting_Drills.md ccna/pdf/CCNA_Subnetting_Drills_Interactive.pdf "CCNA Subnetting Drills"
 ```
 
-Run either script with no arguments and it defaults to the study guide /
-practice questions respectively. Paths resolve against `ccna/` (derived from the
-script's own location), so the commands work from any working directory.
-
-The interactive builds turn each `<details><summary>Answer</summary>` block into
-a hidden PDF layer toggled by a button — this needs **Adobe Acrobat Reader**;
-other viewers may only expose the layers panel.
+The buttons need **Adobe Acrobat Reader**; other viewers may only expose the
+layers panel.
 
 ### Notes for editing
 

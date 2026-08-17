@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# Interactive PDFs are built on demand, not committed
+*_Interactive.pdf
