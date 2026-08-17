@@ -5,6 +5,8 @@
 
 > **How to use it:** Read it top to bottom the first time. Don't skip the "Story Time" and "Try It" boxes — that's where the learning sticks. Later, use the Table of Contents to jump around and review.
 
+> **This guide is one of three:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 142 exam-style questions grouped by domain, and the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at. Read a chapter here, then answer that domain's questions — the appendix at the back maps every official exam topic to the section that covers it.
+
 ---
 
 ## 📖 Table of Contents
@@ -144,6 +146,8 @@ Routers solve this because **routers do NOT forward broadcasts**. A router break
                  (connects the
                   two networks)
 ```
+
+> **Coming up:** these devices don't get scattered randomly — section **1.7** shows the standard shapes networks are built in, and section **3.7** explains how many of them get their electricity from the network cable itself.
 
 ## 1.5 Clients, Servers & Peers
 
@@ -544,6 +548,10 @@ Ports you MUST memorize for the exam:
 | **514** | Syslog | Send log messages | UDP |
 
 **Memory trick for secure vs not:** HTTP is **80**, add secure "S" and it becomes HTTPS **443**. SSH (**22**) is the secure version of Telnet (**23**) — they're next-door neighbors, but only 22 locks the door. 🔒
+
+---
+
+> **Ports also let the network treat traffic differently.** Recognizing "this is voice, that is a file download" is the first step of **QoS**, which decides who goes first when a link is full — see section **17.7**.
 
 ---
 
@@ -1638,6 +1646,8 @@ SW1(config-if)# spanning-tree bpduguard enable
 
 **Why is PortFast also just... nice for users?** Without it, a PC plugging in waits ~30 seconds in the STP states before it can talk — long enough that a PC might give up on getting a DHCP address ("no network!") before the port even wakes up. PortFast removes that delay, so devices get online instantly. Practical *and* it dodges a real support headache.
 
+> **PortFast and BPDU Guard protect *access* ports.** Two more guards protect the rest of the topology — **Root Guard** and **Loop Guard** — and section **9.9** puts all four side by side so you don't mix them up on the exam.
+
 ## 9.7 Making a Switch the Root (Best Practice)
 
 Don't let STP pick a random root. Force your best central switch to be root:
@@ -1920,6 +1930,8 @@ If a PC wants to talk to a device on its **own** network, it sends directly. If 
 
 *This is why a device with no default gateway can still talk to its local neighbors but can't reach the internet* — it has no "door" to hand off-network traffic to. It's also why a wrong gateway address is such a common real-world problem: local stuff works, but nothing outside does, which is a huge troubleshooting clue (you'll see this in Chapter 23).
 
+**But hold on — what if the gateway itself dies?** Every device on the subnet is pointed at that one address, so if that router fails, the whole subnet loses the outside world at once. That's a big enough problem to have its own family of protocols; we'll solve it properly in section **14.7 (FHRP/HSRP)** once you've met routers in detail.
+
 ---
 
 <a name="chapter-12"></a>
@@ -1938,6 +1950,8 @@ If a PC wants to talk to a device on its **own** network, it sends directly. If 
 3. **Stopping waste.** Instead of assigning a giant network to a tiny office (wasting thousands of addresses), you cut a slice that's *just the right size*. This is the classless flexibility that replaced the wasteful old classes.
 
 *So subnetting isn't math for math's sake — it's how you keep networks fast, secure, and efficient.* The math is just the tool for deciding **where to cut**.
+
+> **Pair this chapter with the Subnetting Drill Sheet.** Subnetting is the one CCNA skill that has to be *fast*, not just correct — the drill sheet's 60 worked problems are built to turn the methods below into reflexes. Read here, drill there.
 
 ## 12.2 The Subnet Mask
 
@@ -2671,6 +2685,10 @@ Neighbor ID   Pri  State           Dead Time  Address      Interface
 
 ---
 
+> **One item on that list needs its own section.** "Network type" decides whether OSPF holds an election on the link — which brings in the **DR** and **BDR** roles. That's section **16.10**, next.
+
+---
+
 <a name="chapter-17"></a>
 # Chapter 17: DHCP, DNS, NAT & Other Helpers
 
@@ -2717,6 +2735,8 @@ R1(config-if)# ip helper-address 10.0.0.5   ! forward DHCP to this server
 ```
 
 **Why is a helper address even necessary?** Here's the conflict: DHCP Discover is a **broadcast**, but (from Chapter 6/11) **routers deliberately do NOT forward broadcasts** — that's their job, to contain broadcast domains! So a laptop's "any DHCP servers?" shout dies at the router and never reaches a server sitting on a different network. In the real world, companies don't put a DHCP server on every single subnet — they run **one central server** for everyone. The `ip helper-address` command is the fix: it tells the router "when you hear a DHCP broadcast, *make an exception* — convert it to a unicast and forward it to the real server at 10.0.0.5." *So the helper address is the deliberate bridge across the very broadcast boundary the router normally enforces* — letting one central DHCP server serve many subnets.
+
+> **When DHCP fails, the client tells you.** A PC that gets no answer assigns itself a **169.254.x.x** APIPA address — the single fastest clue in networking that DHCP is unreachable. Section **23.6** covers reading that (and the other three numbers) on Windows, macOS and Linux.
 
 ## 17.2 DNS — The Internet's Phone Book
 
@@ -3255,6 +3275,8 @@ The lightweight APs talk to the WLC using a tunnel protocol called **CAPWAP**.
 1. **Management sanity.** Configuring 200 autonomous APs one-by-one — and changing the Wi‑Fi password on all 200 by hand — is a nightmare (same "500 switches" problem from the security chapter). A WLC lets you set policy **once** and push it to every AP. Change the password in one place, done.
 2. **Seamless roaming.** This is the subtle one. When you walk through a building on a video call, your phone hands off from AP to AP. Without a controller, each AP is an island and that handoff is clunky (drops, re-authentication). The WLC **coordinates all the APs as one system**, so it can move your connection smoothly from one AP to the next, manage which channels each AP uses to avoid interference, and balance load. *That coordination is impossible when each AP acts alone* — which is exactly why big networks use the lightweight-AP-plus-WLC model.
 
+> **How does a ceiling-mounted AP get power?** Almost always from the switch, over the same Ethernet cable that carries its data — see section **3.7 (PoE)**. It's also why APs and WLCs need the trunk/access port planning from Chapters 7 and 8.
+
 ## 20.7 How a Device Joins Wi‑Fi
 1. **Discover:** Device listens for beacons or probes for the SSID.
 2. **Authenticate:** Proves it's allowed (password/802.1X).
@@ -3637,12 +3659,14 @@ Follow the layered method from 23.1: confirm the PC's own settings first, then t
 | Automation & Programmability | 10% |
 
 ## 24.3 A 8-Week Study Plan
-- **Weeks 1–2:** Fundamentals, OSI/TCP-IP, cables, binary/hex (Chapters 1–5).
-- **Weeks 3–4:** Switching, VLANs, trunking, STP, EtherChannel (Chapters 6–10).
-- **Week 5:** IP addressing & subnetting — practice DAILY! (Chapters 11–13).
-- **Week 6:** Routing, static, OSPF (Chapters 14–16).
-- **Week 7:** IP services, security, ACLs, wireless (Chapters 17–20).
-- **Week 8:** Management, automation, troubleshooting, review, practice exams (Chapters 21–24).
+- **Weeks 1–2:** Fundamentals, OSI/TCP-IP, cables, binary/hex — including network architectures, virtualization and PoE (Chapters 1–5). → Question Bank Domain 1.
+- **Weeks 3–4:** Switching, VLANs, trunking, STP and its guards, EtherChannel (Chapters 6–10). → Domain 2.
+- **Week 5:** IP addressing & subnetting — practice DAILY with the Drill Sheet (Chapters 11–13).
+- **Week 6:** Routing, static routes, OSPF (with DR/BDR), FHRP/HSRP (Chapters 14–16). → Domain 3.
+- **Week 7:** IP services incl. NAT and QoS, security, ACLs, wireless (Chapters 17–20). → Domains 4 and 5.
+- **Week 8:** Management, automation (incl. AI/ML and Terraform), troubleshooting, review, practice exams (Chapters 21–24). → Domains 6, 7 and 8.
+
+**Every week:** work that week's domain in the **Practice Question Bank** and keep drilling subnetting. In the final week, use the **Blueprint Coverage Map** appendix as a checklist — anything you can't explain, go re-read.
 
 ## 24.4 Golden Study Tips
 1. **Subnet every day.** It's the #1 skill and appears everywhere. Do 5 practice subnets each morning.
@@ -3679,6 +3703,18 @@ Follow the layered method from 23.1: confirm the PC's own settings first, then t
 **TCP handshake:** SYN → SYN-ACK → ACK.
 
 **Wildcard mask:** flip the subnet mask (0 = match, 255 = any).
+
+**HSRP:** highest priority wins (default 100) · ties go to highest IP · `preempt` needed to take the role back · hello 3 s / hold 10 s.
+
+**OSPF DR election:** highest priority (default 1) · ties go to highest Router ID · priority 0 = never · **not preemptive** · 2WAY between DROTHERs is normal.
+
+**QoS markings:** Voice = **EF (DSCP 46)** · Video = AF41 (34) · Signaling = CS3 (24) · Best effort = 0. *Policing drops, shaping buffers.*
+
+**PoE:** 802.3af ≈ 15.4 W · 802.3at (PoE+) ≈ 30 W · 802.3bt ≈ 60–100 W.
+
+**Client OS:** `ipconfig` (Windows) · `ifconfig` (macOS) · `ip address` (Linux) · **169.254.x.x = DHCP failed (APIPA)**.
+
+**REST:** GET=Read · POST=Create · PUT=Update · DELETE=Delete · **4xx = your error, 5xx = server error**.
 
 ---
 
@@ -3781,25 +3817,39 @@ Cisco publishes an official topic list for the **CCNA 200-301 (v1.1)** exam. Thi
 
 - **ACL:** Rules that permit or deny traffic.
 - **AD (Administrative Distance):** Trust score for routing sources (lower = better).
+- **AI/ML in networking:** Using learned baselines instead of fixed thresholds to spot anomalies and predict failures (see 22.8).
 - **AP (Access Point):** Broadcasts Wi‑Fi and bridges to the wired network.
+- **APIPA:** The 169.254.x.x address a host gives itself when DHCP doesn't answer — a symptom, not a setting.
 - **ARP:** Finds a device's MAC from its IP.
 - **Bandwidth:** How much data a link can carry.
 - **BPDU:** Messages STP uses to find loops.
 - **Broadcast:** A message sent to everyone on a network.
 - **CDP/LLDP:** Protocols to discover neighbor devices.
 - **CIDR:** Slash notation for subnet masks (e.g., /24).
+- **Collapsed core:** A two-tier design where the core and distribution layers are merged; used at smaller sites.
 - **Collision Domain:** An area where frames can collide.
+- **Container:** An app packaged with its dependencies that shares the host OS kernel — smaller and faster to start than a VM.
 - **Default Gateway:** The router address used to leave your network.
 - **DHCP:** Hands out IP addresses automatically.
 - **DNS:** Turns names into IP addresses.
+- **DR / BDR:** The Designated and Backup Designated Router OSPF elects on a broadcast segment to cut down adjacencies.
+- **DSCP:** The 6-bit QoS marking in the IP header (voice = EF / 46).
 - **Duplex:** One-way-at-a-time (half) vs both-ways (full).
 - **Encapsulation:** Wrapping data with headers as it goes down the layers.
 - **EtherChannel:** Bundling multiple links into one.
+- **FHRP:** First Hop Redundancy Protocol — lets two routers share a virtual IP and MAC so the default gateway can fail over.
 - **Frame:** Data unit at Layer 2.
 - **Gateway:** A door between networks.
+- **GLBP:** Cisco FHRP that also load balances traffic across several routers.
 - **Hex:** Base-16 numbers (0-9, A-F).
+- **HSRP:** Cisco FHRP using Active and Standby roles.
+- **Hypervisor:** Software that creates and runs virtual machines on physical hardware.
+- **IaC (Infrastructure as Code):** Describing infrastructure in version-controlled files and letting a tool make reality match.
+- **Idempotence:** A change that can be applied repeatedly with the same result — the point of declarative tools.
 - **IP Address:** Logical address of a device.
+- **Jitter:** Variation in delay. Voice needs it under ~30 ms, because uneven arrival makes audio choppy.
 - **LAN/WAN:** Local vs wide-area network.
+- **Loop Guard:** Blocks a port that stops receiving BPDUs, in case a one-way link failure would otherwise create a loop.
 - **MAC Address:** Permanent hardware ID (Layer 2).
 - **Metric:** How a routing protocol ranks paths.
 - **NAT/PAT:** Sharing private IPs behind a public IP.
@@ -3808,19 +3858,33 @@ Cisco publishes an official topic list for the **CCNA 200-301 (v1.1)** exam. Thi
 - **Packet:** Data unit at Layer 3.
 - **PAT:** Many devices share one public IP via ports.
 - **Ping:** Tests basic connectivity.
+- **PoE:** Power over Ethernet — power and data on one cable (802.3af/at/bt).
+- **Policing:** Dropping traffic above a rate. (Shaping buffers it instead.)
 - **Port Number:** Identifies an app/service (Layer 4).
+- **Preempt:** The HSRP option that lets a recovered higher-priority router reclaim the Active role.
+- **QoS:** Deciding which traffic goes first when a link is congested.
+- **Rapid PVST+:** Cisco's default spanning-tree mode: 802.1w speed with one instance per VLAN.
+- **Root Guard:** Stops a switch on a given port from becoming the STP root.
 - **Router:** Connects different networks.
 - **Routing Table:** A router's map of known networks.
+- **Shaping:** Buffering traffic above a rate to send it later, smoothing bursts.
+- **SOHO:** Small Office / Home Office — where one box is router, switch, AP, firewall and DHCP server.
+- **Spine-leaf:** Data center design where every leaf connects to every spine, giving equal latency between servers.
 - **SSID:** A Wi‑Fi network's name.
 - **STP:** Stops Layer 2 loops.
 - **Subnet:** A smaller piece of a network.
 - **Subnet Mask:** Splits IP into network and host parts.
 - **Switch:** Connects devices within a LAN using MACs.
 - **TCP:** Reliable, ordered delivery.
+- **Terraform:** A declarative, agentless infrastructure-as-code tool named in the current exam blueprint.
 - **Trunk:** A link carrying many VLANs.
+- **Trust boundary:** The point where the network decides whether to believe incoming QoS markings.
 - **UDP:** Fast, no-guarantee delivery.
 - **VLAN:** A virtual, separated LAN inside a switch.
+- **VM (Virtual Machine):** A complete pretend computer, with its own OS, running as software on real hardware.
 - **VPN:** An encrypted tunnel over the internet.
+- **VRF:** Virtual Routing and Forwarding — several isolated routing tables on one router. (VLANs split L2; VRFs split L3.)
+- **VRRP:** The open-standard FHRP, using Master and Backup roles.
 - **Wildcard Mask:** The inverse of a subnet mask, used in ACLs/OSPF.
 
 ---

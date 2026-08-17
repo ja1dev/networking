@@ -5,6 +5,8 @@
 
 > **How to use it:** Cover the answer with your hand or a piece of paper. Work the problem on scratch paper FIRST. Then check. Do **5–10 problems every single day**. In two weeks you'll be fast. 💪
 
+> **Where this fits.** The theory behind every method here lives in **Chapters 11–13 of the CCNA Study Guide** (IP addressing, subnetting, IPv6) — if a step doesn't make sense, that's where to look. Once these are automatic, the **Practice Question Bank** puts subnetting back into full exam-style questions.
+
 ---
 
 ## 🧰 The Toolkit (Everything You Need on One Page)
