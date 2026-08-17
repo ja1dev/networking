@@ -24,23 +24,25 @@ Chapter 24 ties all three together with two schedules — an 8-week plan and a
 
 ```
 ccna/
+  CCNA_Study_Guide.pdf          <- the three PDFs, ready to read
+  CCNA_Practice_Questions.pdf
+  CCNA_Subnetting_Drills.pdf
   docs/       Markdown sources (edit these)
-  pdf/        Generated PDFs (build output, committed for convenience)
-  scripts/    Build scripts that turn docs/*.md into pdf/*.pdf
+  scripts/    Build scripts that turn docs/*.md into the PDFs above
   fonts/      TrueType fonts used by the builds
 ```
 
-Everything lives under `ccna/`. The markdown in `ccna/docs/` is the single
-source of truth — the PDFs in `ccna/pdf/` are generated from it, so edit the
-markdown and rebuild rather than editing a PDF.
+The PDFs sit at the top of `ccna/` so they're the first thing you see. The
+markdown in `ccna/docs/` is the single source of truth — the PDFs are generated
+from it, so edit the markdown and rebuild rather than editing a PDF.
 
 One source, one PDF, no extra copies:
 
 | Source (edit) | PDF (read) |
 | --- | --- |
-| `ccna/docs/CCNA_Study_Guide.md` | `ccna/pdf/CCNA_Study_Guide.pdf` |
-| `ccna/docs/CCNA_Practice_Questions.md` | `ccna/pdf/CCNA_Practice_Questions.pdf` |
-| `ccna/docs/CCNA_Subnetting_Drills.md` | `ccna/pdf/CCNA_Subnetting_Drills.pdf` |
+| `ccna/docs/CCNA_Study_Guide.md` | `ccna/CCNA_Study_Guide.pdf` |
+| `ccna/docs/CCNA_Practice_Questions.md` | `ccna/CCNA_Practice_Questions.pdf` |
+| `ccna/docs/CCNA_Subnetting_Drills.md` | `ccna/CCNA_Subnetting_Drills.pdf` |
 
 ## Building
 
@@ -59,10 +61,9 @@ Rebuild everything after editing the markdown:
 
 ```bash
 # Standard PDFs — build_pdf.py [source.md] [output.pdf] [footer title]
-python ccna/scripts/build_pdf.py ccna/docs/CCNA_Study_Guide.md ccna/pdf/CCNA_Study_Guide.pdf "CCNA Study Guide"
-python ccna/scripts/build_pdf.py ccna/docs/CCNA_Practice_Questions.md ccna/pdf/CCNA_Practice_Questions.pdf "CCNA Practice Questions"
-python ccna/scripts/build_pdf.py ccna/docs/CCNA_Subnetting_Drills.md ccna/pdf/CCNA_Subnetting_Drills.pdf "CCNA Subnetting Drills"
-
+python ccna/scripts/build_pdf.py ccna/docs/CCNA_Study_Guide.md ccna/CCNA_Study_Guide.pdf "CCNA Study Guide"
+python ccna/scripts/build_pdf.py ccna/docs/CCNA_Practice_Questions.md ccna/CCNA_Practice_Questions.pdf "CCNA Practice Questions"
+python ccna/scripts/build_pdf.py ccna/docs/CCNA_Subnetting_Drills.md ccna/CCNA_Subnetting_Drills.pdf "CCNA Subnetting Drills"
 ```
 
 Run the script with no arguments and it defaults to the study guide. Paths
@@ -79,8 +80,8 @@ repo would just be a second copy); `*_Interactive.pdf` is gitignored.
 
 ```bash
 # build_interactive.py [source.md] [output.pdf] [title] [answer limit]
-python ccna/scripts/build_interactive.py ccna/docs/CCNA_Practice_Questions.md ccna/pdf/CCNA_Practice_Questions_Interactive.pdf "CCNA Practice Questions"
-python ccna/scripts/build_interactive.py ccna/docs/CCNA_Subnetting_Drills.md ccna/pdf/CCNA_Subnetting_Drills_Interactive.pdf "CCNA Subnetting Drills"
+python ccna/scripts/build_interactive.py ccna/docs/CCNA_Practice_Questions.md ccna/CCNA_Practice_Questions_Interactive.pdf "CCNA Practice Questions"
+python ccna/scripts/build_interactive.py ccna/docs/CCNA_Subnetting_Drills.md ccna/CCNA_Subnetting_Drills_Interactive.pdf "CCNA Subnetting Drills"
 ```
 
 The buttons need **Adobe Acrobat Reader**; other viewers may only expose the

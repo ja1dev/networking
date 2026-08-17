@@ -45,7 +45,7 @@ for family, regular, bold in _FONTS:
 
 # Usage: python scripts/build_pdf.py [source.md] [output.pdf] [footer title]
 SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "CCNA_Study_Guide.md")
-OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "pdf", "CCNA_Study_Guide.pdf")
+OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "CCNA_Study_Guide.pdf")
 FOOTER_TITLE = sys.argv[3] if len(sys.argv) > 3 else "CCNA Study Guide"
 
 with open(SRC, "r", encoding="utf-8") as f:
