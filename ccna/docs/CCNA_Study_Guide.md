@@ -5,7 +5,7 @@
 
 > **How to use it:** Read it top to bottom the first time. Don't skip the "Story Time" and "Try It" boxes — that's where the learning sticks. Later, use the Table of Contents to jump around and review.
 
-> **This guide is one of three:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 142 exam-style questions grouped by domain, and the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at. Read a chapter here, then answer that domain's questions — the appendix at the back maps every official exam topic to the section that covers it.
+> **This guide is one of three:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 140 exam-style questions grouped by domain, and the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at. Read a chapter here, then answer that domain's questions — the appendix at the back maps every official exam topic to the section that covers it.
 
 ---
 
@@ -3661,7 +3661,7 @@ Follow the layered method from 23.1: confirm the PC's own settings first, then t
 ## 24.3 Pick Your Timeline
 
 Two plans below: an **8-week** pace for studying alongside a job, and a **2-week
-sprint** if you've set yourself a deadline. Both cover the same 24 chapters, 142
+sprint** if you've set yourself a deadline. Both cover the same 24 chapters, 140
 questions and 60 drills — the sprint just removes the slack.
 
 ### The 8-Week Plan (steady pace, ~1–1.5 hrs/day)

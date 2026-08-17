@@ -1,5 +1,5 @@
 # 📝 CCNA Practice Question Bank
-### 140+ Exam-Style Questions with Answers & Full Explanations
+### 140 Exam-Style Questions with Answers & Full Explanations
 
 > **How to use it:** Try each question BEFORE reading the answer. The explanation tells you *why* the right answer is right AND why the traps are wrong — that's what builds real understanding. Aim to consistently score **85%+** before your exam. Questions are grouped by the 6 official exam domains.
 
@@ -72,7 +72,7 @@ A. It got an address from DHCP  B. It was assigned a public IP  C. It could not 
 
 <details><summary>Answer</summary>
 
-**C. APIPA.** The 169.254.x.x range is auto-assigned when a device can't reach a DHCP server. It's a big clue that DHCP is broken or unreachable.
+**C. APIPA.** The 169.254.x.x range is auto-assigned when a device can't reach a DHCP server. It's a **symptom, not a setting** — so stop troubleshooting the PC and go find out why DHCP is silent (server down, wrong VLAN, or a missing `ip helper-address` relay).
 </details>
 
 ---
@@ -1355,7 +1355,7 @@ A. Routing  B. DNS  C. NAT  D. The cable
 
 <details><summary>Answer</summary>
 
-**B. DNS.** IP connectivity works (ping by IP succeeds), but name resolution fails — a DNS server problem.
+**B. DNS.** Reaching an **IP** proves routing and the gateway work; failing on a **name** isolates the problem to name resolution. *That exact pairing is the classic signature of a DNS issue* — and a favorite exam scenario.
 </details>
 
 ---
@@ -1481,21 +1481,7 @@ A. `show vlan brief`  B. `show ip interface brief`  C. `show mac address-table` 
 
 ---
 
-**Q125.** A user's PC shows IP address 169.254.12.7. What does this indicate?
-
-A. A valid public address
-B. The PC failed to reach a DHCP server and self-assigned an APIPA address
-C. The default gateway is misconfigured
-D. The subnet mask is wrong
-
-<details><summary>Answer</summary>
-
-**B.** **169.254.x.x is APIPA** — a self-assigned address used when **DHCP got no answer**. It's a symptom: check the DHCP server, the VLAN/cabling, or a missing `ip helper-address` relay. *Stop troubleshooting the PC and go find out why DHCP is silent.*
-</details>
-
----
-
-**Q126.** On a Windows PC, which command displays the IP address, subnet mask, default gateway, and DNS servers in full detail?
+**Q125.** On a Windows PC, which command displays the IP address, subnet mask, default gateway, and DNS servers in full detail?
 
 A. `ifconfig`  B. `ip address`  C. `ipconfig /all`  D. `netstat -rn`
 
@@ -1506,25 +1492,7 @@ A. `ifconfig`  B. `ip address`  C. `ipconfig /all`  D. `netstat -rn`
 
 ---
 
-**Q127.** A PC can `ping 8.8.8.8` successfully but cannot `ping google.com`. What is the most likely cause?
-
-A. The default gateway is down
-B. The subnet mask is wrong
-C. A DNS problem
-D. The NIC is disabled
-
-<details><summary>Answer</summary>
-
-**C. DNS.** Reaching an **IP** proves routing and the gateway work; failing on a **name** isolates the problem to name resolution. *That exact pairing is the classic signature of a DNS issue* and a favorite exam scenario.
-</details>
-
----
-
-# Domain 8 — More Fundamentals & Mixed Review
-
----
-
-**Q128.** How many usable hosts are in a /27 subnet?
+**Q126.** How many usable hosts are in a /27 subnet?
 
 A. 32  B. 30  C. 62  D. 14
 
@@ -1535,7 +1503,7 @@ A. 32  B. 30  C. 62  D. 14
 
 ---
 
-**Q129.** Which address is the broadcast for 192.168.1.0/26's second subnet?
+**Q127.** Which address is the broadcast for 192.168.1.0/26's second subnet?
 
 A. 192.168.1.63  B. 192.168.1.127  C. 192.168.1.128  D. 192.168.1.191
 
@@ -1546,7 +1514,7 @@ A. 192.168.1.63  B. 192.168.1.127  C. 192.168.1.128  D. 192.168.1.191
 
 ---
 
-**Q130.** Which IPv6 address is a link-local address?
+**Q128.** Which IPv6 address is a link-local address?
 
 A. 2001:db8::1  B. FE80::1  C. ::1  D. FF02::1
 
@@ -1557,7 +1525,7 @@ A. 2001:db8::1  B. FE80::1  C. ::1  D. FF02::1
 
 ---
 
-**Q131.** What does `::` mean in an IPv6 address?
+**Q129.** What does `::` mean in an IPv6 address?
 
 A. End of address  B. One or more groups of all zeros (used once)  C. A separator only  D. A loopback
 
@@ -1568,7 +1536,7 @@ A. End of address  B. One or more groups of all zeros (used once)  C. A separato
 
 ---
 
-**Q132.** Which protocol automatically lets an IPv6 host build its own address from the router's prefix?
+**Q130.** Which protocol automatically lets an IPv6 host build its own address from the router's prefix?
 
 A. DHCPv4  B. SLAAC  C. ARP  D. NAT
 
@@ -1579,7 +1547,7 @@ A. DHCPv4  B. SLAAC  C. ARP  D. NAT
 
 ---
 
-**Q133.** Which of these is a Layer 1 problem?
+**Q131.** Which of these is a Layer 1 problem?
 
 A. Wrong VLAN  B. Unplugged/broken cable  C. Missing default route  D. ACL blocking
 
@@ -1590,7 +1558,7 @@ A. Wrong VLAN  B. Unplugged/broken cable  C. Missing default route  D. ACL block
 
 ---
 
-**Q134.** What is the purpose of a default gateway on a host?
+**Q132.** What is the purpose of a default gateway on a host?
 
 A. Resolve names  B. Reach devices on other networks  C. Assign IPs  D. Encrypt traffic
 
@@ -1601,7 +1569,7 @@ A. Resolve names  B. Reach devices on other networks  C. Assign IPs  D. Encrypt 
 
 ---
 
-**Q135.** Which command tests basic connectivity to an IP?
+**Q133.** Which command tests basic connectivity to an IP?
 
 A. `ping`  B. `show run`  C. `configure terminal`  D. `copy`
 
@@ -1612,7 +1580,7 @@ A. `ping`  B. `show run`  C. `configure terminal`  D. `copy`
 
 ---
 
-**Q136.** A trunk carries VLANs 10 and 20, but VLAN 20 traffic isn't passing while VLAN 10 works. What's a likely cause?
+**Q134.** A trunk carries VLANs 10 and 20, but VLAN 20 traffic isn't passing while VLAN 10 works. What's a likely cause?
 
 A. Wrong hostname  B. VLAN 20 not allowed on the trunk  C. Duplex mismatch  D. Wrong DNS
 
@@ -1623,7 +1591,7 @@ A. Wrong hostname  B. VLAN 20 not allowed on the trunk  C. Duplex mismatch  D. W
 
 ---
 
-**Q137.** Which two are valid reasons to use VLANs? (Choose the best single answer.)
+**Q135.** Which two are valid reasons to use VLANs? (Choose the best single answer.)
 
 A. Faster CPUs  B. Segment broadcast domains and improve security  C. Replace routers  D. Increase cable length
 
@@ -1634,7 +1602,7 @@ A. Faster CPUs  B. Segment broadcast domains and improve security  C. Replace ro
 
 ---
 
-**Q138.** Which is TRUE about a /30 subnet?
+**Q136.** Which is TRUE about a /30 subnet?
 
 A. It has 4 usable hosts  B. It has 2 usable hosts, ideal for router links  C. It's used for large LANs  D. It has no broadcast
 
@@ -1645,7 +1613,7 @@ A. It has 4 usable hosts  B. It has 2 usable hosts, ideal for router links  C. I
 
 ---
 
-**Q139.** In the frame, which field detects transmission errors?
+**Q137.** In the frame, which field detects transmission errors?
 
 A. Preamble  B. Source MAC  C. FCS (Frame Check Sequence)  D. Type
 
@@ -1656,7 +1624,7 @@ A. Preamble  B. Source MAC  C. FCS (Frame Check Sequence)  D. Type
 
 ---
 
-**Q140.** Which command sets a device to only allow SSH (not Telnet) for remote logins?
+**Q138.** Which command sets a device to only allow SSH (not Telnet) for remote logins?
 
 A. `transport input ssh`  B. `transport input all`  C. `no ip telnet`  D. `login local`
 
@@ -1667,7 +1635,7 @@ A. `transport input ssh`  B. `transport input all`  C. `no ip telnet`  D. `login
 
 ---
 
-**Q141.** What best describes "longest prefix match"?
+**Q139.** What best describes "longest prefix match"?
 
 A. Trusting the lowest AD  B. Choosing the most specific matching route  C. Load balancing  D. Picking the oldest route
 
@@ -1678,7 +1646,7 @@ A. Trusting the lowest AD  B. Choosing the most specific matching route  C. Load
 
 ---
 
-**Q142.** You need 6 subnets from a /24, each with room for ~25 hosts. Which mask fits BOTH needs?
+**Q140.** You need 6 subnets from a /24, each with room for ~25 hosts. Which mask fits BOTH needs?
 
 A. /26  B. /27  C. /28  D. /25
 
