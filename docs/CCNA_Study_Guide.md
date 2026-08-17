@@ -3658,7 +3658,13 @@ Follow the layered method from 23.1: confirm the PC's own settings first, then t
 | Security Fundamentals | 15% |
 | Automation & Programmability | 10% |
 
-## 24.3 A 8-Week Study Plan
+## 24.3 Pick Your Timeline
+
+Two plans below: an **8-week** pace for studying alongside a job, and a **2-week
+sprint** if you've set yourself a deadline. Both cover the same 24 chapters, 142
+questions and 60 drills — the sprint just removes the slack.
+
+### The 8-Week Plan (steady pace, ~1–1.5 hrs/day)
 - **Weeks 1–2:** Fundamentals, OSI/TCP-IP, cables, binary/hex — including network architectures, virtualization and PoE (Chapters 1–5). → Question Bank Domain 1.
 - **Weeks 3–4:** Switching, VLANs, trunking, STP and its guards, EtherChannel (Chapters 6–10). → Domain 2.
 - **Week 5:** IP addressing & subnetting — practice DAILY with the Drill Sheet (Chapters 11–13).
@@ -3667,6 +3673,51 @@ Follow the layered method from 23.1: confirm the PC's own settings first, then t
 - **Week 8:** Management, automation (incl. AI/ML and Terraform), troubleshooting, review, practice exams (Chapters 21–24). → Domains 6, 7 and 8.
 
 **Every week:** work that week's domain in the **Practice Question Bank** and keep drilling subnetting. In the final week, use the **Blueprint Coverage Map** appendix as a checklist — anything you can't explain, go re-read.
+
+### The 2-Week Sprint (~3–4 hrs/day)
+
+This is aggressive but genuinely doable — it's roughly 45 hours of focused work.
+The trade-off is honest: **you'll have less repetition**, so the review days and
+daily subnetting are not optional. They're what stops week 1 leaking out of your
+head by day 12.
+
+**Each day: read the chapters → do that day's drills → answer the listed
+questions → note anything you couldn't explain out loud.**
+
+| Day | Read | Subnetting | Questions |
+|-----|------|------------|-----------|
+| **1** | Ch 1–3 — networks, devices, architectures, cables, PoE | — | Domain 1, first half |
+| **2** | Ch 4–5 — binary & hex, MAC addresses, Ethernet | Toolkit page + Section 1 | Domain 1, rest |
+| **3** | Ch 6–7 — switches, MAC tables, VLANs | Section 1 (repeat for speed) | Domain 2, first half |
+| **4** | Ch 8–9 — trunks, inter-VLAN routing, STP + the four guards | Section 2 | — |
+| **5** | Ch 10–11 — EtherChannel, IP addressing, gateways | Section 2 (repeat) | Domain 2, rest |
+| **6** | **Ch 12 — subnetting.** The big one. | Sections 3 + 4 | — |
+| **7** | **Catch-up & review.** Re-read anything shaky from days 1–6. | Section 5 (VLSM) | Re-do every question you missed |
+| **8** | Ch 13–14 — IPv6, routing tables, AD & metric | 10 mixed problems | Domain 3, first third |
+| **9** | Ch 15 + 14.7 — static routes, floating statics, FHRP/HSRP | 10 mixed problems | Domain 3, second third |
+| **10** | Ch 16 — OSPF, including DR/BDR and network types | 10 mixed problems | Domain 3, rest |
+| **11** | Ch 17 — DHCP, DNS, NAT, NTP, syslog, SNMP, QoS | Section 6 (timed!) | Domain 4 |
+| **12** | Ch 18–19 — security, AAA, Layer 2 attacks, ACLs | 10 mixed problems | Domain 5 + 5b |
+| **13** | Ch 20–22 — wireless, management, automation, AI/ML, IaC | Section 7 (boss level) | Domain 6 |
+| **14** | Ch 23–24 + **Blueprint Coverage Map appendix** as a checklist | Section 6 again, timed | Domains 7 & 8, then re-do every miss |
+
+**How to know the sprint is working.** By **day 7** you should be able to subnet
+without the chart. By **day 11** you should be scoring above 80% on a domain the
+first time through. If you're not, you're reading too fast — slow down and cut
+something rather than skimming everything.
+
+**If you fall behind, cut in this order** (protecting what the exam weights most
+— IP Connectivity is 25%, and subnetting runs through everything):
+
+1. The "Story Time" boxes and the deeper *why* paragraphs — read the bold summary lines only.
+2. Chapter 22's tool details (keep the concepts: controller-based networking, REST, JSON, Ansible/Terraform).
+3. Chapter 4's binary drills — *if* you can already convert quickly.
+4. **Never cut:** subnetting practice, OSPF, VLANs/trunking, or ACLs.
+
+**The day before the exam:** don't learn anything new. Re-read the **cheat sheet
+(24.5)**, walk the **Blueprint Coverage Map** and say each topic out loud, do ten
+subnetting problems, and sleep. Cramming new material the night before mostly
+displaces what you already knew.
 
 ## 24.4 Golden Study Tips
 1. **Subnet every day.** It's the #1 skill and appears everywhere. Do 5 practice subnets each morning.
