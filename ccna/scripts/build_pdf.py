@@ -81,6 +81,32 @@ def normalize_blocks(md_text):
 
 text = normalize_blocks(text)
 
+def check_tables(md_text):
+    """Reject a markdown table whose leading header cell is empty.
+
+    xhtml2pdf gives such a column ~zero width, so the first column's text is
+    printed on top of the second one -- or, when it computes a negative width,
+    the build dies outright. Catch it here with a pointer to the line rather
+    than shipping an unreadable page.
+    """
+    problems = []
+    in_fence = False
+    for n, line in enumerate(md_text.split("\n"), 1):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and re.match(r"^\s*\|\s*\|", line):
+            problems.append((n, line.strip()[:60]))
+    if problems:
+        msg = "\n".join("  line %d: %s" % p for p in problems)
+        raise SystemExit(
+            "Table(s) with an empty leading header cell -- give the first "
+            "column a name:\n" + msg
+        )
+
+
+check_tables(text)
+
 # Strip emoji / pictographs that the PDF fonts can't render as color glyphs.
 # IMPORTANT: keep box-drawing (U+2500-257F), block elements (U+2580-259F),
 # and geometric shapes/arrows (U+2190-21FF, U+25A0-25FF) used in diagrams.

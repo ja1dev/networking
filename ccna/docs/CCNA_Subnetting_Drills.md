@@ -15,22 +15,21 @@
 
 **Chart 1 — Bit values in one octet (memorize left to right):**
 
-```
- 128   64   32   16   8   4   2   1
-```
+| Position | 1st | 2nd | 3rd | 4th | 5th | 6th | 7th | 8th |
+|----------|-----|-----|-----|-----|-----|-----|-----|-----|
+| **Worth** | 128 | 64 | 32 | 16 | 8 | 4 | 2 | 1 |
 
 **Chart 2 — The subnet "cheat table" (memorize this cold):**
 
-```
- CIDR   Mask (last octet)   Block Size   Hosts (usable)
- /24        0                  256           254
- /25        128                128           126
- /26        192                 64            62
- /27        224                 32            30
- /28        240                 16            14
- /29        248                  8             6
- /30        252                  4             2
-```
+| CIDR | Mask (last octet) | Block size | Usable hosts |
+|------|-------------------|------------|--------------|
+| /24 | 0 | 256 | 254 |
+| /25 | 128 | 128 | 126 |
+| /26 | 192 | 64 | 62 |
+| /27 | 224 | 32 | 30 |
+| /28 | 240 | 16 | 14 |
+| /29 | 248 | 8 | 6 |
+| /30 | 252 | 4 | 2 |
 
 > Notice the pattern: **Block size doubles as you go up** (4, 8, 16, 32, 64, 128, 256), and **Mask value** = 256 − block size.
 
@@ -844,7 +843,7 @@ below it is the **network address**.
 
 **Step 4 —**
 
-| | Formula |
+| Value | Formula |
 |---|---------|
 | Broadcast | next network − 1 |
 | First host | network + 1 |

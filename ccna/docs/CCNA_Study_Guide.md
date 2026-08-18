@@ -55,12 +55,8 @@ A **network** is just **two or more devices connected so they can share stuff**.
 
 Think about talking to your friend with two paper cups and a string:
 
-```
-   YOU                                   FRIEND
-  (cup) ==============string============ (cup)
-   |                                        |
-  talk into it                        listens here
-```
+**You** hold one cup and talk into it; your **friend** holds the other and
+listens. The **string** stretched between them carries the sound.
 
 - The **cups** are like your computers (they turn your voice into something the string can carry, and back again).
 - The **string** is like the **cable** or **Wi‑Fi** that carries the message.
@@ -561,7 +557,7 @@ The receiver keeps saying `Ack=1001` because that's the truth — it can't ackno
 
 These get confused constantly, and the exam likes the distinction.
 
-| | Flow control | Congestion control |
+| Aspect | Flow control | Congestion control |
 |---|---|---|
 | **Protects** | The **receiver** | The **network** |
 | **Question** | "Can you keep up?" | "Can the path keep up?" |
@@ -641,7 +637,7 @@ Inside that Ethernet cable, some wires are used to **transmit** (send) and other
 
 Devices **transmit** on one pair and **listen** on another:
 
-| | Sends on | Listens on |
+| Device | Sends on | Listens on |
 |---|---|---|
 | PC / router | pins **1, 2** | pins **3, 6** |
 | Switch | pins **3, 6** | pins **1, 2** |
@@ -683,13 +679,12 @@ But when you connect **two of the same** device (two PCs, or two switches), they
 
 Sort every device into one of two teams by how it's wired:
 
-```
- TEAM A (transmit on 1,2):     TEAM B (transmit on 3,6):
-   • PC / Laptop                  • Switch
-   • Router                       • Hub
-   • Server                       • (wireless AP acts like a switch port)
-   • Firewall
-```
+| Team A — sends on 1, 2 | Team B — sends on 3, 6 |
+|------------------------|------------------------|
+| PC / Laptop | Switch |
+| Router | Hub |
+| Server | Wireless AP (acts like a switch port) |
+| Firewall | — |
 
 - **Same team** (A-A or B-B) → use a **CROSSOVER** cable.
 - **Different teams** (A-B) → use a **STRAIGHT-THROUGH** cable.
@@ -713,7 +708,7 @@ Ethernet cables follow a color-order standard. The most common is **T568B**. A s
 
 So the pin-to-pin connections come out as:
 
-| | Straight-through | Crossover |
+| Pin | Straight-through | Crossover |
 |---|------------------|-----------|
 | Pin 1 → | 1 | **3** |
 | Pin 2 → | 2 | **6** |
@@ -781,7 +776,7 @@ Wi‑Fi uses **radio waves** (invisible signals through the air) instead of cabl
 - **Half-duplex:** Can send OR receive, but not at the same time (like a walkie-talkie — you say "over" and take turns). Old hubs used this.
 - **Full-duplex:** Can send AND receive at the same time (like a phone call — both people talk at once). Modern switches use this.
 
-| | How it works | Result |
+| Mode | How it works | Result |
 |---|--------------|--------|
 | **Half-duplex** | Send **or** receive — one at a time, taking turns | Collisions possible |
 | **Full-duplex** | Send **and** receive simultaneously | No collisions; the modern default |
@@ -873,9 +868,9 @@ In our normal (decimal) numbers, each spot is worth 10× more as you go left: 1,
 
 In **binary**, each spot is worth **2×** more as you go left. For one byte (8 bits), the spots are worth:
 
-```
- 128   64   32   16   8   4   2   1
-```
+| Position | 1st | 2nd | 3rd | 4th | 5th | 6th | 7th | 8th |
+|----------|-----|-----|-----|-----|-----|-----|-----|-----|
+| **Worth** | 128 | 64 | 32 | 16 | 8 | 4 | 2 | 1 |
 
 To find a byte's value, **add up the spots that have a 1**.
 
@@ -898,11 +893,18 @@ So `11000000` = **192**. (This is the first byte of `192.168.x.x`!)
 
 ### Example 2: Convert binary `10101000` to decimal
 
-```
- 128   64   32   16   8   4   2   1
-  1     0    1    0   1   0   0   0
- 128 +  0 + 32 + 0 + 8 + 0 + 0 + 0 = 168  ✅
-```
+| Place | Bit |
+|-------|-----|
+| 128 | **1** |
+| 64 | 0 |
+| 32 | **1** |
+| 16 | 0 |
+| 8 | **1** |
+| 4 | 0 |
+| 2 | 0 |
+| 1 | 0 |
+
+128 + 32 + 8 = **168** ✅
 
 So `10101000` = **168**.
 
@@ -913,10 +915,20 @@ Ask: "Does 128 fit into 200?" Yes → write 1, subtract → 200-128 = 72.
 "Does 32 fit into 8?" No → 0. "16?" No → 0. "8?" Yes → 1, subtract → 0.
 The rest are 0.
 
-```
- 128   64   32   16   8   4   2   1
-  1     1    0    0   1   0   0   0   = 200 ✅
-```
+Work down from the biggest place value that fits:
+
+| Place | Fits in what's left? | Bit |
+|-------|----------------------|-----|
+| 128 | yes (200 − 128 = 72) | **1** |
+| 64 | yes (72 − 64 = 8) | **1** |
+| 32 | no | 0 |
+| 16 | no | 0 |
+| 8 | yes (8 − 8 = 0) | **1** |
+| 4 | no | 0 |
+| 2 | no | 0 |
+| 1 | no | 0 |
+
+So 200 = **11001000** ✅
 
 So `200` = **11001000**.
 
@@ -1264,7 +1276,7 @@ Before VLANs, the only way to separate groups was to **buy a separate physical s
 
 **VLANs solve all three problems at once** by letting you create **multiple separate networks inside a single physical switch** — invisible walls, in software.
 
-| | Broadcast domains | Who shares one |
+| Setup | Broadcast domains | Who shares one |
 |---|---|---|
 | **Without VLANs** | **1** | Teachers, students and admin all together 😬 |
 | **With VLANs** | **3** | VLAN 10 Teachers · VLAN 20 Students · VLAN 30 Admin 😌 |
@@ -1421,7 +1433,7 @@ In Chapter 7 you learned *why* trunks exist: a single cable must carry many VLAN
 
 The tagging standard is **802.1Q** (say "dot-one-Q"). When a frame goes onto a trunk, the switch inserts a **4-byte tag** right into the middle of the Ethernet frame — squeezed in between the Source MAC and the Type field:
 
-| | Fields, in order |
+| Frame | Fields, in order |
 |---|---|
 | **Normal frame** | Dest MAC → Src MAC → Type → Data → FCS |
 | **Tagged frame** | Dest MAC → Src MAC → **802.1Q tag (4 bytes)** → Type → Data → FCS |
@@ -1980,7 +1992,7 @@ An **IP address** is the **logical address** of a device on a network — like a
 
 An IPv4 address is **four octets**, each 0–255:
 
-| | octet 1 | octet 2 | octet 3 | octet 4 |
+| Format | octet 1 | octet 2 | octet 3 | octet 4 |
 |---|---------|---------|---------|---------|
 | **Decimal** | 192 | 168 | 1 | 10 |
 | **Binary** | 11000000 | 10101000 | 00000001 | 00001010 |
@@ -2112,7 +2124,7 @@ The **subnet mask** decides which part of an IP is "network" and which is "host.
 
 Line the address up against the mask:
 
-| | Value |
+| Item | Value |
 |---|---|
 | **IP** | `192.168.1.10` |
 | **Mask** | `255.255.255.0` |
@@ -2172,10 +2184,12 @@ Why minus 2? Because you **can't use** the **network address** (first) or the **
 
 ### Powers of 2 (memorize these!)
 
-```
- 2^1=2   2^2=4   2^3=8   2^4=16
- 2^5=32  2^6=64  2^7=128 2^8=256
-```
+| Power | Value | | Power | Value |
+|-------|-------|---|-------|-------|
+| 2¹ | 2 | | 2⁵ | 32 |
+| 2² | 4 | | 2⁶ | 64 |
+| 2³ | 8 | | 2⁷ | 128 |
+| 2⁴ | 16 | | 2⁸ | 256 |
 
 ## 12.5 The "Block Size" Trick (Subnetting Made Easy)
 
@@ -2532,7 +2546,7 @@ So the problem is really this: *the hosts can't change, so **the routers must pr
 
 Two real routers share one **virtual identity**:
 
-| | Address | Role |
+| Device | Address | Role |
 |---|---------|------|
 | **The virtual router** | IP `192.168.1.1`, MAC `0000.0c07.acXX` | What every PC is configured to use |
 | **R1** | 192.168.1.2 | **Active** — actually forwarding |
@@ -2859,10 +2873,10 @@ R1(config-router)# network 10.0.0.0 0.0.0.3 area 0
 
 **Wait — what's `0.0.0.255`?** That's a **wildcard mask** — the *opposite* of a subnet mask. Where a subnet mask has 1s, the wildcard has 0s.
 
-```
- Subnet mask   255.255.255.0
- Wildcard mask   0.  0.  0.255   (flip every bit)
-```
+| Mask type | Value |
+|---|---|
+| Subnet mask | `255.255.255.0` |
+| **Wildcard mask** | `0.0.0.255` — flip every bit |
 
 A **0** in the wildcard means "must match exactly"; a **255** means "anything goes."
 
@@ -3264,7 +3278,7 @@ This is also why **trust boundaries** matter: a device decides whether to *belie
 
 **5. Policing vs. Shaping** — both limit traffic to a rate, but they differ in what they do with the excess, and that difference is a favorite exam question:
 
-| | Over the limit? | Adds delay? | Feels like |
+| Tool | Over the limit? | Adds delay? | Feels like |
 |---|-----------------|-------------|------------|
 | **Policing** | **Drops** the excess | No | Harsh — traffic is simply chopped off |
 | **Shaping** | **Buffers** it and sends it later | Yes (needs buffers) | Gentle — the bursts are smoothed out |
