@@ -92,6 +92,11 @@ a rebuilt deck updates the existing cards instead of duplicating them** — your
 review history and scheduling survive edits. Change a card in
 `ccna/docs/CCNA_Flashcards.md`, rerun the build, re-import.
 
+Anki platforms: **free** on Windows/macOS/Linux and Android (AnkiDroid), and
+**free in any browser** via AnkiWeb — which works on iPhone if you sync the deck
+and add the page to your home screen. The native iOS app (**AnkiMobile**) is a
+one-time paid purchase; check the App Store for current pricing.
+
 **Quizlet (or anything else)** — import `ccna/CCNA_Flashcards.tsv`. In Quizlet:
 *Create → Import*, paste the file's contents, and set the delimiters to
 **Tab** between term and definition and **New line** between cards. The TSV is
