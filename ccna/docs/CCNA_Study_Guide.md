@@ -96,20 +96,14 @@ Before networks, if you wanted a file from another computer, you had to copy it 
 - **Distance changes the technology.** Short distances can use cheap copper cable. Long distances need fiber or leased provider links. So knowing the scale tells you which media and devices you'll even be allowed to use.
 - **Who fixes it?** In a LAN, your team fixes problems. In a WAN, you often have to call the provider. Different scale = different responsibility.
 
-```
-        ┌──────────────────────────────────────┐
-        │              WAN (Internet)           │
-        │   ┌────────────────────────────────┐  │
-        │   │            MAN (City)          │  │
-        │   │   ┌────────────────────────┐   │  │
-        │   │   │      LAN (Building)    │   │  │
-        │   │   │   ┌────────────────┐   │   │  │
-        │   │   │   │  PAN (Person)  │   │   │  │
-        │   │   │   └────────────────┘   │   │  │
-        │   │   └────────────────────────┘   │  │
-        │   └────────────────────────────────┘  │
-        └──────────────────────────────────────┘
-```
+| Type | Reaches | Example |
+|------|---------|---------|
+| **PAN** (Personal) | A few metres — around one person | Phone ↔ earbuds |
+| **LAN** (Local) | One building or site | An office, school or home |
+| **MAN** (Metropolitan) | A city | A university's campuses linked across town |
+| **WAN** (Wide) | Countries, the globe | The internet itself |
+
+Each one **contains** the smaller: your PAN sits inside a LAN, which reaches the world through a WAN.
 
 ## 1.4 The Main Network Devices (Meet the Characters)
 
@@ -140,18 +134,11 @@ Routers solve this because **routers do NOT forward broadcasts**. A router break
 
 *That's the real reason the two devices exist: switches for speed inside a small area, routers for scale and boundaries between areas.* You'll see this theme (switch = local, router = between networks) over and over.
 
-```
-     LAN A                         LAN B
-  ┌─────────┐                   ┌─────────┐
-  │ PC  PC  │                   │ PC  PC  │
-  │  \  /   │                   │  \  /   │
-  │  SWITCH │                   │  SWITCH │
-  └────┬────┘                   └────┬────┘
-       │                             │
-       └──────────► ROUTER ◄─────────┘
-                 (connects the
-                  two networks)
-```
+Picture two separate LANs. In **LAN A**, a handful of PCs plug into a switch;
+in **LAN B**, the same. Each switch then has one uplink to a **shared router**.
+
+The switches move traffic **within** their own LAN. The router is the only
+device joining the two — every packet crossing from A to B passes through it.
 
 > **Coming up:** these devices don't get scattered randomly — section **1.7** shows the standard shapes networks are built in, and section **3.7** explains how many of them get their electricity from the network cable itself.
 
@@ -179,16 +166,17 @@ Big messages are **cut into small pieces** called **packets** before traveling. 
 2. **Cheap error recovery.** If a packet gets damaged or lost, you only re-send that *one small packet*, not the whole file. Re-sending piece #7 is cheap; re-sending a 4 GB movie because one bit flipped would be awful.
 3. **Flexible paths.** Different packets can even take **different routes** to the destination and be reassembled at the end. If one path gets congested or breaks, later packets can go another way. *This is why the internet is so resilient — there's no single fragile path.*
 
-```
-Big File:  [🧩🧩🧩🧩🧩🧩🧩🧩]  (a whole picture)
+A big file doesn't travel as one lump. It's chopped into numbered **packets** —
+P1, P2, P3, P4 — and each one carries four things:
 
-Cut into packets:
- ┌────┐ ┌────┐ ┌────┐ ┌────┐
- │ P1 │ │ P2 │ │ P3 │ │ P4 │   each has: TO, FROM, ORDER #, DATA
- └────┘ └────┘ └────┘ └────┘
+| Every packet carries | Why it's needed |
+|----------------------|-----------------|
+| **TO** address | So the network knows where to deliver it |
+| **FROM** address | So the far end knows who to reply to |
+| **ORDER number** | So the pieces can be reassembled in sequence |
+| **DATA** | The actual slice of your file |
 
-They travel separately, then get rebuilt at the other end. ✅
-```
+They travel independently — possibly by different routes — and are rebuilt at the other end.
 
 ---
 
@@ -200,18 +188,7 @@ We've met the devices. But **how do you arrange them** when you're building a ne
 
 The classic campus design splits the network into **three layers**, each with one job:
 
-```
-              ┌───────────────┐
-   CORE       │  Fast backbone │      "Move traffic FAST. Nothing else."
-              └───────┬───────┘
-                  ┌───┴───┐
- DISTRIBUTION  ┌──┴──┐ ┌──┴──┐        "Routing, filtering, policy."
-               └──┬──┘ └──┬──┘
-                ┌─┴─┐   ┌─┴─┐
-   ACCESS       │SW │   │SW │         "Where PCs, phones & APs plug in."
-                └─┬─┘   └─┬─┘
-                 💻       ☎️
-```
+
 
 | Layer | Job | Typical gear |
 |-------|-----|--------------|
@@ -228,12 +205,8 @@ The classic campus design splits the network into **three layers**, each with on
 
 **The Collapsed Core (2-Tier)** — for smaller networks, the core and distribution layers are **merged into one layer**:
 
-```
-   COLLAPSED CORE   ┌─────┐ ┌─────┐    (core + distribution combined)
-                    └──┬──┘ └──┬──┘
-   ACCESS           ┌──┴──┐ ┌──┴──┐
-                    └─────┘ └─────┘
-```
+In a collapsed core, the access switches connect straight up into a single
+combined core/distribution layer — two tiers instead of three.
 
 **Why collapse them?** Because a separate core only pays off when you have **enough distribution blocks to justify it**. In a single-building company, a dedicated core layer would just be extra hardware forwarding traffic between two switches — expensive, and more devices to manage for no benefit. *The rule of thumb: 3-tier for large multi-building campuses, 2-tier (collapsed core) for smaller sites.*
 
@@ -241,16 +214,9 @@ The classic campus design splits the network into **three layers**, each with on
 
 Data centers use a different shape. Every **leaf** connects to **every spine** — and leaves never connect to each other:
 
-```
-   SPINE     ┌────┐        ┌────┐
-             │ S1 │        │ S2 │
-             └─┬─┬┘        └┬─┬─┘
-          ┌────┘ └────┐ ┌───┘ └────┐
-   LEAF ┌─┴──┐     ┌──┴─┴─┐     ┌──┴─┐
-        │ L1 │     │  L2  │     │ L3 │
-        └────┘     └──────┘     └────┘
-        (servers hang off the leaves)
-```
+The shape is simple to describe: a row of **spine** switches, a row of **leaf**
+switches, and **every leaf connected to every spine**. Leaves never connect to
+each other, and spines never connect to each other. Servers hang off the leaves.
 
 **Why does the data center need its own shape?** Because traffic patterns changed. Old networks were mostly **north-south** (user → server → internet), which the 3-tier design handles well. Modern data centers are mostly **east-west** — servers talking to *other servers* (a web app querying a database, virtual machines syncing). In a 3-tier design, two servers on different access switches must travel *up* to distribution or core and back *down* — and the path length depends on where they happen to sit.
 
@@ -284,16 +250,13 @@ Here's something that seems like magic: a **single physical server** can run **t
 
 A **virtual machine (VM)** is a complete pretend computer — pretend CPU, pretend disk, pretend network card — running as software on a real one. The program that creates and manages VMs is the **hypervisor**.
 
-```
- ┌──────────────────────────────────────────┐
- │  VM 1     │  VM 2     │  VM 3            │
- │  Windows  │  Linux    │  Linux           │  ← each has its own full OS
- ├──────────────────────────────────────────┤
- │            HYPERVISOR                    │  ← divides up the real hardware
- ├──────────────────────────────────────────┤
- │      PHYSICAL SERVER (CPU, RAM, NIC)     │
- └──────────────────────────────────────────┘
-```
+The stack, from the bottom up:
+
+| Level | What's there |
+|-------|--------------|
+| Physical server | Real CPU, RAM and network card |
+| **Hypervisor** | Divides that real hardware into virtual slices |
+| VM 1 · VM 2 · VM 3 | Each with its **own complete OS** — Windows, Linux, whatever |
 
 **Why bother? Why not just use the physical server directly?** Because a physical server running one application typically uses **5–15% of its power** — the rest is wasted, but you still pay for the box, the rack space, the electricity, and the cooling. Virtualization lets one strong server do the work of many weak ones. And you gain things physical servers can't do: **snapshots** (save a machine's exact state before a risky change and roll back in seconds), **moving a running server** to different hardware without downtime, and **creating a new server in a minute** instead of ordering hardware. *It turns servers from things you buy into things you create.*
 
@@ -301,17 +264,16 @@ A **virtual machine (VM)** is a complete pretend computer — pretend CPU, prete
 
 A **container** is a lighter-weight idea. Instead of virtualizing the whole computer, containers **share the host's operating system** and package just the application plus what it needs to run.
 
-```
- ┌────────────────────────────────────────┐
- │ App A  │ App B  │ App C  │  ← containers (no OS inside each!)
- ├────────────────────────────────────────┤
- │        CONTAINER ENGINE (e.g. Docker)  │
- ├────────────────────────────────────────┤
- │        ONE SHARED OPERATING SYSTEM     │
- ├────────────────────────────────────────┤
- │        PHYSICAL SERVER                 │
- └────────────────────────────────────────┘
-```
+The container stack, bottom up:
+
+| Level | What's there |
+|-------|--------------|
+| Physical server | Real hardware |
+| **One shared operating system** | A single OS, used by everything above |
+| Container engine (e.g. Docker) | Packages and isolates each app |
+| App A · App B · App C | The apps — **no OS inside each one** |
+
+*Compare with the VM stack above: the guest operating systems are simply gone.*
 
 | Aspect | Virtual Machine | Container |
 |---|---|---|
@@ -366,23 +328,15 @@ The **OSI model** (Open Systems Interconnection) is a **7-layer** map of how dat
 
 Layers are numbered from the **bottom (Layer 1)** to the **top (Layer 7)**:
 
-```
- ┌─────────────────────────────────────────────┐
- │ 7  APPLICATION   → What you see & use        │  (web browser, email)
- ├─────────────────────────────────────────────┤
- │ 6  PRESENTATION  → Translate & encrypt       │  (JPEG, encryption)
- ├─────────────────────────────────────────────┤
- │ 5  SESSION       → Start/stop conversations  │  (keeping a call open)
- ├─────────────────────────────────────────────┤
- │ 4  TRANSPORT     → Reliable delivery, ports  │  (TCP, UDP)
- ├─────────────────────────────────────────────┤
- │ 3  NETWORK       → Addresses & routing       │  (IP, routers)
- ├─────────────────────────────────────────────┤
- │ 2  DATA LINK     → Local delivery, MAC       │  (switches, Ethernet)
- ├─────────────────────────────────────────────┤
- │ 1  PHYSICAL      → Wires, signals, light     │  (cables, radio)
- └─────────────────────────────────────────────┘
-```
+| # | Layer | Its job | You'd recognize |
+|---|-------|---------|-----------------|
+| **7** | Application | What you actually see and use | Web browser, email |
+| **6** | Presentation | Translate, compress, encrypt | JPEG, TLS |
+| **5** | Session | Start, keep and end conversations | Holding a call open |
+| **4** | Transport | Reliable delivery, port numbers | TCP, UDP |
+| **3** | Network | Addressing and routing between networks | IP, routers |
+| **2** | Data Link | Local delivery on one link | Switches, Ethernet, MAC |
+| **1** | Physical | Wires, signals, light, radio | Cables, fiber, Wi-Fi |
 
 ### A Trick to Remember the 7 Layers
 
@@ -426,33 +380,28 @@ From Layer 1 up to 7:
 
 The **TCP/IP model** is what the Internet actually uses. It has **4 layers** (sometimes shown as 5). It's basically the OSI model squished together.
 
-```
-   OSI (7 layers)              TCP/IP (4 layers)
- ┌───────────────┐          ┌───────────────────┐
- │ Application   │  ┐       │                   │
- │ Presentation  │  ├──────►│   Application     │
- │ Session       │  ┘       │                   │
- ├───────────────┤          ├───────────────────┤
- │ Transport     │ ────────►│   Transport       │
- ├───────────────┤          ├───────────────────┤
- │ Network       │ ────────►│   Internet        │
- ├───────────────┤          ├───────────────────┤
- │ Data Link     │  ┐       │                   │
- │ Physical      │  ┴──────►│  Network Access   │
- └───────────────┘          └───────────────────┘
-```
+| TCP/IP layer | Covers which OSI layers |
+|--------------|-------------------------|
+| **Application** | 7 Application + 6 Presentation + 5 Session |
+| **Transport** | 4 Transport |
+| **Internet** | 3 Network |
+| **Network Access** | 2 Data Link + 1 Physical |
+
+TCP/IP simply **merges** layers OSI keeps separate — the top three become one, and the bottom two become one.
 
 ## 2.4 Encapsulation — Wrapping Data in Layers
 
 As data goes **down** the layers (from your app to the wire), each layer **adds its own wrapper** (called a **header**). This is called **encapsulation**. It's like putting a letter inside envelope inside a box inside a shipping container.
 
-```
- Layer 7-5: DATA           →   [ Data ]
- Layer 4:   add TCP header →   [TCP | Data ]           = SEGMENT
- Layer 3:   add IP header  →   [IP | TCP | Data ]      = PACKET
- Layer 2:   add MAC header →   [MAC| IP | TCP | Data | Trailer ] = FRAME
- Layer 1:   turn into bits →   010101110101010101...   = BITS
-```
+| Going down the stack | What gets added | The result is called |
+|----------------------|-----------------|----------------------|
+| Layers 7–5 | — | **Data** |
+| Layer 4 | TCP header | **Segment** |
+| Layer 3 | IP header | **Packet** |
+| Layer 2 | MAC header **and** a trailer | **Frame** |
+| Layer 1 | — (turned into signals) | **Bits** |
+
+*Each layer wraps what the one above handed it — and the receiving device unwraps them in reverse.*
 
 At the other end, the receiving computer does the **opposite** — it peels off each wrapper. This is called **de-encapsulation**.
 
@@ -495,17 +444,13 @@ TCP is like sending a package with **signature required** and **tracking**. It m
 
 **The 3-Way Handshake** (how TCP starts a conversation):
 
-```
-   Computer A                        Computer B
-      │                                  │
-      │  ──────  SYN  ──────────────────►│   "Hi, can we talk?"
-      │                                  │
-      │  ◄─────  SYN-ACK  ───────────────│   "Sure! Can you hear me?"
-      │                                  │
-      │  ──────  ACK  ──────────────────►│   "Yes! Let's go."
-      │                                  │
-      │  ===== connection open! =====    │
-```
+The three-way handshake, in order:
+
+1. **A → B: SYN** — *"Hi, can we talk?"*
+2. **B → A: SYN-ACK** — *"Sure. Can you hear me?"*
+3. **A → B: ACK** — *"Yes. Let's go."*
+
+Only after that third message does either side send real data.
 
 **Remember:** SYN → SYN-ACK → ACK. Like knocking, getting a "who is it?", then answering.
 
@@ -586,28 +531,29 @@ Section 2.5 said TCP is "reliable." That word hides four separate mechanisms, an
 
 This is the detail most people get wrong: TCP sequence numbers count **bytes**, not segments.
 
-```
- Sender has 3000 bytes to send, MSS = 1000:
+Sender has 3000 bytes to send, MSS = 1000:
 
- Seq=1    [ bytes 1–1000 ]  ──►
- Seq=1001 [ bytes 1001–2000 ] ──►
- Seq=2001 [ bytes 2001–3000 ] ──►
-                              ◄── Ack=3001  "I have everything up to byte 3000,
-                                             send me byte 3001 next."
-```
+| Segment sent | Bytes it carries |
+|--------------|------------------|
+| `Seq=1` | 1–1000 |
+| `Seq=1001` | 1001–2000 |
+| `Seq=2001` | 2001–3000 |
+
+The receiver replies with a single **`Ack=3001`** — *"I have everything up to
+byte 3000; send me byte 3001 next."*
 
 **Why count bytes instead of packets?** Because it makes the acknowledgment *self-describing*. `Ack=3001` means "every byte below 3001 arrived" — one number confirms an arbitrary amount of data, and it stays correct even if the network splits or re-sizes segments along the way. Note the ack is the **next byte expected**, not the last byte received: it's a request, not a receipt.
 
 **What if a middle segment is lost?**
 
-```
- Seq=1    [ 1–1000 ]    ──►  arrives
- Seq=1001 [ 1001–2000 ] ──X  LOST
- Seq=2001 [ 2001–3000 ] ──►  arrives
-                        ◄── Ack=1001   ("still waiting on 1001")
-                        ◄── Ack=1001   (duplicate ack)
-                        ◄── Ack=1001   (duplicate ack)
-```
+| Segment sent | Bytes | What happened |
+|--------------|-------|---------------|
+| `Seq=1` | 1–1000 | arrives |
+| `Seq=1001` | 1001–2000 | **LOST** |
+| `Seq=2001` | 2001–3000 | arrives |
+
+The receiver now answers **`Ack=1001`**, then `Ack=1001` again, then again — the
+same number three times, because that's the truth: it still needs byte 1001.
 
 The receiver keeps saying `Ack=1001` because that's the truth — it can't acknowledge past the hole. Three **duplicate ACKs** tell the sender "one specific segment is missing, but later ones are arriving, so the path is alive." The sender resends just that segment — **fast retransmit** — without waiting for a timeout. *That's why the ack is "next expected" rather than "last received": the repetition itself becomes the signal.*
 
@@ -642,12 +588,10 @@ The actual send rate is the **smaller** of the two windows. Either can be the bo
 
 Opening takes three messages; closing normally takes **four**, because each direction closes independently:
 
-```
- FIN ──►         "I'm done sending."
-     ◄── ACK
-     ◄── FIN     "So am I."
- ACK ──►
-```
+1. **A → B: FIN** — *"I'm done sending."*
+2. **B → A: ACK**
+3. **B → A: FIN** — *"So am I."*
+4. **A → B: ACK**
 
 **Why can't both sides just hang up at once?** Because TCP is **full duplex** — two independent byte streams. One side finishing its upload doesn't mean the other finished its download, so a **half-close** is legitimate: the server can keep sending after the client says FIN. (A **RST** is the abrupt alternative — "this connection is invalid, stop now" — which is what you get connecting to a closed port.)
 
@@ -664,17 +608,9 @@ Everything digital eventually rides on something physical: a **copper wire**, a 
 
 The most common LAN cable is **twisted-pair copper**, ending in an **RJ‑45** connector (looks like a fat phone plug). Inside are **8 tiny wires**, twisted into **4 pairs**.
 
-```
-   RJ-45 connector (front view):
-   ┌───────────────┐
-   │ 1 2 3 4 5 6 7 8│   ← 8 pins
-   └──┬───────────┬┘
-      │ little clip │
-      └─────────────┘
-
-   Inside the cable: 4 twisted pairs
-    (○○) (○○) (○○) (○○)
-```
+An **RJ-45** connector has **8 pins**, numbered 1–8 across the front, with a
+small plastic clip that holds it in the socket. Inside the cable are **4 twisted
+pairs** — 8 wires total, twisted in pairs to cancel out interference.
 
 **Why twisted?** Twisting the wires cancels out electrical noise (interference), so the signal stays clean. Cool trick!
 
@@ -703,13 +639,17 @@ Inside that Ethernet cable, some wires are used to **transmit** (send) and other
 
 **Here's the key rule:** For two devices to talk, one device's **mouth (Tx)** must connect to the other device's **ears (Rx)**. If both devices talk on the same wires and listen on the same wires, it's like two people both shouting into pins 1-2 and both listening on pins 3-6 — nobody hears anybody! 🙉
 
-```
-   GOOD (Tx meets Rx):          BAD (Tx meets Tx):
-   Device A      Device B       Device A      Device B
-   Tx (1,2) ───► Rx (3,6)       Tx (1,2) ──X── Tx (1,2)  ❌
-   Rx (3,6) ◄─── Tx (1,2)       Rx (3,6) ──X── Rx (3,6)  ❌
-   they hear each other! ✅      both talking, nobody listens
-```
+Devices **transmit** on one pair and **listen** on another:
+
+| | Sends on | Listens on |
+|---|---|---|
+| PC / router | pins **1, 2** | pins **3, 6** |
+| Switch | pins **3, 6** | pins **1, 2** |
+
+**That opposition is the whole trick.** A PC's transmit pins line up with a
+switch's listen pins, so a plain straight-through cable works. Connect two of
+the *same* kind of device, though, and transmit meets transmit — both talking,
+neither listening — which is exactly what a crossover cable fixes.
 
 #### Why "Same" vs "Different" Devices Matters
 
@@ -760,27 +700,27 @@ Sort every device into one of two teams by how it's wired:
 
 Ethernet cables follow a color-order standard. The most common is **T568B**. A straight-through cable uses **T568B on both ends**. A crossover uses **T568B on one end and T568A on the other** (which swaps the green and orange pairs = swaps Tx and Rx).
 
-```
-   Pin   Straight-through   Crossover (other end)
-        (T568B both ends)   (T568A on far end)
-    1     White/Orange       White/Green    ← 1 crosses to 3
-    2     Orange             Green          ← 2 crosses to 6
-    3     White/Green        White/Orange   ← 3 crosses to 1
-    4     Blue               Blue
-    5     White/Blue         White/Blue
-    6     Green              Orange         ← 6 crosses to 2
-    7     White/Brown        White/Brown
-    8     Brown              Brown
-```
+| Pin | Straight-through (T568B) | Crossover (T568A far end) |
+|-----|--------------------------|---------------------------|
+| 1 | White/Orange | White/Green — *crosses to 3* |
+| 2 | Orange | Green — *crosses to 6* |
+| 3 | White/Green | White/Orange — *crosses to 1* |
+| 4 | Blue | Blue |
+| 5 | White/Blue | White/Blue |
+| 6 | Green | Orange — *crosses to 2* |
+| 7 | White/Brown | White/Brown |
+| 8 | Brown | Brown |
 
-```
- Straight-through:        Crossover:
-  1 ───────── 1            1 ────╮ ╭──── 1
-  2 ───────── 2            2 ───╮╳╳╮──── 2
-  3 ───────── 3            3 ───╯╳╳╯──── 3
-  6 ───────── 6            6 ────╯ ╰──── 6
- (same on both ends)      (transmit & receive swapped)
-```
+So the pin-to-pin connections come out as:
+
+| | Straight-through | Crossover |
+|---|------------------|-----------|
+| Pin 1 → | 1 | **3** |
+| Pin 2 → | 2 | **6** |
+| Pin 3 → | 3 | **1** |
+| Pin 6 → | 6 | **2** |
+
+*Straight-through keeps every pin in place; crossover swaps the transmit and receive pairs.*
 
 #### A Third Cable: The Rollover (Console) Cable
 
@@ -790,14 +730,9 @@ There's one more cable you must know for the exam: the **rollover cable** (also 
 - It's usually **light blue** (Cisco's classic color).
 - One end plugs into the device's **console port**; the other connects to your laptop (often via a USB-to-serial adapter).
 
-```
- Rollover cable (fully reversed):
-   1 ──╮   ╭── 8
-   2 ─╮╰───╯╭─ 7
-   3 ╮╰─────╯╭ 6
-   ...all 8 pins flip order...
-   8 ──╯   ╰── 1
-```
+A **rollover** cable reverses the order completely: pin **1 ↔ 8**, **2 ↔ 7**,
+**3 ↔ 6**, **4 ↔ 5**. It carries no Ethernet at all — it's for console access to
+a device's command line.
 
 **Three cables, three jobs — memorize this table:**
 
@@ -824,10 +759,9 @@ Fiber uses **pulses of light** through thin glass strands instead of electricity
 | **Multimode (MMF)** | Bigger core | LED / cheap laser | Shorter (up to ~550m) | Inside buildings |
 | **Single-mode (SMF)** | Tiny core | Precise laser | Very long (many km) | Between cities |
 
-```
- Copper (electricity):   ~~~⚡~~~⚡~~~⚡~~~   (can pick up noise)
- Fiber (light):          ═══💡═══💡═══💡═══   (no electrical noise, super fast)
-```
+**Copper** carries **electricity**, so it can pick up electrical noise from
+nearby motors, lights and cables. **Fiber** carries **light**, which is immune to
+electrical interference — one reason it runs faster and very much further.
 
 **Why choose fiber?**
 - Immune to electrical interference.
@@ -847,11 +781,10 @@ Wi‑Fi uses **radio waves** (invisible signals through the air) instead of cabl
 - **Half-duplex:** Can send OR receive, but not at the same time (like a walkie-talkie — you say "over" and take turns). Old hubs used this.
 - **Full-duplex:** Can send AND receive at the same time (like a phone call — both people talk at once). Modern switches use this.
 
-```
- Half-duplex (take turns):     Full-duplex (both at once):
-  A ───► B   (then)            A ═══► B
-  A ◄─── B                     A ◄═══ B
-```
+| | How it works | Result |
+|---|--------------|--------|
+| **Half-duplex** | Send **or** receive — one at a time, taking turns | Collisions possible |
+| **Full-duplex** | Send **and** receive simultaneously | No collisions; the modern default |
 
 **Collision:** In half-duplex, if two devices talk at once, their signals crash — that's a **collision**. Full-duplex has no collisions.
 
@@ -868,16 +801,13 @@ Wi‑Fi uses **radio waves** (invisible signals through the air) instead of cabl
 
 Here's a genuinely useful trick: an Ethernet cable can carry **electrical power** alongside the data. That's **Power over Ethernet (PoE)**, and it's why the phone on an office desk and the access point on the ceiling have **only one cable** going to them — no power brick, no wall outlet.
 
-```
-            ONE CABLE carries both
-  ┌──────────┐  ──── data ────►  ┌──────────┐
-  │  SWITCH  │                   │    AP    │
-  │  (PoE)   │  ──── power ───►  │  ☎️ / 📷  │
-  └──────────┘                   └──────────┘
-     "PSE"                          "PD"
-  Power Sourcing                Powered Device
-    Equipment
-```
+One cable carries **both** the data and the electricity. The switch feeding the
+power and the device drawing it have names worth knowing:
+
+| Term | Stands for | Which is |
+|------|-----------|----------|
+| **PSE** | Power Sourcing Equipment | The switch (or injector) supplying power |
+| **PD** | Powered Device | The AP, phone or camera drawing it |
 
 **Why is this such a big deal?** Think about where these devices live: an access point on a **ceiling**, a security camera on an **outside wall**, a phone in the middle of an open-plan floor. Running an electrical outlet to each of those spots means an electrician, conduit, and real money — often more than the device costs. PoE means the network cable you were *already going to run* delivers power too. And there's a bonus: because the power comes from the switch in the wiring closet, plugging that **switch** into a UPS keeps every phone and camera alive during a power cut — one battery protects them all.
 
@@ -922,13 +852,20 @@ A single 1 or 0 is called a **bit** (short for **b**inary dig**it**). It's the s
 
 Networks and computers group bits into bytes all the time. An IP address like `192.168.1.1` is made of **4 bytes** (32 bits total). More on that soon!
 
-```
- 1 byte = 8 bits:
- ┌───┬───┬───┬───┬───┬───┬───┬───┐
- │ 1 │ 0 │ 1 │ 1 │ 0 │ 0 │ 1 │ 0 │
- └───┴───┴───┴───┴───┴───┴───┴───┘
-   128  64  32  16   8   4   2   1   ← the value of each spot
-```
+One **byte** is **8 bits**, and each position is worth double the one to its right:
+
+| Position | Worth | Bit |
+|----------|-------|-----|
+| 1st (leftmost) | 128 | **1** |
+| 2nd | 64 | 0 |
+| 3rd | 32 | **1** |
+| 4th | 16 | **1** |
+| 5th | 8 | 0 |
+| 6th | 4 | 0 |
+| 7th | 2 | **1** |
+| 8th (rightmost) | 1 | 0 |
+
+Add up the positions holding a 1: 128 + 32 + 16 + 2 = **178**.
 
 ## 4.3 How Binary Counting Works (The Place Values)
 
@@ -944,12 +881,18 @@ To find a byte's value, **add up the spots that have a 1**.
 
 ### Example 1: Convert binary `11000000` to decimal
 
-```
- 128   64   32   16   8   4   2   1
-  1     1    0    0   0   0   0   0
- ───   ──
- 128 + 64 + 0 + 0 + 0 + 0 + 0 + 0 = 192  ✅
-```
+| Place | Bit |
+|-------|-----|
+| 128 | **1** |
+| 64 | **1** |
+| 32 | 0 |
+| 16 | 0 |
+| 8 | 0 |
+| 4 | 0 |
+| 2 | 0 |
+| 1 | 0 |
+
+Only the 128 and 64 positions hold a 1, so: 128 + 64 = **192** ✅
 
 So `11000000` = **192**. (This is the first byte of `192.168.x.x`!)
 
@@ -1032,13 +975,12 @@ A **MAC address** (Media Access Control) is a **permanent ID number** burned int
 - It's **48 bits** long, written as **12 hex digits**.
 - Usually shown in pairs: `00:1A:2B:3C:4D:5E` (or with dashes, or Cisco style `001a.2b3c.4d5e`).
 
-```
-   00:1A:2B  :  3C:4D:5E
-   └───┬──┘     └───┬──┘
-   made by who?   unique serial
-   (OUI - the      (chosen by the
-   manufacturer)    maker for each card)
-```
+A MAC address splits into two halves:
+
+| Half | Example | What it means |
+|------|---------|---------------|
+| First 24 bits | `00:1A:2B` | The **OUI** — which manufacturer made it |
+| Last 24 bits | `3C:4D:5E` | A serial the maker assigns to that individual card |
 
 - The **first half (OUI)** tells you the **manufacturer** (Cisco, Apple, Intel...).
 - The **second half** is a unique serial the manufacturer assigns.
@@ -1069,12 +1011,13 @@ MAC and IP work exactly the same way, and we need both for two different jobs:
 
 When data travels on a LAN, it's wrapped in an **Ethernet frame**. Here's the layout:
 
-```
- ┌────────────┬────────────┬──────┬─────────────┬─────┐
- │ Destination│   Source   │ Type │   DATA      │ FCS │
- │  MAC (6B)  │  MAC (6B)  │ (2B) │ (46-1500B)  │(4B) │
- └────────────┴────────────┴──────┴─────────────┴─────┘
-```
+| Field | Size | What it's for |
+|-------|------|---------------|
+| Destination MAC | 6 bytes | Who the frame is **for** — read first, so a switch can forward immediately |
+| Source MAC | 6 bytes | Who **sent** it — this is what a switch learns from |
+| Type | 2 bytes | What's inside (e.g. IPv4, IPv6, ARP) |
+| **Data** | 46–1500 bytes | The packet being carried |
+| FCS | 4 bytes | Corruption check, added at the **end** so it can cover everything before it |
 
 - **Destination MAC:** Who is this frame for?
 - **Source MAC:** Who sent it?
@@ -1092,11 +1035,11 @@ When data travels on a LAN, it's wrapped in an **Ethernet frame**. Here's the la
 
 - **Broadcast MAC address** is all F's: `FF:FF:FF:FF:FF:FF`. Every device listens to it.
 
-```
- Unicast:      A ───► B          (only B gets it)
- Broadcast:    A ───► everyone   (B, C, D all get it)
- Multicast:    A ───► group{B,D} (only B and D, not C)
-```
+| Type | Goes to | In the example |
+|------|---------|----------------|
+| **Unicast** | Exactly one device | Only B receives it |
+| **Broadcast** | Every device on the segment | B, C and D all receive it |
+| **Multicast** | Only devices that joined the group | B and D receive it; C does not |
 
 ## 5.5 How Devices Learn About Collisions (CSMA/CD)
 
@@ -1125,16 +1068,13 @@ A **switch** connects many devices in a LAN. Its genius is that it learns **whic
 
 It keeps a list called the **MAC address table** (or CAM table):
 
-```
- MAC Address Table on Switch:
- ┌──────────────────┬───────┐
- │   MAC Address    │ Port  │
- ├──────────────────┼───────┤
- │ 00:11:...:AA     │  Fa0/1│
- │ 00:22:...:BB     │  Fa0/2│
- │ 00:33:...:CC     │  Fa0/3│
- └──────────────────┴───────┘
-```
+A switch's MAC address table is simply a list of *which address lives on which port*:
+
+| MAC Address | Port |
+|-------------|------|
+| `00:11:…:AA` | Fa0/1 |
+| `00:22:…:BB` | Fa0/2 |
+| `00:33:…:CC` | Fa0/3 |
 
 ## 6.2 How a Switch Learns (Step by Step)
 
@@ -1146,17 +1086,16 @@ It keeps a list called the **MAC address table** (or CAM table):
 4. **Filtering:** If the destination is on the **same port** the frame came from, the switch drops it (no need to send it back).
 5. **Aging:** If a device is quiet for a while (default 300 seconds), the switch forgets it to keep the table fresh.
 
-```
- Step 1: PC-A (port 1) sends to PC-C, but switch doesn't know PC-C yet.
-   → Switch FLOODS to ports 2, 3, 4.
-   → Switch LEARNS: PC-A is on port 1.
+**Step 1.** PC-A (on port 1) sends a frame to PC-C, but the switch has never
+heard of PC-C. So it **floods** the frame out ports 2, 3 and 4 — and at the same
+time **learns** that PC-A is on port 1, from the frame's source address.
 
- Step 2: PC-C (port 3) replies to PC-A.
-   → Switch already knows PC-A (port 1), sends only to port 1.
-   → Switch LEARNS: PC-C is on port 3.
+**Step 2.** PC-C (on port 3) replies to PC-A. The switch already knows PC-A is on
+port 1, so it sends the reply **only** to port 1 — and **learns** that PC-C is on
+port 3.
 
- Now the table knows both. Future traffic is direct. 🎯
-```
+The table now holds both. From here on, traffic between them goes straight to the
+right port with no flooding. 🎯
 
 **Let's understand WHY the switch behaves this way — every step has a smart reason:**
 
@@ -1308,15 +1247,10 @@ Imagine a school with **200 devices** all plugged into switches, all in one broa
 **Problem A — Broadcast noise (performance):**
 Every one of those 200 devices sends broadcasts. Every broadcast goes to **all 200 devices**. Each device's CPU has to stop and inspect every broadcast, even ones meant for nobody it cares about. With hundreds of devices, this becomes a constant storm of interruptions that **wastes bandwidth and slows everything down**.
 
-```
- ONE FLAT NETWORK (no VLANs):
-   One PC sends a broadcast ("Who has 192.168.1.5?")
-   ┌──────────────────────────────────────────────┐
-   │  It reaches ALL 200 devices, everywhere:      │
-   │  laptops, printers, cameras, payroll server...│
-   │  Every device must stop and process it. 😩     │
-   └──────────────────────────────────────────────┘
-```
+In one flat network with no VLANs, a single PC asking *"who has 192.168.1.5?"*
+sends a broadcast that reaches **all 200 devices** — laptops, printers, cameras,
+the payroll server, everything. Every one of them has to stop and process a
+question that almost none of them can answer. 😩
 
 **Problem B — No security separation:**
 Because everyone is on the same network, a **student laptop can try to reach the payroll server** directly. There's no wall between them. If a student's laptop gets a virus, it can spread to the principal's computer and the cameras. That's dangerous.
@@ -1330,18 +1264,12 @@ Before VLANs, the only way to separate groups was to **buy a separate physical s
 
 **VLANs solve all three problems at once** by letting you create **multiple separate networks inside a single physical switch** — invisible walls, in software.
 
-```
- WITHOUT VLANs (everyone together):
- ┌─────────────────────────────────┐
- │  Teacher  Student  Student  Boss│   all one broadcast domain 😬
- └─────────────────────────────────┘
+| | Broadcast domains | Who shares one |
+|---|---|---|
+| **Without VLANs** | **1** | Teachers, students and admin all together 😬 |
+| **With VLANs** | **3** | VLAN 10 Teachers · VLAN 20 Students · VLAN 30 Admin 😌 |
 
- WITH VLANs (separated, but same physical switch):
- ┌───────────┬───────────┬─────────┐
- │ VLAN 10   │ VLAN 20   │ VLAN 30 │
- │ Teachers  │ Students  │  Admin  │   3 separate broadcast domains 😌
- └───────────┴───────────┴─────────┘
-```
+And that's on the **same physical switch** — no extra hardware involved.
 
 **The single most important sentence about VLANs:**
 > **A VLAN = a broadcast domain.** When you make 3 VLANs, you've made 3 separate broadcast domains — as if you had 3 separate physical switches, even though it's one box.
@@ -1384,25 +1312,17 @@ Now, Teacher-A is plugged into SW1, and Teacher-B is plugged into SW2. They're b
 
 Here's the trap. When SW1 sends Teacher-A's frame across that cable to SW2, SW2 receives a **plain Ethernet frame with no VLAN information in it**. SW2 thinks: *"A frame arrived on my uplink port... but which VLAN is it? Teachers? Students? I have no idea!"*
 
-```
-   SW1                          the one cable                      SW2
- ┌────────────┐                                              ┌────────────┐
- │ Teacher-A  │  frame leaves... but the frame itself has    │ Teacher-B  │
- │  (VLAN 10) │  NO label saying "VLAN 10" on it!            │  (VLAN 10) │
- │ Student-X  │  ───────────────────────────────────────►   │ Student-Y  │
- │  (VLAN 20) │        SW2: "which VLAN is this?! 😱"         │  (VLAN 20) │
- └────────────┘                                              └────────────┘
-```
+Picture SW1 and SW2, each holding both a Teacher (VLAN 10) and a Student
+(VLAN 20), joined by **one cable**. A frame leaves SW1 — but the frame itself
+carries **no label saying which VLAN it belongs to**. SW2 receives it and has no
+way to answer the only question that matters: *which VLAN is this?* 😱
 
 If that one cable were an **access port** (belongs to a single VLAN), it could only carry **one** VLAN's traffic. So you'd need a **separate cable for every VLAN** between the switches:
 
-```
- THE NAIVE FIX (access ports only) — one cable per VLAN:
-   SW1 ═══════ VLAN 10 cable ═══════ SW2
-   SW1 ═══════ VLAN 20 cable ═══════ SW2
-   SW1 ═══════ VLAN 30 cable ═══════ SW2
-   ...imagine 20 VLANs = 20 cables and 20 wasted ports on each switch! 😫
-```
+**The naive fix** is one cable per VLAN: a VLAN 10 cable, a VLAN 20 cable, a
+VLAN 30 cable, each plugged into access ports at both ends. It works — and it
+scales terribly. Twenty VLANs would mean **twenty cables** and twenty burned
+ports on *each* switch. 😫
 
 That obviously doesn't scale. We need **one cable to carry many VLANs** — but then we're back to the problem: *how does the receiving switch know which VLAN each frame belongs to?*
 
@@ -1412,17 +1332,13 @@ The answer is beautifully simple: **before sending a frame across the shared cab
 
 A **cable/port that carries multiple VLANs by tagging frames** is called a **TRUNK**. A port that carries **just one VLAN with no tags** (for a normal end device) is called an **ACCESS** port. That's the whole distinction:
 
-```
-   SW1                                              SW2
- ┌────────────┐                                 ┌────────────┐
- │ Teacher-A  │══════ ONE TRUNK cable ══════════│ Teacher-B  │
- │  (VLAN 10) │   carries VLAN 10 AND 20,        │  (VLAN 10) │
- │ Student-X  │   each frame TAGGED with its     │ Student-Y  │
- │  (VLAN 20) │   VLAN number so SW2 knows       │  (VLAN 20) │
- └────────────┘                                 └────────────┘
-    Fa0/1,Fa0/2 = ACCESS ports (one VLAN each, no tags, for PCs)
-    Fa0/24      = TRUNK port  (many VLANs, tagged, switch-to-switch)
-```
+The real fix is **one trunk cable** carrying VLAN 10 *and* VLAN 20, with every
+frame **tagged** with its VLAN number so SW2 knows exactly where it belongs.
+
+| Port | Role | Carries | Tagged? |
+|------|------|---------|---------|
+| Fa0/1, Fa0/2 | **Access** | One VLAN each | No — for PCs |
+| Fa0/24 | **Trunk** | Many VLANs | Yes — switch-to-switch |
 
 ### So: WHY access, WHY trunk? (The rule you'll never forget)
 
@@ -1505,12 +1421,14 @@ In Chapter 7 you learned *why* trunks exist: a single cable must carry many VLAN
 
 The tagging standard is **802.1Q** (say "dot-one-Q"). When a frame goes onto a trunk, the switch inserts a **4-byte tag** right into the middle of the Ethernet frame — squeezed in between the Source MAC and the Type field:
 
-```
- Normal frame:   [ DestMAC | SrcMAC | Type | Data | FCS ]
- Tagged frame:   [ DestMAC | SrcMAC |TAG| Type | Data | FCS ]
-                                     └─┬─┘
-                              4-byte 802.1Q tag
-```
+| | Fields, in order |
+|---|---|
+| **Normal frame** | Dest MAC → Src MAC → Type → Data → FCS |
+| **Tagged frame** | Dest MAC → Src MAC → **802.1Q tag (4 bytes)** → Type → Data → FCS |
+
+The tag is **inserted after the source MAC**, not bolted on the front — the
+addresses stay exactly where hardware expects to find them, so a switch reads
+them at full speed and only then notices the tag.
 
 **What's inside that 4-byte tag?** The important part for the exam is the **VLAN ID** — a number from **1 to 4094** that says which VLAN the frame belongs to. (The tag also holds a priority field for QoS, but the VLAN ID is the star.)
 
@@ -1589,18 +1507,15 @@ Use **one** trunk link between the switch and router. The router splits that sin
 
 **Why subinterfaces?** Because the trunk delivers **tagged** frames for many VLANs down one wire. The router needs a separate "identity" (and gateway IP) for each VLAN, so it creates a virtual interface per VLAN and matches each to a tag with `encapsulation dot1q`.
 
-```
-        ┌─────────────────┐
-        │     ROUTER      │
-        │  Gi0/0.10 (V10) │  ← gateway 192.168.10.1
-        │  Gi0/0.20 (V20) │  ← gateway 192.168.20.1
-        └────────┬────────┘
-                 │ ONE trunk cable (the "stick")
-        ┌────────┴────────┐
-        │     SWITCH      │
-        │ V10 ports  V20  │
-        └─────────────────┘
-```
+The router keeps **one physical link** to the switch — the "stick" — configured
+as a trunk, and splits it into **subinterfaces**, one per VLAN:
+
+| Subinterface | VLAN | Acts as gateway |
+|--------------|------|-----------------|
+| `Gi0/0.10` | 10 | 192.168.10.1 |
+| `Gi0/0.20` | 20 | 192.168.20.1 |
+
+The switch port at the other end is a trunk carrying both VLANs.
 
 Router config for ROAS:
 
@@ -1644,11 +1559,9 @@ For safety, we connect switches with **extra cables** (redundancy) so if one bre
 
 **Story Time 📖:** Imagine two mirrors facing each other. A single reflection bounces forever, multiplying endlessly. A broadcast frame in a switch loop does the same — it circles forever, multiplying, until the network **melts down** (a "broadcast storm"). 😱
 
-```
-   SW1 ═══════ SW2
-    ║           ║       ← a loop! A broadcast will circle
-   SW3 ═════════╝          around and around forever.
-```
+Wire SW1, SW2 and SW3 together in a triangle — each connected to both of the
+others — and you've built a **loop**. A broadcast entering that triangle circles
+it endlessly, because nothing in a frame tells a switch to stop forwarding it.
 
 **Here's the WHY that makes STP make sense — and it's a fact most beginners miss:** *Why do loops destroy a Layer 2 network but not the Internet, which is full of loops?* The answer is a single missing feature: **Ethernet frames have no "expiration date."**
 
@@ -1665,13 +1578,10 @@ So a Layer 2 loop isn't a small slowdown — it's a **total, instant meltdown** 
 
 **STP (802.1D)** automatically finds loops and **blocks** one path so there's only ONE way through — no loops. If the active path breaks, STP **unblocks** the backup path. Best of both worlds: redundancy WITHOUT loops.
 
-```
-   SW1 ═══════ SW2
-    ║           X   ← STP BLOCKS this port (no loop!)
-   SW3 ═════════╝
-
-   If the top link breaks, STP unblocks the X to keep everyone connected.
-```
+STP leaves the triangle physically wired but **blocks one port**, so there's
+only one active path and no loop. If the working link later breaks, STP unblocks
+that port and everyone stays connected — the redundancy is still there, just held
+in reserve.
 
 **Why "block a port" instead of "unplug the cable"?** Because a blocked port is a **backup on standby**, not a removed one. It still *listens* for STP messages, so it knows the instant the main path fails — and then it springs into action and starts forwarding. You get the safety of no-loops *and* the resilience of a spare path, automatically. Unplugging the cable would give you no loop but also no backup. Blocking gives you both.
 
@@ -1705,10 +1615,12 @@ Lower total cost = better path. Faster links have lower cost = preferred. *(Noti
 
 In classic STP, a port moves through states before it forwards data:
 
-```
- Blocking → Listening → Learning → Forwarding
-   (~20s)    (~15s)      (~15s)      (GO!)
-```
+| Order | State | Roughly how long | What happens |
+|-------|-------|------------------|--------------|
+| 1 | **Blocking** | ~20 s | Listens to BPDUs, forwards nothing |
+| 2 | **Listening** | ~15 s | Works out the topology |
+| 3 | **Learning** | ~15 s | Builds its MAC table, still forwards nothing |
+| 4 | **Forwarding** | — | Finally passes traffic |
 
 - **Blocking:** No data, just listens for BPDUs.
 - **Listening:** Preparing, no data yet.
@@ -1775,16 +1687,16 @@ So far we've talked about "STP" as one thing. In reality there are several **ver
 
 With one tree per VLAN, you can deliberately make **different switches the root for different VLANs**:
 
-```
-   VLAN 10 root = SW1              VLAN 20 root = SW2
-        SW1 ═══════ SW2                SW1 ═══════ SW2
-         ║  (blocked  ║                 ║ (forwarding ║
-         ║  for V20)  ║                 ║  for V20)   ║
-        SW3 ─────────┘                 SW3 ──────────┘
+Make **SW1** the root for VLAN 10 and **SW2** the root for VLAN 20, and the
+blocking decisions land on different links for each VLAN:
 
-   Result: VLAN 10 traffic takes the left path,
-           VLAN 20 traffic takes the right path — BOTH links carry traffic.
-```
+| VLAN | Root | Left link | Right link |
+|------|------|-----------|------------|
+| **10** | SW1 | forwarding | blocked |
+| **20** | SW2 | blocked | forwarding |
+
+Each link is blocked for *some* VLANs and forwarding for *others* — so **both
+uplinks carry real traffic**, while every VLAN still has a loop-free tree.
 
 Now each link is blocked for *some* VLANs and forwarding for *others*, so both uplinks carry real traffic and you get crude **load balancing** — while each VLAN still has a perfectly loop-free tree. *You pay in CPU (each VLAN runs its own election) and gain link utilization. That trade is why Cisco made per-VLAN the default.*
 
@@ -1856,15 +1768,15 @@ Switches converge by flooding one small message, the **BPDU**, every 2 seconds. 
 
 ### The Bridge ID Is Not Just a Priority
 
-```
-   Bridge ID (8 bytes)
-   ┌─────────────────┬──────────────────────┬──────────────────────┐
-   │ Priority (4 bits)│ Extended System ID   │  MAC address         │
-   │ 0–61440, step    │ (12 bits) = VLAN ID  │  (6 bytes)           │
-   │ 4096             │                      │                      │
-   └─────────────────┴──────────────────────┴──────────────────────┘
-   Default: 32768 + VLAN
-```
+The Bridge ID is **8 bytes**, in three parts:
+
+| Part | Size | Contents |
+|------|------|----------|
+| Priority | 4 bits | 0–61440, **only in steps of 4096** |
+| Extended System ID | 12 bits | The **VLAN number** |
+| MAC address | 6 bytes | The switch's own address — the final tie-breaker |
+
+*Default: priority 32768 + the VLAN — which is why VLAN 1 displays as 32769.*
 
 **Why is the priority forced into steps of 4096, instead of any number you like?** Because the low 12 bits were **repurposed to hold the VLAN ID**. When Cisco moved to one spanning tree per VLAN (section 9.8), each instance needed its own distinct Bridge ID — but the field was full. The fix was to carve the VLAN number out of the priority field, which leaves only the top 4 bits adjustable: 2⁴ = 16 usable values, spaced 4096 apart. *That's why `spanning-tree vlan 10 priority 4097` is rejected but 4096 is accepted — and why a switch's Bridge ID differs per VLAN even though the MAC is identical.*
 
@@ -1881,13 +1793,13 @@ Cost is **added on reception**, using the cost of the port the BPDU arrived on:
 | 1 Gbps | 4 |
 | 10 Gbps | 2 |
 
-```
-   ROOT ──1G──► SW2 ──1G──► SW3
-        cost 0      cost 4      cost 8
+Take a chain — ROOT, then SW2, then SW3, joined by 1 Gbps links (cost 4 each):
 
-   SW2 receives a BPDU advertising cost 0, adds its own ingress port cost (4),
-   and advertises cost 4 onward. SW3 receives 4, adds 4, and knows it is 8 from root.
-```
+| Switch | BPDU says | Adds its ingress cost | Advertises onward |
+|--------|-----------|-----------------------|-------------------|
+| ROOT | — | — | cost **0** |
+| SW2 | receives 0 | + 4 | cost **4** |
+| SW3 | receives 4 | + 4 | knows it is **8** from root |
 
 **Why add on the way in rather than on the way out?** Because a switch knows the speed of the link it *received* on, but not what the neighbour's outbound link will be. Charging the cost at ingress means every switch computes its own distance from local facts only — no coordination needed. *Notice costs are not linear with speed: 10 Mbps is 100 while 1 Gbps is 4. The scale was chosen so slow links look dramatically worse, not proportionally worse.*
 
@@ -1939,13 +1851,11 @@ And two new **roles** that classic STP lacked:
 
 On a point-to-point link, two RSTP switches negotiate explicitly instead of waiting out timers:
 
-```
-  SW1 ──── proposal ────► SW2     "I intend to be designated here."
-  SW1                     SW2     SW2 SYNCS: blocks its other non-edge ports
-                                  so it cannot possibly create a loop
-  SW1 ◄─── agreement ──── SW2     "Agreed, go ahead."
-  SW1 ══ forwarding ═════ SW2     immediately
-```
+1. **SW1 → SW2: proposal** — *"I intend to be the designated port here."*
+2. **SW2 syncs** — it blocks its own other non-edge ports, so it cannot possibly
+   create a loop no matter what SW1 does next.
+3. **SW2 → SW1: agreement** — *"Agreed, go ahead."*
+4. **SW1 forwards immediately** — no timers waited out.
 
 **Why is skipping the timers safe here, when classic STP insisted on them?** Because the timers were a substitute for information. Classic STP had no way to ask "is it safe to forward?", so it waited long enough for any conflicting news to arrive. RSTP just **asks**, and the neighbour blocks its own downstream ports (the **sync**) before answering. Safety comes from an explicit agreement rather than from elapsed time.
 
@@ -1968,25 +1878,18 @@ Finally, RSTP handles **topology change** differently. Classic STP notified the 
 
 What if one cable between switches isn't fast enough? **EtherChannel** bundles **multiple physical cables** into **one logical link**. More speed, and if one cable dies, the others keep working!
 
-```
-  Without EtherChannel:        With EtherChannel:
-   SW1 ═══ SW2  (1 link)        SW1 ═╦═══╦═ SW2
-   SW1  X  SW2  (STP blocks           ╚═══╝
-        the extra one!)         all 4 cables work as ONE! 🎉
-```
+Without EtherChannel, four cables between two switches give you the speed of
+**one**, because STP blocks the other three to prevent a loop. Bundle them into
+an EtherChannel and STP sees a **single logical link** — so all four carry
+traffic. 🎉
 
 **Bonus:** STP sees the bundle as a **single link**, so it won't block the extra cables. You get all the bandwidth AND redundancy.
 
 **This "bonus" is actually the WHOLE POINT — let's understand WHY EtherChannel exists.** Here's the problem it solves: imagine you connect two switches with 4 cables for more speed. What does STP do? Remember Chapter 9 — STP sees 4 paths between the same two switches as a **loop**, so it **blocks 3 of them!** You wanted 4× the bandwidth, but STP leaves you with just **1 active cable** and 3 sitting idle. Frustrating!
 
-```
- WITHOUT EtherChannel — STP's view:
-   SW1 ═══ SW2   ← only this one forwards
-   SW1  X  SW2   ← STP blocks (loop!)
-   SW1  X  SW2   ← STP blocks (loop!)
-   SW1  X  SW2   ← STP blocks (loop!)
-   You paid for 4 cables, you get the speed of 1. 😤
-```
+From STP's point of view, four parallel links between SW1 and SW2 are four
+chances to form a loop. It forwards on **one** and blocks the other **three**.
+You paid for four cables and got the speed of one. 😤
 
 **EtherChannel's clever trick:** it makes STP see the 4 cables as **ONE logical link**, so there's no loop to block — and all 4 cables carry traffic together. *That's the "why": EtherChannel is the peace treaty between "I want more bandwidth (many cables)" and "STP blocks redundant cables."* It gets you the bandwidth of all the cables **and** keeps the redundancy (if one cable dies, the bundle just keeps going on the rest, with no STP recalculation delay).
 
@@ -2041,12 +1944,9 @@ Section 10.1 said an EtherChannel of four 1 Gbps links gives you "4 Gbps." That'
 
 An EtherChannel does **not** send packet 1 down link 1, packet 2 down link 2, and so on. Instead it runs a **hash** over selected header fields and uses the result to pick a link:
 
-```
-   Frame ──► hash(src/dst MAC, or IP, or port) ──► result mod (number of links)
-                                                        │
-                     ┌──────────┬──────────┬────────────┴─┐
-                   Link 1     Link 2     Link 3        Link 4
-```
+The switch takes selected header fields — source/destination MAC, or IP, or
+port numbers — runs them through a **hash**, and uses the result to pick one of
+the member links. Same conversation, same hash, **same physical link every time**.
 
 Because the same conversation always hashes to the same value, **every frame in a given flow takes the same physical link**.
 
@@ -2078,12 +1978,14 @@ An **IP address** is the **logical address** of a device on a network — like a
 
 **IPv4** addresses look like this: `192.168.1.10`. They're **32 bits** long, split into **4 parts** (called **octets**), each 8 bits, separated by dots.
 
-```
-   192   .   168   .   1   .   10
-    │         │        │       │
-  octet1   octet2   octet3  octet4    each is 0-255
-  11000000.10101000.00000001.00001010  ← the binary underneath
-```
+An IPv4 address is **four octets**, each 0–255:
+
+| | octet 1 | octet 2 | octet 3 | octet 4 |
+|---|---------|---------|---------|---------|
+| **Decimal** | 192 | 168 | 1 | 10 |
+| **Binary** | 11000000 | 10101000 | 00000001 | 00001010 |
+
+Four octets × 8 bits = **32 bits** in total.
 
 Each octet is one byte (8 bits), so it can be **0 to 255**. (Remember from Chapter 4: 11111111 = 255.)
 
@@ -2095,11 +1997,12 @@ Every IP address has two parts:
 
 The **subnet mask** tells us where the split is. More in Chapter 12!
 
-```
-  192.168.1     .     10
-  └── network ──┘   └host┘
-  "the street"    "the house"
-```
+In `192.168.1.10`, the address splits into two parts:
+
+| Part | Value | Think of it as |
+|------|-------|----------------|
+| **Network** | `192.168.1` | The street |
+| **Host** | `10` | The house on that street |
 
 **Why split an address into "network" and "host" at all? Why not just give every device one flat number?** This is the single design choice that makes the internet *possible*, so it's worth really understanding. Imagine if IP addresses had **no structure** — just random serial numbers like MAC addresses. Then a router trying to reach a device would need a list of **every single device on Earth** (billions of entries) to know where to send traffic. No router could hold that, and it could never keep up.
 
@@ -2167,15 +2070,9 @@ So the industry switched to **classless addressing (CIDR)** — the idea that yo
 
 The **default gateway** is the **router's address** that a device uses to reach **other networks**. It's the "door out of your neighborhood."
 
-```
-   PC (192.168.1.10)  wants to reach the internet
-        │
-        ▼
-   Default Gateway = 192.168.1.1 (the router)
-        │
-        ▼
-     Internet 🌍
-```
+A PC at `192.168.1.10` that wants something outside its own network hands the
+packet to its **default gateway**, `192.168.1.1` — the router — which forwards it
+on toward the internet. The PC itself needs to know nothing beyond that one address.
 
 If a PC wants to talk to a device on its **own** network, it sends directly. If the destination is on a **different** network, it sends to the **default gateway** to forward.
 
@@ -2213,14 +2110,15 @@ If a PC wants to talk to a device on its **own** network, it sends directly. If 
 
 The **subnet mask** decides which part of an IP is "network" and which is "host." It looks like an IP address but is made of **1s then 0s**:
 
-```
- IP:    192.168.1.10
- Mask:  255.255.255.0
+Line the address up against the mask:
 
- In binary:
- Mask:  11111111.11111111.11111111.00000000
-        └──── network (24 ones) ────┘└host(8)┘
-```
+| | Value |
+|---|---|
+| **IP** | `192.168.1.10` |
+| **Mask** | `255.255.255.0` |
+| **Mask in binary** | `11111111.11111111.11111111.00000000` |
+
+The **24 ones** mark the network portion; the **8 zeros** mark the host portion.
 
 - Wherever the mask has a **1**, that part is **network**.
 - Wherever the mask has a **0**, that part is **host**.
@@ -2363,11 +2261,11 @@ IPv4 has about **4.3 billion** addresses. That sounds like a lot, but with phone
 
 IPv6 is **128 bits** (four times bigger than IPv4's 32 bits). It's written in **hexadecimal**, in **8 groups** of 4 hex digits, separated by **colons**:
 
-```
- 2001:0db8:0000:0000:0000:ff00:0042:8329
- └─┬┘ └─┬┘ └─┬┘ └─┬┘ └─┬┘ └─┬┘ └─┬┘ └─┬┘
-  8 groups of 4 hex digits = 128 bits
-```
+An IPv6 address is written as **8 groups of 4 hex digits**, separated by colons:
+
+`2001:0db8:0000:0000:0000:ff00:0042:8329`
+
+Each group is 16 bits, so 8 × 16 = **128 bits** in total.
 
 ## 13.3 Shortening IPv6 (The Two Rules)
 
@@ -2420,12 +2318,12 @@ IPv6 can build the second half of its address automatically from the device's MA
 2. Insert `FFFE` in the middle (making 64 bits).
 3. Flip the 7th bit of the first byte.
 
-```
- MAC:     00:1A:2B : 3C:4D:5E
- Insert:  00:1A:2B : FF:FE : 3C:4D:5E
- Flip 7th bit of first byte → 02...
- Result:  021A:2BFF:FE3C:4D5E
-```
+| Step | Result |
+|------|--------|
+| Start with the MAC | `00:1A:2B:3C:4D:5E` |
+| Split it and insert `FF:FE` in the middle | `00:1A:2B:FF:FE:3C:4D:5E` |
+| Flip the 7th bit of the first byte (`00` → `02`) | `02:1A:2B:FF:FE:3C:4D:5E` |
+| **Interface ID** | `021A:2BFF:FE3C:4D5E` |
 
 ## 13.6 Configuring IPv6 on a Router
 
@@ -2467,25 +2365,21 @@ IPv4's ARP shouts to the **broadcast** address, so **every** device on the segme
 
 IPv6 sends its NS to a **solicited-node multicast** address, built from the last 24 bits of the target address:
 
-```
-   Target:  2001:db8::a1b2:c3d4
-                          └──┬──┘ last 24 bits
-   Solicited-node: FF02::1:FF b2:c3d4
-```
+Take the target address `2001:db8::a1b2:c3d4`, keep its **last 24 bits**
+(`b2:c3d4`), and append them to the fixed prefix `FF02::1:FF` — giving the
+solicited-node address **`FF02::1:FFb2:c3d4`**.
 
 **Why does this help, when it's still one-to-many?** Because a NIC filters multicast **in hardware**. A host joins only the group matching its own address, so its network card silently ignores everything else — the CPU is never even notified. Since the group is derived from the low 24 bits, the odds of two hosts sharing it on one segment are tiny. *Effectively, only the intended target wakes up. Same question as ARP, asked without bothering the whole room.*
 
 ### SLAAC — Building Your Own Address
 
-```
-   1. Host boots, forms a link-local address (FE80::/10 + interface ID)
-   2. DAD: sends an NS to its OWN tentative address
-          → silence = nobody else has it = safe to use
-   3. Sends an RS to FF02::2 (all-routers)
-   4. Router replies with an RA: "the prefix here is 2001:db8:a:b::/64"
-   5. Host builds its address: prefix + its own interface ID
-   6. DAD again on the new address
-```
+1. The host boots and forms a **link-local** address (`FE80::/10` + its interface ID).
+2. **DAD:** it sends an NS to its *own* tentative address — silence means nobody
+   else has it, so it's safe to use.
+3. It sends an **RS** to `FF02::2` (all-routers).
+4. A router replies with an **RA**: *"the prefix here is `2001:db8:a:b::/64`."*
+5. The host builds its address: **prefix + its own interface ID**.
+6. It runs **DAD** once more, on the new address.
 
 **Why does the host generate the host portion itself rather than being assigned one?** Because a /64 subnet holds 18 quintillion addresses. Collisions are so improbable that central bookkeeping — the entire reason DHCP exists — stops being worth it. The scarcity that made DHCP necessary in IPv4 simply doesn't exist here. **DAD (Duplicate Address Detection)** is the cheap safety check that makes self-assignment safe: ask for your own address, and *silence is the confirmation*.
 
@@ -2516,14 +2410,9 @@ R1(config-if)# ipv6 nd prefix 2001:db8:a:b::/64 no-autoconfig   ! clear the A fl
 
 A **switch** moves data **inside** one network. A **router** moves data **between** different networks. It's the **GPS** of networking — it knows the paths to faraway networks and picks the best one.
 
-```
-   Network A                    Network B
-  192.168.1.0/24              10.0.0.0/24
-       │                            │
-       └──────► ROUTER ◄────────────┘
-            "I know how to reach
-             both networks!"
-```
+A router sits between two different networks — say `192.168.1.0/24` on one side
+and `10.0.0.0/24` on the other — with an interface in each. It's the only device
+that knows how to reach **both**, so anything crossing between them goes through it.
 
 ## 14.2 The Routing Table
 
@@ -2625,14 +2514,11 @@ Back in section 11.6 we learned that every device needs a **default gateway** �
 
 **What happens when the default gateway dies?**
 
-```
-   PC1 ──┐
-   PC2 ──┼── SW ── R1 (192.168.1.1) ──► 🌍   ← default gateway
-   PC3 ──┘         💀 R1 fails
+Picture PC1, PC2 and PC3 on a switch, all configured with the same default
+gateway: **R1 at 192.168.1.1**, which reaches the internet.
 
-   Every PC still sends to 192.168.1.1... and nothing answers.
-   The whole subnet is offline. 😱
-```
+Now R1 dies. Every PC keeps sending to `192.168.1.1` — and nothing answers. The
+entire subnet is offline. 😱
 
 Here's the painful part: **you can add a second router, and it doesn't help.** Suppose you install R2 with address `192.168.1.2` as a backup. R2 is powered on, healthy, and perfectly capable of forwarding traffic — but every PC on the subnet was configured (by DHCP or by hand) to use `192.168.1.1`. They will keep sending frames to a router that no longer exists. The backup sits there unused while everyone is offline.
 
@@ -2644,17 +2530,16 @@ So the problem is really this: *the hosts can't change, so **the routers must pr
 
 **FHRP (First Hop Redundancy Protocol)** is the family of protocols that solves this. Two or more real routers share a **virtual IP address** and a **virtual MAC address**. The PCs use that virtual IP as their default gateway and never know — or care — which physical router is actually doing the work.
 
-```
-                    Virtual IP: 192.168.1.1  ← what the PCs are configured with
-                    Virtual MAC: 0000.0c07.acXX
-                 ┌──────────────┴──────────────┐
-            R1 (192.168.1.2)            R2 (192.168.1.3)
-              ACTIVE  ✅                  STANDBY  💤
-              (forwards traffic)          (watching, ready)
+Two real routers share one **virtual identity**:
 
-   R1 fails ──► R2 takes over the SAME virtual IP and MAC.
-   PCs notice nothing. They keep sending to 192.168.1.1. ✨
-```
+| | Address | Role |
+|---|---------|------|
+| **The virtual router** | IP `192.168.1.1`, MAC `0000.0c07.acXX` | What every PC is configured to use |
+| **R1** | 192.168.1.2 | **Active** — actually forwarding |
+| **R2** | 192.168.1.3 | **Standby** — watching, ready |
+
+When R1 fails, **R2 takes over that same virtual IP *and* MAC**. The PCs keep
+sending to `192.168.1.1` and notice nothing at all. ✨
 
 **Why does the virtual MAC address matter as much as the virtual IP?** This is the detail that makes the whole thing work invisibly, and it's a favorite exam point. Remember how a PC actually sends a packet off-subnet: it ARPs for the gateway's IP, caches the resulting **MAC address**, and addresses its frames to that MAC. If failover only moved the *IP*, every PC would still be sending frames to R1's old MAC — stuck in their ARP caches for minutes — and traffic would keep flowing to a dead router.
 
@@ -2716,23 +2601,26 @@ Read that output as a sentence: *group 1, priority 110, P = preempt enabled, thi
 
 PC-A wants to reach a server. They're on different networks, two routers apart.
 
-```
-  PC-A                  R1                    R2                 SERVER
-  192.168.1.10   ┌──────┴──────┐        ┌──────┴──────┐        10.0.0.50
-  MAC aaaa.1111  │ Gi0: .1.1   │        │ Gi0: 10.1.1.2│       MAC dddd.4444
-       │         │ MAC bbbb.2222│       │ MAC cccc.3333│            │
-       └─────────┤ Gi1: 10.1.1.1├───────┤ Gi1: 10.0.0.1├────────────┘
-                 └─────────────┘        └─────────────┘
-```
+The path, end to end:
+
+| Device | Addresses |
+|--------|-----------|
+| **PC-A** | IP `192.168.1.10`, MAC `aaaa.1111` |
+| **R1** | Gi0 `192.168.1.1` (MAC `bbbb.2222`) · Gi1 `10.1.1.1` |
+| **R2** | Gi0 `10.1.1.2` (MAC `cccc.3333`) · Gi1 `10.0.0.1` |
+| **SERVER** | IP `10.0.0.50`, MAC `dddd.4444` |
+
+PC-A connects to a switch, which uplinks to R1; R1 links to R2; R2 reaches the
+server's network.
 
 ### Step 1 — "Is this local?" (PC-A does the math)
 
 PC-A ANDs its own address and the destination with its mask (Chapter 12):
 
-```
-  192.168.1.10 AND 255.255.255.0 = 192.168.1.0    ← my network
-  10.0.0.50    AND 255.255.255.0 = 10.0.0.0       ← different!
-```
+| Address (AND `255.255.255.0`) | Result |
+|-------------------------------|--------|
+| `192.168.1.10` | `192.168.1.0` — **my** network |
+| `10.0.0.50` | `10.0.0.0` — **different** |
 
 Different network, so PC-A sends the frame to its **default gateway**. **This is the decision that makes everything else happen** — and note *what PC-A does not do*: it never ARPs for the server. Asking "who has 10.0.0.50?" on this segment would be pointless; nobody there can answer.
 
@@ -2742,13 +2630,13 @@ PC-A needs the **MAC** of 192.168.1.1. It broadcasts an ARP request; R1 replies 
 
 ### Step 3 — The frame leaves PC-A
 
-```
-  ┌─────────────────────┬────────────────────────┬─────────┐
-  │ DST MAC bbbb.2222   │ SRC IP  192.168.1.10   │  data   │
-  │ SRC MAC aaaa.1111   │ DST IP  10.0.0.50      │         │  TTL 64
-  └─────────────────────┴────────────────────────┴─────────┘
-     Layer 2: to the ROUTER      Layer 3: to the SERVER
-```
+| Field | Value | Points at |
+|-------|-------|-----------|
+| L2 DST MAC | `bbbb.2222` | **R1 (router)** |
+| L2 SRC MAC | `aaaa.1111` | PC-A |
+| L3 SRC IP | `192.168.1.10` | PC-A |
+| L3 DST IP | `10.0.0.50` | **server** |
+| L3 TTL | 64 | — |
 
 **Stare at that mismatch — it's the whole idea.** The Layer 2 address says "router," the Layer 3 address says "server." Layer 2 answers *"who's my next hop on this wire?"*; Layer 3 answers *"where is this ultimately going?"* Confusing these two is the single most common source of confusion in networking.
 
@@ -2764,13 +2652,15 @@ R1 accepts the frame because the destination MAC is its own. It strips the Ether
 2. **Recomputes the IP header checksum** (the TTL changed).
 3. **Builds a brand-new Layer 2 header** for the next link.
 
-```
-  ┌─────────────────────┬────────────────────────┬─────────┐
-  │ DST MAC cccc.3333   │ SRC IP  192.168.1.10   │  data   │
-  │ SRC MAC bbbb.2222   │ DST IP  10.0.0.50      │         │  TTL 63
-  └─────────────────────┴────────────────────────┴─────────┘
-      NEW MACs each hop        IP ADDRESSES NEVER CHANGE
-```
+| Field | Was | Now | Changed? |
+|-------|-----|-----|----------|
+| **L2** DST MAC | `bbbb.2222` | `cccc.3333` | **rewritten** |
+| **L2** SRC MAC | `aaaa.1111` | `bbbb.2222` | **rewritten** |
+| **L3** SRC IP | `192.168.1.10` | same | unchanged |
+| **L3** DST IP | `10.0.0.50` | same | unchanged |
+| **L3** TTL | 64 | 63 | decremented |
+
+**New MACs every hop; the IP addresses never change.**
 
 **Why throw away a perfectly good Layer 2 header at every hop?** Because it was only ever valid on **one wire**. MAC addresses have no meaning beyond the local segment — `aaaa.1111` is not reachable, or even known, on the far side of R1. The IP addresses survive end to end because they identify the *conversation*; the MACs are rewritten because they identify only the *current handoff*. (Unless NAT is involved, Chapter 17 — that's exactly what makes NAT special: it breaks this rule deliberately.)
 
@@ -2922,15 +2812,9 @@ R1(config)# ipv6 route ::/0 2001:db8:0:1::2        ! default route
 
 Big OSPF networks are split into **areas** to keep maps small and updates local. The center is always **Area 0** (the backbone). All other areas connect to Area 0.
 
-```
-        ┌─────────────────────────┐
-        │      Area 0 (backbone)  │
-        └───┬─────────────────┬───┘
-            │                 │
-      ┌─────┴─────┐     ┌─────┴─────┐
-      │  Area 1   │     │  Area 2   │
-      └───────────┘     └───────────┘
-```
+**Area 0** is the backbone. Every other area — Area 1, Area 2 and so on —
+connects **to Area 0**, never directly to each other. Traffic between two
+non-backbone areas always passes through the backbone.
 
 **Why split OSPF into areas at all — isn't one big map simpler?** For a small network, yes. But the "full map" that makes link-state smart becomes a **burden** as the network grows. Two things blow up:
 
@@ -3020,18 +2904,17 @@ Section 16.9 listed what must match for OSPF neighbors to form. One item on that
 
 Picture five OSPF routers all connected to the **same switch** (one shared Ethernet segment). OSPF's instinct is for every router to become neighbors with every other router. How many adjacencies is that?
 
-```
-   Full mesh of 5 routers = 10 adjacencies
+If all five routers on a segment became neighbors with each other, you'd get a
+full mesh:
 
-        R1 ─────── R2
-        │ ╲     ╱  │
-        │   ╲ ╱    │        Formula: n(n-1)/2
-        │   ╱ ╲    │        5 routers → 5(4)/2 = 10
-        R3 ─────── R4       10 routers → 10(9)/2 = 45!
-          ╲   │   ╱
-            ╲ │ ╱
-             R5
-```
+| Routers | Adjacencies — n(n−1)/2 |
+|---------|------------------------|
+| 5 | 5 × 4 ÷ 2 = **10** |
+| 10 | 10 × 9 ÷ 2 = **45** |
+| 20 | 20 × 19 ÷ 2 = **190** |
+
+The count grows with the **square** of the number of routers — all flooding the
+same information over one shared segment.
 
 Every one of those adjacencies means hellos, database exchanges, and updates. Add a router and the count grows roughly with the **square** of the number of routers. On a segment with 20 routers that's 190 adjacencies flooding the same information over and over — enormous waste, since they're all on **one shared segment where everyone hears everything anyway**.
 
@@ -3039,16 +2922,15 @@ Every one of those adjacencies means hellos, database exchanges, and updates. Ad
 
 On broadcast segments, OSPF elects a **Designated Router (DR)** and a **Backup Designated Router (BDR)**. Every other router (called **DROTHER**) forms a full adjacency **only with the DR and BDR** — not with each other.
 
-```
-              R1 (DR)  ◄──── everyone talks to me
-                 │
-        ┌────────┼────────┐
-       R3       R4       R5      ← DROTHERs: adjacent to DR/BDR only
-        └────────┼────────┘
-              R2 (BDR)  ◄──── I'm listening, ready to take over
+Instead, the segment elects a spokesperson:
 
-   Adjacencies drop from 10 to 7 — and the gap widens fast as routers are added.
-```
+| Router | Role | Who it's fully adjacent to |
+|--------|------|----------------------------|
+| **R1** | **DR** | Everyone |
+| **R2** | **BDR** | Everyone — listening, ready to take over |
+| R3, R4, R5 | **DROTHER** | Only the DR and BDR |
+
+Adjacencies drop from 10 to 7 — and the saving grows quickly as routers are added.
 
 Routers send updates to the DR at multicast address **224.0.0.6**; the DR redistributes to everyone at **224.0.0.5**. *The DR is a librarian: instead of every router telling every other router the news, everyone tells the librarian and the librarian announces it once.*
 
@@ -3143,15 +3025,12 @@ Types **1 and 2** are the ones a CCNA-level single-area network uses. The rest a
 
 ### From Database to Routing Table
 
-```
-   LSAs flood ──► LSDB (identical on every router in the area)
-                    │
-                    ▼  Dijkstra's SPF algorithm, run independently
-              SPF tree with THIS router at the root
-                    │
-                    ▼
-              Best path per destination ──► routing table
-```
+The pipeline runs in three steps:
+
+1. **LSAs flood** across the area, filling an **LSDB** that is *identical* on every router.
+2. Each router independently runs **Dijkstra's SPF** over that database, building
+   a shortest-path tree with **itself** at the root.
+3. The best path to each destination drops into that router's **routing table**.
 
 **Why must every router in an area hold an identical database?** Because each one computes its own tree from it. If two routers disagreed about the map, they'd compute incompatible paths and could forward packets to each other in a loop. **Identical input + deterministic algorithm = consistent forwarding**, with no router needing to trust another's conclusion. *That's the fundamental difference from distance-vector protocols like RIP, which believe what neighbours tell them and can loop when neighbours are wrong.*
 
@@ -3189,12 +3068,12 @@ Areas exist to bound flooding and SPF work. **Special area types go further, tra
 
 **Story Time 📖:** When your laptop joins Wi‑Fi, it does a little four-step dance to get an address:
 
-```
- 1. DISCOVER  → Laptop shouts: "Any DHCP servers out there?"  (broadcast)
- 2. OFFER     ← Server replies: "Yes! Here's an address you can use."
- 3. REQUEST   → Laptop: "Great, I'd like that one please!"
- 4. ACK       ← Server: "It's yours. Here are the details."
-```
+| Step | Direction | The message |
+|------|-----------|-------------|
+| 1. **DISCOVER** | Client → (broadcast) | *"Any DHCP servers out there?"* |
+| 2. **OFFER** | Server → Client | *"Yes — here's an address you can use."* |
+| 3. **REQUEST** | Client → Server | *"Great, I'd like that one please."* |
+| 4. **ACK** | Server → Client | *"It's yours. Here are the details."* |
 
 Remember **DORA**: **D**iscover, **O**ffer, **R**equest, **A**ck.
 
@@ -3233,15 +3112,9 @@ R1(config-if)# ip helper-address 10.0.0.5   ! forward DHCP to this server
 
 **Story Time 📖:** DNS is like the contacts app on your phone. You tap "Mom," and the phone dials her actual number. You don't memorize the number — DNS remembers it for you.
 
-```
-   You type:   www.google.com
-        │
-        ▼
-   DNS server: "That's 142.250.72.4"
-        │
-        ▼
-   Your browser connects to 142.250.72.4 🌍
-```
+1. You type **`www.google.com`**.
+2. A **DNS server** answers: *"that's `142.250.72.4`."*
+3. Your browser connects to **`142.250.72.4`** — the name was only ever a lookup key. 🌍
 
 Common DNS record types:
 - **A** = name → IPv4 address.
@@ -3254,13 +3127,9 @@ Common DNS record types:
 
 **NAT (Network Address Translation)** lets **many private devices** share **one public IP** to reach the internet. This is why your whole house full of gadgets can use the internet with just one address from your provider.
 
-```
-   Inside (private)              Outside (internet)
-  192.168.1.10 ┐
-  192.168.1.11 ├──► ROUTER (NAT) ──► 203.0.113.5 ──► 🌍
-  192.168.1.12 ┘   translates all
-                    to one public IP
-```
+Several private addresses on the inside — `192.168.1.10`, `.11`, `.12` — all
+reach the internet through **one router running NAT**, which translates every one
+of them to the single public address **`203.0.113.5`**.
 
 ### Types of NAT
 - **Static NAT:** One private IP ↔ one public IP (permanent). Used for servers you want reachable.
@@ -3271,13 +3140,13 @@ Common DNS record types:
 
 **How does PAT actually keep everyone's traffic straight with only ONE public IP? Why do ports make this work?** This is the clever core of how your home internet works, so let's trace it. When three PCs all browse the web through one public IP, the router needs a way to remember "which reply belongs to which PC." It uses a **translation table** keyed by **port numbers**:
 
-```
- PAT translation table (simplified):
- Private (inside)        →  Public (outside)
- 192.168.1.10 : port 51000  →  203.0.113.5 : port 40001
- 192.168.1.11 : port 49200  →  203.0.113.5 : port 40002
- 192.168.1.12 : port 51000  →  203.0.113.5 : port 40003
-```
+PAT translation table (simplified):
+
+| Private (inside) | becomes | Public (outside) |
+|------------------|---------|------------------|
+| `192.168.1.10 : 51000` | → | `203.0.113.5 : 40001` |
+| `192.168.1.11 : 49200` | → | `203.0.113.5 : 40002` |
+| `192.168.1.12 : 51000` | → | `203.0.113.5 : 40003` |
 
 When PC .10 sends a request, the router rewrites the source to `203.0.113.5 : 40001` and **notes that in the table**. When the web server replies to `203.0.113.5 : 40001`, the router looks up port 40001, sees "that's really 192.168.1.10," and forwards it back to the right PC. *The port number is the claim ticket* — it's how the router tells apart hundreds of conversations that all share one public address. Notice even when two PCs happen to use the same private port (51000 above), the router just assigns them **different public ports** (40001 vs 40003), so there's never confusion. **Why does this matter so much?** Because it's the trick that lets a whole house — or a whole company — share a single public IPv4 address, which (along with private addressing) is a huge reason we didn't run out of IPv4 years ago. One public address can support *thousands* of simultaneous conversations, each tracked by its port.
 
@@ -3395,16 +3264,10 @@ This is also why **trust boundaries** matter: a device decides whether to *belie
 
 **5. Policing vs. Shaping** — both limit traffic to a rate, but they differ in what they do with the excess, and that difference is a favorite exam question:
 
-```
-   POLICING                          SHAPING
-   Over the limit? DROP it.          Over the limit? BUFFER it, send later.
-
-   ▲                                 ▲
-   │ ╱╲    ╱╲   ← chopped off        │  ╱‾‾╲___╱‾‾╲   ← smoothed out
-   │╱  ╲__╱  ╲                       │ ╱
-   └──────────────►                  └──────────────►
-   Harsh, no delay added             Gentle, adds delay (needs buffers)
-```
+| | Over the limit? | Adds delay? | Feels like |
+|---|-----------------|-------------|------------|
+| **Policing** | **Drops** the excess | No | Harsh — traffic is simply chopped off |
+| **Shaping** | **Buffers** it and sends it later | Yes (needs buffers) | Gentle — the bursts are smoothed out |
 
 *Policing throws away the excess; shaping makes it wait its turn.* Policing is typically applied to **incoming** traffic (an ISP enforcing what you paid for), shaping to **outgoing** traffic (smoothing your own traffic so the far end doesn't have to drop it).
 
@@ -3417,13 +3280,11 @@ This is also why **trust boundaries** matter: a device decides whether to *belie
 
 Security has three big goals, remembered as **CIA**:
 
-```
-        ┌───────── C I A ─────────┐
-        │ Confidentiality: secret │  (only the right people see it)
-        │ Integrity:      correct │  (data isn't secretly changed)
-        │ Availability:  working  │  (it's up when you need it)
-        └─────────────────────────┘
-```
+| Goal | Means | In plain terms |
+|------|-------|----------------|
+| **C**onfidentiality | Secret | Only the right people can see it |
+| **I**ntegrity | Correct | The data isn't secretly altered |
+| **A**vailability | Working | It's up when you need it |
 
 **Why THREE goals — why not just "keep the bad guys out"?** Because "secure" means different things depending on what you're protecting, and these three cover *all* the ways security can fail. Miss any one and you're vulnerable, even if the other two are perfect:
 
@@ -3512,10 +3373,9 @@ Servers like **RADIUS** and **TACACS+** provide AAA centrally instead of a passw
 - **Authenticator:** The switch/AP (the bouncer).
 - **Authentication Server:** RADIUS (checks the ID).
 
-```
- Device ──(who are you?)──► Switch ──(check ID)──► RADIUS
-        ◄─────────── allowed / denied ────────────
-```
+The device asks to join; the **switch** passes the credentials to a **RADIUS**
+server; RADIUS answers **allowed** or **denied**, and the switch opens or keeps
+the port shut accordingly.
 
 ## 18.7 VPNs — Secret Tunnels
 
@@ -3523,11 +3383,9 @@ A **VPN (Virtual Private Network)** creates an **encrypted tunnel** across the p
 - **Site-to-Site VPN:** Connects two offices (via **IPsec**).
 - **Remote-Access VPN:** Connects a single user from home (e.g., Cisco AnyConnect/SSL).
 
-```
-  Office A ══[🔒 encrypted tunnel 🔒]══ Office B
-         (data is scrambled so snoops
-          on the internet see gibberish)
-```
+Office A and Office B are joined by an **encrypted tunnel** across the public
+internet. Anyone intercepting the traffic in between sees only scrambled
+gibberish. 🔒
 
 ---
 
@@ -3579,22 +3437,14 @@ An **ACL (Access Control List)** is a set of **rules** that tell a router which 
 - At the very end there's an **invisible "deny all"** (implicit deny). So if nothing matches, traffic is **blocked**.
 - **Order matters!** Put specific rules before general ones.
 
-```
- ACL processing:
-   Packet arrives
-      │
-      ▼
-   Rule 1? ── match ──► do it (permit/deny), STOP
-      │ no match
-      ▼
-   Rule 2? ── match ──► do it, STOP
-      │ no match
-      ▼
-   ...
-      │
-      ▼
-   IMPLICIT DENY (block everything else) 🚫
-```
+An ACL is read **top down**, and the **first match wins**:
+
+1. Does the packet match **rule 1**? If yes — do it (permit or deny) and **stop**.
+2. If not, try **rule 2**. Match? Do it and **stop**.
+3. …and so on down the list.
+4. If nothing matched, the **implicit `deny any`** at the end blocks it. 🚫
+
+*Nothing after the first match is ever considered — which is why rule order matters so much.*
 
 **Why does "first match wins" mean ORDER is everything?** Because the router stops reading the instant it finds a match — so a rule placed too early can "steal" traffic before a more specific rule below it ever gets a chance. Classic mistake: if you put `permit any` (allow everyone) at the *top*, every packet matches it immediately and stops — your `deny` rules below are **never even read**. It's like a bouncer whose first list entry says "let everyone in" — the rest of his list is pointless. *So the rule is: specific rules first, general rules last.* This isn't a style preference — it's forced by the first-match-wins behavior.
 
@@ -3679,14 +3529,9 @@ R1# show ip interface gi0/0        ! see which ACL is applied where
 
 Wireless uses **radio waves** through the air instead of cables. An **Access Point (AP)** is the device that broadcasts the Wi‑Fi and bridges wireless devices to the wired network.
 
-```
-   📱  📱  💻   (wireless clients)
-     \  |  /
-      \ | /   radio waves
-       (AP)  📡
-        │
-      SWITCH ─── wired network
-```
+Wireless clients — phones, laptops — connect over **radio waves** to an
+**access point**. The AP is itself plugged into a **switch** on the wired
+network, so it acts as the bridge between the two worlds.
 
 ## 20.2 SSID — The Network Name
 
@@ -3706,12 +3551,8 @@ Wi‑Fi uses two main **bands**:
 
 **Channels** are like lanes on the road. On 2.4 GHz, the **non-overlapping channels are 1, 6, and 11** — using these avoids interference. (Memorize 1, 6, 11!)
 
-```
- 2.4 GHz non-overlapping channels:
-   [1]      [6]      [11]
-   ▓▓▓      ▓▓▓      ▓▓▓
-   good spacing = no interference 👍
-```
+In 2.4 GHz, only **channels 1, 6 and 11** are far enough apart not to overlap.
+Spacing your APs across those three keeps neighbouring cells from interfering. 👍
 
 **Why specifically 1, 6, and 11 — why not 1, 2, 3?** Because each 2.4 GHz channel is actually **wider than the spacing between channel numbers**, so neighboring channels physically *overlap* and bleed into each other. Picture each channel as a fat highway lane painted wider than the lines: channels 1 and 2 are so close their traffic smears together, causing interference — which is *worse* than being on the same channel! It turns out you need about **5 channels of gap** for two signals not to overlap. Do the math: 1, then 1+5=6, then 6+5=11. Those three are the only combination that fits in the 2.4 GHz band with **zero overlap**. *That's why every Wi‑Fi pro memorizes 1/6/11* — it's the one way to run three nearby access points without them stepping on each other. (This overlap problem is another reason 5 GHz is nicer: it has many more non-overlapping channels to spread out on.)
 
@@ -3749,13 +3590,9 @@ Two modes:
 - **Autonomous AP:** Standalone, configured one-by-one. Fine for a few APs.
 - **Lightweight AP + WLC:** Many APs managed centrally by a **Wireless LAN Controller (WLC)**. The WLC handles settings, security, and roaming for all APs at once — much easier for big networks.
 
-```
-        ┌──────────┐
-        │   WLC    │  (the brain)
-        └────┬─────┘
-      ┌──────┼──────┐
-    [AP]   [AP]   [AP]   (lightweight APs just follow orders)
-```
+A **WLC** (Wireless LAN Controller) is the brain: the **lightweight APs** below
+it hold no configuration of their own and simply carry out its instructions —
+which is what makes managing hundreds of APs practical.
 
 The lightweight APs talk to the WLC using a tunnel protocol called **CAPWAP**.
 
@@ -3853,10 +3690,10 @@ Doing the same command on 500 switches by hand is slow and error-prone. **Automa
 
 In traditional networking, every device has its own brain. In SDN, a central **controller** is the brain for everyone, and devices just follow orders. Cisco's example is **Cisco DNA Center**.
 
-```
- Traditional:  each device thinks for itself 🧠🧠🧠
- SDN:          one controller thinks 🧠 → devices obey 💪💪💪
-```
+| Model | Where the thinking happens |
+|-------|----------------------------|
+| **Traditional** | Every device decides for itself 🧠🧠🧠 |
+| **SDN** | One **controller** decides 🧠, and the devices carry it out 💪 |
 
 **Why separate the "brain" from the "muscles" at all?** Because in traditional networking, every switch and router has its *own* brain making its *own* decisions — which means to change network-wide policy, you have to log into *every single device* and configure it separately. With hundreds of devices, that's slow, and worse, they can drift into slightly different ("snowflake") configs that cause weird bugs. SDN's insight: **pull all the decision-making into one central controller**, and let the devices just be fast, simple forwarders that follow orders. *Why is that powerful?* Now you set policy **once** in the controller and it programs every device consistently — like conducting an orchestra from one podium instead of running to each musician individually. It also means the controller has a **complete view** of the whole network, so it can make smarter, coordinated decisions than any single device could on its own.
 
@@ -3866,17 +3703,12 @@ The controller talks in two directions:
 - **Northbound API:** Up to apps/humans (e.g., a REST API you program against).
 - **Southbound API:** Down to the network devices (e.g., NETCONF, OpenFlow).
 
-```
-        Apps / You
-            ▲  Northbound API (REST)
-            │
-       ┌─────────┐
-       │Controller│
-       └─────────┘
-            │  Southbound API (NETCONF/OpenFlow)
-            ▼
-      Switches & Routers
-```
+The controller sits in the middle, with an API facing each direction:
+
+| API | Faces | Talks to | Typically |
+|-----|-------|----------|-----------|
+| **Northbound** | Upward | Apps and you | REST |
+| **Southbound** | Downward | Switches and routers | NETCONF, OpenFlow |
 
 **Why two different directions with different names?** Because the controller sits in the *middle* and talks to two very different audiences, so it needs a "language" for each:
 

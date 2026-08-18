@@ -828,24 +828,29 @@ Third octet values 8–15 in binary: 00001000 … 00001111. The first **5 bits**
 
 When you see any "IP + CIDR" question, do this in your head, every time:
 
-```
- STEP 1: Which octet is "interesting"?
-         /1–/8  → 1st octet
-         /9–/16 → 2nd octet
-         /17–/24→ 3rd octet
-         /25–/32→ 4th octet
+**Step 1 — which octet is "interesting"?**
 
- STEP 2: Block size = 256 − (mask value in that octet)
+| CIDR | Interesting octet |
+|------|-------------------|
+| /1–/8 | 1st |
+| /9–/16 | 2nd |
+| /17–/24 | 3rd |
+| /25–/32 | 4th |
 
- STEP 3: Count 0, block, 2×block... until you pass the IP.
-         The one at/just-below = NETWORK.
+**Step 2 —** block size = **256 − (mask value in that octet)**
 
- STEP 4: Broadcast = next network − 1
-         First host = network + 1
-         Last host  = broadcast − 1
+**Step 3 —** count 0, block, 2×block… until you pass the IP. The one at or just
+below it is the **network address**.
 
- STEP 5: Usable hosts = 2^(32−CIDR) − 2
-```
+**Step 4 —**
+
+| | Formula |
+|---|---------|
+| Broadcast | next network − 1 |
+| First host | network + 1 |
+| Last host | broadcast − 1 |
+
+**Step 5 —** usable hosts = **2^(32−CIDR) − 2**
 
 ## Final Tips 🌟
 
