@@ -146,7 +146,7 @@ pre {
 code { font-family: "Mono"; font-size: 9pt; background-color: #eef1f4; color: #b23; }
 pre code { color: #1a1a1a; background-color: transparent; font-size: 8pt; }
 
-table { -pdf-keep-in-frame-mode: shrink; margin: 8pt 0; width: 100%; }
+table { margin: 8pt 0; width: 100%; }
 th { background-color: #0b6cc4; color: #ffffff; font-weight: bold; padding: 4pt 6pt;
      font-size: 9.5pt; text-align: left; border: 0.5pt solid #0b6cc4; }
 td { padding: 3pt 6pt; font-size: 9.5pt; border: 0.5pt solid #cdd7e0; }
