@@ -569,17 +569,18 @@ Section 2.5 said TCP is "reliable." That word hides four separate mechanisms, an
 
 ### What's Actually in the Header
 
-```
- 0                   1                   2                   3
- |  Source Port (16)         |  Destination Port (16)        |
- |            Sequence Number (32)                           |
- |            Acknowledgment Number (32)                     |
- | Offset| Rsvd |U A P R S F|      Window Size (16)          |
- |            Checksum (16)  |  Urgent Pointer (16)          |
- |            Options (e.g. MSS, Window Scale)               |
-```
+| Field | Size | What it's for |
+|-------|------|---------------|
+| Source / Destination Port | 16 bits each | Which application at each end |
+| **Sequence Number** | 32 bits | Where this data sits in the byte stream |
+| **Acknowledgment Number** | 32 bits | The next byte expected from the other side |
+| Data Offset | 4 bits | Where the header stops and data starts |
+| Flags — `URG ACK PSH RST SYN FIN` | 6 bits | Connection control (SYN opens, FIN closes, RST aborts) |
+| **Window Size** | 16 bits | How much more the receiver can accept right now |
+| Checksum | 16 bits | Corruption check |
+| Options | variable | MSS, window scale, selective ACK |
 
-Three fields do the heavy lifting: **Sequence Number**, **Acknowledgment Number**, and **Window Size**.
+**Three fields do the heavy lifting** — and the rest of this section is really just those three at work: **Sequence Number**, **Acknowledgment Number**, and **Window Size**.
 
 ### Sequence & Acknowledgment — Counting Bytes, Not Packets
 
