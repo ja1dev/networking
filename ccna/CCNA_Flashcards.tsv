@@ -1,0 +1,189 @@
+Which OSI layer do switches primarily operate at, and what address do they use?	Layer 2 (Data Link) — they forward using MAC addresses.
+Which OSI layer do routers operate at, and what address do they use?	Layer 3 (Network) — they forward using IP addresses.
+Name the 7 OSI layers, top to bottom.	Application, Presentation, Session, Transport, Network, Data Link, Physical. (All People Seem To Need Data Processing)
+What is the OSI Layer 4 PDU called? Layer 3? Layer 2?	L4 = segment, L3 = packet, L2 = frame.
+In a three-tier campus design, what are the three layers?	Access (end devices plug in), Distribution (routing + policy), Core (fast backbone).
+What is a "collapsed core" design?	A two-tier design merging core and distribution — used when a site is too small to justify a separate core.
+In spine-leaf, how many hops separate any two servers?	Always two (leaf → spine → leaf) — that's the point: predictable latency for east-west traffic.
+What does "east-west" traffic mean?	Server-to-server traffic inside the data center (vs north-south = user → server → internet).
+What's the key difference between a VM and a container?	A VM contains a full guest OS; a container shares the host kernel and holds only the app — so it's far smaller and starts in seconds.
+What does a VRF provide?	Multiple separate routing tables on one physical router. VLANs separate at L2; VRFs separate at L3.
+PoE: how much power does 802.3af provide? 802.3at? 802.3bt?	af ≈ 15.4 W, at (PoE+) ≈ 30 W, bt (PoE++) ≈ 60–100 W — measured at the switch port.
+Why is a non-PoE laptop safe to plug into a PoE port?	The switch performs detection first — no powered-device signature means it sends data only.
+Which cable connects two switches together without Auto-MDIX?	A crossover cable (like devices → crossover; unlike devices → straight-through).
+What is the maximum length of a copper UTP Ethernet run?	100 metres.
+Single-mode vs multi-mode fiber — which goes further and why?	Single-mode — a narrower core carries one light path, so there's no modal dispersion; good for kilometres.
+TCP or UDP: which is connection-oriented and reliable?	TCP — handshake, sequencing, acknowledgments, retransmission.
+Why does voice/video use UDP rather than TCP?	A retransmitted voice packet arrives too late to be useful. Speed and steady timing matter more than perfect delivery.
+What are the three steps of the TCP handshake?	SYN → SYN-ACK → ACK.
+Why does closing a TCP connection normally take four messages?	TCP is full duplex — each direction closes independently (FIN/ACK each way), so a half-close is legal.
+Do TCP sequence numbers count packets or bytes?	Bytes. That's why one ACK can confirm an arbitrary amount of data.
+What does an ACK number actually mean?	The next byte expected — so Ack=3001 means "everything below 3001 arrived."
+What do three duplicate ACKs trigger?	Fast retransmit — resend just the missing segment without waiting for a timeout.
+Flow control vs congestion control — what does each protect?	Flow control protects the receiver (advertised Window field); congestion control protects the network (inferred from loss).
+What is the typical MSS on an Ethernet network, and how is it derived?	1460 = 1500 MTU − 20 IP header − 20 TCP header.
+Why do tunnels (GRE/IPsec/PPPoE) cause mysterious connectivity failures?	Their extra headers shrink the usable MTU; traffic sized for 1500 no longer fits and gets dropped.
+Port 22? Port 23?	22 = SSH, 23 = Telnet.
+Port 53? Ports 67/68?	53 = DNS, 67/68 = DHCP (server/client).
+Port 80? Port 443?	80 = HTTP, 443 = HTTPS.
+Ports 20/21? Port 69?	20/21 = FTP (data/control), 69 = TFTP.
+Port 161/162? Port 514? Port 123?	161/162 = SNMP, 514 = syslog, 123 = NTP.
+Port 25? Port 110?	25 = SMTP, 110 = POP3.
+What are the 8 binary place values in one octet?	128, 64, 32, 16, 8, 4, 2, 1.
+Convert 192 to binary.	11000000 (128 + 64).
+Convert binary 10101100 to decimal.	172 (128 + 32 + 8 + 4).
+How many bits in a MAC address, and how is it split?	48 bits — first 24 = OUI (vendor), last 24 = device-specific.
+Write out the broadcast MAC address.	FFFF.FFFF.FFFF — all 48 bits set to 1.
+What are the three ways to address a frame?	Unicast (one), Broadcast (all), Multicast (a subscribed group).
+How does a switch learn MAC addresses?	From the source MAC of incoming frames, mapped to the port they arrived on.
+What does a switch do with a frame whose destination MAC is unknown?	Floods it out every port except the one it arrived on (unknown unicast flooding).
+Collision domain vs broadcast domain — what separates each?	Each switch port is its own collision domain; each VLAN / router interface bounds a broadcast domain.
+What problem do VLANs solve?	They split one physical switch into multiple broadcast domains, without buying more switches.
+Access port vs trunk port?	Access carries one VLAN, untagged, to an end device. Trunk carries many VLANs, tagged, between switches.
+How big is an 802.1Q tag and what's the key field?	4 bytes, containing a 12-bit VLAN ID (1–4094).
+What is the native VLAN?	The one VLAN sent untagged across a trunk. Default is VLAN 1 — best practice is to change it.
+What's the normal VLAN range vs the extended range?	Normal 1–1005, extended 1006–4094.
+Why do two VLANs need a router (or SVI) to communicate?	VLANs are separate broadcast domains = separate subnets, and moving between subnets is by definition Layer 3 routing.
+What is "router on a stick"?	Inter-VLAN routing via one trunk link to a router using subinterfaces, one per VLAN.
+Command to put port Fa0/1 into VLAN 10?	interface fa0/1 → switchport mode access → switchport access vlan 10.
+What are the three port-security violation modes, and which is default?	protect, restrict, shutdown — shutdown is the default (err-disables the port).
+How do you recover an err-disabled port?	shutdown then no shutdown on the interface (after fixing the cause).
+Why disable DTP with switchport nonegotiate?	DTP can be tricked into forming a trunk with an attacker, exposing every VLAN. Set modes statically instead.
+What problem does STP solve?	Layer 2 loops — which cause broadcast storms, MAC table instability and duplicate frames. Frames have no TTL, so a loop never self-clears.
+What are the default STP timers?	Hello 2 s, Max Age 20 s, Forward Delay 15 s — hence ~30–50 s convergence.
+What is the default bridge priority, and what increments is it set in?	32768, in steps of 4096.
+Why must STP priority move in steps of 4096?	The lower 12 bits of the priority field hold the extended system ID (the VLAN), leaving only the top 4 bits adjustable.
+How is the root bridge elected?	Lowest Bridge ID — priority first, then lowest MAC address as tie-break.
+STP port costs for 10 Mbps / 100 Mbps / 1 Gbps / 10 Gbps?	100 / 19 / 4 / 2.
+When is STP root path cost added — sending or receiving?	On reception — a switch adds the cost of the port the BPDU arrived on.
+What are STP's four tie-breakers, in order?	1) lowest Root Bridge ID, 2) lowest Root Path Cost, 3) lowest Sender Bridge ID, 4) lowest Sender Port ID.
+How many root ports does a non-root switch have? How many designated ports per segment?	Exactly one root port per non-root switch; exactly one designated port per segment.
+What does PortFast do, and where is it safe?	Skips listening/learning so a port forwards immediately — only on access ports facing end devices.
+What does BPDU Guard do?	Err-disables a port that receives a BPDU — a PC port should never see one.
+What does Root Guard do?	Prevents a switch on that port from becoming root — a superior BPDU puts the port in root-inconsistent state.
+What does Loop Guard protect against?	A blocking port that stops receiving BPDUs (unidirectional link failure) wrongly starting to forward and creating a loop.
+BPDU Guard vs Loop Guard — the one-line distinction?	BPDU Guard reacts to a BPDU appearing; Loop Guard reacts to BPDUs disappearing. One fears noise, the other silence.
+What is the default spanning-tree mode on modern Cisco switches?	Rapid PVST+ — 802.1w speed with one instance per VLAN.
+Why run one spanning tree per VLAN?	Different switches can be root for different VLANs, so both uplinks carry traffic instead of one sitting idle.
+What are the three RSTP port states?	Discarding, Learning, Forwarding.
+RSTP alternate port vs backup port?	Alternate = backup for the root port, hearing superior BPDUs from another switch. Backup = backup for a designated port on the same shared segment (same switch).
+Why is RSTP fast without timers?	The proposal/agreement handshake — the neighbour blocks its own downstream ports (sync) then explicitly agrees, so safety comes from agreement rather than elapsed time.
+Why can a duplex mismatch cost you RSTP's fast convergence?	Half duplex makes RSTP treat the link as shared rather than point-to-point, so it falls back to timers.
+What does EtherChannel do for STP?	Makes several physical links appear as one logical link, so STP won't block the redundant members.
+LACP vs PAgP — which is the open standard?	LACP (802.3ad) is the standard; PAgP is Cisco-proprietary.
+LACP modes that will form a channel?	active/active or active/passive. (passive/passive will not.)
+Does a single file transfer go faster over a 4×1 Gbps EtherChannel?	No — a flow is hashed to one link, so it's capped at 1 Gbps. EtherChannel scales many conversations.
+Why hash flows to a link instead of round-robining packets?	Round-robin would deliver packets out of order, which TCP reads as loss — triggering retransmits and cutting throughput.
+Why prefer 2, 4 or 8 links in a bundle?	The hash space divides evenly only across powers of two; other counts leave links permanently lopsided.
+What are the three private IPv4 ranges?	10.0.0.0/8, 172.16.0.0–172.31.255.255, 192.168.0.0/16.
+What does an address in 169.254.x.x mean?	APIPA — the host could not reach a DHCP server and self-assigned.
+What is the loopback address range?	127.0.0.0/8 (usually 127.0.0.1) — tests the local TCP/IP stack.
+Formula for usable hosts in a subnet?	2^(host bits) − 2 (subtracting network and broadcast addresses).
+Formula for number of subnets when borrowing bits?	2^(borrowed bits).
+How many usable hosts in a /24? /26? /30?	254, 62, 2.
+What mask is /26, and what is its block size?	255.255.255.192, block size 64.
+What mask is /27, and what is its block size?	255.255.255.224, block size 32.
+What mask is /28? /29?	255.255.255.240 (block 16) and 255.255.255.248 (block 8).
+In 172.16.40.0/21, what is the block size and next network?	/21 = 255.255.248.0 → block 8 in the third octet → next network 172.16.48.0.
+What is the network address of 192.168.10.77/26?	Block size 64 → boundaries 0, 64, 128, 192 → network 192.168.10.64, broadcast .127.
+Why is a /30 used for router-to-router links?	It gives exactly 2 usable addresses — one per router — wasting nothing. (/31 is also valid for p2p.)
+What is VLSM, and what's its golden rule?	Different-sized subnets from one block. Always allocate the largest subnet first.
+How do you build a wildcard mask?	Invert the subnet mask (255 − each octet). 0 = must match, 255 = don't care. /24 → 0.0.0.255.
+How long is an IPv6 address, and how long is its header?	128 bits; the header is a fixed 40 bytes.
+What are the two IPv6 shortening rules?	Drop leading zeros in a group, and replace one run of all-zero groups with ::.
+What is the link-local prefix?	FE80::/10 — every IPv6 interface has one, and it's never routed off the link.
+What prefix is unique local? Multicast?	Unique local FC00::/7 (in practice FD00::/8); multicast FF00::/8.
+What are FF02::1 and FF02::2?	All-nodes and all-routers on the link.
+How does EUI-64 build an interface ID from a MAC?	Split the MAC, insert FFFE in the middle, and flip the 7th bit of the first byte.
+Does IPv6 have broadcast?	No — it uses multicast (and anycast) instead.
+What replaced ARP in IPv6?	NDP — Neighbor Solicitation / Neighbor Advertisement over ICMPv6.
+What are the five NDP message types?	RS (133), RA (134), NS (135), NA (136), Redirect (137).
+Why does NDP use solicited-node multicast instead of broadcast?	A NIC filters multicast in hardware, so uninvolved hosts' CPUs are never interrupted — unlike ARP's broadcast.
+What is DAD and how does it work?	Duplicate Address Detection — the host sends an NS for its own tentative address; silence means it's free.
+What is SLAAC?	Stateless Address Autoconfiguration — the host learns the prefix from an RA and generates its own host portion.
+What do the RA M and O flags mean?	M=1 → get the address from stateful DHCPv6. O=1 → address via SLAAC but other config (DNS) from DHCPv6.
+Why keep DHCPv6 when SLAAC exists?	SLAAC keeps no record of who holds which address — enterprises needing auditing/accountability require the central ledger.
+What are the Administrative Distances for connected, static, EIGRP, OSPF and RIP?	0, 1, 90, 110, 120. (255 = untrusted/never used.)
+What does Administrative Distance decide?	Which source to believe when several describe the same network. Lower = more trusted.
+What does a metric decide, and how does it differ from AD?	Metric picks the best path within one protocol. AD picks which protocol/source to trust first.
+What is longest prefix match?	The router uses the most specific matching route — /30 beats /24 beats /8 — regardless of AD or metric.
+What is a floating static route?	A static route with a deliberately raised AD, so it only takes over if the preferred route disappears.
+Syntax for a default route?	ip route 0.0.0.0 0.0.0.0 <next-hop> — the "everywhere else" route.
+What problem does an FHRP solve?	A host's default gateway is a single static setting — hosts can't switch on their own, so the routers must share one virtual IP.
+Why must an FHRP share a virtual MAC, not just a virtual IP?	Hosts address frames to the cached MAC; moving only the IP would leave them sending to a dead router until ARP caches expired.
+HSRP vs VRRP vs GLBP?	HSRP Cisco, Active/Standby. VRRP open standard, Master/Backup. GLBP Cisco, also load balances.
+How does HSRP elect the active router?	Highest priority (default 100); tie broken by highest IP address.
+What does standby 1 preempt do, and where must it be configured?	Lets a recovered router reclaim Active. It's needed on the router with the higher priority.
+HSRP default hello and hold timers?	Hello 3 s, hold 10 s.
+What type of routing protocol is OSPF, and what algorithm does it run?	Link-state, running Dijkstra's SPF over its database.
+OSPF hello and dead intervals on broadcast/p2p links?	Hello 10 s, Dead 40 s.
+How is the OSPF Router ID chosen?	Manual router-id first; else the highest loopback IP; else the highest active physical interface IP.
+How is OSPF cost calculated, and what's the default reference bandwidth?	Reference bandwidth ÷ interface bandwidth; default reference is 100 Mbps (so anything ≥100 Mbps computes to 1).
+What must match for OSPF neighbors to form?	Area ID, hello/dead timers, subnet/mask, authentication, MTU, and compatible network type. (Router IDs must be unique, not matching.)
+Why does OSPF elect a DR and BDR on broadcast segments?	To cut adjacencies from n(n−1)/2 to a hub-and-spoke around the DR, avoiding duplicate flooding.
+How is the OSPF DR elected?	Highest interface priority (default 1), tie broken by highest Router ID. Priority 0 = never eligible.
+Is the OSPF DR election preemptive?	No — a new higher-priority router does not take over an existing DR. (Contrast: HSRP with preempt does.)
+Is 2WAY/DROTHER in show ip ospf neighbor a problem?	No — two DROTHERs deliberately stop at 2WAY. They only go FULL with the DR and BDR.
+Which command skips the DR/BDR election on a 2-router link?	ip ospf network point-to-point.
+What are the OSPF neighbor states in order?	Down → Init → 2-Way → ExStart → Exchange → Loading → Full.
+An adjacency stuck in EXSTART/EXCHANGE usually means what?	An MTU mismatch — hellos are small enough to pass, but the larger DBD packets are dropped.
+What does "Init" state indicate?	One-way communication — you hear their hello but aren't listed in it (often an ACL or mask problem).
+OSPF LSA Type 1 and Type 2 — what are they?	Type 1 = Router LSA (a router's own links). Type 2 = Network LSA, generated by the DR to describe a broadcast segment.
+OSPF LSA Types 3 and 5?	Type 3 = Summary (inter-area, from the ABR). Type 5 = External (redistributed, from the ASBR).
+What does a stub area block, and what does it get instead?	Blocks Type 5 externals; receives a default route instead.
+Why must every router in an OSPF area hold an identical database?	Each computes its own tree from it — identical input + deterministic algorithm = consistent, loop-free forwarding.
+What are the four DHCP steps?	DORA — Discover, Offer, Request, Acknowledge.
+Why is ip helper-address needed?	DHCP Discover is a broadcast, and routers don't forward broadcasts — the helper relays it as unicast to the server.
+What does DNS do, and on which port?	Resolves names to IP addresses, on port 53.
+Pinging an IP works but pinging a hostname fails. What does that isolate, and why?	DNS. Reaching the IP proves routing and the gateway are fine, so only name resolution is left.
+Static NAT vs dynamic NAT vs PAT?	Static = permanent 1-to-1. Dynamic = from a pool, as needed. PAT/overload = many hosts share one IP using ports.
+Which NAT type lets an outside host initiate a connection inward, and why?	Static NAT — the mapping is permanent and bidirectional; PAT entries only exist after an inside host starts a conversation.
+What keyword turns NAT into PAT?	overload — as in ip nat inside source list 1 interface gi0/1 overload.
+Which command shows the live NAT table?	show ip nat translations.
+Why does NTP matter for security?	Logs, certificates and authentication all depend on accurate time; skewed clocks break correlation and validation.
+Syslog severity levels 0–7?	0 Emergency, 1 Alert, 2 Critical, 3 Error, 4 Warning, 5 Notification, 6 Informational, 7 Debugging. (Lower = more severe.)
+SNMP: what's a get vs a trap?	A get is the manager polling the device; a trap is the device pushing an alert unprompted.
+Which QoS marking is used for voice?	EF — Expedited Forwarding, DSCP 46.
+Policing vs shaping?	Policing drops excess traffic; shaping buffers it to send later.
+What is jitter, and what's the target for voice?	Variation in delay — under 30 ms. (One-way delay under 150 ms, loss under 1%.)
+What is a QoS trust boundary?	The point where the network decides whether to believe incoming markings — you trust an IP phone, not a user's PC.
+What are the three parts of the CIA triad?	Confidentiality, Integrity, Availability.
+What's at the end of every ACL, even unwritten?	An implicit deny any.
+How are ACL entries processed?	Top down, first match wins — and processing stops there.
+Where do you place a standard ACL vs an extended ACL, and why?	Standard near the destination (it only matches source, so placing it early would over-block); extended near the source (it's specific, so drop unwanted traffic early).
+What can a standard ACL match? An extended ACL?	Standard: source IP only. Extended: source + destination IP, protocol and ports.
+What are the three AAA functions?	Authentication (who are you), Authorization (what may you do), Accounting (what did you do).
+RADIUS vs TACACS+ — key differences?	RADIUS: UDP, encrypts only the password, combines authn+authz. TACACS+: TCP, encrypts the entire payload, separates all three functions.
+What does DHCP snooping prevent?	A rogue DHCP server — untrusted ports aren't allowed to send DHCP offers.
+What does Dynamic ARP Inspection prevent, and what does it rely on?	ARP poisoning / man-in-the-middle — it validates ARP against the DHCP snooping binding table.
+What is 802.1X, and what are the three roles?	Port-based authentication before network access. Supplicant (client), Authenticator (switch), Authentication server (RADIUS).
+What makes authentication truly multi-factor?	Two different factor types — know / have / are. A password + security question is not MFA.
+Why are biometrics risky as a sole credential?	You can't change them. A leaked password is replaced in seconds; a leaked fingerprint is compromised permanently.
+Why does physical access control belong in network security?	Physical access defeats most software controls — console access allows password recovery, and any port can be used.
+Which 2.4 GHz channels are non-overlapping?	1, 6 and 11.
+Why does 5 GHz generally outperform 2.4 GHz?	More non-overlapping channels and less interference — at the cost of shorter range and weaker wall penetration.
+What is an SSID?	The wireless network name clients see and join.
+What is the wireless access method, and why not CSMA/CD?	CSMA/CA (collision avoidance) — radios can't transmit and listen simultaneously, so collisions can't be detected, only avoided.
+WPA2 vs WPA3 — what's the main encryption/authentication difference?	WPA2 uses AES-CCMP with a 4-way handshake; WPA3 adds SAE ("Dragonfly"), resisting offline dictionary attacks.
+Autonomous AP vs lightweight AP?	Autonomous = self-contained, configured individually. Lightweight = managed by a WLC, via CAPWAP.
+Which 802.11 standard is Wi-Fi 6, and which bands does it use?	802.11ax — both 2.4 and 5 GHz (6 GHz with 6E).
+What are the two planes SDN separates?	Control plane (decides where traffic goes) and data plane (actually forwards it).
+Northbound vs southbound API?	Northbound faces apps/users (controller ↔ your scripts). Southbound faces the devices (controller ↔ switches).
+What does CRUD map to in REST?	Create=POST, Read=GET, Update=PUT/PATCH, Delete=DELETE.
+What does a 401 mean? A 404? A 500?	401 not authenticated, 404 not found, 500 server error. 4xx = your mistake, 5xx = the server's.
+What does it mean that REST is stateless?	Every request carries everything needed to answer it — the server remembers nothing between calls, which is what makes it scalable.
+What are the JSON data types?	String, number, boolean, null, array [], object {}.
+Ansible vs Terraform vs Puppet — which need agents?	Ansible and Terraform are agentless; Puppet/Chef require an agent on each node.
+Declarative vs procedural configuration?	Declarative describes the desired end state and the tool computes the change; procedural lists the steps to run in order.
+What is idempotence?	Applying the same change repeatedly produces the same result — running it ten times is as safe as once.
+How does ML-based monitoring improve on fixed thresholds?	It learns a baseline of normal for that network and flags deviations — catching gradual degradation that never crosses a static limit.
+Which commands show IP settings on Windows, macOS and Linux?	ipconfig /all (Windows), ifconfig (macOS), ip address (Linux).
+What's the trace command on Windows vs everywhere else?	tracert on Windows; traceroute on macOS/Linux/IOS.
+How does traceroute actually discover the path?	It sends packets with increasing TTL — each hop that hits TTL 0 returns an ICMP "time exceeded," revealing itself.
+Why does a router decrement TTL?	Loop insurance — a misrouted packet dies instead of circulating forever.
+In a frame crossing a router, what changes and what stays the same?	MAC addresses are rewritten every hop; IP addresses stay the same end to end (unless NAT intervenes).
+Why does a PC ARP for its gateway rather than the remote destination?	Only devices on the same segment can answer ARP — the remote host isn't there to reply.
+A port shows "administratively down". What's the fix?	no shutdown on the interface.
+What symptoms indicate a duplex mismatch?	Slowness with late collisions on the half-duplex side and FCS/runt errors on the other.
+Which command shows what's connected to a Cisco device?	show cdp neighbors (or show lldp neighbors for the open standard).
+First four things to read from ipconfig /all?	IP address, subnet mask, default gateway, DNS servers — most faults show up in one of these.

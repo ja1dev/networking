@@ -10,7 +10,7 @@ strictly requires — the mechanism underneath, not just the behaviour. They're
 marked, so you can skip them on a tight timeline and come back later. They're
 also where CCNP begins; **Appendix B** maps them onto what comes next.
 
-> **This guide is one of four:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 140 exam-style questions grouped by domain, the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at, and the **Anki Flashcard Deck** (189 cards) drills the facts into instant recall. Read a chapter here, then answer that domain's questions — the appendix at the back maps every official exam topic to the section that covers it.
+> **This guide is one of four:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 140 exam-style questions grouped by domain, the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at, and the **Flashcard Deck** (189 cards, for Anki or Quizlet) drills the facts into instant recall. Read a chapter here, then answer that domain's questions — the appendix at the back maps every official exam topic to the section that covers it.
 
 ---
 
@@ -4220,7 +4220,7 @@ displaces what you already knew.
 3. **Type commands by hand**, don't just read them. Muscle memory matters in simulations.
 4. **Learn the "why," not just the "what."** Understanding beats memorizing.
 5. **Do practice exams** to get used to the style and timing.
-6. **Use the flashcard deck daily.** `CCNA_Flashcards.apkg` imports into Anki — 189 cards covering ports, AD values, STP costs, election rules and the depth material, split into subdecks by topic. **Spaced repetition is the only study method proven to beat forgetting**, and 15 minutes a day beats an hour on Sunday.
+6. **Use the flashcard deck daily.** `CCNA_Flashcards.apkg` imports into Anki (or `.tsv` into Quizlet) — 189 cards covering ports, AD values, STP costs, election rules and the depth material, split into subdecks by topic. **Spaced repetition is the only study method proven to beat forgetting**, and 15 minutes a day beats an hour on Sunday.
 7. **Teach someone else** — if you can explain it simply, you truly know it.
 
 **Why these specific tips — what's the reasoning behind each?** They're not random; each one targets *how the exam actually tests you*:

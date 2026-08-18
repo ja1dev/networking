@@ -10,7 +10,7 @@ four resources that work together, plus the scripts that build them.
 | **Study Guide** | Teaches every exam topic from scratch, in plain language with diagrams, worked configs and the reasoning behind each concept | 24 chapters, ~137 pages |
 | **Practice Question Bank** | Tests it — exam-style questions grouped by the official domains, each with a full explanation of why the right answer is right *and* why the traps are wrong | 140 questions |
 | **Subnetting Drill Sheet** | Builds the one skill that has to be *fast*, not just correct | 60 worked problems |
-| **Anki Flashcard Deck** | Drills the facts into instant recall via spaced repetition | 189 cards, 15 subdecks |
+| **Flashcard Deck** | Drills the facts into instant recall via spaced repetition. Builds for **Anki** (`.apkg`) and **Quizlet/other apps** (`.tsv`) | 189 cards, 15 subdecks |
 
 They cross-reference each other: the guide points at the drills for subnetting
 practice and at the question bank per domain, the drills point back at Chapters
@@ -30,7 +30,8 @@ ccna/
   CCNA_Study_Guide.pdf          <- the PDFs, ready to read
   CCNA_Practice_Questions.pdf
   CCNA_Subnetting_Drills.pdf
-  CCNA_Flashcards.apkg          <- import this into Anki
+  CCNA_Flashcards.apkg          <- import into Anki
+  CCNA_Flashcards.tsv           <- or into Quizlet / other apps
   docs/       Markdown sources (edit these)
   scripts/    Build scripts that turn docs/*.md into the files above
   fonts/      TrueType fonts used by the builds
@@ -47,7 +48,7 @@ One source, one output, no extra copies:
 | `ccna/docs/CCNA_Study_Guide.md` | `ccna/CCNA_Study_Guide.pdf` |
 | `ccna/docs/CCNA_Practice_Questions.md` | `ccna/CCNA_Practice_Questions.pdf` |
 | `ccna/docs/CCNA_Subnetting_Drills.md` | `ccna/CCNA_Subnetting_Drills.pdf` |
-| `ccna/docs/CCNA_Flashcards.md` | `ccna/CCNA_Flashcards.apkg` |
+| `ccna/docs/CCNA_Flashcards.md` | `ccna/CCNA_Flashcards.apkg` + `ccna/CCNA_Flashcards.tsv` |
 
 ## Building
 
@@ -74,13 +75,15 @@ python ccna/scripts/build_pdf.py ccna/docs/CCNA_Study_Guide.md ccna/CCNA_Study_G
 python ccna/scripts/build_pdf.py ccna/docs/CCNA_Practice_Questions.md ccna/CCNA_Practice_Questions.pdf "CCNA Practice Questions"
 python ccna/scripts/build_pdf.py ccna/docs/CCNA_Subnetting_Drills.md ccna/CCNA_Subnetting_Drills.pdf "CCNA Subnetting Drills"
 
-# Anki deck
-python ccna/scripts/build_anki.py
+# Flashcards — writes both the .apkg and the .tsv
+python ccna/scripts/build_flashcards.py
 ```
 
 ### The flashcard deck
 
-Import `ccna/CCNA_Flashcards.apkg` into Anki (File → Import, or double-click).
+One source, two formats — use whichever app you prefer.
+
+**Anki** — import `ccna/CCNA_Flashcards.apkg` (File → Import, or double-click).
 It creates a **CCNA 200-301** deck with 15 topic subdecks, so you can drill just
 the area you studied that day; every card is tagged `ccna` plus its topic.
 
@@ -88,6 +91,13 @@ Card IDs are derived from stable hashes of the question text, so **re-importing
 a rebuilt deck updates the existing cards instead of duplicating them** — your
 review history and scheduling survive edits. Change a card in
 `ccna/docs/CCNA_Flashcards.md`, rerun the build, re-import.
+
+**Quizlet (or anything else)** — import `ccna/CCNA_Flashcards.tsv`. In Quizlet:
+*Create → Import*, paste the file's contents, and set the delimiters to
+**Tab** between term and definition and **New line** between cards. The TSV is
+plain text with markdown stripped, since most apps display markup literally.
+Note that re-importing there creates a *new* set rather than updating an
+existing one.
 
 ### Optional: self-testing quiz PDFs
 

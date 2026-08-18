@@ -1,4 +1,8 @@
-"""Build an Anki deck (.apkg) from the flashcard markdown source.
+"""Build flashcard decks from the markdown source.
+
+Emits two formats from the one source:
+  * .apkg -- Anki (subdecks, tags, styling, stable ids)
+  * .tsv  -- tab-separated term/definition, for Quizlet and most other apps
 
 Each `## Heading` becomes a subdeck of "CCNA 200-301" and a tag; each
 `**Q:** ... / **A:** ...` pair becomes one Basic (front/back) note.
@@ -7,7 +11,7 @@ IDs and note GUIDs are derived from stable hashes of the content, so
 re-importing an updated deck UPDATES existing cards rather than duplicating
 them -- your review history and scheduling survive a rebuild.
 
-Usage: python scripts/build_anki.py [source.md] [output.apkg]
+Usage: python scripts/build_flashcards.py [source.md] [output.apkg]
 """
 import hashlib
 import os
@@ -19,6 +23,7 @@ import genanki
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "CCNA_Flashcards.md")
 OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "CCNA_Flashcards.apkg")
+OUT_TSV = os.path.splitext(OUT)[0] + ".tsv"
 
 TOP_DECK = "CCNA 200-301"
 
@@ -72,6 +77,14 @@ def md_inline(s):
     return s.strip()
 
 
+def plain(s):
+    """Strip markdown to plain text -- Quizlet and friends show markup literally."""
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+    s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def parse(path):
     """Yield (section, question, answer) triples."""
     with open(path, encoding="utf-8") as f:
@@ -119,6 +132,13 @@ def main():
     print("  %d cards across %d subdecks" % (notes, len(decks)))
     for name in sorted(decks):
         print("    %-52s %3d" % (name, len(decks[name].notes)))
+
+    # Quizlet et al: term <TAB> definition, one card per line.
+    with open(OUT_TSV, "w", encoding="utf-8", newline="\n") as fh:
+        for section, q, a in parse(SRC):
+            fh.write("%s\t%s\n" % (plain(q), plain(a)))
+    print("Wrote %s  (import with TAB between term/definition, NEWLINE between cards)"
+          % OUT_TSV)
 
 
 if __name__ == "__main__":
