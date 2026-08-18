@@ -1,34 +1,38 @@
 # Networking
 
 A complete, self-contained study kit for the **Cisco CCNA 200-301 (v1.1)** exam:
-three documents that work together, plus the scripts that build them into PDFs.
+four resources that work together, plus the scripts that build them.
 
-## The three documents
+## The four resources
 
 | Document | What it's for | Size |
 | --- | --- | --- |
-| **Study Guide** | Teaches every exam topic from scratch, in plain language with diagrams, worked configs and the reasoning behind each concept | 24 chapters, ~113 pages |
+| **Study Guide** | Teaches every exam topic from scratch, in plain language with diagrams, worked configs and the reasoning behind each concept | 24 chapters, ~137 pages |
 | **Practice Question Bank** | Tests it — exam-style questions grouped by the official domains, each with a full explanation of why the right answer is right *and* why the traps are wrong | 140 questions |
 | **Subnetting Drill Sheet** | Builds the one skill that has to be *fast*, not just correct | 60 worked problems |
+| **Anki Flashcard Deck** | Drills the facts into instant recall via spaced repetition | 189 cards, 15 subdecks |
 
 They cross-reference each other: the guide points at the drills for subnetting
 practice and at the question bank per domain, the drills point back at Chapters
 11–13 for the theory, and the question bank points at the guide's **Blueprint
 Coverage Map** appendix — a table mapping every official exam topic to the
 section that covers it, so a missed question leads straight to the right page.
+A flashcard you keep failing is the same signal: go re-read that section.
 
-Chapter 24 ties all three together with two schedules — an 8-week plan and a
-14-day sprint — mapping each day to chapters, drills and question-bank domains.
+Chapter 24 ties them together with two schedules — an 8-week plan and a 14-day
+sprint — mapping each day to chapters, drills, question-bank domains and daily
+Anki reviews.
 
 ## Layout
 
 ```
 ccna/
-  CCNA_Study_Guide.pdf          <- the three PDFs, ready to read
+  CCNA_Study_Guide.pdf          <- the PDFs, ready to read
   CCNA_Practice_Questions.pdf
   CCNA_Subnetting_Drills.pdf
+  CCNA_Flashcards.apkg          <- import this into Anki
   docs/       Markdown sources (edit these)
-  scripts/    Build scripts that turn docs/*.md into the PDFs above
+  scripts/    Build scripts that turn docs/*.md into the files above
   fonts/      TrueType fonts used by the builds
 ```
 
@@ -36,39 +40,54 @@ The PDFs sit at the top of `ccna/` so they're the first thing you see. The
 markdown in `ccna/docs/` is the single source of truth — the PDFs are generated
 from it, so edit the markdown and rebuild rather than editing a PDF.
 
-One source, one PDF, no extra copies:
+One source, one output, no extra copies:
 
-| Source (edit) | PDF (read) |
+| Source (edit) | Output (use) |
 | --- | --- |
 | `ccna/docs/CCNA_Study_Guide.md` | `ccna/CCNA_Study_Guide.pdf` |
 | `ccna/docs/CCNA_Practice_Questions.md` | `ccna/CCNA_Practice_Questions.pdf` |
 | `ccna/docs/CCNA_Subnetting_Drills.md` | `ccna/CCNA_Subnetting_Drills.pdf` |
+| `ccna/docs/CCNA_Flashcards.md` | `ccna/CCNA_Flashcards.apkg` |
 
 ## Building
 
-Requirements: `pip install markdown xhtml2pdf reportlab pymupdf`
+Requirements: `pip install markdown xhtml2pdf reportlab pymupdf genanki`
 
 Fonts: everything needed is committed in `ccna/fonts/` (DejaVu Sans and DejaVu Sans
 Mono, redistributable under the Bitstream Vera license — see
 `ccna/fonts/LICENSE.txt`), so the builds work out of the box on any platform.
 
-Both scripts *prefer* Segoe UI and Consolas if you drop `segoeui.ttf`,
+The two PDF scripts *prefer* Segoe UI and Consolas if you drop `segoeui.ttf`,
 `segoeuib.ttf`, `consola.ttf`, and `consolab.ttf` into `ccna/fonts/` — those are the
 fonts the original PDFs were built with, but they're Windows-only and can't be
 redistributed, so DejaVu is the committed fallback.
 
 Rebuild everything after editing the markdown:
 
+Every script resolves paths against `ccna/` (derived from its own location), so
+these work from any working directory, and each has sensible defaults if run
+with no arguments.
+
 ```bash
 # Standard PDFs — build_pdf.py [source.md] [output.pdf] [footer title]
 python ccna/scripts/build_pdf.py ccna/docs/CCNA_Study_Guide.md ccna/CCNA_Study_Guide.pdf "CCNA Study Guide"
 python ccna/scripts/build_pdf.py ccna/docs/CCNA_Practice_Questions.md ccna/CCNA_Practice_Questions.pdf "CCNA Practice Questions"
 python ccna/scripts/build_pdf.py ccna/docs/CCNA_Subnetting_Drills.md ccna/CCNA_Subnetting_Drills.pdf "CCNA Subnetting Drills"
+
+# Anki deck
+python ccna/scripts/build_anki.py
 ```
 
-Run the script with no arguments and it defaults to the study guide. Paths
-resolve against `ccna/` (derived from the script's own location), so the
-commands work from any working directory.
+### The flashcard deck
+
+Import `ccna/CCNA_Flashcards.apkg` into Anki (File → Import, or double-click).
+It creates a **CCNA 200-301** deck with 15 topic subdecks, so you can drill just
+the area you studied that day; every card is tagged `ccna` plus its topic.
+
+Card IDs are derived from stable hashes of the question text, so **re-importing
+a rebuilt deck updates the existing cards instead of duplicating them** — your
+review history and scheduling survive edits. Change a card in
+`ccna/docs/CCNA_Flashcards.md`, rerun the build, re-import.
 
 ### Optional: self-testing quiz PDFs
 

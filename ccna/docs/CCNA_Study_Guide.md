@@ -10,7 +10,7 @@ strictly requires — the mechanism underneath, not just the behaviour. They're
 marked, so you can skip them on a tight timeline and come back later. They're
 also where CCNP begins; **Appendix B** maps them onto what comes next.
 
-> **This guide is one of three:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 140 exam-style questions grouped by domain, and the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at. Read a chapter here, then answer that domain's questions — the appendix at the back maps every official exam topic to the section that covers it.
+> **This guide is one of four:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 140 exam-style questions grouped by domain, the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at, and the **Anki Flashcard Deck** (189 cards) drills the facts into instant recall. Read a chapter here, then answer that domain's questions — the appendix at the back maps every official exam topic to the section that covers it.
 
 ---
 
@@ -4160,7 +4160,7 @@ questions and 60 drills — the sprint just removes the slack.
 - **Week 7:** IP services incl. NAT and QoS, security, ACLs, wireless (Chapters 17–20). → Domains 4 and 5.
 - **Week 8:** Management, automation (incl. AI/ML and Terraform), troubleshooting, review, practice exams (Chapters 21–24). → Domains 6, 7 and 8.
 
-**Every week:** work that week's domain in the **Practice Question Bank** and keep drilling subnetting. In the final week, use the **Blueprint Coverage Map** appendix as a checklist — anything you can't explain, go re-read.
+**Every week:** work that week's domain in the **Practice Question Bank**, keep drilling subnetting, and run your **Anki reviews daily** (unlock that week's subdecks as you reach them). In the final week, use the **Blueprint Coverage Map** appendix as a checklist — anything you can't explain, go re-read.
 
 ### The 2-Week Sprint (~3–4 hrs/day)
 
@@ -4170,7 +4170,11 @@ daily subnetting are not optional. They're what stops week 1 leaking out of your
 head by day 12.
 
 **Each day: read the chapters → do that day's drills → answer the listed
-questions → note anything you couldn't explain out loud.**
+questions → run your Anki reviews → note anything you couldn't explain out loud.**
+
+*Anki is doing the heavy lifting on a two-week timeline* — it's what keeps day 2's
+material alive on day 13. Import the deck on day 1 and never skip the reviews,
+even on a day you read nothing.
 
 | Day | Read | Subnetting | Questions |
 |-----|------|------------|-----------|
@@ -4216,7 +4220,7 @@ displaces what you already knew.
 3. **Type commands by hand**, don't just read them. Muscle memory matters in simulations.
 4. **Learn the "why," not just the "what."** Understanding beats memorizing.
 5. **Do practice exams** to get used to the style and timing.
-6. **Make flashcards** for ports, AD values, STP costs, and private ranges.
+6. **Use the flashcard deck daily.** `CCNA_Flashcards.apkg` imports into Anki — 189 cards covering ports, AD values, STP costs, election rules and the depth material, split into subdecks by topic. **Spaced repetition is the only study method proven to beat forgetting**, and 15 minutes a day beats an hour on Sunday.
 7. **Teach someone else** — if you can explain it simply, you truly know it.
 
 **Why these specific tips — what's the reasoning behind each?** They're not random; each one targets *how the exam actually tests you*:
