@@ -10,7 +10,7 @@ strictly requires — the mechanism underneath, not just the behaviour. They're
 marked, so you can skip them on a tight timeline and come back later. They're
 also where CCNP begins; **Appendix B** maps them onto what comes next.
 
-> **This guide is one of four:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 140 exam-style questions grouped by domain, the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at, and the **Flashcard Deck** (189 cards, for Anki or Quizlet) drills the facts into instant recall. Read a chapter here, then answer that domain's questions — the appendix at the back maps every official exam topic to the section that covers it.
+> **This guide is one of four:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 152 exam-style questions grouped by domain, the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at, and the **Flashcard Deck** (208 cards, for Anki or Quizlet) drills the facts into instant recall. Read a chapter here, then answer that domain's questions — the appendix at the back maps every official exam topic to the section that covers it.
 
 ---
 
@@ -102,6 +102,8 @@ Before networks, if you wanted a file from another computer, you had to copy it 
 Each one **contains** the smaller: your PAN sits inside a LAN, which reaches the world through a WAN.
 
 ## 1.4 The Main Network Devices (Meet the Characters)
+
+![A small office network with every device in its role](images/office_lan.png)
 
 You will meet these devices over and over. Let's introduce them like characters in a story.
 
@@ -206,7 +208,11 @@ combined core/distribution layer — two tiers instead of three.
 
 **Why collapse them?** Because a separate core only pays off when you have **enough distribution blocks to justify it**. In a single-building company, a dedicated core layer would just be extra hardware forwarding traffic between two switches — expensive, and more devices to manage for no benefit. *The rule of thumb: 3-tier for large multi-building campuses, 2-tier (collapsed core) for smaller sites.*
 
+![Three-tier campus design versus collapsed core](images/campus_tiers.png)
+
 ### Spine-Leaf (The Data Center Shape)
+
+![Spine-leaf: every leaf connects to every spine](images/spine_leaf.png)
 
 Data centers use a different shape. Every **leaf** connects to **every spine** — and leaves never connect to each other:
 
@@ -374,6 +380,8 @@ From Layer 1 up to 7:
 
 ## 2.3 The TCP/IP Model — The Real-World Version
 
+![The OSI model beside the TCP/IP model with PDUs](images/osi_tcpip.png)
+
 The **TCP/IP model** is what the Internet actually uses. It has **4 layers** (sometimes shown as 5). It's basically the OSI model squished together.
 
 | TCP/IP layer | Covers which OSI layers |
@@ -386,6 +394,8 @@ The **TCP/IP model** is what the Internet actually uses. It has **4 layers** (so
 TCP/IP simply **merges** layers OSI keeps separate — the top three become one, and the bottom two become one.
 
 ## 2.4 Encapsulation — Wrapping Data in Layers
+
+![Encapsulation: each layer wraps the one above](images/encapsulation.png)
 
 As data goes **down** the layers (from your app to the wire), each layer **adds its own wrapper** (called a **header**). This is called **encapsulation**. It's like putting a letter inside envelope inside a box inside a shipping container.
 
@@ -503,6 +513,8 @@ Ports you MUST memorize for the exam:
 ---
 
 ## 2.7 TCP In Depth — How Reliability Actually Works
+
+![The TCP three-way handshake](images/tcp_handshake.png)
 
 > 🔬 **Depth section.** The exam asks *what* TCP does; this explains *how*. Skip it if you're on a tight sprint — but this is the layer of understanding CCNP assumes you already have.
 
@@ -1021,6 +1033,8 @@ MAC and IP work exactly the same way, and we need both for two different jobs:
 
 ## 5.3 The Ethernet Frame (What a Frame Looks Like)
 
+![The fields of an Ethernet frame](images/eth_frame.png)
+
 When data travels on a LAN, it's wrapped in an **Ethernet frame**. Here's the layout:
 
 | Field | Size | What it's for |
@@ -1090,6 +1104,8 @@ A switch's MAC address table is simply a list of *which address lives on which p
 
 ## 6.2 How a Switch Learns (Step by Step)
 
+![A switch learning MACs from received frames](images/mac_learning.png)
+
 **Story Time 📖:** A new switch is like a new mail sorter who doesn't know anyone yet. It learns by watching return addresses.
 
 1. **Learning:** When a frame comes in, the switch looks at the **Source MAC** and remembers "Aha, that device is on this port."
@@ -1120,6 +1136,8 @@ right port with no flooding. 🎯
 - **Why AGE OUT (forget) quiet devices after ~300 seconds?** Two reasons. First, the MAC table has **limited memory** — you can't remember every device forever. Second, devices **move** (unplugged and plugged into a different port, or a laptop roams). If the switch remembered the old port forever, it would keep sending frames to the *wrong* place after a device moved. Forgetting stale entries keeps the map **fresh and correct**. If the device is still active, it'll send another frame and get re-learned instantly — so nothing is lost.
 
 ## 6.3 Collision Domains vs. Broadcast Domains
+
+![Collision domains per port, broadcast domains per router side](images/domains.png)
 
 Two important ideas:
 
@@ -1238,6 +1256,8 @@ SW1(config-if)# switchport port-security violation shutdown  ! if broken, shut t
 # Chapter 7: VLANs — Splitting One Switch Into Many
 
 ## 7.1 The Problem VLANs Solve (Let's Really Understand This)
+
+![One physical switch carrying three VLANs](images/vlans.png)
 
 To understand *why* VLANs exist, we first have to feel the **pain of not having them**. So let's build up the problem slowly, step by step.
 
@@ -1429,6 +1449,8 @@ VLAN Name       Status    Ports
 
 ## 8.1 Trunking with 802.1Q (Dot1Q) — How the Tag Actually Works
 
+![The 802.1Q tag inserted into a frame on a trunk](images/dot1q.png)
+
 In Chapter 7 you learned *why* trunks exist: a single cable must carry many VLANs, so we **tag** each frame with its VLAN number. Now let's see *how* that tag works, because the exam tests the details.
 
 The tagging standard is **802.1Q** (say "dot-one-Q"). When a frame goes onto a trunk, the switch inserts a **4-byte tag** right into the middle of the Ethernet frame — squeezed in between the Source MAC and the Type field:
@@ -1502,6 +1524,8 @@ VTP modes:
 > **Best practice:** Before adding any used switch to your network, **reset its VTP revision number to 0** (set it to VTP transparent mode and back, or erase config). Many engineers avoid VTP entirely, or use the safer VTP version 3, precisely because of this risk. *Why: a convenience feature should never be able to delete your whole VLAN design by accident.*
 
 ## 8.4 Inter-VLAN Routing — Why VLANs Need a Router to Talk
+
+![Router-on-a-stick topology](images/roas.png)
 
 We spent Chapter 7 building **walls** between VLANs. But walls are inconvenient when teachers legitimately need to reach a shared file server on a different VLAN. So how do we let *some* traffic through, on our terms?
 
@@ -1598,6 +1622,8 @@ in reserve.
 **Why "block a port" instead of "unplug the cable"?** Because a blocked port is a **backup on standby**, not a removed one. It still *listens* for STP messages, so it knows the instant the main path fails — and then it springs into action and starts forwarding. You get the safety of no-loops *and* the resilience of a spare path, automatically. Unplugging the cable would give you no loop but also no backup. Blocking gives you both.
 
 ## 9.3 How STP Chooses (The Election)
+
+![STP blocking one port to break the loop](images/stp.png)
 
 STP holds "elections" using special messages called **BPDUs** (Bridge Protocol Data Units).
 
@@ -1888,6 +1914,8 @@ Finally, RSTP handles **topology change** differently. Classic STP notified the 
 
 ## 10.1 The Idea
 
+![EtherChannel: four cables acting as one logical link](images/etherchannel.png)
+
 What if one cable between switches isn't fast enough? **EtherChannel** bundles **multiple physical cables** into **one logical link**. More speed, and if one cable dies, the others keep working!
 
 Without EtherChannel, four cables between two switches give you the speed of
@@ -2002,6 +2030,8 @@ Four octets × 8 bits = **32 bits** in total.
 Each octet is one byte (8 bits), so it can be **0 to 255**. (Remember from Chapter 4: 11111111 = 255.)
 
 ## 11.2 Two Parts: Network & Host
+
+![An IP address split into network and host parts by the mask](images/ip_split.png)
 
 Every IP address has two parts:
 - **Network part:** Which network you're on (like a street name).
@@ -2193,6 +2223,8 @@ Why minus 2? Because you **can't use** the **network address** (first) or the **
 
 ## 12.5 The "Block Size" Trick (Subnetting Made Easy)
 
+![A /24 sliced into four /26 blocks](images/subnet_blocks.png)
+
 The easiest way to subnet: find the **block size** (how big each subnet is). 
 
 **Block size = 256 − (the interesting octet of the mask).**
@@ -2272,6 +2304,8 @@ IPv4 has about **4.3 billion** addresses. That sounds like a lot, but with phone
 **IPv6** fixes this with a mind-bogglingly huge number of addresses: **340 undecillion** (that's 340 followed by 36 zeros). Enough for every grain of sand to have trillions of addresses.
 
 ## 13.2 What IPv6 Looks Like
+
+![Anatomy of a global unicast IPv6 address](images/ipv6_addr.png)
 
 IPv6 is **128 bits** (four times bigger than IPv4's 32 bits). It's written in **hexadecimal**, in **8 groups** of 4 hex digits, separated by **colons**:
 
@@ -2524,6 +2558,8 @@ Gi0/1       10.0.0.1      YES manual up      up
 
 ## 14.7 First Hop Redundancy (FHRP & HSRP) — A Backup for the Default Gateway
 
+![HSRP: two routers behind one virtual gateway](images/hsrp.png)
+
 Back in section 11.6 we learned that every device needs a **default gateway** — the router it hands packets to when the destination isn't local. Now let's ask an uncomfortable question about that arrangement.
 
 **What happens when the default gateway dies?**
@@ -2610,6 +2646,8 @@ Read that output as a sentence: *group 1, priority 110, P = preempt enabled, thi
 ---
 
 ## 14.8 A Day in the Life of a Packet — Everything, End to End
+
+![A packet crossing two routers: IPs constant, MACs rebuilt](images/packet_walk.png)
 
 > 🔬 **Depth section — and the most valuable page in this book.** Every chapter so far taught one piece. This traces a single packet through all of them at once. If one idea makes the rest click, it's this one.
 
@@ -2823,6 +2861,8 @@ R1(config)# ipv6 route ::/0 2001:db8:0:1::2        ! default route
 6. **Install routes:** The best paths go into the routing table.
 
 ## 16.5 OSPF Areas
+
+![OSPF areas around the backbone with ABRs](images/ospf_areas.png)
 
 Big OSPF networks are split into **areas** to keep maps small and updates local. The center is always **Area 0** (the backbone). All other areas connect to Area 0.
 
@@ -3076,6 +3116,8 @@ Areas exist to bound flooding and SPF work. **Special area types go further, tra
 
 ## 17.1 DHCP — Automatic IP Addresses
 
+![The DHCP DORA exchange](images/dhcp_dora.png)
+
 **DHCP (Dynamic Host Configuration Protocol)** hands out IP addresses **automatically**. Without it, you'd type an IP into every phone and laptop by hand. Yuck!
 
 ### The DHCP Handshake: D-O-R-A
@@ -3138,6 +3180,8 @@ Common DNS record types:
 - **PTR** = reverse (IP → name).
 
 ## 17.3 NAT — Sharing One Public Address
+
+![PAT translating private hosts to one public IP by port](images/nat.png)
 
 **NAT (Network Address Translation)** lets **many private devices** share **one public IP** to reach the internet. This is why your whole house full of gadgets can use the internet with just one address from your provider.
 
@@ -3203,10 +3247,22 @@ R1# clear ip nat translation *    ! wipe dynamic entries (useful when testing)
 
 ## 17.4 NTP — Keeping Time in Sync
 
-**NTP (Network Time Protocol)** keeps all devices' clocks in sync. Why care? Because logs, security certificates, and troubleshooting all depend on accurate time.
+**NTP (Network Time Protocol)** keeps all devices' clocks in sync (UDP port **123**). Why care? Three concrete reasons the exam and real life share:
+
+- **Correlating logs.** When something breaks, you line up syslog entries from five devices to reconstruct the story. If R1 thinks it's 09:14 and R2 thinks it's 09:03, the story is unreadable — you literally cannot tell which failure came *first*, which is the entire question.
+- **Certificates and authentication.** Certificates are valid *between two timestamps*. A device with a wildly wrong clock rejects perfectly good certificates (breaking SSH/HTTPS) — or accepts expired ones.
+- **Time-based features.** ACLs, key rotation and scheduled jobs all trust the clock.
+
+**How it's organized: stratum.** NTP arranges time sources into levels called **stratum** — think "how many steps from the atomic clock." **Stratum 0** is the reference hardware itself (atomic clock, GPS), **stratum 1** is a server directly attached to it, **stratum 2** learns from stratum 1, and so on. **Lower stratum = closer to the truth = more believable.** A device that syncs from a stratum 3 server becomes stratum 4 itself. *Why does this matter?* Given several candidate servers, NTP prefers the lower stratum — and if a device advertises stratum 15+, it's considered barely better than a guess.
+
 ```
-R1(config)# ntp server 129.6.15.28        ! sync to a time server
+R1(config)# ntp server 129.6.15.28        ! be a CLIENT of this server
+R1(config)# ntp master 3                  ! also SERVE time (as stratum 3)
+R1# show ntp status                       ! synchronized? to whom? what stratum?
+R1# show ntp associations                 ! all servers it's talking to
 ```
+
+**The usual design:** one or two routers sync to a public NTP server on the internet, then act as `ntp master` for everything inside. **Why not point all 200 devices at the internet?** The same centralization logic as AAA and DHCP: one controlled place to manage — and if the internet link dies, your devices keep agreeing with *each other*, which is what log correlation actually needs.
 
 ## 17.5 Syslog — The Diary of Events
 
@@ -3227,7 +3283,21 @@ R1(config)# ntp server 129.6.15.28        ! sync to a time server
 
 ## 17.6 SNMP — Watching Devices
 
-**SNMP (Simple Network Management Protocol)** lets a management station monitor and manage many devices (CPU, memory, interface stats). Version **SNMPv3** adds encryption and authentication — always prefer it for security.
+**SNMP (Simple Network Management Protocol)** lets a management station monitor and manage many devices (CPU, memory, interface stats). The moving parts have names the exam expects:
+
+| Piece | What it is |
+|-------|------------|
+| **NMS / manager** | The monitoring station (the software with the dashboards) |
+| **Agent** | The small process on each device that answers questions |
+| **MIB** | The Management Information Base — the tree of everything askable |
+| **OID** | One dotted address into that tree (e.g. `1.3.6.1.…` = "interface 1's byte count") |
+
+Two directions of conversation, and the difference matters:
+
+- **Polling (manager asks):** `Get` reads a value, `Set` changes one. The manager sweeps its devices every few minutes — reliable, but everything between polls is invisible.
+- **Traps (agent shouts):** the device sends an unsolicited **trap** the moment something happens ("interface down!"). **Why have both?** Because polling alone means a link can flap and recover *between* two polls and you'd never know; traps alone means a dead device simply goes silent — no agent left to shout. Polling proves devices are alive; traps catch events instantly. Real monitoring uses both.
+
+Versions: **v1** is ancient; **v2c** added better bulk reads but still "secures" everything with a plaintext **community string** — a shared password sent in the clear, usually `public` (read) and `private` (write). **v3** finally adds real **authentication and encryption** — always prefer it, and if you must run v2c, make it read-only with an ACL restricting who may ask.
 
 ---
 
@@ -3382,6 +3452,8 @@ Servers like **RADIUS** and **TACACS+** provide AAA centrally instead of a passw
 
 ## 18.6 802.1X — The Bouncer at the Port
 
+![The three roles of 802.1X](images/dot1x.png)
+
 **802.1X** makes a device **prove who it is** before the switch port lets it onto the network. Three players:
 - **Supplicant:** The device trying to connect.
 - **Authenticator:** The switch/AP (the bouncer).
@@ -3445,6 +3517,8 @@ An **ACL (Access Control List)** is a set of **rules** that tell a router which 
 **Story Time 📖:** A bouncer reads names off a list from top to bottom. The FIRST matching rule wins — once he finds your name (allow or deny), he stops reading. And there's a secret rule at the bottom: "anyone NOT on the list, get out!" (the implicit deny).
 
 ## 19.2 How ACLs Are Read (Very Important!)
+
+![ACL first-match processing flow](images/acl_flow.png)
 
 - Rules are checked **top to bottom**.
 - The **first match wins** — the rest are ignored.
@@ -3553,6 +3627,8 @@ The **SSID (Service Set Identifier)** is the **Wi‑Fi network's name** you see 
 
 ## 20.3 Frequency Bands & Channels
 
+![2.4 GHz channel overlap: 1, 6 and 11 stay clear](images/wifi_channels.png)
+
 Wi‑Fi uses two main **bands**:
 
 | Band | Speed | Range | Crowded? |
@@ -3589,7 +3665,9 @@ Spacing your APs across those three keeps neighbouring cells from interfering. �
 | **WEP** | ❌ Broken | Ancient, easily cracked — never use |
 | **WPA** | ⚠️ Weak | Old |
 | **WPA2** | ✅ Good | Uses strong AES encryption; common |
-| **WPA3** | ✅✅ Best | Newest, strongest |
+| **WPA3** | ✅✅ Best | Newest, strongest — replaces the PSK handshake with **SAE** |
+
+**What does WPA3's SAE actually fix?** WPA2-Personal has a known weakness: an attacker can record the 4-way handshake from the parking lot and then guess passwords **offline**, millions per second, until one produces the same handshake. WPA3 replaces that handshake with **SAE (Simultaneous Authentication of Equals)** — each connection attempt requires a live exchange with the AP, so there's nothing useful to take home and crack. One guess per attempt, with the AP watching. *Same password, but brute-forcing it now happens at the AP's pace instead of a GPU's.*
 
 Two modes:
 - **Personal (PSK):** One shared password. Good for homes.
@@ -3617,7 +3695,77 @@ The lightweight APs talk to the WLC using a tunnel protocol called **CAPWAP**.
 
 > **How does a ceiling-mounted AP get power?** Almost always from the switch, over the same Ethernet cable that carries its data — see section **3.7 (PoE)**. It's also why APs and WLCs need the trunk/access port planning from Chapters 7 and 8.
 
-## 20.7 How a Device Joins Wi‑Fi
+**The four deployment architectures** — the exam expects you to compare them, and each exists because it fixes the previous one's pain at a particular size of network:
+
+| Architecture | Where the "brain" lives | Best for |
+|--------------|-------------------------|----------|
+| **Autonomous** | In each AP individually | A handful of APs |
+| **Split-MAC** (lightweight + WLC) | Central WLC appliance; APs tunnel to it via CAPWAP | Campus with many APs |
+| **Cloud-based** (e.g. Cisco Meraki) | A controller in the vendor's cloud, managed from a web dashboard | Many small sites, lean IT teams |
+| **Embedded / Mobility Express** | WLC software running **inside** a switch or inside one of the APs | Small/branch sites that want central management without buying a controller |
+
+**Why is the lightweight model called "split-MAC"?** Because the 802.11 (MAC-layer) job gets **split in two**. The **real-time** work that can't tolerate delay — transmitting frames, acknowledgements, encryption, beacons — stays **on the AP**, right at the radio. The **management** work — authentication decisions, roaming, channel/power planning, applying policy — moves **to the WLC**. *Time-critical stays local; decisions centralize.* CAPWAP is the pipe between the halves: a **control tunnel (UDP 5246)** carrying the WLC's instructions, and a **data tunnel (UDP 5247)** carrying client traffic — control messages are encrypted with **DTLS**; data usually isn't unless you turn it on.
+
+## 20.7 AP Modes — One AP, Many Jobs
+
+A lightweight AP isn't locked into serving clients; the WLC can assign it a **mode**. Two forward traffic, the rest turn the AP into a dedicated tool:
+
+| Mode | What the AP does |
+|------|------------------|
+| **Local** | The default — serves clients, tunnels **all** traffic to the WLC through CAPWAP |
+| **FlexConnect** | Serves clients but can **switch traffic locally** at the site instead of tunneling it — and keeps working if the WAN link to the WLC dies |
+| **Monitor** | No clients — radio only **listens**, hunting rogue APs and interference |
+| **Sniffer** | Captures 802.11 frames and streams them to an analyst's Wireshark |
+| **Rogue detector** | Sits on the **wired** side, matching wired MACs against rogue APs heard over the air to prove an intruder AP is on *your* network |
+| **Bridge / Mesh** | Point-to-point or mesh backhaul — a wireless cable between buildings |
+| **SE-Connect** | Dedicated **spectrum analysis** — finds non-Wi‑Fi interferers (microwaves, cordless phones) |
+
+**Why does FlexConnect exist — isn't tunneling everything the whole point?** Picture a branch office in another city, its WLC back at HQ. In **local mode**, a print job from a branch laptop to the branch printer *ten feet away* would travel across the WAN to HQ and back — silly. And if the WAN link fails, Wi‑Fi at the branch dies entirely, even though the AP and the printer are both fine. **FlexConnect lets the AP drop local traffic onto the local LAN directly**, keeping only management centralized — and if the WLC becomes unreachable, the AP keeps serving its existing WLANs on its own. *Central control when available, local survival when not.* That's the exam's favorite fact about it.
+
+## 20.8 Wiring It Up — How APs and WLCs Physically Connect
+
+![Lightweight APs tunneling through CAPWAP to the WLC](images/wlc.png)
+
+This is pure Chapter 7/8 knowledge applied to wireless, and the logic falls out of one question: *who needs to see which VLANs?*
+
+- **A lightweight AP plugs into an access port.** Surprising until you remember: every client's traffic rides **inside the CAPWAP tunnel**, so the wire only ever carries one thing — CAPWAP packets between AP and WLC. One kind of traffic = one VLAN = access port. *The VLAN sorting happens at the WLC end, where the tunnel is unwrapped.*
+- **The WLC plugs into a trunk port.** The reverse reasoning: the WLC unwraps tunnels from *every* AP and must drop each client onto the right VLAN — employee traffic to the employee VLAN, guest to guest. Many VLANs on one link = trunk.
+- **An autonomous AP with multiple SSIDs also needs a trunk** — with no tunnel to carry the sorting elsewhere, it must tag each SSID's VLAN itself.
+- **A WLC bundles its trunk ports with LAG** (link aggregation — the same EtherChannel idea from Chapter 10): more bandwidth for hundreds of APs' worth of tunnels, and no single-cable failure takes down the whole wireless network. One WLC quirk to remember: Cisco WLCs use **static LAG only — no LACP/PAgP negotiation** (`channel-group X mode on` at the switch end).
+
+The WLC also keeps several **logical interfaces**, each answering a different "who's talking to me?":
+
+| WLC interface | Purpose |
+|---------------|---------|
+| **Management** | Its main IP — CAPWAP from APs, SSH/HTTPS from admins |
+| **Virtual** | A fake, unroutable address (often 192.0.2.1) used for client-facing chores like DHCP relay and the web login page |
+| **Dynamic** | One per client VLAN — the exit door a WLAN's traffic uses onto the wired network |
+| **Service port** | Out-of-band management — a lifeline that works even if the network config is broken |
+| **Redundancy** | Heartbeat link to a standby WLC |
+
+## 20.9 Managing APs and the WLC
+
+Same menu as any Cisco device (21.1), applied to wireless — with the same security instincts:
+
+- **CLI:** console, Telnet (❌ cleartext — disabled by default on WLCs), or **SSH** ✅.
+- **GUI:** the WLC is mostly driven from its **web interface** — HTTP (❌) or **HTTPS** ✅. This is the practical difference from switches: day-to-day WLC work is GUI work, which is why the exam asks you to recognize its screens.
+- **Centralized admin login:** point the WLC at **TACACS+ or RADIUS** (the AAA story from 18.4), so admin accounts live in one place instead of on every controller.
+- A lightweight AP normally isn't managed directly at all — that's the entire point of owning a WLC — though its console port still matters for troubleshooting an AP that can't find its controller.
+
+## 20.10 Creating a WLAN in the WLC GUI (What the Exam Shows You)
+
+The exam gives you **screenshots** of this workflow, so walk it once. A **WLAN** on a WLC is a profile that ties three things together: an **SSID** (what clients see), a **dynamic interface** (which VLAN the traffic exits onto), and a **security policy**. Order of operations:
+
+1. **Create the dynamic interface** (Controller → Interfaces): name, VLAN ID, IP address — the WLAN's door to the wired network.
+2. **Create the WLAN** (WLANs → Create New): Profile Name (internal label), SSID (broadcast name), then **enable it** — new WLANs start disabled, a classic "why isn't it showing up?" gotcha.
+3. **General tab:** map the WLAN to that dynamic interface.
+4. **Security tab:** Layer 2 security — **WPA2/WPA3**, then either **PSK** (type the passphrase) or **802.1X** (point at your RADIUS server).
+5. **QoS tab:** pick a profile — **Platinum (voice), Gold (video), Silver (best effort — the default), Bronze (background)**. This decides how the WLC marks the traffic for the QoS machinery from 17.7; guest Wi‑Fi often gets Bronze so it can't crowd out real work.
+6. **Advanced tab:** the long tail — session timeouts, band steering, FlexConnect local switching.
+
+*Memory hook for the QoS tiers: medals in order — Platinum, Gold, Silver, Bronze — and voice always takes the podium.*
+
+## 20.11 How a Device Joins Wi‑Fi
 1. **Discover:** Device listens for beacons or probes for the SSID.
 2. **Authenticate:** Proves it's allowed (password/802.1X).
 3. **Associate:** Officially joins the AP.
@@ -3666,14 +3814,35 @@ R1# copy running-config startup-config   ! save locally (do this always!)
 ```
 
 ## 21.4 Managing IOS Images
+
+The IOS image lives in **flash**; upgrading means copying a new image in, telling the device to boot from it, and reloading. The exam cares about the workflow *and* the two safety habits:
+
 ```
-R1# show flash:                     ! see stored IOS files
-R1# show version                    ! current IOS + uptime
-R1# copy tftp flash:                ! load a new IOS image
+R1# show flash:                       ! space free? current image name?
+R1# show version                      ! running version + config register
+R1# copy tftp flash:                  ! pull the new image (or FTP/SCP/USB)
+R1# verify /md5 flash:new-image.bin   ! checksum BEFORE trusting it
+R1(config)# boot system flash:new-image.bin
+R1# copy running-config startup-config
+R1# reload
 ```
 
+- **Why verify the checksum?** A corrupted transfer (or a tampered image) can leave you a device that won't boot — comparing the MD5/SHA hash against Cisco's published value costs one command and prevents the 2 a.m. surprise.
+- **Why keep the old image in flash?** If the new one fails, you point `boot system` back at the known-good file. Delete it only after the new image has survived a reload.
+- **TFTP vs FTP:** TFTP is the classic, dead-simple choice (UDP 69, no login); FTP adds authentication and handles big files more reliably. Both appear on the blueprint as "ways to move configs and images."
+
 ## 21.5 Password Recovery (The Config Register)
-If you're locked out, the **configuration register** (`0x2102` normally) can be changed to `0x2142` to **skip the startup config** on boot, letting you reset the password. (Know the concept for the exam.)
+
+If you're locked out, the fix hinges on one 16-bit value: the **configuration register**, which tells the router *how to boot*. Normally it's **`0x2102`** — boot the IOS, load startup-config as usual. Changed to **`0x2142`**, one bit flips meaning: **ignore the startup config at boot**.
+
+The recovery walk (console cable required — this cannot be done remotely, which is the point):
+
+1. Power-cycle and break into **ROMMON** (Ctrl+Break during boot).
+2. `confreg 0x2142`, then `reset` — the router boots *fresh*, no config, no passwords.
+3. `copy startup-config running-config` — pull the real config back in (now you're logged in *around* it).
+4. Change the passwords, set the register back with `config-register 0x2102`, save, reload.
+
+**Why does this feature exist — isn't it a security hole?** It's the deliberate trade-off from 18.9: anyone with **physical access** to the console effectively owns the device, so Cisco chose recoverable-by-owner over bricked-by-forgotten-password. That's exactly why wiring closets get locks. *And the exam angle: if a router boots up ignoring its startup config "for no reason," check `show version` — someone left the register at 0x2142.*
 
 ## 21.6 Useful Monitoring Commands
 
@@ -3702,16 +3871,30 @@ Doing the same command on 500 switches by hand is slow and error-prone. **Automa
 - **Control plane** (the brain): Decides where traffic should go.
 - **Data plane** (the muscles): Actually forwards the traffic.
 
-In traditional networking, every device has its own brain. In SDN, a central **controller** is the brain for everyone, and devices just follow orders. Cisco's example is **Cisco DNA Center**.
+In traditional networking, every device has its own brain. In SDN, a central **controller** is the brain for everyone, and devices just follow orders. Cisco's campus controller is **Cisco Catalyst Center** (renamed from **DNA Center** — the exam may use either name).
 
 | Model | Where the thinking happens |
 |-------|----------------------------|
 | **Traditional** | Every device decides for itself 🧠🧠🧠 |
 | **SDN** | One **controller** decides 🧠, and the devices carry it out 💪 |
 
+**What does that difference feel like day to day?** The exam asks you to compare managing a campus the traditional way against managing it through Catalyst Center:
+
+| Task | Traditional (per-device) | With Catalyst Center |
+|------|--------------------------|----------------------|
+| Config change | SSH to each device, type CLI, hope you didn't typo one of them | Define the **intent** once; the controller pushes consistent config everywhere |
+| New switch | Console in, configure by hand | **Plug-and-play** provisioning — it's discovered and configured automatically |
+| Monitoring | Poll devices one by one (SNMP, `show` commands) | Continuous **assurance** — telemetry from everywhere, analyzed centrally |
+| Software updates | Manually, per device, at 2 a.m. | Scheduled and rolled out by the controller |
+| Interface | CLI per box | GUI dashboard + a **REST API** for automation |
+
+The traditional way still *works* — Catalyst Center even talks to the same IOS devices underneath. What changes is **where the intelligence sits** and how many places a human has to touch.
+
 **Why separate the "brain" from the "muscles" at all?** Because in traditional networking, every switch and router has its *own* brain making its *own* decisions — which means to change network-wide policy, you have to log into *every single device* and configure it separately. With hundreds of devices, that's slow, and worse, they can drift into slightly different ("snowflake") configs that cause weird bugs. SDN's insight: **pull all the decision-making into one central controller**, and let the devices just be fast, simple forwarders that follow orders. *Why is that powerful?* Now you set policy **once** in the controller and it programs every device consistently — like conducting an orchestra from one podium instead of running to each musician individually. It also means the controller has a **complete view** of the whole network, so it can make smarter, coordinated decisions than any single device could on its own.
 
 ## 22.3 Northbound vs. Southbound APIs
+
+![SDN controller with northbound and southbound APIs](images/sdn.png)
 
 The controller talks in two directions:
 - **Northbound API:** Up to apps/humans (e.g., a REST API you program against).
@@ -3754,6 +3937,16 @@ REST APIs usually exchange data in **JSON** format.
 | **D**elete | DELETE |
 
 **Why reuse web verbs instead of inventing something for networking?** Because the entire internet already speaks HTTP. Every programming language, firewall, load balancer, and proxy handles it, and any engineer already knows what GET means. Reusing it meant network APIs worked everywhere on day one, with no new protocol to learn — *the same reason we don't invent a new alphabet every time we write a new book.*
+
+**How does a REST API know who's calling?** Since every request stands alone (see statelessness below), every request must carry proof of identity. The blueprint names the common schemes:
+
+| Auth type | How it works | Trade-off |
+|-----------|--------------|-----------|
+| **Basic** | Username:password sent (Base64-encoded — *not* encrypted) in a header | Simple, but only safe inside HTTPS |
+| **API key** | A long secret string identifying the calling app | Easy to issue and revoke, but it's a password by another name |
+| **Bearer token / OAuth** | You authenticate **once**, receive a short-lived **token**, and send that instead | Credentials aren't repeated on every call, and a stolen token expires soon |
+
+*The pattern to remember: whatever the scheme, it rides along **in every single request** — and none of them are safe over plain HTTP.*
 
 **REST APIs are also stateless:** every request must carry **everything** needed to answer it (including authentication) — the server remembers nothing between calls. **Why insist on that?** Because a server that remembers nothing is a server you can duplicate freely. Any of ten identical servers can answer any request, so you scale by adding more, and a crashed server loses no conversation. *Statelessness is what makes an API scalable.*
 
@@ -3835,6 +4028,17 @@ Where it shows up in real networks:
 - **Root cause analysis** — collapsing 400 simultaneous alarms into one sentence: *"this uplink went down; everything else is a symptom."*
 - **Wireless optimization** — learning interference patterns and adjusting channels and power automatically.
 - **Capacity planning** — projecting when a link will saturate based on real growth, not guesswork.
+
+**Predictive vs. generative — the exam's key distinction.** The blueprint (v1.1) explicitly names **two kinds of AI**, and they do opposite jobs:
+
+| Aspect | **Predictive AI** | **Generative AI** |
+|--------|-------------------|-------------------|
+| Job | **Forecasts** from patterns in data | **Creates** new content |
+| Answers | "What is about to happen?" | "Write/make this for me" |
+| In networking | Anomaly detection, failure prediction, capacity planning — everything described above | Drafting configs and ACLs, explaining a cryptic log in plain English, chat-style troubleshooting assistants, writing documentation |
+| Example | "This AP will likely fail within two weeks" | "Generate the OSPF config for these three routers" |
+
+*The one-line separator: predictive AI **watches and warns**; generative AI **writes and explains**.* Modern tools combine them — an assistant built into Catalyst Center might use predictive models to spot the anomaly, then generative AI to explain it and draft the fix. And the same caution applies double to generative AI: it produces **plausible** output, not guaranteed-correct output, so a human reviews any config it writes before it touches production.
 
 **The honest limits** — worth knowing, because the exam frames AI as an aid rather than a replacement. ML systems learn from **historical data**, so they inherit its blind spots: a network that was misconfigured for a year has learned that misconfiguration as "normal." They produce **probabilities, not certainties**, so they can be confidently wrong. And many models can't fully explain *why* they flagged something, which is uncomfortable when you're deciding whether to reroute production traffic. *AI is a very fast assistant that reads everything and never gets tired — not an engineer. A human still owns the decision.*
 
@@ -4143,10 +4347,10 @@ Cisco publishes an official topic list for the **CCNA 200-301 (v1.1)** exam. Thi
 | 2.3 | Layer 2 discovery protocols (CDP, LLDP) | 21.2 |
 | 2.4 | EtherChannel (LACP) | 10.1–10.3 |
 | 2.5 | Rapid PVST+ (root bridge, port states, PortFast, guards) | 9.1–9.7, **9.8**, **9.9** |
-| 2.6 | Cisco wireless architectures and AP modes | 20.6 |
-| 2.7 | Physical infrastructure of WLAN components | 20.6 |
-| 2.8 | AP and WLC management access connections | 20.6, 21.1 |
-| 2.9 | Wireless LAN GUI configuration for client connectivity | 20.5, 20.6 |
+| 2.6 | Cisco wireless architectures and AP modes | 20.6, **20.7** |
+| 2.7 | Physical infrastructure of WLAN components (AP/WLC ports, LAG) | **20.8** |
+| 2.8 | AP and WLC management access connections | **20.9**, 21.1 |
+| 2.9 | Wireless LAN GUI configuration for client connectivity (WLAN, security, QoS profiles) | 20.5, **20.10** |
 
 ## 3.0 IP Connectivity (25%)
 
@@ -4194,7 +4398,7 @@ Cisco publishes an official topic list for the **CCNA 200-301 (v1.1)** exam. Thi
 | 6.1 | How automation impacts network management | 22.1 |
 | 6.2 | Traditional vs. controller-based networking | 22.2 |
 | 6.3 | Controller-based, software-defined architecture (overlay, underlay, fabric) | 22.2, 22.3 |
-| 6.4 | AI and machine learning in network operations | **22.8** |
+| 6.4 | AI (generative and predictive) and machine learning in network operations | **22.8** |
 | 6.5 | Characteristics of REST-based APIs (CRUD, HTTP verbs, data encoding) | 22.4 |
 | 6.6 | Configuration management mechanisms (Ansible, Terraform) | 22.6, **22.9** |
 | 6.7 | Interpret JSON-encoded data | 22.5 |
@@ -4306,6 +4510,8 @@ The 🔬 depth sections deliberately go beyond exam requirements, because they'r
 - **BGP:** The internet's path-vector routing protocol. Not on CCNA; a major CCNP topic.
 - **BPDU:** Messages STP uses to find loops.
 - **Broadcast:** A message sent to everyone on a network.
+- **CAPWAP:** The tunnel protocol between a lightweight AP and its WLC — control on UDP 5246 (DTLS-encrypted), client data on UDP 5247.
+- **Catalyst Center:** Cisco's campus SDN controller (formerly DNA Center) — intent-based config push, plug-and-play provisioning and assurance.
 - **CDP/LLDP:** Protocols to discover neighbor devices.
 - **CIDR:** Slash notation for subnet masks (e.g., /24).
 - **Collapsed core:** A two-tier design where the core and distribution layers are merged; used at smaller sites.
@@ -4323,9 +4529,11 @@ The 🔬 depth sections deliberately go beyond exam requirements, because they'r
 - **EtherChannel:** Bundling multiple links into one.
 - **Extended System ID:** The 12 bits of the STP Bridge ID holding the VLAN — why priority moves in steps of 4096.
 - **Fast retransmit:** Resending a segment after three duplicate ACKs, without waiting for a timeout.
+- **FlexConnect:** AP mode that switches traffic locally at a branch and keeps Wi‑Fi alive if the WLC becomes unreachable.
 - **FHRP:** First Hop Redundancy Protocol — lets two routers share a virtual IP and MAC so the default gateway can fail over.
 - **Flow control:** The receiver advertising how much buffer it has left, via the TCP Window field.
 - **Frame:** Data unit at Layer 2.
+- **Generative AI:** AI that creates content (configs, explanations, docs); predictive AI forecasts from patterns. Both are exam topics (22.8).
 - **Gateway:** A door between networks.
 - **GLBP:** Cisco FHRP that also load balances traffic across several routers.
 - **Hex:** Base-16 numbers (0-9, A-F).
@@ -4335,6 +4543,7 @@ The 🔬 depth sections deliberately go beyond exam requirements, because they'r
 - **Idempotence:** A change that can be applied repeatedly with the same result — the point of declarative tools.
 - **IP Address:** Logical address of a device.
 - **Jitter:** Variation in delay. Voice needs it under ~30 ms, because uneven arrival makes audio choppy.
+- **LAG:** Link aggregation on a WLC — its EtherChannel, always static (no LACP/PAgP).
 - **LAN/WAN:** Local vs wide-area network.
 - **Loop Guard:** Blocks a port that stops receiving BPDUs, in case a one-way link failure would otherwise create a loop.
 - **LSA:** Link-State Advertisement — the pieces OSPF floods and assembles into a map.
@@ -4361,6 +4570,7 @@ The 🔬 depth sections deliberately go beyond exam requirements, because they'r
 - **Root Guard:** Stops a switch on a given port from becoming the STP root.
 - **Router:** Connects different networks.
 - **Routing Table:** A router's map of known networks.
+- **SAE:** WPA3's replacement for the PSK handshake — blocks offline dictionary attacks by requiring a live exchange per guess.
 - **Shaping:** Buffering traffic above a rate to send it later, smoothing bursts.
 - **SLAAC:** Stateless Address Autoconfiguration — an IPv6 host building its own address from an RA prefix.
 - **Sliding window:** TCP sending multiple unacknowledged segments up to the advertised window size.
@@ -4369,6 +4579,7 @@ The 🔬 depth sections deliberately go beyond exam requirements, because they'r
 - **SPF (Dijkstra):** The algorithm each OSPF router runs on the LSDB to build its own shortest-path tree.
 - **Spine-leaf:** Data center design where every leaf connects to every spine, giving equal latency between servers.
 - **SSID:** A Wi‑Fi network's name.
+- **Split-MAC:** The lightweight architecture — real-time 802.11 work stays on the AP, management decisions move to the WLC.
 - **STP:** Stops Layer 2 loops.
 - **Stub area:** An OSPF area that blocks external LSAs and uses a default route instead.
 - **Subnet:** A smaller piece of a network.

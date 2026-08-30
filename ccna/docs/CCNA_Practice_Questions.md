@@ -1,5 +1,5 @@
 # 📝 CCNA Practice Question Bank
-### 140 Exam-Style Questions with Answers & Full Explanations
+### 152 Exam-Style Questions with Answers & Full Explanations
 
 > **How to use it:** Try each question BEFORE reading the answer. The explanation tells you *why* the right answer is right AND why the traps are wrong — that's what builds real understanding. Aim to consistently score **85%+** before your exam. Questions are grouped by the 6 official exam domains.
 
@@ -415,7 +415,73 @@ A. CDP  B. CAPWAP  C. LLDP  D. GRE
 
 ---
 
-**Q36.** Router-on-a-stick uses what to route between VLANs on one physical link?
+**Q36.** A branch-office AP must keep serving its WLANs even if the WAN link to the headquarters WLC fails. Which AP mode should it use?
+
+A. Local  B. Monitor  C. FlexConnect  D. Rogue detector
+
+<details><summary>Answer</summary>
+
+**C. FlexConnect.** It switches traffic locally at the branch instead of tunneling everything to the WLC, and keeps serving existing WLANs if the controller becomes unreachable. **Local** mode (the default) tunnels *all* traffic — the branch's Wi-Fi would die with the WAN link.
+</details>
+
+---
+
+**Q37.** An engineer needs to capture 802.11 frames and stream them to a laptop running Wireshark. Which AP mode does this?
+
+A. Local  B. Sniffer  C. SE-Connect  D. Bridge
+
+<details><summary>Answer</summary>
+
+**B. Sniffer.** The AP stops serving clients and forwards captured 802.11 frames to an analyzer. *Trap:* **SE-Connect** is spectrum analysis of **non-Wi-Fi** interference (microwaves, cordless phones), not frame capture; **Monitor** listens for rogue APs but doesn't stream captures.
+</details>
+
+---
+
+**Q38.** Why does a lightweight AP connect to an ACCESS port while the WLC connects to a TRUNK port?
+
+A. APs don't support 802.1Q  B. All AP traffic rides one CAPWAP tunnel; the WLC must place clients onto many VLANs  C. Trunks are too fast for APs  D. It's only a convention
+
+<details><summary>Answer</summary>
+
+**B.** Every client's traffic is wrapped inside the CAPWAP tunnel, so the AP's wire carries only one kind of traffic (one VLAN = access port). The WLC unwraps tunnels from every AP and must drop each client onto the right VLAN — many VLANs = trunk. An **autonomous** AP with multiple SSIDs, by contrast, does need a trunk.
+</details>
+
+---
+
+**Q39.** How must the switch ports facing a Cisco WLC's LAG bundle be configured?
+
+A. `channel-group 1 mode active`  B. `channel-group 1 mode desirable`  C. `channel-group 1 mode on`  D. `channel-group 1 mode auto`
+
+<details><summary>Answer</summary>
+
+**C. `mode on` (static).** Cisco WLC LAG does not negotiate — it supports neither LACP (`active`/`passive`) nor PAgP (`desirable`/`auto`), so the switch side must be unconditionally on.
+</details>
+
+---
+
+**Q40.** An admin creates a new WLAN on the WLC with the correct SSID and WPA2-PSK settings, but no clients can see it. What's the most likely cause?
+
+A. Wrong QoS profile  B. The WLAN status is still Disabled  C. The virtual interface is missing  D. CAPWAP uses the wrong port
+
+<details><summary>Answer</summary>
+
+**B. The WLAN was never enabled.** New WLANs are created in a **disabled** state — flipping the status to Enabled is a required (and easily forgotten) step. QoS profiles affect priority, not visibility.
+</details>
+
+---
+
+**Q41.** Which WLC QoS profile should be applied to a WLAN carrying voice traffic?
+
+A. Bronze  B. Silver  C. Gold  D. Platinum
+
+<details><summary>Answer</summary>
+
+**D. Platinum.** The four profiles, best to worst: **Platinum (voice), Gold (video), Silver (best effort — the default), Bronze (background)**. Think medals in order, with voice always on the podium.
+</details>
+
+---
+
+**Q42.** Router-on-a-stick uses what to route between VLANs on one physical link?
 
 A. Loopbacks  B. Subinterfaces  C. SVIs  D. Trunk ACLs
 
@@ -426,7 +492,7 @@ A. Loopbacks  B. Subinterfaces  C. SVIs  D. Trunk ACLs
 
 ---
 
-**Q37.** Which command shows which VLAN each access port belongs to?
+**Q43.** Which command shows which VLAN each access port belongs to?
 
 A. `show mac address-table`  B. `show vlan brief`  C. `show ip route`  D. `show cdp neighbors`
 
@@ -437,7 +503,7 @@ A. `show mac address-table`  B. `show vlan brief`  C. `show ip route`  D. `show 
 
 ---
 
-**Q38.** What is the default native VLAN, and why change it?
+**Q44.** What is the default native VLAN, and why change it?
 
 A. VLAN 0; performance  B. VLAN 1; security (avoid VLAN hopping)  C. VLAN 99; redundancy  D. VLAN 4094; naming
 
@@ -448,7 +514,7 @@ A. VLAN 0; performance  B. VLAN 1; security (avoid VLAN hopping)  C. VLAN 99; re
 
 ---
 
-**Q39.** Which feature prevents a newly connected switch from taking over as the STP root bridge?
+**Q45.** Which feature prevents a newly connected switch from taking over as the STP root bridge?
 
 A. BPDU Guard  B. Root Guard  C. Loop Guard  D. PortFast
 
@@ -459,7 +525,7 @@ A. BPDU Guard  B. Root Guard  C. Loop Guard  D. PortFast
 
 ---
 
-**Q40.** A blocking port stops receiving BPDUs because of a unidirectional link failure and begins forwarding, creating a loop. Which feature prevents this?
+**Q46.** A blocking port stops receiving BPDUs because of a unidirectional link failure and begins forwarding, creating a loop. Which feature prevents this?
 
 A. Root Guard  B. BPDU Filter  C. Loop Guard  D. PortFast
 
@@ -470,7 +536,7 @@ A. Root Guard  B. BPDU Filter  C. Loop Guard  D. PortFast
 
 ---
 
-**Q41.** What is the key difference between BPDU Guard and Loop Guard?
+**Q47.** What is the key difference between BPDU Guard and Loop Guard?
 
 A. They are the same feature with different names
 B. BPDU Guard reacts to BPDUs arriving; Loop Guard reacts to BPDUs stopping
@@ -484,7 +550,7 @@ D. Loop Guard disables spanning tree on the port
 
 ---
 
-**Q42.** What is the default spanning-tree mode on modern Cisco switches, and what is its main advantage?
+**Q48.** What is the default spanning-tree mode on modern Cisco switches, and what is its main advantage?
 
 A. 802.1D STP — lowest CPU usage
 B. Rapid PVST+ — fast convergence with a separate instance per VLAN
@@ -502,7 +568,7 @@ D. PortFast — instant forwarding everywhere
 
 ---
 
-**Q43.** In the routing table, what does the letter `O` mean?
+**Q49.** In the routing table, what does the letter `O` mean?
 
 A. A static route  B. A connected route  C. An OSPF-learned route  D. An offline route
 
@@ -513,7 +579,7 @@ A. A static route  B. A connected route  C. An OSPF-learned route  D. An offline
 
 ---
 
-**Q44.** A router has two routes to the same network: one via OSPF, one static. Which is used?
+**Q50.** A router has two routes to the same network: one via OSPF, one static. Which is used?
 
 A. OSPF (AD 110)  B. Static (AD 1)  C. Both load-balance  D. Neither
 
@@ -524,7 +590,7 @@ A. OSPF (AD 110)  B. Static (AD 1)  C. Both load-balance  D. Neither
 
 ---
 
-**Q45.** Which administrative distance does a directly connected route have?
+**Q51.** Which administrative distance does a directly connected route have?
 
 A. 0  B. 1  C. 90  D. 110
 
@@ -535,7 +601,7 @@ A. 0  B. 1  C. 90  D. 110
 
 ---
 
-**Q46.** What does a router do with a packet if no matching route exists and there is no default route?
+**Q52.** What does a router do with a packet if no matching route exists and there is no default route?
 
 A. Floods it  B. Sends to gateway of last resort  C. Drops it  D. Buffers it
 
@@ -546,7 +612,7 @@ A. Floods it  B. Sends to gateway of last resort  C. Drops it  D. Buffers it
 
 ---
 
-**Q47.** Which command creates a default route toward next hop 203.0.113.1?
+**Q53.** Which command creates a default route toward next hop 203.0.113.1?
 
 A. `ip route 0.0.0.0 0.0.0.0 203.0.113.1`  B. `ip default 203.0.113.1`  C. `ip route default 203.0.113.1`  D. `default-gateway 203.0.113.1`
 
@@ -557,7 +623,7 @@ A. `ip route 0.0.0.0 0.0.0.0 203.0.113.1`  B. `ip default 203.0.113.1`  C. `ip r
 
 ---
 
-**Q48.** When two routes to the same destination have different prefix lengths, the router chooses the one that is:
+**Q54.** When two routes to the same destination have different prefix lengths, the router chooses the one that is:
 
 A. Learned first  B. Most specific (longest prefix)  C. From the lowest AD  D. Load-balanced
 
@@ -568,7 +634,7 @@ A. Learned first  B. Most specific (longest prefix)  C. From the lowest AD  D. L
 
 ---
 
-**Q49.** What metric does OSPF use to choose the best path?
+**Q55.** What metric does OSPF use to choose the best path?
 
 A. Hop count  B. Bandwidth-based cost  C. Delay  D. Ticks
 
@@ -579,7 +645,7 @@ A. Hop count  B. Bandwidth-based cost  C. Delay  D. Ticks
 
 ---
 
-**Q50.** Two OSPF routers won't become neighbors. Which mismatch could be the cause?
+**Q56.** Two OSPF routers won't become neighbors. Which mismatch could be the cause?
 
 A. Different hostnames  B. Different interface descriptions  C. Different area or subnet  D. Different clock time
 
@@ -590,7 +656,7 @@ A. Different hostnames  B. Different interface descriptions  C. Different area o
 
 ---
 
-**Q51.** In OSPF, what must the backbone area always be?
+**Q57.** In OSPF, what must the backbone area always be?
 
 A. Area 1  B. Area 10  C. Area 0  D. Area 255
 
@@ -601,7 +667,7 @@ A. Area 1  B. Area 10  C. Area 0  D. Area 255
 
 ---
 
-**Q52.** What is a wildcard mask of `0.0.0.255` equivalent to matching?
+**Q58.** What is a wildcard mask of `0.0.0.255` equivalent to matching?
 
 A. A single host  B. A whole /24 network  C. Everything  D. A /16 network
 
@@ -612,7 +678,7 @@ A. A single host  B. A whole /24 network  C. Everything  D. A /16 network
 
 ---
 
-**Q53.** Which command correctly advertises 10.1.1.0/24 into OSPF area 0?
+**Q59.** Which command correctly advertises 10.1.1.0/24 into OSPF area 0?
 
 A. `network 10.1.1.0 255.255.255.0 area 0`  B. `network 10.1.1.0 0.0.0.255 area 0`  C. `network 10.1.1.0 area 0`  D. `advertise 10.1.1.0/24`
 
@@ -623,7 +689,7 @@ A. `network 10.1.1.0 255.255.255.0 area 0`  B. `network 10.1.1.0 0.0.0.255 area 
 
 ---
 
-**Q54.** How does OSPF pick its Router ID if not set manually?
+**Q60.** How does OSPF pick its Router ID if not set manually?
 
 A. Lowest interface IP  B. Highest loopback, else highest active physical IP  C. The MAC address  D. Randomly
 
@@ -634,7 +700,7 @@ A. Lowest interface IP  B. Highest loopback, else highest active physical IP  C.
 
 ---
 
-**Q55.** A floating static route is created by:
+**Q61.** A floating static route is created by:
 
 A. Lowering its metric  B. Giving it a higher administrative distance than the primary  C. Adding a wildcard mask  D. Using a /32
 
@@ -645,7 +711,7 @@ A. Lowering its metric  B. Giving it a higher administrative distance than the p
 
 ---
 
-**Q56.** Which routing protocol type builds a full map of the network and runs SPF?
+**Q62.** Which routing protocol type builds a full map of the network and runs SPF?
 
 A. Distance vector  B. Link state  C. Path vector  D. Static
 
@@ -656,7 +722,7 @@ A. Distance vector  B. Link state  C. Path vector  D. Static
 
 ---
 
-**Q57.** What is the OSPF cost of a 100 Mbps link using the default reference bandwidth?
+**Q63.** What is the OSPF cost of a 100 Mbps link using the default reference bandwidth?
 
 A. 1  B. 10  C. 19  D. 100
 
@@ -667,7 +733,7 @@ A. 1  B. 10  C. 19  D. 100
 
 ---
 
-**Q58.** A subnet's default gateway router fails. A second, healthy router exists on the same subnet with a different IP. Why do the PCs still lose internet access?
+**Q64.** A subnet's default gateway router fails. A second, healthy router exists on the same subnet with a different IP. Why do the PCs still lose internet access?
 
 A. The second router needs OSPF configured
 B. Hosts use a single statically-configured gateway address and cannot switch on their own
@@ -681,7 +747,7 @@ D. ARP automatically finds the new router within 30 seconds
 
 ---
 
-**Q59.** Which FHRP is a Cisco-proprietary protocol that uses Active and Standby roles?
+**Q65.** Which FHRP is a Cisco-proprietary protocol that uses Active and Standby roles?
 
 A. VRRP  B. GLBP  C. HSRP  D. LACP
 
@@ -692,7 +758,7 @@ A. VRRP  B. GLBP  C. HSRP  D. LACP
 
 ---
 
-**Q60.** Besides a virtual IP address, what else do routers in an HSRP group share — and why does it matter?
+**Q66.** Besides a virtual IP address, what else do routers in an HSRP group share — and why does it matter?
 
 A. A virtual MAC address, so hosts' ARP caches stay valid after failover
 B. A virtual serial number, for licensing
@@ -706,7 +772,7 @@ D. A shared routing table
 
 ---
 
-**Q61.** R1 (priority 110) is the HSRP active router. It reboots and R2 takes over. R1 returns to service but stays in Standby. Why?
+**Q67.** R1 (priority 110) is the HSRP active router. It reboots and R2 takes over. R1 returns to service but stays in Standby. Why?
 
 A. R1's priority reset to 100
 B. `preempt` is not configured on R1
@@ -720,7 +786,7 @@ D. R2 now has higher priority
 
 ---
 
-**Q62.** Which two commands configure a router as the preferred HSRP active router for group 1 using virtual IP 10.1.1.1? (Choose two.)
+**Q68.** Which two commands configure a router as the preferred HSRP active router for group 1 using virtual IP 10.1.1.1? (Choose two.)
 
 A. `standby 1 ip 10.1.1.1`
 B. `standby 1 priority 50`
@@ -734,7 +800,7 @@ D. `hsrp 1 address 10.1.1.1`
 
 ---
 
-**Q63.** Why does OSPF elect a DR and BDR on a broadcast segment?
+**Q69.** Why does OSPF elect a DR and BDR on a broadcast segment?
 
 A. To encrypt LSA exchanges
 B. To reduce the number of adjacencies and duplicate flooding on a shared segment
@@ -748,7 +814,7 @@ D. Because OSPF cannot run on Ethernet without one
 
 ---
 
-**Q64.** Which is used to elect the OSPF DR, in order?
+**Q70.** Which is used to elect the OSPF DR, in order?
 
 A. Lowest priority, then lowest router ID
 B. Highest priority, then highest router ID
@@ -762,7 +828,7 @@ D. Lowest cost to the root
 
 ---
 
-**Q65.** A new router with priority 255 is added to a segment that already has a DR. What happens?
+**Q71.** A new router with priority 255 is added to a segment that already has a DR. What happens?
 
 A. It immediately becomes the DR
 B. It becomes the BDR
@@ -776,7 +842,7 @@ D. The OSPF process restarts on all routers
 
 ---
 
-**Q66.** `show ip ospf neighbor` shows two neighbors in `2WAY/DROTHER`. What should you do?
+**Q72.** `show ip ospf neighbor` shows two neighbors in `2WAY/DROTHER`. What should you do?
 
 A. Nothing — this is normal between DROTHERs
 B. Reset the OSPF process
@@ -790,7 +856,7 @@ D. Change the network type to point-to-point
 
 ---
 
-**Q67.** Which command tells OSPF to skip the DR/BDR election on a link between exactly two routers?
+**Q73.** Which command tells OSPF to skip the DR/BDR election on a link between exactly two routers?
 
 A. `ip ospf priority 0`
 B. `ip ospf network point-to-point`
@@ -808,7 +874,7 @@ D. `ip ospf broadcast disable`
 
 ---
 
-**Q68.** What is the correct order of the DHCP process?
+**Q74.** What is the correct order of the DHCP process?
 
 A. Offer, Discover, Request, Ack  B. Discover, Offer, Request, Ack  C. Request, Offer, Discover, Ack  D. Discover, Request, Offer, Ack
 
@@ -819,7 +885,7 @@ A. Offer, Discover, Request, Ack  B. Discover, Offer, Request, Ack  C. Request, 
 
 ---
 
-**Q69.** Which service translates domain names into IP addresses?
+**Q75.** Which service translates domain names into IP addresses?
 
 A. DHCP  B. DNS  C. NAT  D. NTP
 
@@ -830,7 +896,7 @@ A. DHCP  B. DNS  C. NAT  D. NTP
 
 ---
 
-**Q70.** Your home router lets 20 devices share one public IP. What technology is this?
+**Q76.** Your home router lets 20 devices share one public IP. What technology is this?
 
 A. Static NAT  B. Dynamic NAT  C. PAT (NAT overload)  D. Proxy ARP
 
@@ -841,7 +907,7 @@ A. Static NAT  B. Dynamic NAT  C. PAT (NAT overload)  D. Proxy ARP
 
 ---
 
-**Q71.** DHCP clients are on a different subnet than the DHCP server. What must you configure on the router?
+**Q77.** DHCP clients are on a different subnet than the DHCP server. What must you configure on the router?
 
 A. `ip default-gateway`  B. `ip helper-address <server>`  C. `ip nat inside`  D. `ip route`
 
@@ -852,7 +918,7 @@ A. `ip default-gateway`  B. `ip helper-address <server>`  C. `ip nat inside`  D.
 
 ---
 
-**Q72.** Which port does DNS primarily use?
+**Q78.** Which port does DNS primarily use?
 
 A. 53  B. 67  C. 80  D. 123
 
@@ -863,7 +929,7 @@ A. 53  B. 67  C. 80  D. 123
 
 ---
 
-**Q73.** Which DNS record maps a name to an IPv6 address?
+**Q79.** Which DNS record maps a name to an IPv6 address?
 
 A. A  B. AAAA  C. CNAME  D. MX
 
@@ -874,7 +940,7 @@ A. A  B. AAAA  C. CNAME  D. MX
 
 ---
 
-**Q74.** Why is NTP important on network devices?
+**Q80.** Why is NTP important on network devices?
 
 A. Faster routing  B. Accurate timestamps for logs and certificates  C. More bandwidth  D. Encryption
 
@@ -885,7 +951,7 @@ A. Faster routing  B. Accurate timestamps for logs and certificates  C. More ban
 
 ---
 
-**Q75.** Which SNMP version adds encryption and authentication?
+**Q81.** Which SNMP version adds encryption and authentication?
 
 A. SNMPv1  B. SNMPv2c  C. SNMPv3  D. SNMPv2
 
@@ -896,7 +962,7 @@ A. SNMPv1  B. SNMPv2c  C. SNMPv3  D. SNMPv2
 
 ---
 
-**Q76.** In NAT terminology, the private address of a host BEFORE translation is the:
+**Q82.** In NAT terminology, the private address of a host BEFORE translation is the:
 
 A. Inside local  B. Inside global  C. Outside local  D. Outside global
 
@@ -907,7 +973,7 @@ A. Inside local  B. Inside global  C. Outside local  D. Outside global
 
 ---
 
-**Q77.** A syslog message at severity level 0 means:
+**Q83.** A syslog message at severity level 0 means:
 
 A. Debugging  B. Informational  C. Emergency (system unusable)  D. Warning
 
@@ -918,7 +984,7 @@ A. Debugging  B. Informational  C. Emergency (system unusable)  D. Warning
 
 ---
 
-**Q78.** Which NAT type should be used so an internet host can initiate a connection to an internal web server?
+**Q84.** Which NAT type should be used so an internet host can initiate a connection to an internal web server?
 
 A. PAT (overload)  B. Dynamic NAT  C. Static NAT  D. VRF
 
@@ -929,7 +995,7 @@ A. PAT (overload)  B. Dynamic NAT  C. Static NAT  D. VRF
 
 ---
 
-**Q79.** Which command shows the current active NAT translations?
+**Q85.** Which command shows the current active NAT translations?
 
 A. `show ip nat statistics`
 B. `show ip nat translations`
@@ -943,7 +1009,7 @@ D. `show ip route nat`
 
 ---
 
-**Q80.** In dynamic NAT without `overload`, what happens when the address pool is exhausted?
+**Q86.** In dynamic NAT without `overload`, what happens when the address pool is exhausted?
 
 A. Additional hosts share the last address by port
 B. Additional hosts fail to be translated and cannot reach outside
@@ -957,7 +1023,7 @@ D. The oldest translation is dropped immediately
 
 ---
 
-**Q81.** Which QoS marking is recommended for voice traffic?
+**Q87.** Which QoS marking is recommended for voice traffic?
 
 A. CS3  B. AF41  C. EF (DSCP 46)  D. BE (DSCP 0)
 
@@ -968,7 +1034,7 @@ A. CS3  B. AF41  C. EF (DSCP 46)  D. BE (DSCP 0)
 
 ---
 
-**Q82.** What is the difference between policing and shaping?
+**Q88.** What is the difference between policing and shaping?
 
 A. Policing buffers excess traffic; shaping drops it
 B. Policing drops (or re-marks) excess traffic; shaping buffers it to send later
@@ -982,7 +1048,7 @@ D. Shaping only applies to inbound traffic
 
 ---
 
-**Q83.** Why is jitter a separate concern from delay for voice traffic?
+**Q89.** Why is jitter a separate concern from delay for voice traffic?
 
 A. Jitter only affects video
 B. Voice must be played back at a steady rate, so *variation* in delay causes choppy audio
@@ -996,7 +1062,7 @@ D. Jitter only matters on wireless links
 
 ---
 
-**Q84.** Why should a switch not trust QoS markings from a user PC?
+**Q90.** Why should a switch not trust QoS markings from a user PC?
 
 A. PCs cannot set DSCP values
 B. Any user could mark their own traffic EF and jump every queue
@@ -1010,11 +1076,33 @@ D. It would exhaust the switch's power budget
 
 ---
 
+**Q91.** R1 is configured with `ntp master 3`. A switch that syncs its clock from R1 will report which stratum?
+
+A. 1  B. 2  C. 3  D. 4
+
+<details><summary>Answer</summary>
+
+**D. 4.** Stratum counts steps from the reference clock, and each hop adds one: R1 serves time as stratum 3, so anything learning from it becomes stratum 4. Lower stratum = closer to the source = preferred.
+</details>
+
+---
+
+**Q92.** A monitoring station polls devices every 5 minutes with SNMP Get. An interface flaps down and back up 40 seconds apart between polls. How is the NMS best made aware of such events?
+
+A. Poll every second  B. Configure the agents to send traps  C. Use SNMPv1  D. Enable syslog on the NMS
+
+<details><summary>Answer</summary>
+
+**B. Traps.** A trap is the agent's unsolicited "this just happened" message, catching events that occur between polls. Polling every second (A) would bury the network in management traffic. Real deployments use polling *and* traps: polls prove a device is alive, traps report events instantly.
+</details>
+
+---
+
 # Domain 5 — Security Fundamentals
 
 ---
 
-**Q85.** Which part of the CIA triad ensures data isn't secretly altered?
+**Q93.** Which part of the CIA triad ensures data isn't secretly altered?
 
 A. Confidentiality  B. Integrity  C. Availability  D. Authentication
 
@@ -1025,7 +1113,7 @@ A. Confidentiality  B. Integrity  C. Availability  D. Authentication
 
 ---
 
-**Q86.** Which attack fills a switch's MAC table to force flooding?
+**Q94.** Which attack fills a switch's MAC table to force flooding?
 
 A. VLAN hopping  B. MAC flooding  C. DHCP starvation  D. ARP spoofing
 
@@ -1036,7 +1124,7 @@ A. VLAN hopping  B. MAC flooding  C. DHCP starvation  D. ARP spoofing
 
 ---
 
-**Q87.** Which feature stops a rogue DHCP server on an untrusted port?
+**Q95.** Which feature stops a rogue DHCP server on an untrusted port?
 
 A. BPDU Guard  B. DHCP snooping  C. Port-security  D. DAI
 
@@ -1047,7 +1135,7 @@ A. BPDU Guard  B. DHCP snooping  C. Port-security  D. DAI
 
 ---
 
-**Q88.** Which protocol should replace Telnet for remote device management?
+**Q96.** Which protocol should replace Telnet for remote device management?
 
 A. FTP  B. HTTP  C. SSH  D. SNMPv1
 
@@ -1058,7 +1146,7 @@ A. FTP  B. HTTP  C. SSH  D. SNMPv1
 
 ---
 
-**Q89.** In AAA, what does the second "A" (Authorization) determine?
+**Q97.** In AAA, what does the second "A" (Authorization) determine?
 
 A. Who you are  B. What you're allowed to do  C. What you did  D. Where you are
 
@@ -1069,7 +1157,7 @@ A. Who you are  B. What you're allowed to do  C. What you did  D. Where you are
 
 ---
 
-**Q90.** Which AAA protocol encrypts the entire packet and uses TCP?
+**Q98.** Which AAA protocol encrypts the entire packet and uses TCP?
 
 A. RADIUS  B. TACACS+  C. Kerberos  D. LDAP
 
@@ -1080,7 +1168,7 @@ A. RADIUS  B. TACACS+  C. Kerberos  D. LDAP
 
 ---
 
-**Q91.** In 802.1X, what role does the switch play?
+**Q99.** In 802.1X, what role does the switch play?
 
 A. Supplicant  B. Authenticator  C. Authentication server  D. Client
 
@@ -1091,7 +1179,7 @@ A. Supplicant  B. Authenticator  C. Authentication server  D. Client
 
 ---
 
-**Q92.** Which command encrypts plain-text passwords in the running config?
+**Q100.** Which command encrypts plain-text passwords in the running config?
 
 A. `enable secret`  B. `service password-encryption`  C. `crypto key generate rsa`  D. `password-encrypt on`
 
@@ -1102,7 +1190,7 @@ A. `enable secret`  B. `service password-encryption`  C. `crypto key generate rs
 
 ---
 
-**Q93.** Which defense protects against ARP spoofing (man-in-the-middle)?
+**Q101.** Which defense protects against ARP spoofing (man-in-the-middle)?
 
 A. Port-security  B. Dynamic ARP Inspection (DAI)  C. BPDU Guard  D. STP
 
@@ -1113,7 +1201,7 @@ A. Port-security  B. Dynamic ARP Inspection (DAI)  C. BPDU Guard  D. STP
 
 ---
 
-**Q94.** A site-to-site VPN between two offices typically uses:
+**Q102.** A site-to-site VPN between two offices typically uses:
 
 A. SSL only  B. IPsec  C. Telnet  D. GRE only
 
@@ -1124,7 +1212,7 @@ A. SSL only  B. IPsec  C. Telnet  D. GRE only
 
 ---
 
-**Q95.** Which combination is true multi-factor authentication?
+**Q103.** Which combination is true multi-factor authentication?
 
 A. A password and a security question
 B. A password and a PIN
@@ -1142,7 +1230,7 @@ D. Two different passwords
 
 ---
 
-**Q96.** What is at the end of every ACL, even if not typed?
+**Q104.** What is at the end of every ACL, even if not typed?
 
 A. permit any  B. an implicit deny all  C. a log entry  D. nothing
 
@@ -1153,7 +1241,7 @@ A. permit any  B. an implicit deny all  C. a log entry  D. nothing
 
 ---
 
-**Q97.** A standard ACL filters based on what?
+**Q105.** A standard ACL filters based on what?
 
 A. Source and destination IP  B. Source IP only  C. Port numbers  D. MAC addresses
 
@@ -1164,7 +1252,7 @@ A. Source and destination IP  B. Source IP only  C. Port numbers  D. MAC address
 
 ---
 
-**Q98.** Where should a standard ACL be placed?
+**Q106.** Where should a standard ACL be placed?
 
 A. Close to the source  B. Close to the destination  C. On every interface  D. On the trunk
 
@@ -1175,7 +1263,7 @@ A. Close to the source  B. Close to the destination  C. On every interface  D. O
 
 ---
 
-**Q99.** In ACL processing, which rule wins?
+**Q107.** In ACL processing, which rule wins?
 
 A. The last match  B. The first match  C. The most specific  D. The lowest number
 
@@ -1186,7 +1274,7 @@ A. The last match  B. The first match  C. The most specific  D. The lowest numbe
 
 ---
 
-**Q100.** Which statement permits only host 192.168.1.10?
+**Q108.** Which statement permits only host 192.168.1.10?
 
 A. `permit 192.168.1.10 0.0.0.255`  B. `permit host 192.168.1.10`  C. `permit any`  D. `permit 192.168.1.0 0.0.0.0`
 
@@ -1201,7 +1289,7 @@ A. `permit 192.168.1.10 0.0.0.255`  B. `permit host 192.168.1.10`  C. `permit an
 
 ---
 
-**Q101.** In SDN, which plane makes forwarding decisions?
+**Q109.** In SDN, which plane makes forwarding decisions?
 
 A. Data plane  B. Control plane  C. Management plane  D. Physical plane
 
@@ -1212,7 +1300,7 @@ A. Data plane  B. Control plane  C. Management plane  D. Physical plane
 
 ---
 
-**Q102.** A northbound API on a controller communicates with:
+**Q110.** A northbound API on a controller communicates with:
 
 A. Switches  B. Routers  C. Applications/scripts  D. The data plane
 
@@ -1223,7 +1311,7 @@ A. Switches  B. Routers  C. Applications/scripts  D. The data plane
 
 ---
 
-**Q103.** Which HTTP method is used to RETRIEVE data from a REST API?
+**Q111.** Which HTTP method is used to RETRIEVE data from a REST API?
 
 A. POST  B. GET  C. PUT  D. DELETE
 
@@ -1234,7 +1322,7 @@ A. POST  B. GET  C. PUT  D. DELETE
 
 ---
 
-**Q104.** Which data format uses curly braces and key/value pairs and is most common in REST APIs?
+**Q112.** Which data format uses curly braces and key/value pairs and is most common in REST APIs?
 
 A. XML  B. YAML  C. JSON  D. CSV
 
@@ -1245,7 +1333,7 @@ A. XML  B. YAML  C. JSON  D. CSV
 
 ---
 
-**Q105.** Which automation tool is agentless and uses YAML playbooks?
+**Q113.** Which automation tool is agentless and uses YAML playbooks?
 
 A. Puppet  B. Chef  C. Ansible  D. SaltStack
 
@@ -1256,7 +1344,40 @@ A. Puppet  B. Chef  C. Ansible  D. SaltStack
 
 ---
 
-**Q106.** What is the main benefit of network automation?
+**Q114.** A tool analyzes months of interface telemetry and warns that a link will saturate within three weeks. Another drafts an OSPF configuration from a plain-English request. Which AI types are these, respectively?
+
+A. Generative, predictive  B. Predictive, generative  C. Both generative  D. Both predictive
+
+<details><summary>Answer</summary>
+
+**B. Predictive, then generative.** Predictive AI **watches and warns** — it forecasts from patterns in data. Generative AI **writes and explains** — it creates new content like configs and documentation. The v1.1 blueprint names both; keep the verbs straight.
+</details>
+
+---
+
+**Q115.** Compared with per-device CLI management, what does Cisco Catalyst Center (formerly DNA Center) provide? (Choose the best answer.)
+
+A. A faster SSH client  B. Intent-based configuration pushed network-wide, plug-and-play provisioning, and continuous assurance  C. A replacement for IOS on each switch  D. Hardware-accelerated forwarding
+
+<details><summary>Answer</summary>
+
+**B.** You define the **intent** once and the controller renders it into consistent device config, auto-provisions new devices, and analyzes telemetry centrally (assurance). The devices still run IOS underneath (not C), and a controller manages — it doesn't forward (not D).
+</details>
+
+---
+
+**Q116.** Which REST API authentication method has the client authenticate once, then present a short-lived credential on each subsequent request?
+
+A. Basic authentication  B. API key  C. Bearer token (OAuth)  D. Plain HTTP
+
+<details><summary>Answer</summary>
+
+**C. Bearer token.** The client logs in once and receives a **token** to send instead of its credentials; if stolen, it soon expires. **Basic** repeats username:password (Base64, not encryption) on every call; an **API key** is a static secret. All of them need HTTPS underneath.
+</details>
+
+---
+
+**Q117.** What is the main benefit of network automation?
 
 A. More cables  B. Consistent, fast, error-free configuration at scale  C. Slower changes  D. Replacing all routers
 
@@ -1267,7 +1388,7 @@ A. More cables  B. Consistent, fast, error-free configuration at scale  C. Slowe
 
 ---
 
-**Q107.** Cisco DNA Center is an example of:
+**Q118.** Cisco DNA Center is an example of:
 
 A. A router  B. An SDN controller  C. A firewall  D. A switch OS
 
@@ -1278,7 +1399,7 @@ A. A router  B. An SDN controller  C. A firewall  D. A switch OS
 
 ---
 
-**Q108.** How does machine learning improve on fixed-threshold monitoring?
+**Q119.** How does machine learning improve on fixed-threshold monitoring?
 
 A. It removes the need for network telemetry
 B. It learns a baseline of normal behavior and flags deviations, catching gradual degradation
@@ -1292,7 +1413,7 @@ D. It replaces the need for network engineers
 
 ---
 
-**Q109.** What does CRUD map to in a REST API?
+**Q120.** What does CRUD map to in a REST API?
 
 A. Connect, Read, Update, Disconnect
 B. Create=POST, Read=GET, Update=PUT/PATCH, Delete=DELETE
@@ -1306,7 +1427,7 @@ D. Copy, Restore, Undo, Deploy
 
 ---
 
-**Q110.** A REST API call returns **401**. What does that indicate?
+**Q121.** A REST API call returns **401**. What does that indicate?
 
 A. The server crashed
 B. The resource was not found
@@ -1320,7 +1441,7 @@ D. The request succeeded
 
 ---
 
-**Q111.** Which describes a declarative tool such as Terraform, compared with a procedural playbook?
+**Q122.** Which describes a declarative tool such as Terraform, compared with a procedural playbook?
 
 A. You describe the desired end state and the tool computes what to change
 B. You list each step in order and the tool executes them exactly
@@ -1338,7 +1459,7 @@ D. It can only manage cloud resources
 
 ---
 
-**Q112.** After configuring an interface, `show ip interface brief` shows "administratively down." What fixes it?
+**Q123.** After configuring an interface, `show ip interface brief` shows "administratively down." What fixes it?
 
 A. `no shutdown`  B. `ip address`  C. Reboot  D. `enable`
 
@@ -1349,7 +1470,7 @@ A. `no shutdown`  B. `ip address`  C. Reboot  D. `enable`
 
 ---
 
-**Q113.** You can ping 8.8.8.8 but not google.com. What's broken?
+**Q124.** You can ping 8.8.8.8 but not google.com. What's broken?
 
 A. Routing  B. DNS  C. NAT  D. The cable
 
@@ -1360,7 +1481,7 @@ A. Routing  B. DNS  C. NAT  D. The cable
 
 ---
 
-**Q114.** Two switches won't form a trunk. Which is a likely cause?
+**Q125.** Two switches won't form a trunk. Which is a likely cause?
 
 A. Different hostnames  B. Native VLAN or mode mismatch  C. Different IOS versions  D. Different port numbers
 
@@ -1371,7 +1492,7 @@ A. Different hostnames  B. Native VLAN or mode mismatch  C. Different IOS versio
 
 ---
 
-**Q115.** A PC gets 169.254.x.x. What should you check first?
+**Q126.** A PC gets 169.254.x.x. What should you check first?
 
 A. DNS server  B. DHCP reachability (server/relay/VLAN)  C. The default route  D. STP
 
@@ -1382,7 +1503,7 @@ A. DNS server  B. DHCP reachability (server/relay/VLAN)  C. The default route  D
 
 ---
 
-**Q116.** A link is slow with many errors. One side is full-duplex, the other half. This is a:
+**Q127.** A link is slow with many errors. One side is full-duplex, the other half. This is a:
 
 A. Speed mismatch  B. Duplex mismatch  C. VLAN mismatch  D. MTU mismatch
 
@@ -1393,7 +1514,7 @@ A. Speed mismatch  B. Duplex mismatch  C. VLAN mismatch  D. MTU mismatch
 
 ---
 
-**Q117.** Which command shows the path packets take and where they stop?
+**Q128.** Which command shows the path packets take and where they stop?
 
 A. `ping`  B. `traceroute`  C. `show ip route`  D. `show cdp neighbors`
 
@@ -1404,7 +1525,7 @@ A. `ping`  B. `traceroute`  C. `show ip route`  D. `show cdp neighbors`
 
 ---
 
-**Q118.** A port-security-enabled port is err-disabled after a violation. How do you recover it?
+**Q129.** A port-security-enabled port is err-disabled after a violation. How do you recover it?
 
 A. `no shutdown` only  B. `shutdown` then `no shutdown`  C. Reload  D. Delete the VLAN
 
@@ -1415,7 +1536,7 @@ A. `no shutdown` only  B. `shutdown` then `no shutdown`  C. Reload  D. Delete th
 
 ---
 
-**Q119.** Which command shows OSPF neighbors and their states?
+**Q130.** Which command shows OSPF neighbors and their states?
 
 A. `show ip ospf neighbor`  B. `show ip route`  C. `show running-config`  D. `show ip protocols`
 
@@ -1426,7 +1547,7 @@ A. `show ip ospf neighbor`  B. `show ip route`  C. `show running-config`  D. `sh
 
 ---
 
-**Q120.** A host's gateway is 192.168.1.65 /26, and the host is 192.168.1.130 /26. Why no internet?
+**Q131.** A host's gateway is 192.168.1.65 /26, and the host is 192.168.1.130 /26. Why no internet?
 
 A. Wrong DNS  B. Host and gateway are in different subnets  C. Bad cable  D. STP blocking
 
@@ -1437,7 +1558,7 @@ A. Wrong DNS  B. Host and gateway are in different subnets  C. Bad cable  D. STP
 
 ---
 
-**Q121.** Which command saves the running configuration so it survives a reboot?
+**Q132.** Which command saves the running configuration so it survives a reboot?
 
 A. `write erase`  B. `copy running-config startup-config`  C. `reload`  D. `show startup-config`
 
@@ -1448,7 +1569,7 @@ A. `write erase`  B. `copy running-config startup-config`  C. `reload`  D. `show
 
 ---
 
-**Q122.** `show cdp neighbors detail` is most useful for:
+**Q133.** `show cdp neighbors detail` is most useful for:
 
 A. Seeing routing tables  B. Discovering a neighbor's IP and platform  C. Checking VLANs  D. Viewing ACLs
 
@@ -1459,7 +1580,7 @@ A. Seeing routing tables  B. Discovering a neighbor's IP and platform  C. Checki
 
 ---
 
-**Q123.** A switch's MAC address table is empty for a device that's clearly connected and powered. What's a likely reason?
+**Q134.** A switch's MAC address table is empty for a device that's clearly connected and powered. What's a likely reason?
 
 A. The device hasn't sent any frames yet  B. STP is off  C. Wrong IOS  D. NAT is disabled
 
@@ -1470,7 +1591,7 @@ A. The device hasn't sent any frames yet  B. STP is off  C. Wrong IOS  D. NAT is
 
 ---
 
-**Q124.** Which show command quickly confirms an interface is "up/up" with its IP?
+**Q135.** Which show command quickly confirms an interface is "up/up" with its IP?
 
 A. `show vlan brief`  B. `show ip interface brief`  C. `show mac address-table`  D. `show version`
 
@@ -1481,7 +1602,7 @@ A. `show vlan brief`  B. `show ip interface brief`  C. `show mac address-table` 
 
 ---
 
-**Q125.** On a Windows PC, which command displays the IP address, subnet mask, default gateway, and DNS servers in full detail?
+**Q136.** On a Windows PC, which command displays the IP address, subnet mask, default gateway, and DNS servers in full detail?
 
 A. `ifconfig`  B. `ip address`  C. `ipconfig /all`  D. `netstat -rn`
 
@@ -1492,7 +1613,7 @@ A. `ifconfig`  B. `ip address`  C. `ipconfig /all`  D. `netstat -rn`
 
 ---
 
-**Q126.** How many usable hosts are in a /27 subnet?
+**Q137.** How many usable hosts are in a /27 subnet?
 
 A. 32  B. 30  C. 62  D. 14
 
@@ -1503,7 +1624,7 @@ A. 32  B. 30  C. 62  D. 14
 
 ---
 
-**Q127.** Which address is the broadcast for 192.168.1.0/26's second subnet?
+**Q138.** Which address is the broadcast for 192.168.1.0/26's second subnet?
 
 A. 192.168.1.63  B. 192.168.1.127  C. 192.168.1.128  D. 192.168.1.191
 
@@ -1514,7 +1635,7 @@ A. 192.168.1.63  B. 192.168.1.127  C. 192.168.1.128  D. 192.168.1.191
 
 ---
 
-**Q128.** Which IPv6 address is a link-local address?
+**Q139.** Which IPv6 address is a link-local address?
 
 A. 2001:db8::1  B. FE80::1  C. ::1  D. FF02::1
 
@@ -1525,7 +1646,7 @@ A. 2001:db8::1  B. FE80::1  C. ::1  D. FF02::1
 
 ---
 
-**Q129.** What does `::` mean in an IPv6 address?
+**Q140.** What does `::` mean in an IPv6 address?
 
 A. End of address  B. One or more groups of all zeros (used once)  C. A separator only  D. A loopback
 
@@ -1536,7 +1657,7 @@ A. End of address  B. One or more groups of all zeros (used once)  C. A separato
 
 ---
 
-**Q130.** Which protocol automatically lets an IPv6 host build its own address from the router's prefix?
+**Q141.** Which protocol automatically lets an IPv6 host build its own address from the router's prefix?
 
 A. DHCPv4  B. SLAAC  C. ARP  D. NAT
 
@@ -1547,7 +1668,7 @@ A. DHCPv4  B. SLAAC  C. ARP  D. NAT
 
 ---
 
-**Q131.** Which of these is a Layer 1 problem?
+**Q142.** Which of these is a Layer 1 problem?
 
 A. Wrong VLAN  B. Unplugged/broken cable  C. Missing default route  D. ACL blocking
 
@@ -1558,7 +1679,7 @@ A. Wrong VLAN  B. Unplugged/broken cable  C. Missing default route  D. ACL block
 
 ---
 
-**Q132.** What is the purpose of a default gateway on a host?
+**Q143.** What is the purpose of a default gateway on a host?
 
 A. Resolve names  B. Reach devices on other networks  C. Assign IPs  D. Encrypt traffic
 
@@ -1569,7 +1690,7 @@ A. Resolve names  B. Reach devices on other networks  C. Assign IPs  D. Encrypt 
 
 ---
 
-**Q133.** Which command tests basic connectivity to an IP?
+**Q144.** Which command tests basic connectivity to an IP?
 
 A. `ping`  B. `show run`  C. `configure terminal`  D. `copy`
 
@@ -1580,7 +1701,7 @@ A. `ping`  B. `show run`  C. `configure terminal`  D. `copy`
 
 ---
 
-**Q134.** A trunk carries VLANs 10 and 20, but VLAN 20 traffic isn't passing while VLAN 10 works. What's a likely cause?
+**Q145.** A trunk carries VLANs 10 and 20, but VLAN 20 traffic isn't passing while VLAN 10 works. What's a likely cause?
 
 A. Wrong hostname  B. VLAN 20 not allowed on the trunk  C. Duplex mismatch  D. Wrong DNS
 
@@ -1591,7 +1712,7 @@ A. Wrong hostname  B. VLAN 20 not allowed on the trunk  C. Duplex mismatch  D. W
 
 ---
 
-**Q135.** Which two are valid reasons to use VLANs? (Choose the best single answer.)
+**Q146.** Which two are valid reasons to use VLANs? (Choose the best single answer.)
 
 A. Faster CPUs  B. Segment broadcast domains and improve security  C. Replace routers  D. Increase cable length
 
@@ -1602,7 +1723,7 @@ A. Faster CPUs  B. Segment broadcast domains and improve security  C. Replace ro
 
 ---
 
-**Q136.** Which is TRUE about a /30 subnet?
+**Q147.** Which is TRUE about a /30 subnet?
 
 A. It has 4 usable hosts  B. It has 2 usable hosts, ideal for router links  C. It's used for large LANs  D. It has no broadcast
 
@@ -1613,7 +1734,7 @@ A. It has 4 usable hosts  B. It has 2 usable hosts, ideal for router links  C. I
 
 ---
 
-**Q137.** In the frame, which field detects transmission errors?
+**Q148.** In the frame, which field detects transmission errors?
 
 A. Preamble  B. Source MAC  C. FCS (Frame Check Sequence)  D. Type
 
@@ -1624,7 +1745,7 @@ A. Preamble  B. Source MAC  C. FCS (Frame Check Sequence)  D. Type
 
 ---
 
-**Q138.** Which command sets a device to only allow SSH (not Telnet) for remote logins?
+**Q149.** Which command sets a device to only allow SSH (not Telnet) for remote logins?
 
 A. `transport input ssh`  B. `transport input all`  C. `no ip telnet`  D. `login local`
 
@@ -1635,7 +1756,7 @@ A. `transport input ssh`  B. `transport input all`  C. `no ip telnet`  D. `login
 
 ---
 
-**Q139.** What best describes "longest prefix match"?
+**Q150.** What best describes "longest prefix match"?
 
 A. Trusting the lowest AD  B. Choosing the most specific matching route  C. Load balancing  D. Picking the oldest route
 
@@ -1646,13 +1767,24 @@ A. Trusting the lowest AD  B. Choosing the most specific matching route  C. Load
 
 ---
 
-**Q140.** You need 6 subnets from a /24, each with room for ~25 hosts. Which mask fits BOTH needs?
+**Q151.** You need 6 subnets from a /24, each with room for ~25 hosts. Which mask fits BOTH needs?
 
 A. /26  B. /27  C. /28  D. /25
 
 <details><summary>Answer</summary>
 
 **B. /27.** /27 gives 8 subnets (≥6) and 30 hosts each (≥25). /26 gives only 4 subnets (too few); /28 gives 14 hosts (too few).
+</details>
+
+---
+
+**Q152.** A router boots with a blank configuration even though `show startup-config` shows a full config in NVRAM. What is the most likely cause?
+
+A. Corrupted flash  B. The config register is set to 0x2142  C. IOS needs an upgrade  D. NVRAM is write-protected
+
+<details><summary>Answer</summary>
+
+**B. Config register 0x2142.** That value tells the router to **ignore startup-config at boot** — it's how password recovery works, and it's a classic leftover mistake after someone performed one. Check with `show version` (the register is printed on the last line) and restore `config-register 0x2102`.
 </details>
 
 ---

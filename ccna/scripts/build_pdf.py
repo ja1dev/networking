@@ -135,6 +135,30 @@ html_body = markdown.markdown(
     extensions=["tables", "fenced_code", "toc", "sane_lists", "md_in_html"],
 )
 
+
+def size_images(body):
+    """Center every diagram and display it at half its pixel size.
+
+    The diagrams in images/ are rendered at 2x scale for crispness, so their
+    on-page width is pixel-width / 2 points. A missing file dies here with the
+    path rather than as a blank hole in the PDF.
+    """
+    from PIL import Image as PILImage
+
+    def repl(m):
+        alt, src = m.group(1), m.group(2)
+        path = os.path.join(ROOT, src)
+        if not os.path.exists(path):
+            raise SystemExit(f"Image not found: {path} (referenced as {src})")
+        w = PILImage.open(path).width // 2
+        return (f'<p style="text-align:center">'
+                f'<img alt="{alt}" src="{src}" width="{w}"/></p>')
+
+    return re.sub(r'<p><img alt="([^"]*)" src="([^"]+)"\s*/?>\s*</p>', repl, body)
+
+
+html_body = size_images(html_body)
+
 css = r"""
 @page {
   size: letter;

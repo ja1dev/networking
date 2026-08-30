@@ -147,6 +147,10 @@ Which QoS marking is used for voice?	EF — Expedited Forwarding, DSCP 46.
 Policing vs shaping?	Policing drops excess traffic; shaping buffers it to send later.
 What is jitter, and what's the target for voice?	Variation in delay — under 30 ms. (One-way delay under 150 ms, loss under 1%.)
 What is a QoS trust boundary?	The point where the network decides whether to believe incoming markings — you trust an IP phone, not a user's PC.
+What does NTP stratum measure?	Distance from the reference clock — stratum 1 is attached to it, each hop adds one. Lower = more believable.
+SNMP polling vs traps — why use both?	Polling (Get) proves devices are alive but misses events between sweeps; traps report events instantly but a dead device goes silent.
+In SNMP, what are the MIB and an OID?	The MIB is the tree of everything askable on a device; an OID is one dotted address into that tree.
+Why is SNMPv2c considered insecure?	Its community string is a shared password sent in plaintext — v3 adds real authentication and encryption.
 What are the three parts of the CIA triad?	Confidentiality, Integrity, Availability.
 What's at the end of every ACL, even unwritten?	An implicit deny any.
 How are ACL entries processed?	Top down, first match wins — and processing stops there.
@@ -167,6 +171,16 @@ What is the wireless access method, and why not CSMA/CD?	CSMA/CA (collision avoi
 WPA2 vs WPA3 — what's the main encryption/authentication difference?	WPA2 uses AES-CCMP with a 4-way handshake; WPA3 adds SAE ("Dragonfly"), resisting offline dictionary attacks.
 Autonomous AP vs lightweight AP?	Autonomous = self-contained, configured individually. Lightweight = managed by a WLC, via CAPWAP.
 Which 802.11 standard is Wi-Fi 6, and which bands does it use?	802.11ax — both 2.4 and 5 GHz (6 GHz with 6E).
+What two CAPWAP tunnels connect a lightweight AP to its WLC?	Control (UDP 5246) — DTLS-encrypted instructions — and data (UDP 5247) — client traffic, unencrypted by default.
+Why is the lightweight architecture called "split-MAC"?	The 802.11 job is split: real-time work (transmit, ACK, encrypt, beacons) stays on the AP; management (auth, roaming, RF planning) moves to the WLC.
+Which AP mode keeps serving clients at a branch even if the WAN link to the WLC dies?	FlexConnect — it can switch traffic locally instead of tunneling everything to the WLC.
+What do the Monitor, Sniffer and SE-Connect AP modes do?	Monitor hunts rogue APs/interference (no clients); Sniffer streams captured 802.11 frames to Wireshark; SE-Connect does spectrum analysis of non-Wi-Fi interferers.
+A lightweight AP connects to which switchport type? A WLC?	AP = access port (all traffic rides one CAPWAP tunnel); WLC = trunk port (it drops clients onto many VLANs).
+What is LAG on a WLC, and what's the catch?	Link aggregation of its trunk ports (EtherChannel idea) — but WLC LAG is static only, no LACP/PAgP (mode on at the switch).
+Which WLC interface carries CAPWAP and admin access? Which one exists per client VLAN?	The management interface; a dynamic interface per VLAN is the WLAN's exit onto the wired network.
+Name the four WLC QoS profiles, best to worst.	Platinum (voice), Gold (video), Silver (best effort — default), Bronze (background) — medals in order.
+What three things does a WLAN profile on a WLC tie together?	An SSID, a dynamic interface (VLAN), and a security policy — and it must be enabled (new WLANs start disabled).
+What does WPA3's SAE prevent that WPA2-PSK allows?	Offline dictionary attacks — the WPA2 4-way handshake can be captured and cracked offline; SAE forces a live exchange per guess.
 What are the two planes SDN separates?	Control plane (decides where traffic goes) and data plane (actually forwards it).
 Northbound vs southbound API?	Northbound faces apps/users (controller ↔ your scripts). Southbound faces the devices (controller ↔ switches).
 What does CRUD map to in REST?	Create=POST, Read=GET, Update=PUT/PATCH, Delete=DELETE.
@@ -177,6 +191,9 @@ Ansible vs Terraform vs Puppet — which need agents?	Ansible and Terraform are 
 Declarative vs procedural configuration?	Declarative describes the desired end state and the tool computes the change; procedural lists the steps to run in order.
 What is idempotence?	Applying the same change repeatedly produces the same result — running it ten times is as safe as once.
 How does ML-based monitoring improve on fixed thresholds?	It learns a baseline of normal for that network and flags deviations — catching gradual degradation that never crosses a static limit.
+Predictive vs generative AI in network operations?	Predictive watches and warns (anomaly detection, failure forecasts); generative writes and explains (draft configs, plain-English log analysis).
+What is Cisco Catalyst Center, and what was it called before?	Cisco's campus SDN controller (intent-based config push, plug-and-play provisioning, assurance) — formerly DNA Center.
+Name three ways a REST API request can authenticate.	Basic (user:pass, Base64), an API key, or a bearer token/OAuth (authenticate once, send a short-lived token) — all unsafe without HTTPS.
 Which commands show IP settings on Windows, macOS and Linux?	ipconfig /all (Windows), ifconfig (macOS), ip address (Linux).
 What's the trace command on Windows vs everywhere else?	tracert on Windows; traceroute on macOS/Linux/IOS.
 How does traceroute actually discover the path?	It sends packets with increasing TTL — each hop that hits TTL 0 returns an ICMP "time exceeded," revealing itself.
@@ -187,3 +204,5 @@ A port shows "administratively down". What's the fix?	no shutdown on the interfa
 What symptoms indicate a duplex mismatch?	Slowness with late collisions on the half-duplex side and FCS/runt errors on the other.
 Which command shows what's connected to a Cisco device?	show cdp neighbors (or show lldp neighbors for the open standard).
 First four things to read from ipconfig /all?	IP address, subnet mask, default gateway, DNS servers — most faults show up in one of these.
+Config register 0x2102 vs 0x2142?	0x2102 = normal boot; 0x2142 = ignore startup-config — the password-recovery setting (needs console access via ROMMON).
+Before booting a newly copied IOS image, what should you run?	verify /md5 flash:image.bin — confirm the checksum against Cisco's published hash before trusting it.

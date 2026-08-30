@@ -10,7 +10,7 @@
 > you studied that day. Do them **daily** — 15 minutes beats an hour on Sunday.
 
 > **Format note:** this file is the source. Edit it, then rebuild the deck with
-> `python ccna/scripts/build_anki.py`. Each card is a `**Q:**` / `**A:**` pair;
+> `python ccna/scripts/build_flashcards.py`. Each card is a `**Q:**` / `**A:**` pair;
 > `##` headings become subdecks and tags.
 
 ---
@@ -504,6 +504,18 @@
 **Q:** What is a QoS trust boundary?
 **A:** The point where the network decides whether to **believe incoming markings** — you trust an IP phone, not a user's PC.
 
+**Q:** What does NTP stratum measure?
+**A:** **Distance from the reference clock** — stratum 1 is attached to it, each hop adds one. **Lower = more believable.**
+
+**Q:** SNMP polling vs traps — why use both?
+**A:** **Polling** (Get) proves devices are alive but misses events between sweeps; **traps** report events instantly but a dead device goes silent.
+
+**Q:** In SNMP, what are the MIB and an OID?
+**A:** The **MIB** is the tree of everything askable on a device; an **OID** is one dotted address into that tree.
+
+**Q:** Why is SNMPv2c considered insecure?
+**A:** Its **community string** is a shared password sent in **plaintext** — v3 adds real authentication and encryption.
+
 ---
 
 ## 12 Security & ACLs
@@ -572,6 +584,36 @@
 **Q:** Which 802.11 standard is Wi-Fi 6, and which bands does it use?
 **A:** **802.11ax** — both **2.4 and 5 GHz** (6 GHz with 6E).
 
+**Q:** What two CAPWAP tunnels connect a lightweight AP to its WLC?
+**A:** **Control (UDP 5246)** — DTLS-encrypted instructions — and **data (UDP 5247)** — client traffic, unencrypted by default.
+
+**Q:** Why is the lightweight architecture called "split-MAC"?
+**A:** The 802.11 job is split: **real-time work** (transmit, ACK, encrypt, beacons) stays **on the AP**; **management** (auth, roaming, RF planning) moves **to the WLC**.
+
+**Q:** Which AP mode keeps serving clients at a branch even if the WAN link to the WLC dies?
+**A:** **FlexConnect** — it can switch traffic locally instead of tunneling everything to the WLC.
+
+**Q:** What do the Monitor, Sniffer and SE-Connect AP modes do?
+**A:** **Monitor** hunts rogue APs/interference (no clients); **Sniffer** streams captured 802.11 frames to Wireshark; **SE-Connect** does spectrum analysis of non-Wi-Fi interferers.
+
+**Q:** A lightweight AP connects to which switchport type? A WLC?
+**A:** AP = **access port** (all traffic rides one CAPWAP tunnel); WLC = **trunk port** (it drops clients onto many VLANs).
+
+**Q:** What is LAG on a WLC, and what's the catch?
+**A:** **Link aggregation** of its trunk ports (EtherChannel idea) — but WLC LAG is **static only, no LACP/PAgP** (`mode on` at the switch).
+
+**Q:** Which WLC interface carries CAPWAP and admin access? Which one exists per client VLAN?
+**A:** The **management interface**; a **dynamic interface** per VLAN is the WLAN's exit onto the wired network.
+
+**Q:** Name the four WLC QoS profiles, best to worst.
+**A:** **Platinum (voice), Gold (video), Silver (best effort — default), Bronze (background)** — medals in order.
+
+**Q:** What three things does a WLAN profile on a WLC tie together?
+**A:** An **SSID**, a **dynamic interface** (VLAN), and a **security policy** — and it must be **enabled** (new WLANs start disabled).
+
+**Q:** What does WPA3's SAE prevent that WPA2-PSK allows?
+**A:** **Offline dictionary attacks** — the WPA2 4-way handshake can be captured and cracked offline; SAE forces a live exchange per guess.
+
 ---
 
 ## 14 Automation & Programmability
@@ -606,6 +648,15 @@
 **Q:** How does ML-based monitoring improve on fixed thresholds?
 **A:** It **learns a baseline** of normal for that network and flags deviations — catching gradual degradation that never crosses a static limit.
 
+**Q:** Predictive vs generative AI in network operations?
+**A:** **Predictive watches and warns** (anomaly detection, failure forecasts); **generative writes and explains** (draft configs, plain-English log analysis).
+
+**Q:** What is Cisco Catalyst Center, and what was it called before?
+**A:** Cisco's campus **SDN controller** (intent-based config push, plug-and-play provisioning, assurance) — formerly **DNA Center**.
+
+**Q:** Name three ways a REST API request can authenticate.
+**A:** **Basic** (user:pass, Base64), an **API key**, or a **bearer token/OAuth** (authenticate once, send a short-lived token) — all unsafe without HTTPS.
+
 ---
 
 ## 15 Troubleshooting
@@ -639,3 +690,9 @@
 
 **Q:** First four things to read from `ipconfig /all`?
 **A:** **IP address, subnet mask, default gateway, DNS servers** — most faults show up in one of these.
+
+**Q:** Config register 0x2102 vs 0x2142?
+**A:** **0x2102** = normal boot; **0x2142** = **ignore startup-config** — the password-recovery setting (needs console access via ROMMON).
+
+**Q:** Before booting a newly copied IOS image, what should you run?
+**A:** `verify /md5 flash:image.bin` — confirm the **checksum** against Cisco's published hash before trusting it.
