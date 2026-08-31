@@ -10,7 +10,7 @@ strictly requires — the mechanism underneath, not just the behaviour. They're
 marked, so you can skip them on a tight timeline and come back later. They're
 also where CCNP begins; **Appendix B** maps them onto what comes next.
 
-> **This guide is one of four:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 152 exam-style questions grouped by domain, the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at, and the **Flashcard Deck** (208 cards, for Anki or Quizlet) drills the facts into instant recall. Read a chapter here, then answer that domain's questions — the appendix at the back maps every official exam topic to the section that covers it.
+> **This guide is one of five:** the **Study Guide** (this book) teaches the concepts, the **Practice Question Bank** tests them with 152 exam-style questions grouped by domain, the **Subnetting Drill Sheet** builds the one skill you need to be *fast* at, the **Flashcard Deck** (208 cards, for Anki or Quizlet) drills the facts into instant recall, and the **Lab Workbook** (17 hands-on labs for EVE-NG/GNS3) turns what you read into what you can type. Read a chapter here, then answer that domain's questions and build its lab — the appendix at the back maps every official exam topic to the section that covers it.
 
 ---
 
@@ -4267,7 +4267,7 @@ displaces what you already knew.
 
 ## 24.4 Golden Study Tips
 1. **Subnet every day.** It's the #1 skill and appears everywhere. Do 5 practice subnets each morning.
-2. **Build labs.** Use free tools like **Cisco Packet Tracer** or **GNS3** to practice real commands.
+2. **Build labs.** Work through the **Lab Workbook** — 17 labs for EVE-NG/GNS3 that follow this guide chapter by chapter, each with a break-and-fix challenge. (Cisco Packet Tracer covers the one thing emulators can't: the WLC GUI.)
 3. **Type commands by hand**, don't just read them. Muscle memory matters in simulations.
 4. **Learn the "why," not just the "what."** Understanding beats memorizing.
 5. **Do practice exams** to get used to the style and timing.
@@ -4602,7 +4602,7 @@ The 🔬 depth sections deliberately go beyond exam requirements, because they'r
 
 ## 🎉 You Made It!
 
-You just went through **everything** on the CCNA — from what a cable is, all the way to network automation. If some parts felt hard, that's normal. Come back, re-read, and **practice** (especially subnetting and configuring devices in Packet Tracer).
+You just went through **everything** on the CCNA — from what a cable is, all the way to network automation. If some parts felt hard, that's normal. Come back, re-read, and **practice** (especially subnetting drills and the Lab Workbook).
 
 Remember the big ideas:
 - **Switches** work with **MAC** addresses inside a LAN (Layer 2).

@@ -1794,7 +1794,7 @@ A. Corrupted flash  B. The config register is set to 0x2142  C. IOS needs an upg
 - **Score yourself by domain.** If you miss several in one domain (say OSPF or ACLs), go back to that chapter in the main guide and re-drill.
 - **Re-take after a few days.** Spacing your practice helps memory stick.
 - **Target 85%+ consistently** before booking the exam.
-- **Pair with labs.** Reading answers isn't enough — configure these things in Packet Tracer to make them permanent.
+- **Pair with labs.** Reading answers isn't enough — build the **Lab Workbook**'s labs to make these permanent; a question you missed here almost always has a lab that would have made it obvious.
 
 Good luck — you're building real skills now! 🚀
 
