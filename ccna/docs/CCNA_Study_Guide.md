@@ -4199,6 +4199,8 @@ Follow the layered method from 23.1: confirm the PC's own settings first, then t
 
 ## 24.3 Pick Your Timeline
 
+> **The day-to-day method** — what "finish a chapter" means, the review-first daily frame, and the chapter-by-chapter path through all five resources — lives in the **Study Tips** document (`CCNA_Study_Tips.pdf`). The timelines below are the calendars; that document is the loop you run inside each day.
+
 Two plans below: an **8-week** pace for studying alongside a job, and a **2-week
 sprint** if you've set yourself a deadline. Both cover the same 24 chapters, 140
 questions and 60 drills — the sprint just removes the slack.

@@ -1,7 +1,8 @@
 # Networking
 
 A complete, self-contained study kit for the **Cisco CCNA 200-301 (v1.1)** exam:
-five resources that work together, plus the scripts that build them.
+five resources that work together — plus a **Study Tips** manual that
+sequences them — and the scripts that build it all.
 
 ## The five resources
 
@@ -12,6 +13,7 @@ five resources that work together, plus the scripts that build them.
 | **Subnetting Drill Sheet** | Builds the one skill that has to be *fast*, not just correct | 60 worked problems |
 | **Flashcard Deck** | Drills the facts into instant recall via spaced repetition. Builds for **Anki** (`.apkg`) and **Quizlet/other apps** (`.tsv`) | 208 cards, 15 subdecks |
 | **Lab Workbook** | Turns reading into typing — hands-on EVE-NG/GNS3 labs following the guide chapter by chapter, each with verification steps, full solutions and a break-and-fix challenge | 17 labs + capstone |
+| **Study Tips** | The manual for the other five: the per-chapter study loop (read → Anki → lab → move on), a chapter-by-chapter path through all resources, and the readiness checkpoints for booking the exam | start here |
 
 They cross-reference each other: the guide points at the drills for subnetting
 practice and at the question bank per domain, the drills point back at Chapters
@@ -32,6 +34,7 @@ ccna/
   CCNA_Practice_Questions.pdf
   CCNA_Subnetting_Drills.pdf
   CCNA_Lab_Workbook.pdf
+  CCNA_Study_Tips.pdf               <- read this one first
   CCNA_Flashcards.apkg          <- import into Anki
   CCNA_Flashcards.tsv           <- or into Quizlet / other apps
   docs/       Markdown sources (edit these)
@@ -52,6 +55,7 @@ One source, one output, no extra copies:
 | `ccna/docs/CCNA_Practice_Questions.md` | `ccna/CCNA_Practice_Questions.pdf` |
 | `ccna/docs/CCNA_Subnetting_Drills.md` | `ccna/CCNA_Subnetting_Drills.pdf` |
 | `ccna/docs/CCNA_Lab_Workbook.md` | `ccna/CCNA_Lab_Workbook.pdf` |
+| `ccna/docs/CCNA_Study_Tips.md` | `ccna/CCNA_Study_Tips.pdf` |
 | `ccna/docs/CCNA_Flashcards.md` | `ccna/CCNA_Flashcards.apkg` + `ccna/CCNA_Flashcards.tsv` |
 | `ccna/scripts/build_diagrams.py` | `ccna/images/*.png` (the study guide's diagrams) |
 
@@ -87,6 +91,7 @@ python ccna/scripts/build_pdf.py ccna/docs/CCNA_Study_Guide.md ccna/CCNA_Study_G
 python ccna/scripts/build_pdf.py ccna/docs/CCNA_Practice_Questions.md ccna/CCNA_Practice_Questions.pdf "CCNA Practice Questions"
 python ccna/scripts/build_pdf.py ccna/docs/CCNA_Subnetting_Drills.md ccna/CCNA_Subnetting_Drills.pdf "CCNA Subnetting Drills"
 python ccna/scripts/build_pdf.py ccna/docs/CCNA_Lab_Workbook.md ccna/CCNA_Lab_Workbook.pdf "CCNA Lab Workbook"
+python ccna/scripts/build_pdf.py ccna/docs/CCNA_Study_Tips.md ccna/CCNA_Study_Tips.pdf "CCNA Study Tips"
 
 # Flashcards — writes both the .apkg and the .tsv
 python ccna/scripts/build_flashcards.py
