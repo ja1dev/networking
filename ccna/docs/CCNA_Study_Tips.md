@@ -80,16 +80,16 @@ test of the finished domain, not a reading companion.)
 | 4 | Ch 7–8 (VLANs, trunks, inter-VLAN) | 04 (rest) | Labs 3–5 | — |
 | 5 | Ch 9 (STP) | 05 | Lab 6 | — |
 | 6 | Ch 10 (EtherChannel) | 06 | Lab 7 | — |
-| 7 | Ch 11–12 (IPv4, subnetting) | 07 | Lab 8 | **Start daily drills** · Question Domain 1 |
-| 8 | Ch 13 (IPv6) | 08 | Lab 11 | — |
+| 7 | Ch 11–12 (IPv4, subnetting) | 07 | Lab 8 | **Start daily drills** |
+| 8 | Ch 13 (IPv6) | 08 | Lab 11 | **Question Domain 1** |
 | 9 | Ch 14–15 (routing, static routes) | 09 | Labs 9, 12 | — |
 | 10 | Ch 16 (OSPF) | 10 | Lab 10 | **Question Domain 3** |
 | 11 | Ch 17 (DHCP, NAT, NTP, QoS…) | 11 | Labs 13–14 | **Question Domain 4** |
 | 12 | Ch 18–19 (security, ACLs) | 12 | Labs 15–16 | **Question Domains 5 + 5b** |
 | 13 | Ch 20 (wireless) | 13 | WLC GUI in Packet Tracer | **Question Domain 2** (needs 7–10 + 20) |
-| 14 | Ch 21 (management) | 15 (partial) | — | — |
+| 14 | Ch 21 (management) | 15 (its Ch 21 cards) | — | — |
 | 15 | Ch 22 (automation, AI) | 14 | — | **Question Domain 6** |
-| 16 | Ch 23 (troubleshooting) | 15 | redo two Break-its | **Question Domain 7** |
+| 16 | Ch 23 (troubleshooting) | 15 (the rest) | redo two Break-its | **Question Domain 7** |
 | 17 | Ch 24 + review | — | **Lab 17 capstone** | full bank re-take |
 
 Three notes on the table's quirks, so you trust it rather than fight it:
@@ -99,8 +99,8 @@ Three notes on the table's quirks, so you trust it rather than fight it:
   Lab 11 and Ch 14 before Lab 12, exactly as shown.
 - **Domain 2 questions come late** even though switching is early: that
   domain mixes switching *and* wireless, so it isn't testable until Ch 20.
-- **Domain 1 questions unlock at step 7**, not step 2 — they assume
-  addressing knowledge from Ch 11–12.
+- **Domain 1 questions unlock at step 8**, not step 2 — the domain mixes
+  cabling and models with addressing *and IPv6*, so it needs Ch 11–13 done.
 
 ## 4. What "Done" Feels Like (the honest checkpoints)
 

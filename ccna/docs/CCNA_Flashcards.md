@@ -5,9 +5,10 @@
 > The Question Bank tests exam-style reasoning; these build the instant recall
 > that stops you burning clock time on the real thing.
 
-> **How to use it:** import `CCNA_Flashcards.apkg` into Anki. Every card's fact is explained in full in the **Study Guide** — when a card keeps failing, that's your signal to go re-read the section rather than drill harder. Cards are split
-> into subdecks by domain and tagged by topic, so you can drill just the area
-> you studied that day. Do them **daily** — 15 minutes beats an hour on Sunday.
+> **How to use it:** import `CCNA_Flashcards.apkg` into Anki. Every card's fact is explained in full in the **Study Guide** — when a card keeps failing, that's your signal to go re-read the section rather than drill harder. Subdecks follow
+> the guide's chapter order (the **Study Tips** table maps each chapter to its
+> subdeck), so you can drill exactly what you just read. Do them **daily** —
+> 15 minutes beats an hour on Sunday.
 
 > **Format note:** this file is the source. Edit it, then rebuild the deck with
 > `python ccna/scripts/build_flashcards.py`. Each card is a `**Q:**` / `**A:**` pair;
@@ -46,21 +47,6 @@
 
 **Q:** What does a VRF provide?
 **A:** Multiple **separate routing tables** on one physical router. *VLANs separate at L2; VRFs separate at L3.*
-
-**Q:** PoE: how much power does 802.3af provide? 802.3at? 802.3bt?
-**A:** **af ≈ 15.4 W**, **at (PoE+) ≈ 30 W**, **bt (PoE++) ≈ 60–100 W** — measured at the switch port.
-
-**Q:** Why is a non-PoE laptop safe to plug into a PoE port?
-**A:** The switch performs **detection** first — no powered-device signature means it sends **data only**.
-
-**Q:** Which cable connects two switches together without Auto-MDIX?
-**A:** A **crossover** cable (like devices → crossover; unlike devices → straight-through).
-
-**Q:** What is the maximum length of a copper UTP Ethernet run?
-**A:** **100 metres**.
-
-**Q:** Single-mode vs multi-mode fiber — which goes further and why?
-**A:** **Single-mode** — a narrower core carries one light path, so there's no modal dispersion; good for kilometres.
 
 ---
 
@@ -116,7 +102,22 @@
 
 ---
 
-## 03 Binary, Hex & MAC Addressing
+## 03 Cables, PoE, Binary & Hex
+
+**Q:** Which cable connects two switches together without Auto-MDIX?
+**A:** A **crossover** cable (like devices → crossover; unlike devices → straight-through).
+
+**Q:** What is the maximum length of a copper UTP Ethernet run?
+**A:** **100 metres**.
+
+**Q:** Single-mode vs multi-mode fiber — which goes further and why?
+**A:** **Single-mode** — a narrower core carries one light path, so there's no modal dispersion; good for kilometres.
+
+**Q:** PoE: how much power does 802.3af provide? 802.3at? 802.3bt?
+**A:** **af ≈ 15.4 W**, **at (PoE+) ≈ 30 W**, **bt (PoE++) ≈ 60–100 W** — measured at the switch port.
+
+**Q:** Why is a non-PoE laptop safe to plug into a PoE port?
+**A:** The switch performs **detection** first — no powered-device signature means it sends **data only**.
 
 **Q:** What are the 8 binary place values in one octet?
 **A:** **128, 64, 32, 16, 8, 4, 2, 1**.
@@ -127,6 +128,10 @@
 **Q:** Convert binary 10101100 to decimal.
 **A:** **172** (128 + 32 + 8 + 4).
 
+---
+
+## 04 Switching & VLANs
+
 **Q:** How many bits in a MAC address, and how is it split?
 **A:** **48 bits** — first 24 = **OUI** (vendor), last 24 = device-specific.
 
@@ -135,10 +140,6 @@
 
 **Q:** What are the three ways to address a frame?
 **A:** **Unicast** (one), **Broadcast** (all), **Multicast** (a subscribed group).
-
----
-
-## 04 Switching & VLANs
 
 **Q:** How does a switch learn MAC addresses?
 **A:** From the **source MAC** of incoming frames, mapped to the port they arrived on.
@@ -149,11 +150,23 @@
 **Q:** Collision domain vs broadcast domain — what separates each?
 **A:** Each **switch port** is its own collision domain; each **VLAN / router interface** bounds a broadcast domain.
 
+**Q:** What are the three port-security violation modes, and which is default?
+**A:** **protect**, **restrict**, **shutdown** — **shutdown** is the default (err-disables the port).
+
+**Q:** How do you recover an err-disabled port?
+**A:** `shutdown` then `no shutdown` on the interface (after fixing the cause).
+
 **Q:** What problem do VLANs solve?
 **A:** They split one physical switch into **multiple broadcast domains**, without buying more switches.
 
 **Q:** Access port vs trunk port?
 **A:** **Access** carries one VLAN, untagged, to an end device. **Trunk** carries many VLANs, tagged, between switches.
+
+**Q:** What's the normal VLAN range vs the extended range?
+**A:** Normal **1–1005**, extended **1006–4094**.
+
+**Q:** Command to put port Fa0/1 into VLAN 10?
+**A:** `interface fa0/1` → `switchport mode access` → `switchport access vlan 10`.
 
 **Q:** How big is an 802.1Q tag and what's the key field?
 **A:** **4 bytes**, containing a **12-bit VLAN ID** (1–4094).
@@ -161,26 +174,14 @@
 **Q:** What is the native VLAN?
 **A:** The one VLAN sent **untagged** across a trunk. Default is **VLAN 1** — best practice is to change it.
 
-**Q:** What's the normal VLAN range vs the extended range?
-**A:** Normal **1–1005**, extended **1006–4094**.
+**Q:** Why disable DTP with `switchport nonegotiate`?
+**A:** DTP can be tricked into **forming a trunk with an attacker**, exposing every VLAN. Set modes statically instead.
 
 **Q:** Why do two VLANs need a router (or SVI) to communicate?
 **A:** VLANs are **separate broadcast domains = separate subnets**, and moving between subnets is by definition Layer 3 routing.
 
 **Q:** What is "router on a stick"?
 **A:** Inter-VLAN routing via **one trunk link** to a router using **subinterfaces**, one per VLAN.
-
-**Q:** Command to put port Fa0/1 into VLAN 10?
-**A:** `interface fa0/1` → `switchport mode access` → `switchport access vlan 10`.
-
-**Q:** What are the three port-security violation modes, and which is default?
-**A:** **protect**, **restrict**, **shutdown** — **shutdown** is the default (err-disables the port).
-
-**Q:** How do you recover an err-disabled port?
-**A:** `shutdown` then `no shutdown` on the interface (after fixing the cause).
-
-**Q:** Why disable DTP with `switchport nonegotiate`?
-**A:** DTP can be tricked into **forming a trunk with an attacker**, exposing every VLAN. Set modes statically instead.
 
 ---
 
@@ -310,9 +311,6 @@
 
 **Q:** What is VLSM, and what's its golden rule?
 **A:** Different-sized subnets from one block. **Always allocate the largest subnet first.**
-
-**Q:** How do you build a wildcard mask?
-**A:** **Invert the subnet mask** (255 − each octet). 0 = must match, 255 = don't care. /24 → **0.0.0.255**.
 
 ---
 
@@ -528,6 +526,9 @@
 
 **Q:** How are ACL entries processed?
 **A:** **Top down, first match wins** — and processing stops there.
+
+**Q:** How do you build a wildcard mask?
+**A:** **Invert the subnet mask** (255 − each octet). 0 = must match, 255 = don't care. /24 → **0.0.0.255**.
 
 **Q:** Where do you place a standard ACL vs an extended ACL, and why?
 **A:** **Standard near the destination** (it only matches source, so placing it early would over-block); **extended near the source** (it's specific, so drop unwanted traffic early).

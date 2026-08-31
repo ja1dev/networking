@@ -8,11 +8,6 @@ In spine-leaf, how many hops separate any two servers?	Always two (leaf → spin
 What does "east-west" traffic mean?	Server-to-server traffic inside the data center (vs north-south = user → server → internet).
 What's the key difference between a VM and a container?	A VM contains a full guest OS; a container shares the host kernel and holds only the app — so it's far smaller and starts in seconds.
 What does a VRF provide?	Multiple separate routing tables on one physical router. VLANs separate at L2; VRFs separate at L3.
-PoE: how much power does 802.3af provide? 802.3at? 802.3bt?	af ≈ 15.4 W, at (PoE+) ≈ 30 W, bt (PoE++) ≈ 60–100 W — measured at the switch port.
-Why is a non-PoE laptop safe to plug into a PoE port?	The switch performs detection first — no powered-device signature means it sends data only.
-Which cable connects two switches together without Auto-MDIX?	A crossover cable (like devices → crossover; unlike devices → straight-through).
-What is the maximum length of a copper UTP Ethernet run?	100 metres.
-Single-mode vs multi-mode fiber — which goes further and why?	Single-mode — a narrower core carries one light path, so there's no modal dispersion; good for kilometres.
 TCP or UDP: which is connection-oriented and reliable?	TCP — handshake, sequencing, acknowledgments, retransmission.
 Why does voice/video use UDP rather than TCP?	A retransmitted voice packet arrives too late to be useful. Speed and steady timing matter more than perfect delivery.
 What are the three steps of the TCP handshake?	SYN → SYN-ACK → ACK.
@@ -29,6 +24,11 @@ Port 80? Port 443?	80 = HTTP, 443 = HTTPS.
 Ports 20/21? Port 69?	20/21 = FTP (data/control), 69 = TFTP.
 Port 161/162? Port 514? Port 123?	161/162 = SNMP, 514 = syslog, 123 = NTP.
 Port 25? Port 110?	25 = SMTP, 110 = POP3.
+Which cable connects two switches together without Auto-MDIX?	A crossover cable (like devices → crossover; unlike devices → straight-through).
+What is the maximum length of a copper UTP Ethernet run?	100 metres.
+Single-mode vs multi-mode fiber — which goes further and why?	Single-mode — a narrower core carries one light path, so there's no modal dispersion; good for kilometres.
+PoE: how much power does 802.3af provide? 802.3at? 802.3bt?	af ≈ 15.4 W, at (PoE+) ≈ 30 W, bt (PoE++) ≈ 60–100 W — measured at the switch port.
+Why is a non-PoE laptop safe to plug into a PoE port?	The switch performs detection first — no powered-device signature means it sends data only.
 What are the 8 binary place values in one octet?	128, 64, 32, 16, 8, 4, 2, 1.
 Convert 192 to binary.	11000000 (128 + 64).
 Convert binary 10101100 to decimal.	172 (128 + 32 + 8 + 4).
@@ -38,17 +38,17 @@ What are the three ways to address a frame?	Unicast (one), Broadcast (all), Mult
 How does a switch learn MAC addresses?	From the source MAC of incoming frames, mapped to the port they arrived on.
 What does a switch do with a frame whose destination MAC is unknown?	Floods it out every port except the one it arrived on (unknown unicast flooding).
 Collision domain vs broadcast domain — what separates each?	Each switch port is its own collision domain; each VLAN / router interface bounds a broadcast domain.
-What problem do VLANs solve?	They split one physical switch into multiple broadcast domains, without buying more switches.
-Access port vs trunk port?	Access carries one VLAN, untagged, to an end device. Trunk carries many VLANs, tagged, between switches.
-How big is an 802.1Q tag and what's the key field?	4 bytes, containing a 12-bit VLAN ID (1–4094).
-What is the native VLAN?	The one VLAN sent untagged across a trunk. Default is VLAN 1 — best practice is to change it.
-What's the normal VLAN range vs the extended range?	Normal 1–1005, extended 1006–4094.
-Why do two VLANs need a router (or SVI) to communicate?	VLANs are separate broadcast domains = separate subnets, and moving between subnets is by definition Layer 3 routing.
-What is "router on a stick"?	Inter-VLAN routing via one trunk link to a router using subinterfaces, one per VLAN.
-Command to put port Fa0/1 into VLAN 10?	interface fa0/1 → switchport mode access → switchport access vlan 10.
 What are the three port-security violation modes, and which is default?	protect, restrict, shutdown — shutdown is the default (err-disables the port).
 How do you recover an err-disabled port?	shutdown then no shutdown on the interface (after fixing the cause).
+What problem do VLANs solve?	They split one physical switch into multiple broadcast domains, without buying more switches.
+Access port vs trunk port?	Access carries one VLAN, untagged, to an end device. Trunk carries many VLANs, tagged, between switches.
+What's the normal VLAN range vs the extended range?	Normal 1–1005, extended 1006–4094.
+Command to put port Fa0/1 into VLAN 10?	interface fa0/1 → switchport mode access → switchport access vlan 10.
+How big is an 802.1Q tag and what's the key field?	4 bytes, containing a 12-bit VLAN ID (1–4094).
+What is the native VLAN?	The one VLAN sent untagged across a trunk. Default is VLAN 1 — best practice is to change it.
 Why disable DTP with switchport nonegotiate?	DTP can be tricked into forming a trunk with an attacker, exposing every VLAN. Set modes statically instead.
+Why do two VLANs need a router (or SVI) to communicate?	VLANs are separate broadcast domains = separate subnets, and moving between subnets is by definition Layer 3 routing.
+What is "router on a stick"?	Inter-VLAN routing via one trunk link to a router using subinterfaces, one per VLAN.
 What problem does STP solve?	Layer 2 loops — which cause broadcast storms, MAC table instability and duplicate frames. Frames have no TTL, so a loop never self-clears.
 What are the default STP timers?	Hello 2 s, Max Age 20 s, Forward Delay 15 s — hence ~30–50 s convergence.
 What is the default bridge priority, and what increments is it set in?	32768, in steps of 4096.
@@ -88,7 +88,6 @@ In 172.16.40.0/21, what is the block size and next network?	/21 = 255.255.248.0 
 What is the network address of 192.168.10.77/26?	Block size 64 → boundaries 0, 64, 128, 192 → network 192.168.10.64, broadcast .127.
 Why is a /30 used for router-to-router links?	It gives exactly 2 usable addresses — one per router — wasting nothing. (/31 is also valid for p2p.)
 What is VLSM, and what's its golden rule?	Different-sized subnets from one block. Always allocate the largest subnet first.
-How do you build a wildcard mask?	Invert the subnet mask (255 − each octet). 0 = must match, 255 = don't care. /24 → 0.0.0.255.
 How long is an IPv6 address, and how long is its header?	128 bits; the header is a fixed 40 bytes.
 What are the two IPv6 shortening rules?	Drop leading zeros in a group, and replace one run of all-zero groups with ::.
 What is the link-local prefix?	FE80::/10 — every IPv6 interface has one, and it's never routed off the link.
@@ -154,6 +153,7 @@ Why is SNMPv2c considered insecure?	Its community string is a shared password se
 What are the three parts of the CIA triad?	Confidentiality, Integrity, Availability.
 What's at the end of every ACL, even unwritten?	An implicit deny any.
 How are ACL entries processed?	Top down, first match wins — and processing stops there.
+How do you build a wildcard mask?	Invert the subnet mask (255 − each octet). 0 = must match, 255 = don't care. /24 → 0.0.0.255.
 Where do you place a standard ACL vs an extended ACL, and why?	Standard near the destination (it only matches source, so placing it early would over-block); extended near the source (it's specific, so drop unwanted traffic early).
 What can a standard ACL match? An extended ACL?	Standard: source IP only. Extended: source + destination IP, protocol and ports.
 What are the three AAA functions?	Authentication (who are you), Authorization (what may you do), Accounting (what did you do).
