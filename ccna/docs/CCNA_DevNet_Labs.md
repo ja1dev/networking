@@ -9,8 +9,10 @@
 > VPCS.
 
 > **When to use it:** your EVE-NG server is at home and you aren't — or you
-> don't have one at all. A browser, a free Cisco account and a VPN client are
-> the entire requirement. Same labs, same commands, same muscle memory.
+> don't have one at all. Two tracks: the **full labs** on CML (browser, free
+> Cisco account, and the VPN client — so, a machine you control), and an
+> **At-Work Track** at the end of this book that needs *nothing installed at
+> all*. Same labs, same commands, same muscle memory.
 
 ---
 
@@ -21,8 +23,8 @@ matter for this book (a free Cisco/DevNet login gets you both):
 
 | Sandbox | Type | What it gives you | Used for |
 |---------|------|-------------------|----------|
-| **Cisco Modeling Labs (CML)** | Reservable, ~4-hour sessions, VPN access | A full CML server: build any topology from Cisco's official images (IOL, IOL-L2, IOSv, IOSvL2, plus Linux hosts) | **Labs 1–17** — this is the EVE-NG stand-in |
-| **IOS XE Always-On** (Catalyst 8000v / 9000) | Shared, no reservation, no VPN | SSH and API access to one live IOS XE device | CLI practice anywhere, and Chapter 22's REST APIs |
+| **Cisco Modeling Labs (CML)** | Reservable, ~4-hour sessions, VPN access | A full CML server: build any topology from Cisco's official images (IOL, IOL-L2, IOSv, IOSvL2, plus Linux hosts) | **Labs 1–17** — the EVE-NG stand-in (VPN client required → home machine) |
+| **IOS XE Always-On** (Catalyst 8000v / 9000) | Shared, no reservation, no VPN | SSH and API access to one live IOS XE device | The zero-install **At-Work Track**, plus Chapter 22's REST APIs |
 
 Worth knowing about, but not needed here: **CML Free** — the same CML software
 as a free download you run locally, capped at 5 nodes. Labs 1–9 and 11–12 fit
@@ -287,32 +289,84 @@ certificate.
 
 ---
 
-# The Always-On Sandboxes
+# The At-Work Track — Zero Installs
 
-No reservation, no VPN: the **IOS XE Always-On** sandboxes (Catalyst 8000v and
-Catalyst 9000) hand you SSH credentials right on the catalog page. Two honest
-uses for a CCNA:
+Honesty first: the CML track above needs the Secure Client VPN **installed**,
+so it belongs to a machine you control. This track is for the other machine —
+the locked-down work laptop — and it needs nothing added to it:
 
-**CLI anywhere.** Ten spare minutes and a phone SSH client are enough to drill
-mode navigation and `show` sightseeing on a live, current IOS XE box. It's a
-*shared* device though, so the etiquette is strict: don't change credentials,
-don't erase or reload, don't save anything private into a config, and expect
-the box to be periodically reset underneath you. Practice *reading*, not
-redesigning.
+**The portal runs in the browser.** Sign in at devnetsandbox.cisco.com,
+launch the **IOS XE Always-On** sandbox (Catalyst 8000v or 9000), and the
+page prints a hostname plus freshly generated credentials. No reservation,
+no VPN.
 
-**Chapter 22, hands-on.** The REST/JSON automation topics are
-read-and-interpret on the exam, but poking a real API once makes them stick. With the
-credentials and hostname from the sandbox page:
+**The SSH client is already on the machine.** Windows 10/11 ships OpenSSH —
+open PowerShell (no admin rights needed):
 
 ```
-$ curl -k -u <user>:<password> \
-    -H "Accept: application/yang-data+json" \
-    https://<sandbox-host>/restconf/data/ietf-interfaces:interfaces
+PS> ssh <user>@<sandbox-host>
 ```
 
-That's a real RESTCONF call returning real JSON from a real router — 22.4's
-diagram, live. Entirely optional for the exam; quietly impressive in
-interviews.
+macOS: the same command in Terminal. That's the entire toolchain.
+
+**If the office firewall blocks outbound SSH**, the browser itself is the
+fallback: paste
+`https://<sandbox-host>/restconf/data/ietf-interfaces:interfaces` into the
+address bar, sign in with the sandbox credentials at the prompt, and the
+interface table comes back as structured data right in the tab. (Which
+ports each Always-On box exposes varies — the catalog page lists them, and
+HTTPS has been switched off on some boxes in the past. SSH is the primary
+door.)
+
+**The shared-device rules**, before drilling: it's one live router shared
+with strangers. Don't change credentials, don't erase or reload, don't save
+anything private into a config, expect it to be reset underneath you — and
+expect other people's half-finished configs all over it. Which, it turns
+out, is the training value.
+
+## Lunch-Break Drills
+
+One shared device can't replace the workbook's topologies — but a surprising
+share of the exam is *reading one router well*. A rotation, one drill per
+sitting, each 10–20 minutes:
+
+1. **Modes & help** *(Lab 1, task 1)* — user EXEC → privileged EXEC, `?` at
+   every level, command abbreviation, Tab completion, `show` filtering with
+   `| include` / `| section`. Look, don't touch: stay out of config mode
+   unless the sandbox page says changes are welcome.
+2. **Interface autopsy** *(Ch 6, 23)* — `show ip interface brief`, pick one
+   interface, then `show interfaces <it>` and narrate every line: state,
+   duplex, speed, drops, CRC. The exam's troubleshooting items are exactly
+   this reading skill.
+3. **Routing-table reading** *(Ch 15)* — `show ip route`: name every code
+   letter, read each route's [AD/metric] pair, pick an address and do the
+   longest-prefix match by hand, then check yourself with
+   `show ip route <address>`.
+4. **The crime scene** *(Ch 23)* — `show running-config` and reverse-engineer
+   what previous visitors were building. Every visit the box is in a
+   different state; explaining an unfamiliar config out loud is the
+   troubleshooting section in miniature, and no home lab gives you this —
+   your own configs are never surprising.
+5. **Version & filesystem** *(Ch 21)* — `show version`: uptime, image name,
+   config register; then `dir flash:`. Decode all of it from memory.
+6. **Config kata** *(any lab)* — type a lab's full solution from memory into
+   Notepad, then verify each command's syntax against the live device with
+   `?` — without applying anything. Muscle memory, zero shared-state harm.
+7. **RESTCONF** *(Ch 22)* — `curl.exe` also ships with Windows 10/11, so even
+   the API call needs no install:
+
+```
+PS> curl.exe -k -u <user>:<password> `
+      -H "Accept: application/yang-data+json" `
+      https://<sandbox-host>/restconf/data/ietf-interfaces:interfaces
+```
+
+   A real RESTCONF call returning real JSON — 22.4's diagram, live from a
+   work laptop. Optional for the exam; quietly impressive in interviews.
+
+Five of these a week keeps the CLI warm between CML sessions. The
+topologies — VLANs, OSPF adjacencies, HSRP failovers — still wait for the
+machine that can run the VPN client.
 
 ---
 
