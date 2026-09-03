@@ -15,6 +15,8 @@
 > **Platform:** written for **EVE-NG** (IOL or vIOS images for routers and
 > switches, **VPCS** for end hosts), and everything works the same in GNS3 or
 > CML. Only the wireless GUI work points elsewhere — see the closing note after Lab 17.
+> No server of your own? The **DevNet Lab Companion** (CCNA_DevNet_Labs.pdf)
+> maps every lab onto Cisco's free cloud sandboxes.
 
 ---
 
