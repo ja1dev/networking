@@ -24,12 +24,19 @@ What do three duplicate ACKs trigger?	Fast retransmit — resend just the missin
 Flow control vs congestion control — what does each protect?	Flow control protects the receiver (advertised Window field); congestion control protects the network (inferred from loss).
 What is the typical MSS on an Ethernet network, and how is it derived?	1460 = 1500 MTU − 20 IP header − 20 TCP header.
 Why do tunnels (GRE/IPsec/PPPoE) cause mysterious connectivity failures?	Their extra headers shrink the usable MTU; traffic sized for 1500 no longer fits and gets dropped.
-Port 22? Port 23?	22 = SSH, 23 = Telnet.
-Port 53? Ports 67/68?	53 = DNS, 67/68 = DHCP (server/client).
-Port 80? Port 443?	80 = HTTP, 443 = HTTPS.
-Ports 20/21? Port 69?	20/21 = FTP (data/control), 69 = TFTP.
-Port 161/162? Port 514? Port 123?	161/162 = SNMP, 514 = syslog, 123 = NTP.
-Port 25? Port 110?	25 = SMTP, 110 = POP3.
+Port 22?	SSH — encrypted remote CLI.
+Port 23?	Telnet — remote CLI in plaintext, which is why SSH replaced it.
+Port 53?	DNS.
+Ports 67/68?	DHCP — 67 on the server, 68 on the client.
+Port 80?	HTTP.
+Port 443?	HTTPS — HTTP inside TLS.
+Ports 20/21?	FTP — 20 carries the data, 21 the control conversation.
+Port 69?	TFTP — UDP, no authentication.
+Ports 161/162?	SNMP — the manager polls agents on 161; agents send traps to 162.
+Port 514?	Syslog.
+Port 123?	NTP.
+Port 25?	SMTP — sending mail.
+Port 110?	POP3 — retrieving mail (download-and-delete; contrast IMAP 143).
 Port 143 — what protocol, and how does it differ from POP3?	IMAP — mail stays on the server and syncs across devices; POP3 (110) downloads and (typically) deletes it.
 What are the well-known and ephemeral port ranges?	Well-known 0–1023 (servers); ephemeral 49152–65535 (the client's random source port for each conversation).
 What uniquely identifies one conversation end-to-end (a "socket")?	IP address + port + protocol — which is how one server IP can hold thousands of simultaneous conversations apart.

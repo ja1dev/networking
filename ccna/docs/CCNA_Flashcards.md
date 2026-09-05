@@ -100,23 +100,44 @@
 **Q:** Why do tunnels (GRE/IPsec/PPPoE) cause mysterious connectivity failures?
 **A:** Their extra headers **shrink the usable MTU**; traffic sized for 1500 no longer fits and gets dropped.
 
-**Q:** Port 22? Port 23?
-**A:** **22 = SSH**, **23 = Telnet**.
+**Q:** Port 22?
+**A:** **SSH** — encrypted remote CLI.
 
-**Q:** Port 53? Ports 67/68?
-**A:** **53 = DNS**, **67/68 = DHCP** (server/client).
+**Q:** Port 23?
+**A:** **Telnet** — remote CLI in **plaintext**, which is why SSH replaced it.
 
-**Q:** Port 80? Port 443?
-**A:** **80 = HTTP**, **443 = HTTPS**.
+**Q:** Port 53?
+**A:** **DNS**.
 
-**Q:** Ports 20/21? Port 69?
-**A:** **20/21 = FTP** (data/control), **69 = TFTP**.
+**Q:** Ports 67/68?
+**A:** **DHCP** — 67 on the server, 68 on the client.
 
-**Q:** Port 161/162? Port 514? Port 123?
-**A:** **161/162 = SNMP**, **514 = syslog**, **123 = NTP**.
+**Q:** Port 80?
+**A:** **HTTP**.
 
-**Q:** Port 25? Port 110?
-**A:** **25 = SMTP**, **110 = POP3**.
+**Q:** Port 443?
+**A:** **HTTPS** — HTTP inside TLS.
+
+**Q:** Ports 20/21?
+**A:** **FTP** — 20 carries the data, 21 the control conversation.
+
+**Q:** Port 69?
+**A:** **TFTP** — UDP, no authentication.
+
+**Q:** Ports 161/162?
+**A:** **SNMP** — the manager polls agents on 161; agents send traps to 162.
+
+**Q:** Port 514?
+**A:** **Syslog**.
+
+**Q:** Port 123?
+**A:** **NTP**.
+
+**Q:** Port 25?
+**A:** **SMTP** — *sending* mail.
+
+**Q:** Port 110?
+**A:** **POP3** — *retrieving* mail (download-and-delete; contrast IMAP 143).
 
 **Q:** Port 143 — what protocol, and how does it differ from POP3?
 **A:** **IMAP** — mail stays **on the server** and syncs across devices; POP3 (110) downloads and (typically) deletes it.

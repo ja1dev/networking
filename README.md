@@ -12,7 +12,7 @@ without your own server, and the scripts that build it all.
 | **Study Guide** | Teaches every exam topic from scratch, in plain language with diagrams, worked configs and the reasoning behind each concept | 24 chapters, ~160 pages |
 | **Practice Question Bank** | Tests it — exam-style questions grouped by the official domains, each with a full explanation of why the right answer is right *and* why the traps are wrong | 152 questions |
 | **Subnetting Drill Sheet** | Builds the one skill that has to be *fast*, not just correct | 60 worked problems |
-| **Flashcard Deck** | Drills the facts into instant recall via spaced repetition. Builds for **Anki** (`.apkg`) and **Quizlet/other apps** (`.tsv`) | 292 cards, 15 subdecks |
+| **Flashcard Deck** | Drills the facts into instant recall via spaced repetition. Builds for **Anki** (`.apkg`) and **Quizlet/other apps** (`.tsv`) | 299 cards, 15 subdecks |
 | **Lab Workbook** | Turns reading into typing — hands-on EVE-NG/GNS3 labs following the guide chapter by chapter, each with verification steps, full solutions and a break-and-fix challenge | 17 labs + capstone |
 | **DevNet Lab Companion** | Runs the Lab Workbook with no hardware at all — maps every lab onto Cisco's free DevNet Sandboxes (reservable CML sessions + Always-On IOS XE), with an EVE-NG→CML translation guide and a Linux-host survival kit | all 17 labs mapped |
 | **Study Tips** | The manual for the other five: the per-chapter study loop (read → Anki → lab → move on), a chapter-by-chapter path through all resources, and the readiness checkpoints for booking the exam | start here |
