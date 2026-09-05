@@ -48,6 +48,24 @@
 **Q:** What does a VRF provide?
 **A:** Multiple **separate routing tables** on one physical router. *VLANs separate at L2; VRFs separate at L3.*
 
+**Q:** What are the layers of the TCP/IP model, and how do they map to OSI?
+**A:** **Application, Transport, Internet, Network Access** — Application absorbs OSI 5–7; Network Access merges Data Link + Physical.
+
+**Q:** Going down the stack, which layer adds a *trailer* as well as a header?
+**A:** **Layer 2** — the frame gets a header *and* an **FCS trailer** for error detection. Every other layer adds only a header.
+
+**Q:** IaaS vs PaaS vs SaaS — what does the provider manage in each?
+**A:** **IaaS** = hardware/VMs, you run the OS up (AWS EC2). **PaaS** = platform, you bring code. **SaaS** = the whole app (Office 365). *Each step hands more of the stack to the provider.*
+
+**Q:** What is a hybrid cloud?
+**A:** **Private + public cloud working together** — e.g. steady workloads on-prem, bursts into public. (Public = shared provider infra; private = yours alone.)
+
+**Q:** Hub vs switch vs router — what does each one segment?
+**A:** A **hub segments nothing** (one collision domain). A **switch** segments **collision** domains per port. A **router** segments **broadcast** domains.
+
+**Q:** In spine-leaf, what connects to what?
+**A:** **Every leaf connects to every spine** — never leaf-to-leaf or spine-to-spine. Servers attach only to leaves.
+
 ---
 
 ## 02 TCP, UDP & Ports
@@ -100,6 +118,21 @@
 **Q:** Port 25? Port 110?
 **A:** **25 = SMTP**, **110 = POP3**.
 
+**Q:** Port 143 — what protocol, and how does it differ from POP3?
+**A:** **IMAP** — mail stays **on the server** and syncs across devices; POP3 (110) downloads and (typically) deletes it.
+
+**Q:** What are the well-known and ephemeral port ranges?
+**A:** Well-known **0–1023** (servers); ephemeral **49152–65535** (the client's random source port for each conversation).
+
+**Q:** What uniquely identifies one conversation end-to-end (a "socket")?
+**A:** **IP address + port + protocol** — which is how one server IP can hold thousands of simultaneous conversations apart.
+
+**Q:** A receiver advertises TCP window size 0. What happens?
+**A:** The sender **stops transmitting** until the window reopens — flow control literally pausing the conversation to protect the receiver.
+
+**Q:** Why does DNS use both UDP *and* TCP on port 53?
+**A:** **UDP** for fast single-packet queries; **TCP** when the answer is too large or for **zone transfers**, which need reliability.
+
 ---
 
 ## 03 Cables, PoE, Binary & Hex
@@ -127,6 +160,27 @@
 
 **Q:** Convert binary 10101100 to decimal.
 **A:** **172** (128 + 32 + 8 + 4).
+
+**Q:** Convert hex AC to decimal.
+**A:** **172** — A=10, C=12, so (10 × 16) + 12.
+
+**Q:** Convert decimal 240 to hex.
+**A:** **F0** — 240 ÷ 16 = 15 (F) remainder 0.
+
+**Q:** How many hex digits in a MAC address, and why?
+**A:** **12** — each hex digit is 4 bits, and 48 ÷ 4 = 12.
+
+**Q:** Cat5e vs Cat6/6a — what speeds over 100 m?
+**A:** **Cat5e = 1 Gbps**; **Cat6 = 10 Gbps only to ~55 m**; **Cat6a = 10 Gbps the full 100 m**.
+
+**Q:** What makes a cable straight-through vs crossover, in wiring terms?
+**A:** **Same standard both ends (T568B–T568B) = straight-through**; **different (T568A–T568B) = crossover** — the transmit and receive pairs swap.
+
+**Q:** What does Auto-MDIX do?
+**A:** The port **detects which pairs the far end transmits on and swaps itself** if needed — making the straight-through/crossover choice irrelevant on modern gear.
+
+**Q:** When is fiber required instead of copper?
+**A:** Runs **over 100 m**, or through **electrical interference** — light is immune to EMI, and copper's length limit is hard.
 
 ---
 
@@ -182,6 +236,27 @@
 
 **Q:** What is "router on a stick"?
 **A:** Inter-VLAN routing via **one trunk link** to a router using **subinterfaces**, one per VLAN.
+
+**Q:** What does `switchport voice vlan 150` do on an access port?
+**A:** Lets the port carry **two VLANs**: the phone **tags** its traffic into VLAN 150, while the PC behind it stays **untagged** in the access VLAN.
+
+**Q:** What is the default DTP mode on modern Catalyst switches, and what does it do?
+**A:** **dynamic auto** — it will *accept* trunk negotiation but never *initiate* it. So **auto + auto = no trunk** (stays access).
+
+**Q:** Which DTP combinations actually form a trunk?
+**A:** At least one side must ask: **desirable + (desirable or auto)**, or one side hard-set to **trunk**. Two passive sides never start.
+
+**Q:** How long does a learned MAC address stay in the table by default?
+**A:** **300 seconds** (5 minutes) of inactivity — then it ages out and that host's frames flood again until it speaks.
+
+**Q:** Which command answers "which port is this host plugged into?"
+**A:** `show mac address-table` (optionally `| include <mac>`) — the port listed against the MAC is where it lives.
+
+**Q:** What is an SVI?
+**A:** A **Switched Virtual Interface** — `interface vlan 10` — a virtual L3 interface that gives the switch an IP *in* that VLAN (management, or a gateway on an L3 switch).
+
+**Q:** Command to restrict a trunk to VLANs 10 and 20?
+**A:** `switchport trunk allowed vlan 10,20` — and the lists must **match on both ends**, or those VLANs silently die crossing the link.
 
 ---
 
@@ -247,6 +322,18 @@
 **Q:** Why can a duplex mismatch cost you RSTP's fast convergence?
 **A:** Half duplex makes RSTP treat the link as **shared** rather than point-to-point, so it falls back to timers.
 
+**Q:** What are the 802.1D (legacy STP) port states, in order?
+**A:** **Blocking → Listening → Learning → Forwarding** (plus Disabled) — listening + learning are 15 s each, hence the famous ~30 s wait.
+
+**Q:** How does a non-root switch choose its root port?
+**A:** **Lowest root path cost**; ties broken by lowest **neighbor Bridge ID**, then lowest **neighbor port ID**. One winner, always.
+
+**Q:** What makes one BPDU "superior" to another?
+**A:** A **lower Bridge ID** (or better cost) — i.e. it claims a better root. Root Guard fires precisely when a superior BPDU arrives where it shouldn't.
+
+**Q:** Where does the VLAN number live inside the bridge priority?
+**A:** In the **extended system ID** — the low 12 bits of the priority field. That's why a switch's real priority is 32768 **+ VLAN number**.
+
 ---
 
 ## 06 EtherChannel
@@ -268,6 +355,21 @@
 
 **Q:** Why prefer 2, 4 or 8 links in a bundle?
 **A:** The hash space divides **evenly** only across powers of two; other counts leave links permanently lopsided.
+
+**Q:** What are the PAgP modes, and which combinations bundle?
+**A:** **desirable** (initiates) and **auto** (responds) — **desirable+desirable** or **desirable+auto** bundle; **auto+auto** does not. *Same logic as LACP active/passive.*
+
+**Q:** What does `channel-group 1 mode on` do, and what's the risk?
+**A:** **Static bundling, no protocol** — both sides must be `on`. With no negotiation to catch mistakes, a mismatch can forward into a **loop**.
+
+**Q:** What must match on every member interface of an EtherChannel?
+**A:** **Speed, duplex, and all VLAN/trunk settings** — a mismatched member is suspended (`s`) rather than bundled.
+
+**Q:** How do you build a Layer 3 EtherChannel?
+**A:** `no switchport` on the members, then the **IP address goes on the port-channel interface** — a routed bundle between L3 switches.
+
+**Q:** In `show etherchannel summary`, what do the flags SU and (P) mean?
+**A:** **S** = Layer 2, **U** = in use — a healthy bundle; **(P)** beside a member = bundled into the port-channel. *SU + all (P) is the pass mark.*
 
 ---
 
@@ -311,6 +413,27 @@
 
 **Q:** What is VLSM, and what's its golden rule?
 **A:** Different-sized subnets from one block. **Always allocate the largest subnet first.**
+
+**Q:** What are the Class A, B and C first-octet ranges?
+**A:** **A: 1–126, B: 128–191, C: 192–223** (127 is loopback). Classes set the *default* masks /8, /16, /24.
+
+**Q:** What are Class D and Class E used for?
+**A:** **D (224–239) = multicast**, **E (240–255) = experimental** — neither is assigned to hosts.
+
+**Q:** How many /28s fit in one /24?
+**A:** **16** — four extra network bits, 2⁴ = 16 subnets of 14 usable hosts each.
+
+**Q:** A LAN needs 100 hosts. Smallest subnet?
+**A:** **/25** (126 usable) — /26 gives only 62. *Find the first power of 2 minus 2 that fits.*
+
+**Q:** Last usable host and broadcast of 192.168.1.64/27?
+**A:** Block 32 → next network .96, so broadcast **.95** and last usable **.94** — *the address one below the next network is always the broadcast.*
+
+**Q:** Why does a /31 work on point-to-point links despite the −2 rule?
+**A:** With only **two addresses and two routers**, there's nothing to broadcast *to* — RFC 3021 drops the network/broadcast reservation for p2p.
+
+**Q:** What prefix is mask 255.255.255.252, and where do you see it constantly?
+**A:** **/30** — 2 usable hosts, the classic **router-to-router link** subnet.
 
 ---
 
@@ -358,6 +481,24 @@
 **Q:** Why keep DHCPv6 when SLAAC exists?
 **A:** SLAAC keeps **no record** of who holds which address — enterprises needing auditing/accountability require the central ledger.
 
+**Q:** What is the global unicast range?
+**A:** **2000::/3** — the internet-routable IPv6 space (first three bits 001).
+
+**Q:** What are `::` and `::1`?
+**A:** **`::` = unspecified** (no address yet — the IPv6 0.0.0.0), **`::1` = loopback** (IPv6's 127.0.0.1).
+
+**Q:** What is anycast?
+**A:** **One address on many devices** — routing delivers to the *nearest* one. Same address, different servers; how global DNS resolvers work.
+
+**Q:** What does `ipv6 unicast-routing` actually turn on?
+**A:** **IPv6 forwarding *and* Router Advertisements** — without it a router answers its own addresses but won't route or run SLAAC for hosts.
+
+**Q:** How is a solicited-node multicast address built?
+**A:** **FF02::1:FF** + the **last 24 bits of the unicast address** — so an NS reaches almost-only the intended host instead of everyone.
+
+**Q:** What is dual stack?
+**A:** Running **IPv4 and IPv6 simultaneously** on the same interfaces — the standard migration strategy: each conversation picks a protocol.
+
 ---
 
 ## 09 Routing Fundamentals & FHRP
@@ -397,6 +538,24 @@
 
 **Q:** HSRP default hello and hold timers?
 **A:** **Hello 3 s, hold 10 s**.
+
+**Q:** Routing table codes C, L, S, O, D — what's each?
+**A:** **C** connected, **L** local, **S** static, **O** OSPF, **D** EIGRP (for DUAL, its algorithm).
+
+**Q:** What is the L (local) route that appears with every connected interface?
+**A:** A **/32 for the interface's own address** — traffic *to the router itself*, as opposed to the connected subnet around it.
+
+**Q:** What does "Gateway of last resort" in `show ip route` mean?
+**A:** The router's **default route** is set — the `*` candidate-default marks which route catches everything nothing else matches.
+
+**Q:** In a route entry like `[110/20]`, what are the two numbers?
+**A:** **[AD / metric]** — 110 = OSPF's administrative distance (trust), 20 = that route's OSPF cost (quality). *Trust first, quality second.*
+
+**Q:** Static route via next-hop IP vs exit interface — why prefer the next-hop?
+**A:** An **exit-interface static on Ethernet** forces the router to ARP for *every* destination — works poorly on multi-access links. Next-hop (or both) is clean.
+
+**Q:** What is the HSRP virtual MAC pattern?
+**A:** **0000.0c07.acXX** — XX is the **group number in hex**. Spotting it in an ARP table tells you HSRP group and all.
 
 ---
 
@@ -452,6 +611,21 @@
 
 **Q:** Why must every router in an OSPF area hold an identical database?
 **A:** Each computes its own tree from it — **identical input + deterministic algorithm = consistent, loop-free forwarding**.
+
+**Q:** What does `passive-interface` do — and deliberately not do?
+**A:** **Stops sending hellos** on that interface (no accidental neighbors), but the subnet is **still advertised**. Standard on LAN/loopback interfaces.
+
+**Q:** What does `default-information originate` do?
+**A:** Makes the edge router **advertise its default route into OSPF**, so every internal router learns "exit that way" without their own default.
+
+**Q:** In `network 10.0.12.0 0.0.0.3 area 0`, what does the wildcard select?
+**A:** **Which interfaces join OSPF** — any interface whose address falls in 10.0.12.0–.3. It enables *interfaces*, not routes.
+
+**Q:** Why does a loopback show up in OSPF as /32 no matter its mask?
+**A:** OSPF treats loopbacks as **host routes** by default — `ip ospf network point-to-point` on the loopback advertises the real mask.
+
+**Q:** What's the rule when changing `auto-cost reference-bandwidth`?
+**A:** Change it **identically on every router** — costs are only comparable if everyone measures with the same ruler.
 
 ---
 
@@ -514,6 +688,24 @@
 **Q:** Why is SNMPv2c considered insecure?
 **A:** Its **community string** is a shared password sent in **plaintext** — v3 adds real authentication and encryption.
 
+**Q:** How does a DHCP server pick the right pool for a *relayed* request?
+**A:** From **giaddr** — the relay stamps in its receiving interface's IP, telling the server which subnet the client sits on.
+
+**Q:** What does `ip dhcp excluded-address` protect?
+**A:** Statically assigned addresses (gateways, servers) — the server **won't lease** anything in the excluded range, preventing duplicates.
+
+**Q:** CoS vs DSCP — where does each marking live?
+**A:** **CoS = 3 bits in the 802.1Q tag** (L2 — dies when the tag is stripped); **DSCP = 6 bits in the IP header** (L3 — survives end to end).
+
+**Q:** What must exist before `crypto key generate rsa` will run?
+**A:** A **hostname** and an **`ip domain-name`** — the RSA keypair is named from them. Then SSH v2, a local user, and `transport input ssh`.
+
+**Q:** FTP vs TFTP for copying an IOS image — the practical difference?
+**A:** **FTP: TCP, login, reliable** — for real transfers. **TFTP: UDP, no auth, dead simple** — fine on a closed lab network. *Both live in `copy` commands.*
+
+**Q:** `ntp master` vs `ntp server <ip>`?
+**A:** **`ntp master`** = *be* the authoritative clock (sets own stratum); **`ntp server <ip>`** = *sync from* that clock as a client.
+
 ---
 
 ## 12 Security & ACLs
@@ -559,6 +751,30 @@
 
 **Q:** Why does physical access control belong in network security?
 **A:** Physical access defeats most software controls — console access allows **password recovery**, and any port can be used.
+
+**Q:** Define threat, vulnerability, exploit and mitigation in one line each.
+**A:** **Vulnerability** = the weakness; **exploit** = the tool/technique that uses it; **threat** = the potential event/actor; **mitigation** = what closes the gap.
+
+**Q:** What is social engineering? Spear phishing?
+**A:** Attacking the **person, not the system** — tricking users into granting access. **Spear phishing** = a phish *targeted* at a specific person using researched detail.
+
+**Q:** Site-to-site vs remote-access VPN?
+**A:** **Site-to-site**: router-to-router tunnel joining whole networks — hosts don't know it exists. **Remote-access**: one user's client (e.g. Secure Client) into the network.
+
+**Q:** What four protections does IPsec provide?
+**A:** **Confidentiality** (encryption), **integrity** (hashing), **origin authentication**, and **anti-replay**.
+
+**Q:** Why does `enable secret` beat `enable password`?
+**A:** The secret is stored as a **hash**; the password sits in the config **readable**. If both exist, the secret wins.
+
+**Q:** How do you insert a rule into the middle of a named ACL?
+**A:** With **sequence numbers**: `ip access-list extended NAME` → `15 permit ...` slots between 10 and 20 — no delete-and-retype.
+
+**Q:** Which command applies an ACL to the vty lines, and why not `ip access-group`?
+**A:** **`access-class 15 in`** — vty lines aren't an interface; this filters *who may manage the box* regardless of which interface the SSH arrives on.
+
+**Q:** What's the default port-security maximum, and what does the port do beyond it?
+**A:** **1 MAC address** — a second MAC is a violation, and the default mode **shutdown** err-disables the port.
 
 ---
 
@@ -615,6 +831,18 @@
 **Q:** What does WPA3's SAE prevent that WPA2-PSK allows?
 **A:** **Offline dictionary attacks** — the WPA2 4-way handshake can be captured and cracked offline; SAE forces a live exchange per guess.
 
+**Q:** BSS vs ESS — and what is a BSSID?
+**A:** **BSS** = one AP and its clients; the **BSSID** is that radio's MAC. **ESS** = multiple APs sharing one SSID so clients can roam.
+
+**Q:** WPA2/WPA3-Personal vs -Enterprise?
+**A:** **Personal** = one shared passphrase (PSK); **Enterprise** = **802.1X + RADIUS**, per-user credentials — revoke one user without re-keying the building.
+
+**Q:** Why do wider channels (40/80 MHz) carry a cost?
+**A:** More width = more throughput but **fewer non-overlapping channels** = more interference between APs. 2.4 GHz stays at 20 MHz for exactly that reason.
+
+**Q:** What security does the 6 GHz band (Wi-Fi 6E) require?
+**A:** **WPA3 only** — no WPA2 or open-legacy modes allowed in the new band.
+
 ---
 
 ## 14 Automation & Programmability
@@ -658,6 +886,18 @@
 **Q:** Name three ways a REST API request can authenticate.
 **A:** **Basic** (user:pass, Base64), an **API key**, or a **bearer token/OAuth** (authenticate once, send a short-lived token) — all unsafe without HTTPS.
 
+**Q:** What's the operational win of a controller-based network over box-by-box management?
+**A:** **One intent, pushed everywhere** — consistent config, no per-device typos, and the controller sees the whole network for assurance. *Per-device CLI doesn't scale.*
+
+**Q:** Underlay vs overlay vs fabric?
+**A:** **Underlay** = the physical routed network; **overlay** = virtual tunnels (e.g. VXLAN) built on top; **fabric** = the two working as one system.
+
+**Q:** Two JSON syntax rules people trip on?
+**A:** **Keys are always double-quoted strings**, and **no trailing commas**. `{"vlan": 10}` — key quoted, number not.
+
+**Q:** Ansible vs Puppet — push or pull?
+**A:** **Ansible pushes** over SSH (agentless, YAML playbooks); **Puppet agents pull** from the server on a schedule.
+
 ---
 
 ## 15 Troubleshooting
@@ -697,3 +937,15 @@
 
 **Q:** Before booting a newly copied IOS image, what should you run?
 **A:** `verify /md5 flash:image.bin` — confirm the **checksum** against Cisco's published hash before trusting it.
+
+**Q:** Name the three classic troubleshooting approaches through the OSI model.
+**A:** **Bottom-up** (cable first), **top-down** (app first), **divide-and-conquer** (start at L3 — ping works? go up; fails? go down).
+
+**Q:** Why source a ping from a specific interface (`ping ... source lo0`)?
+**A:** A plain ping only proves the *link* subnets route — sourcing from a LAN/loopback proves the far side has a **return route to that network**, which is what users actually need.
+
+**Q:** Autonegotiation fails on one side. What does the port fall back to?
+**A:** **Half duplex** (10 or 100 Mbps sensed) — which is exactly how duplex mismatches are born. Hard-code both ends or neither.
+
+**Q:** Why is `debug` dangerous on a busy production device, and what's the safety rail?
+**A:** Debug output can **consume the CPU** and lock you out. Prefer specific debugs, `undebug all` ready — and `terminal monitor` to even *see* it over SSH.
