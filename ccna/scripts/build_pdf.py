@@ -48,6 +48,10 @@ SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs", "CCNA_Stu
 OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "CCNA_Study_Guide.pdf")
 FOOTER_TITLE = sys.argv[3] if len(sys.argv) > 3 else "CCNA Study Guide"
 
+# The kit a document belongs to (ccna/, ccnp/, ...) is the parent of its docs/
+# folder; its images/ paths resolve against that, so one script builds any kit.
+KIT = os.path.dirname(os.path.dirname(os.path.abspath(SRC)))
+
 with open(SRC, "r", encoding="utf-8") as f:
     text = f.read()
 
@@ -147,12 +151,14 @@ def size_images(body):
 
     def repl(m):
         alt, src = m.group(1), m.group(2)
-        path = os.path.join(ROOT, src)
+        path = os.path.join(KIT, src)
         if not os.path.exists(path):
             raise SystemExit(f"Image not found: {path} (referenced as {src})")
         w = PILImage.open(path).width // 2
+        # Absolute src: xhtml2pdf resolves relative paths against the current
+        # directory, not `path=`, so a relative src only works from inside KIT.
         return (f'<p style="text-align:center">'
-                f'<img alt="{alt}" src="{src}" width="{w}"/></p>')
+                f'<img alt="{alt}" src="{path}" width="{w}"/></p>')
 
     return re.sub(r'<p><img alt="([^"]*)" src="([^"]+)"\s*/?>\s*</p>', repl, body)
 
@@ -199,6 +205,7 @@ pre code { color: #1a1a1a; background-color: transparent; font-size: 8pt; }
 table { margin: 8pt 0; width: 100%; }
 th { background-color: #0b6cc4; color: #ffffff; font-weight: bold; padding: 4pt 6pt;
      font-size: 9.5pt; text-align: left; border: 0.5pt solid #0b6cc4; }
+th strong, th code { color: #ffffff; background-color: transparent; }
 td { padding: 3pt 6pt; font-size: 9.5pt; border: 0.5pt solid #cdd7e0; }
 
 hr { border: none; border-top: 0.8pt solid #cdd7e0; margin: 12pt 0; }
@@ -223,7 +230,7 @@ html = f"""<!DOCTYPE html>
 
 with open(OUT, "wb") as out_file:
     result = pisa.CreatePDF(html, dest=out_file, encoding="utf-8",
-                            path=ROOT + os.sep)
+                            path=KIT + os.sep)
 
 if result.err:
     print(f"FAILED with {result.err} errors")
