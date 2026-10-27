@@ -44,10 +44,13 @@ and the same "explain *why*" style, pitched at someone who already holds a CCNA.
 | **III — Passing both** | Exam strategy, EVE-NG/DevNet lab mapping, 10-week + 5-week ENCOR plans, 6-week + 3-week ENARSI plans, cheat sheet | 33 |
 | **Appendices** | A: ENCOR coverage map · B: ENARSI coverage map (every official topic → section) · C: the CCNA sections to re-read first · glossary | — |
 
-~539 pages, 48 rendered diagrams. Every chapter opens with a **Blueprint** line
+~843 pages, 48 rendered diagrams. Every chapter opens with a **Blueprint** line
 naming the exact exam topics it covers. Each section explains the problem first
 (the why), then a 📖 Story Time analogy, a step-by-step walk-through (the how)
-and a worked example with real numbers.
+and a worked example with real numbers, and ends with **exam-style questions**
+(814 in all: single answer, "Choose two", "Refer to the exhibit" and
+troubleshooting scenarios). Every answer explains why the right option is right
+and why each wrong one is wrong.
 
 ```bash
 python ccnp/scripts/build_diagrams.py     # renders ccnp/images/*.png

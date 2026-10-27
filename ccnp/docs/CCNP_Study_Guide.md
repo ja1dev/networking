@@ -9,6 +9,8 @@
 
 > **How each section teaches:** first the **problem** the feature solves (the *why*), then a **📖 Story Time** analogy where one helps, then the **mechanism step by step** (the *how*), and finally a **Worked example** with real addresses and numbers you can match against your own lab output. If a section ever makes sense in the config but not in your head, re-read the Story Time and the walk-through and then try it in EVE-NG.
 
+> **📝 Exam-style questions at the end of every section:** written in the styles Cisco uses (single answer, "Choose two", "Refer to the exhibit", troubleshooting scenarios) and pitched at CCNP difficulty. Answer each one *before* opening the answer. Every answer explains why the right option is right **and** why each wrong option is wrong, and points you to the section to re-read. If you miss more than one in a section, re-read that section before moving on.
+
 > **About the 🔬 depth sections:** a few sections go past what the blueprint asks for — the mechanism underneath rather than the behaviour. They're marked, so you can skip them on a tight timeline.
 
 > **Every chapter opens with a Blueprint line** naming the exact exam topics it covers, so you always know which exam (and which line of it) you're studying for.
@@ -125,6 +127,32 @@ That sounds like a small shift. It isn't. Here's what it looks like in practice:
 
 > **What's assumed:** CCNA is the floor. Subnetting in your head, the packet walk (CCNA guide 14.8), single-area OSPF and its internals (CCNA guide 16.10–16.11), STP mechanics (CCNA guide 9.10–9.11), and basic ACLs. If any of those feel shaky, re-read them now — this guide builds on them without stopping.
 
+**📝 Exam-style questions — 1.1**
+
+**Q1.** An engineer logs in to a router over SSH and polls it with SNMP. On the same router, OSPF recalculates paths after a link failure, and the hardware then forwards packets toward the new next hop. Which option maps these activities to the correct planes?
+
+- **A.** SSH and SNMP: management plane. OSPF: control plane. Forwarding packets: data plane.
+- **B.** SSH and SNMP: control plane. OSPF: management plane. Forwarding packets: data plane.
+- **C.** SSH and SNMP: data plane. OSPF: control plane. Forwarding packets: management plane.
+- **D.** SSH, SNMP and OSPF: control plane. Forwarding packets: data plane.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The management plane is how *you* talk to the box (SSH, SNMP, NETCONF). The control plane decides where packets should go (OSPF, BGP, STP). The data plane moves the packets. **Why not the others:** B swaps management and control. C puts forwarding in the management plane, but forwarding is the data plane's only job. D lumps SSH and SNMP into the control plane; they don't decide paths, they let an administrator reach the device.
+</details>
+
+**Q2.** A manager asks for proof that a new branch design works as intended. Which evidence best meets the CCNP standard of "prove it"?
+
+- **A.** A ping from a branch PC to a server at headquarters succeeds.
+- **B.** `show ip interface brief` shows every WAN interface as up/up.
+- **C.** An IP SLA probe has stayed within its delay and loss thresholds, and NetFlow shows the traffic using the designed path.
+- **D.** The branch router's routing table contains a route to headquarters.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** At CCNP level, success is measurable: a probe that keeps checking the SLA, plus flow data showing which path the traffic actually took. **Why not the others:** a single ping (A) only proves reachability at one moment, not the path or the performance. Up/up interfaces (B) say nothing about delay, loss or path. A route in the table (D) proves the control plane learned something, not that traffic uses it or meets the SLA.
+</details>
+
 ## 1.2 The Design Principles Behind Every Enterprise Network
 
 **The problem this solves:** there are dozens of ways to wire up a network, and each vendor slide shows a different one. Without a short list of rules, every design argument turns into opinion. The principles below are that list. When two designs both "work", the one that follows these principles better is the one that will still work after three years of growth and a few bad nights.
@@ -167,6 +195,44 @@ Some examples you already know:
 | What the rest of the network sees | Possibly a distribution switch too busy to keep its OSPF neighbors up, so wider instability | One subnet unreachable. The routed uplink carries no broadcasts, so nothing else changes |
 
 The storm is identical in both. Only the size of the failure domain differs, and that was decided at design time.
+
+**📝 Exam-style questions — 1.2**
+
+**Q1.** VLAN 10 spans 12 access switches and the Layer 2/Layer 3 boundary is at the distribution layer. A looped patch cable on one desk switch causes a broadcast storm in VLAN 10. Which design change would shrink the failure domain of this kind of event the most?
+
+- **A.** Lower the STP priority of the distribution switches so the root is more stable.
+- **B.** Add a second uplink from every access switch to the distribution layer.
+- **C.** Enable PortFast on every access port.
+- **D.** Move the Layer 3 boundary to the access layer so each VLAN exists on only one access switch.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A broadcast storm floods every port in the VLAN, on every switch the VLAN spans. If the VLAN lives on one access switch and the uplinks are routed, the storm can't cross the uplink, so only that switch's users notice. **Why not the others:** root placement (A) doesn't stop a storm flooding the VLAN. Extra uplinks (B) add redundancy but the VLAN still spans 12 switches. PortFast (C) only speeds up edge ports coming up; it doesn't stop loops (BPDU guard would help, but the question asks about failure-domain size).
+</details>
+
+**Q2.** Why does moving a routing boundary closer to the edge shrink how far problems spread?
+
+- **A.** Routers forward packets faster than switches, so storms drain away sooner.
+- **B.** Routed links have more bandwidth than Layer 2 trunks.
+- **C.** Layer 2 floods broadcasts, unknown unicasts and topology changes across the whole domain, while a router can summarize and hide local changes from the rest of the network.
+- **D.** Routers don't need spanning tree, so they can never create a loop.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Layer 2 is a flooding technology and Layer 3 is a summarizing one. A router simply doesn't pass broadcasts on, and it can advertise one summary while subnets behind it change. **Why not the others:** speed (A) and bandwidth (B) have nothing to do with containment; a storm fills any link. D is false: routed networks can loop (for example, a redistribution loop or a static route pointing back); they just don't flood Layer 2 frames.
+</details>
+
+**Q3.** A team chooses two redundant uplinks it fully understands instead of four redundant paths built from several features that interact in ways nobody can explain. Which design principle are they applying?
+
+- **A.** Simplicity
+- **B.** Modularity
+- **C.** Flexibility
+- **D.** Hierarchy
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Simplicity means the fewest moving parts that meet the requirement. Every extra feature is another thing that can fail and that someone must troubleshoot at 3 a.m. **Why not the others:** modularity (B) is building in repeatable blocks. Flexibility (C) is leaving room to add services. Hierarchy (D) is splitting the network into layers with one job each.
+</details>
 
 ## 1.3 The Three-Tier Hierarchical Campus
 
@@ -219,6 +285,52 @@ The core exists to stop distribution blocks from needing a full mesh to each oth
 
 Once you have more than about three distribution blocks, the mesh becomes unmanageable and a core pays for itself.
 
+**📝 Exam-style questions — 1.3**
+
+**Q1.** Refer to the exhibit. Building 20's distribution pair is the ABR for area 20 and is configured with `area 20 range 10.20.0.0 255.255.0.0`. Subnet 10.20.7.0/24 has been flapping for an hour; it is not the lowest-cost component of the summary, so the summary's metric doesn't change. Which statement is true?
+
+```
+CORE1# show ip route 10.20.7.5
+Routing entry for 10.20.0.0/16
+  Known via "ospf 1", distance 110, metric 3, type inter area
+  Routing Descriptor Blocks:
+  * 10.0.1.2, from 10.255.0.21, via TenGigabitEthernet1/0/1
+```
+
+- **A.** CORE1 reruns its route calculation every time 10.20.7.0/24 flaps.
+- **B.** The /16 summary is withdrawn each time 10.20.7.0/24 goes down and re-advertised when it comes back.
+- **C.** CORE1 stays stable because the summary is advertised while any component is up; while 10.20.7.0/24 is down, packets for it are dropped at the distribution switch's Null0 discard route.
+- **D.** CORE1 drops packets for 10.20.7.5 itself, because it has no /24 route for that host.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The summary stays up as long as at least one /24 inside it is up, so the core never hears about the flap. When 10.20.7.0/24 is down, the core still sends 10.20.7.5 toward building 20, and the distribution switch matches its own `10.20.0.0/16 is a summary, Null0` route and drops it. **Why not the others:** A and B are exactly what summarization prevents. D is wrong because the core forwards on the /16; it never needs the /24.
+</details>
+
+**Q2.** According to the hierarchical campus model, which of these belongs in the core layer?
+
+- **A.** High-speed Layer 3 links running a fast-converging routing protocol, with as few extra features as possible
+- **B.** HSRP gateways for user VLANs
+- **C.** ACLs that filter traffic between departments
+- **D.** BPDU guard and 802.1X on every port
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The core's only job is to move packets between distribution blocks quickly and converge fast. Anything else there touches every packet in the network, and a bug in it can take every building down at once. **Why not the others:** ACLs (C) and FHRP gateways (B) belong at the distribution layer, where a mistake only affects one block. BPDU guard and 802.1X (D) are access-layer features for endpoint ports.
+</details>
+
+**Q3.** A campus has no core layer and its distribution blocks are connected in a full mesh. It grows from 4 blocks to 9 blocks. How many inter-block links does the full mesh need after the growth?
+
+- **A.** 18
+- **B.** 36
+- **C.** 72
+- **D.** 9
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A full mesh needs n(n−1)/2 links: 9 × 8 = 72 link ends, and each link has two ends, so 72 ÷ 2 = 36. **Why not the others:** 72 (C) forgets to divide by two. 18 (A) is 9 × 2, the number of uplinks if a core existed. 9 (D) is just the number of blocks. This growth is exactly why a separate core pays for itself above about three blocks.
+</details>
+
 ## 1.4 Two-Tier (Collapsed Core)
 
 **The problem this solves:** a separate core only earns its cost when there are many distribution blocks to join. A single building usually has one. Building three tiers there buys extra switches, power and config for no benefit.
@@ -231,6 +343,32 @@ In a smaller site — one building, a few floors — the distribution and core r
 |--------|------|------|------|
 | **Two-tier (collapsed core)** | Single building, small/medium campus | Cheaper, fewer devices, simpler | Doesn't scale past a few blocks; core and distribution failures are the same failure |
 | **Three-tier** | Large multi-building campus | Scales by adding blocks; clear roles | More devices, more cost, more config |
+
+**📝 Exam-style questions — 1.4**
+
+**Q1.** A company is fitting out a single three-floor building with about 300 users and one distribution pair. Which design is the most sensible starting point, and why?
+
+- **A.** Three-tier, because a separate core is always required for redundancy
+- **B.** Spine-leaf, because it gives every user equal-cost paths
+- **C.** A routed core with no distribution layer, because distribution switches add latency
+- **D.** Two-tier collapsed core, because a separate core only pays off when there are many distribution blocks to join
+
+<details><summary>Answer</summary>
+
+**Answer: D.** One building has one distribution pair, so there is nothing for a core to join. Collapsing core and distribution saves chassis, power and a tier of configuration, and the core can be split out later if the site grows. **Why not the others:** redundancy (A) comes from dual switches and links, not from a third tier. Spine-leaf (B) is a data-center fabric for east-west traffic. C removes the layer that aggregates access switches and holds the gateways and policy.
+</details>
+
+**Q2.** What is the main drawback of a collapsed-core design?
+
+- **A.** It cannot run a routing protocol.
+- **B.** Core and distribution failures become the same failure, and it doesn't scale past a few blocks.
+- **C.** It needs more chassis than a three-tier design.
+- **D.** It cannot use a first-hop redundancy protocol.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** One switch pair does both jobs, so losing it hits both roles at once, and adding many blocks brings back the full-mesh problem. **Why not the others:** a collapsed core routes normally (A) and runs FHRPs normally (D). C is backwards: it needs fewer chassis, which is its main benefit.
+</details>
 
 ## 1.5 Where Layer 2 Ends: Four Access-Distribution Models
 
@@ -275,6 +413,68 @@ Compare the looped Layer 2 design. There, one uplink sits blocked by STP until i
 
 > **Exam trap:** in the looped Layer 2 model, the **STP root** and the **HSRP/VRRP active gateway** for each VLAN should be the **same distribution switch**. If they're split, traffic from a host goes up a blocked-path detour: it crosses the access switch to the STP root, then over the inter-distribution link to the active gateway. Chapter 4 (4.1) and Chapter 9 come back to this.
 
+**📝 Exam-style questions — 1.5**
+
+**Q1.** Refer to the exhibit. ACC1 is an access switch and is the default gateway for its users. Which access-distribution model is in use?
+
+```
+ACC1# show ip route 10.99.0.0
+Routing entry for 10.99.0.0/16
+  Known via "ospf 1", distance 110, metric 3, type inter area
+  Routing Descriptor Blocks:
+  * 10.0.0.0, from 10.255.0.1, via GigabitEthernet1/0/49
+      Route metric is 3, traffic share count is 1
+    10.0.0.2, from 10.255.0.2, via GigabitEthernet1/0/50
+      Route metric is 3, traffic share count is 1
+```
+
+- **A.** Layer 2 access, looped
+- **B.** Routed access
+- **C.** Layer 2 access, loop-free ("V")
+- **D.** Virtual switching with StackWise Virtual
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The access switch is running OSPF over two routed uplinks and installs two equal-cost next hops, so the Layer 3 boundary is at the access switch. **Why not the others:** in both Layer 2 access models (A, C) the access switch only switches; the gateway and OSPF live at distribution. With virtual switching (D) the access switch also stays Layer 2, with its uplinks bundled into one EtherChannel to the logical distribution switch.
+</details>
+
+**Q2.** In the routed-access design above, BFD runs on both uplinks at 50 ms × 3. DIST1's software hangs, but the link light on Gi1/0/49 stays on. What happens?
+
+- **A.** Traffic hashed to Gi1/0/49 is lost for 40 seconds until the OSPF dead interval expires.
+- **B.** STP unblocks the other uplink after about 30 seconds.
+- **C.** The HSRP standby gateway takes over after about 10 seconds.
+- **D.** BFD misses three hellos and tells OSPF after about 150 ms, and OSPF removes the 10.0.0.0 next hop.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Because the link stays up, nothing tells ACC1 that the port is down. BFD is the fast hello that notices: 3 × 50 ms ≈ 150 ms, then OSPF drops the neighbor and every flow hashes to the remaining uplink. **Why not the others:** A is what would happen *without* BFD. B is wrong because routed uplinks carry no BPDUs and nothing is blocked. C is wrong because in routed access ACC1 itself is the gateway, so there's no FHRP.
+</details>
+
+**Q3.** In a looped Layer 2 design, DIST1 is the STP root for VLAN 10, but DIST2 is the HSRP active gateway for VLAN 10. What is the effect?
+
+- **A.** Traffic from VLAN 10 hosts goes up to DIST1, crosses the inter-distribution link, and only then reaches the gateway on DIST2.
+- **B.** HSRP fails to form, because the active router must be the STP root.
+- **C.** A Layer 2 loop forms between the two distribution switches.
+- **D.** Hosts in VLAN 10 lose their default gateway.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The access switch's uplink to DIST2 is the one STP blocks (it leads away from the root), so frames for the gateway MAC go to DIST1 and then across the link to DIST2. It works, but it's a detour. That's why the root and the active gateway should be the same switch. **Why not the others:** HSRP doesn't care about STP roles (B). STP still blocks a port, so there's no loop (C). The gateway is reachable, just by a longer path (D).
+</details>
+
+**Q4.** Which two statements about routed access are true? (Choose two.)
+
+- **A.** A VLAN can be extended across several access switches.
+- **B.** Both uplinks forward at the same time, using equal-cost multipath.
+- **C.** STP blocks one uplink in each VLAN.
+- **D.** The access switch is the default gateway, so no FHRP is needed.
+- **E.** BPDUs are exchanged between the access and distribution switches.
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** With routed uplinks, the routing protocol installs both paths (ECMP), and the access switch holds the users' gateway itself. **Why not the others:** a routed uplink can't carry a VLAN to another switch (A); that's routed access's main limitation, and overlays such as VXLAN fix it. Routed links carry no BPDUs (E), so STP has nothing to block between switches (C).
+</details>
+
 ## 1.6 Fabric Designs: Spine-Leaf
 
 Data centers carry mostly **east-west** traffic (server to server: app tier to database, VM to storage), not the **north-south** traffic (users to the internet) that a campus mostly carries. A three-tier tree is built for north-south; for east-west it sends traffic up and down the tree through a core that becomes a bottleneck.
@@ -302,6 +502,44 @@ Data centers carry mostly **east-west** traffic (server to server: app tier to d
 
 **The word "fabric" in the blueprint** means exactly this pattern: a physical underlay that's simple, routed, and redundant, plus a logical overlay that gives you the segmentation and mobility you want. In the campus, Cisco's fabric is **SD-Access** (Chapter 14).
 
+**📝 Exam-style questions — 1.6**
+
+**Q1.** A spine-leaf fabric has 4 spines, and each leaf has one 100 Gbps uplink to each spine. Spine 3 fails. What is the result for each leaf?
+
+- **A.** It still has 400 Gbps, because ECMP rebalances across the remaining spines.
+- **B.** Leaves attached to spine 3 are isolated until it's repaired.
+- **C.** It has 300 Gbps toward the fabric and can still reach every other leaf in two hops.
+- **D.** It has 300 Gbps, but leaf-to-leaf traffic now takes three hops.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Each leaf loses one of its four 100 Gbps uplinks, so capacity drops by a quarter, to 300 Gbps. Every leaf still connects to spines 1, 2 and 4, so every path is still leaf → spine → leaf. **Why not the others:** ECMP spreads load but can't create bandwidth that's gone (A). No leaf depends on one spine (B), because every leaf connects to every spine. Paths stay two hops (D) because leaves never connect to each other.
+</details>
+
+**Q2.** Why is the underlay of a spine-leaf fabric almost always routed rather than Layer 2?
+
+- **A.** A routing protocol installs every equal-cost path through every spine, while spanning tree would block all but one.
+- **B.** VXLAN cannot run over a Layer 2 network.
+- **C.** Spine switches don't support VLANs.
+- **D.** Routed links need less cabling than trunks.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The fabric exists to use every spine link at once. STP would leave one active path per spine and block the rest. Layer 2 adjacency, where workloads need it, is added back with a VXLAN overlay. **Why not the others:** B and C are false statements. D is irrelevant: the cabling is the same; only how the links are used changes.
+</details>
+
+**Q3.** A data center's traffic is mostly between application servers and database servers in different racks. Which statement explains why spine-leaf suits it better than a three-tier tree?
+
+- **A.** Spine-leaf is optimized for north-south traffic to the internet.
+- **B.** Spine-leaf gives every pair of leaves the same two-hop path, which suits heavy east-west traffic.
+- **C.** Spine-leaf removes the need for any routing protocol.
+- **D.** Spine-leaf lets leaves connect directly to each other, skipping the spines.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Server-to-server traffic is east-west. In spine-leaf every leaf-to-leaf trip is leaf → spine → leaf, so latency is the same wherever workloads sit, and no single core becomes the bottleneck. **Why not the others:** north-south (A) is the campus pattern a three-tier tree is built for. The underlay still runs a routing protocol (C). Leaves never connect to each other (D).
+</details>
+
 ## 1.7 The WAN Edge and Branches
 
 **The problem this solves:** branches, data centers and the cloud all have to reach each other over links you rent rather than own. Those links are slower, cost money every month, and fail in ways you can't fix yourself. WAN design is about choosing which links to rent and how to survive when the carrier has a bad day.
@@ -321,6 +559,44 @@ Branch designs are usually described by redundancy: **single router, single link
 **Why did SD-WAN take over the WAN edge?** Because traditional WAN designs made you choose: expensive MPLS for quality, or cheap internet for bandwidth, with failover only when a link dies completely. SD-WAN measures loss, latency and jitter on *every* path continuously and steers each application onto whichever path currently meets its needs — voice over MPLS, Microsoft 365 straight out the local internet link. *The WAN went from "primary and backup" to "all paths, all the time, chosen per app."*
 
 **Story Time 📖:** Old WAN routing is like driving to work on the same route every day and only changing route when the road is **closed**. SD-WAN is like a live traffic app that checks every road every few seconds. If the motorway is open but jammed, it sends you down the side road. It also gives different answers to different drivers: the ambulance (voice) gets the fastest road, the delivery van (backup traffic) gets the cheapest. *(Where it breaks: a traffic app can only advise you. An SD-WAN router actually moves each application's packets onto the chosen path itself.)*
+
+**📝 Exam-style questions — 1.7**
+
+**Q1.** A branch must keep working through both a carrier outage and a router hardware failure. Which branch design meets this requirement?
+
+- **A.** Single router, single link
+- **B.** Single router, dual links from two carriers
+- **C.** Dual routers, dual links, with an FHRP on the LAN side
+- **D.** Single router with a cellular backup link
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Two routers protect against hardware failure, two links protect against carrier failure, and the FHRP gives LAN hosts one gateway address that survives a router loss. **Why not the others:** A has no redundancy. B and D protect against a carrier failure only; if the single router dies, the branch is down.
+</details>
+
+**Q2.** Which capability does SD-WAN add that a traditional primary/backup WAN design lacks?
+
+- **A.** It fails over to the backup link when the primary link goes down.
+- **B.** It removes the need for any underlying transport.
+- **C.** It encrypts traffic only on MPLS links.
+- **D.** It measures loss, latency and jitter on every path all the time and steers each application onto a path that meets its needs.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Traditional WAN designs fail over only when a link dies completely. SD-WAN keeps measuring every path and moves each application by policy, for example voice over MPLS and Microsoft 365 straight out the local internet link. **Why not the others:** failing over on link-down (A) is what traditional designs already do. SD-WAN is an overlay; it still needs transports underneath (B). Encrypting only MPLS (C) is not what SD-WAN does; its tunnels are normally encrypted on every transport.
+</details>
+
+**Q3.** Which WAN option is a provider-run private network in which the provider routes your traffic between sites and usually offers an SLA?
+
+- **A.** Metro Ethernet
+- **B.** MPLS L3VPN
+- **C.** Internet with IPsec
+- **D.** Cellular 4G/5G
+
+<details><summary>Answer</summary>
+
+**Answer: B.** In an MPLS Layer 3 VPN, the provider takes part in routing your prefixes between sites and sells predictable performance. **Why not the others:** Metro Ethernet (A) gives you a Layer 2 circuit; you do the routing. Internet with IPsec (C) is cheap but has no end-to-end SLA. Cellular (D) is normally a backup or temporary link.
+</details>
 
 ## 1.8 Cloud and Hybrid Designs
 
@@ -348,6 +624,44 @@ Some of the "network" now lives in someone else's data center.
 
 **Why does cloud change network design at all, if it's "just another site"?** Because traffic patterns flip. When applications lived in your data center, branch traffic hairpinned through headquarters and the HQ firewall. With SaaS, sending a branch's Microsoft 365 traffic across the WAN to HQ, out HQ's internet, and back adds latency for no benefit. Modern designs use **direct internet access (DIA)** at branches for trusted SaaS, with security delivered in the cloud. *The center of gravity moved off-site, so the WAN design had to follow it.*
 
+**📝 Exam-style questions — 1.8**
+
+**Q1.** A company runs its own operating systems, applications and data on virtual machines in Azure. Microsoft manages the hardware, hypervisor and physical network. Which cloud service model is this?
+
+- **A.** IaaS
+- **B.** PaaS
+- **C.** SaaS
+- **D.** On-premises
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Infrastructure as a Service: the provider runs the hardware and hypervisor, and you manage everything from the OS upward. **Why not the others:** with PaaS (B) the provider also runs the OS and platform; you bring only apps and data. With SaaS (C) you just use the provider's application. On-premises (D) means you own and run everything.
+</details>
+
+**Q2.** An enterprise needs a connection to AWS with predictable performance rather than internet variability. Which option fits, and what routing does it usually use?
+
+- **A.** IPsec VPN over the internet, with static routes
+- **B.** GRE over the internet, with OSPF
+- **C.** A dedicated private circuit such as AWS Direct Connect, usually running eBGP to the provider
+- **D.** A Metro Ethernet circuit with STP
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A dedicated circuit (Direct Connect, ExpressRoute) avoids the internet, so performance is predictable, and it usually exchanges routes with the provider over eBGP. **Why not the others:** A and B ride the internet, so their performance varies. D isn't how you connect to a public cloud provider's network, and STP isn't a routing protocol.
+</details>
+
+**Q3.** Why do modern branch designs often send trusted SaaS traffic straight out a local internet link (direct internet access, DIA) instead of across the WAN to headquarters?
+
+- **A.** SaaS applications refuse connections that come from MPLS addresses.
+- **B.** Sending SaaS traffic across the WAN to HQ, out HQ's internet link and back adds delay for no benefit, because the application isn't at HQ anymore.
+- **C.** DIA removes the need for any security at the branch.
+- **D.** WAN links cannot carry HTTPS traffic.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** When apps lived in your own data center, hairpinning through HQ made sense. With SaaS, the destination is on the internet, so the detour only adds latency. Security moves to the cloud instead. **Why not the others:** A and D are false. C is wrong: DIA still needs security, usually delivered from the cloud.
+</details>
+
 ## 1.9 Choosing a Design — Putting It Together
 
 | Situation | Sensible starting design | Why |
@@ -359,6 +673,32 @@ Some of the "network" now lives in someone else's data center.
 | Many branches, mixed transports | SD-WAN | Per-app path selection across MPLS, internet, LTE |
 
 *Every row is the same few principles — hierarchy, modularity, small failure domains, and the simplest thing that meets the requirement — applied to a different situation.* When an exam question describes a scenario and asks for "the best design," find the requirement that dominates (scale? cost? east-west traffic? segmentation?) and the answer usually picks itself.
+
+**📝 Exam-style questions — 1.9**
+
+**Q1.** A data center has heavy server-to-server traffic, and some workloads need Layer 2 adjacency across racks so VMs can move between them. Which design fits best?
+
+- **A.** Three-tier campus with summarization at distribution
+- **B.** Two-tier collapsed core with StackWise Virtual
+- **C.** SD-WAN with per-application path selection
+- **D.** Spine-leaf with a VXLAN EVPN overlay
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Spine-leaf handles east-west traffic with equal two-hop paths, and the VXLAN EVPN overlay stretches Layer 2 across the routed fabric for VM mobility. **Why not the others:** A and B are campus designs built for north-south traffic. SD-WAN (C) is a WAN technology for connecting sites, not a data-center fabric.
+</details>
+
+**Q2.** A large campus needs to segment users into groups with consistent policy wherever they connect, and users must keep their policy when they move between buildings. Which design is the sensible starting point?
+
+- **A.** Routed access with one VLAN per access switch
+- **B.** SD-Access fabric
+- **C.** A looped Layer 2 design with VLANs spanning every building
+- **D.** Two-tier collapsed core with ACLs on every SVI
+
+<details><summary>Answer</summary>
+
+**Answer: B.** SD-Access gives a routed underlay, a VXLAN overlay that lets users keep their segment anywhere, and policy applied by group rather than by IP address. **Why not the others:** routed access (A) can't stretch a segment between closets. Spanning VLANs across every building (C) gives huge failure domains. ACLs on every SVI (D) tie policy to subnets and become unmanageable as users move.
+</details>
 
 ---
 
@@ -398,6 +738,44 @@ High availability has two halves, and good designs need both:
 
 Two ordinary switches in parallel beat any single switch you can buy. The catch is the words "instant failover". If switching to B takes 50 seconds every time A fails, you lose most of that gain. That's why the rest of this chapter is about making failover fast.
 
+**📝 Exam-style questions — 2.1**
+
+**Q1.** A service is contracted at 99.99% availability. About how much downtime does that allow per year?
+
+- **A.** About 53 minutes
+- **B.** About 8.8 hours
+- **C.** About 5.3 minutes
+- **D.** About 26 seconds
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A year has 525,600 minutes. 99.99% allows 0.01% downtime: 525,600 × 0.0001 = 52.56 minutes, about 53. **Why not the others:** 8.8 hours (B) is 99.9%. 5.3 minutes (C) is 99.999%, five nines. 26 seconds (D) is five nines per *month*.
+</details>
+
+**Q2.** Two distribution switches are each available 99.9% of the time, and their failures are independent. Traffic can use either switch, and failover between them is instant. What is the availability of the path?
+
+- **A.** 99.8%
+- **B.** 99.9%
+- **C.** 99.99%
+- **D.** 99.9999%
+
+<details><summary>Answer</summary>
+
+**Answer: D.** In parallel, the path fails only when both switches are down at once: 0.001 × 0.001 = 0.000001, so availability is 1 − 0.000001 = 99.9999%. **Why not the others:** 99.8% (A) is the *series* result, 0.999 × 0.999, where traffic must cross both. 99.9% (B) is one switch on its own. 99.99% (C) has no basis in this calculation.
+</details>
+
+**Q3.** Why can a five-nines target never be met with a single device, however reliable it is?
+
+- **A.** Single devices cannot run routing protocols fast enough.
+- **B.** Five nines allows only about five minutes of downtime a year, and one reboot of a single device takes longer than that.
+- **C.** Vendors do not publish availability figures for single devices.
+- **D.** Five nines requires at least five devices in series.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** About 5.3 minutes a year is less than one software upgrade or crash recovery on a single box. The only way to hit the target is to make sure no single failure is noticed, which means redundancy plus fast failover. **Why not the others:** A and C are irrelevant. D is backwards: devices in series *lower* availability.
+</details>
+
 ## 2.2 The Layers of Redundancy
 
 **The problem this solves:** a network is a chain of parts: power, the switch's brain, the switch itself, cables, the gateway, the path, the carrier. A chain is only as strong as its weakest link, so a spare at one layer is wasted if another layer has none. This table is the checklist.
@@ -416,6 +794,32 @@ Redundancy has to exist at every layer, because a failure at any one of them is 
 | WAN / site | One carrier | Dual carriers, SD-WAN | 1.7, 14 |
 
 **Why isn't adding a second device enough on its own?** Because the second device only helps if the network **knows to use it** — and knows quickly. Two routers with no FHRP still leave hosts pointing at one dead IP; two uplinks with classic STP still sit 30–50 seconds in listening/learning. *Redundancy is the spare tire; the failover mechanism is knowing how to change it in seconds.*
+
+**📝 Exam-style questions — 2.2**
+
+**Q1.** VLAN 10 has two routers, R1 (10.1.10.2) and R2 (10.1.10.3). No FHRP is configured, and every host uses 10.1.10.2 as its default gateway. R1 fails while R2 stays up. What happens?
+
+- **A.** Hosts automatically switch to R2 within 10 seconds.
+- **B.** Hosts keep working because R2 answers ARP for 10.1.10.2.
+- **C.** Hosts lose off-subnet access, because nothing tells them to use R2.
+- **D.** STP unblocks the path to R2 and traffic resumes after about 30 seconds.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A second device only helps if the network knows to use it. The hosts know one gateway IP, and that IP is gone. An FHRP fixes this by giving both routers a shared virtual IP and MAC. **Why not the others:** without an FHRP there is no takeover (A), and R2 has no reason to answer for another router's address (B). STP (D) deals with Layer 2 loops, not with which gateway hosts use.
+</details>
+
+**Q2.** Which redundancy technique protects against the failure of the single control-plane CPU in a modular Catalyst 9400?
+
+- **A.** EtherChannel on the uplinks
+- **B.** Dual supervisors running SSO
+- **C.** HSRP between two distribution switches
+- **D.** Dual power supplies on separate circuits
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The supervisor is the control-plane "brain". A second supervisor kept in sync by stateful switchover takes over if the first fails. **Why not the others:** EtherChannel (A) protects links. HSRP (C) protects the hosts' gateway across two separate devices, not a supervisor inside one chassis. Dual PSUs (D) protect against power failure, not a CPU failure.
+</details>
 
 ## 2.3 Supervisor Redundancy: RPR, SSO and NSF
 
@@ -489,6 +893,64 @@ SW# show redundancy states
 
 > **Exam trap:** NSF and **fast-converging** timers pull in opposite directions. NSF wants neighbors to *wait* through a restart; very aggressive hello/dead timers or BFD want neighbors to *detect failure instantly*. If BFD declares the neighbor down in 150 ms, it can tear down the adjacency before graceful restart finishes. On dual-supervisor boxes, set timers so that a supervisor switchover completes inside them.
 
+**📝 Exam-style questions — 2.3**
+
+**Q1.** Refer to the exhibit. Both supervisors finished booting an hour ago, and the output has looked like this ever since. What does it tell you about this dual-supervisor switch?
+
+```
+SW# show redundancy states
+       my state = 13 -ACTIVE
+     peer state = 4  -STANDBY COLD
+           Mode = Duplex
+```
+
+- **A.** The standby is fully synchronized and a switchover will be stateful.
+- **B.** The standby is not fully synchronized, so a switchover will behave like RPR and be disruptive.
+- **C.** The standby has failed and must be replaced.
+- **D.** The switch is running ISSU and the standby is mid-upgrade, which is the normal state.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `STANDBY HOT` is the healthy SSO state. `STANDBY COLD` means the peer is only partly ready, often because of a software or configuration mismatch between the supervisors, so a failover would reset forwarding. **Why not the others:** A describes `STANDBY HOT`. A failed peer (C) would not show a standby state at all. D is not what this state means; a cold standby is a problem to fix, not a normal state.
+</details>
+
+**Q2.** A router has dual route processors running SSO but no NSF. The active route processor fails. Why is there still a visible outage for routed traffic?
+
+- **A.** SSO does not copy the FIB to the standby, so the line cards stop forwarding.
+- **B.** The standby route processor has to boot from scratch.
+- **C.** Neighbors see the routing adjacencies drop, assume the whole router died, and reroute around it even though its line cards are still forwarding.
+- **D.** The switchover resets every interface on the router.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Routing protocol sessions don't survive the switchover. Without graceful restart, neighbors treat the dropped adjacency as a dead router and move traffic away. NSF plus graceful restart asks them to keep using the router while it rebuilds. **Why not the others:** SSO does keep the FIB and line cards forwarding (A, D). With SSO the standby is fully booted (B); that slow behavior describes RPR.
+</details>
+
+**Q3.** Which two statements about NSF and graceful restart are true? (Choose two.)
+
+- **A.** An NSF-aware neighbor must itself have dual supervisors.
+- **B.** NSF requires BFD to be enabled on all neighbors.
+- **C.** The restarting router keeps forwarding on its last known FIB while its control plane rebuilds.
+- **D.** With graceful restart, the restarting router never has to re-form its routing adjacencies or resynchronise its database.
+- **E.** Neighbors must be NSF-aware to hold the restarting router's routes instead of tearing them down.
+
+<details><summary>Answer</summary>
+
+**Answer: C, E.** NSF keeps the data plane forwarding on the old FIB, and NSF-aware neighbors cooperate by holding the routes during the restart. **Why not the others:** *NSF-capable* is the restarting router with dual supervisors; an NSF-*aware* neighbor needs only graceful-restart support (A). BFD isn't required (B) and can even work against NSF. Adjacencies are still re-formed and the database resynchronised (D); graceful restart just stops neighbors from rerouting while that happens. Keeping adjacencies up with no re-forming at all is what NSR (nonstop routing) does, not NSF.
+</details>
+
+**Q4.** DIST1 has dual supervisors with SSO and `nsf ietf` under OSPF. Its OSPF neighbors also run BFD at 50 ms × 3. During a supervisor switchover, neighbors drop DIST1 and reroute. What is the most likely cause?
+
+- **A.** BFD declared the neighbor down in about 150 ms, before graceful restart could complete.
+- **B.** `nsf ietf` cannot be used with OSPF.
+- **C.** SSO is not supported on platforms that run BFD.
+- **D.** The neighbors are NSF-aware, and NSF-aware neighbors always drop the adjacency during a switchover.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** NSF wants neighbors to *wait* through a restart, while aggressive BFD timers want them to detect failure instantly. If BFD fires first, the adjacency is torn down and graceful restart can't protect it. On dual-supervisor boxes, timers must allow a switchover to finish. **Why not the others:** `nsf ietf` is the standard OSPF graceful-restart command (B). SSO and BFD coexist fine (C). D is backwards: being NSF-aware is exactly what lets neighbors hold the routes.
+</details>
+
 ## 2.4 First Hop Redundancy — The Architecture
 
 Hosts are configured with **one** default gateway IP. If that router dies, the host can't reach anything off-subnet, however many other routers exist. A **First Hop Redundancy Protocol (FHRP)** lets two or more routers share a **virtual IP and virtual MAC**, so the gateway the hosts know never disappears.
@@ -519,6 +981,57 @@ Total loss: up to 10 seconds with default timers. Chapter 9 shows how to cut tha
 - In **StackWise Virtual / VSS**, there's no FHRP either — the two physical switches are one logical gateway with one IP.
 
 Chapter 9 covers HSRP and VRRP configuration, priority, preemption and object tracking in detail.
+
+**📝 Exam-style questions — 2.4**
+
+**Q1.** R1 and R2 run HSRP version 1, group 10, with virtual IP 10.1.10.1. Which virtual MAC address do hosts have in their ARP cache for the gateway?
+
+- **A.** 0000.0c07.ac10
+- **B.** 0000.0c9f.f00a
+- **C.** 0000.5e00.010a
+- **D.** 0000.0c07.ac0a
+
+<details><summary>Answer</summary>
+
+**Answer: D.** HSRPv1 builds the MAC as 0000.0c07.acXX, where XX is the group number in hex. 10 decimal is 0a hex. **Why not the others:** A writes the group as "10" instead of converting it to hex. B is the HSRP *version 2* format (0000.0c9f.fXXX). C is the VRRP format (0000.5e00.01XX).
+</details>
+
+**Q2.** With default HSRP timers, the active router R1 loses power. R2 takes over. What do the hosts on the VLAN have to change to keep working?
+
+- **A.** Nothing. R2 takes over the same virtual IP and virtual MAC and sends a gratuitous ARP so the switches relearn which port the MAC is on.
+- **B.** They must flush their ARP caches, because the gateway MAC changes to R2's real MAC.
+- **C.** They must renew their DHCP lease to learn R2's address as the new gateway.
+- **D.** They must wait for STP to reconverge before they can reach R2.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The virtual IP and MAC are the "published number". They move with the role, so the hosts' gateway IP and ARP entry stay valid. The gratuitous ARP only updates the switches' MAC tables. Loss is up to the 10-second hold time with default timers. **Why not the others:** the MAC hosts use is the virtual one, not R2's burned-in MAC (B). The gateway address never changes (C). STP (D) isn't part of an FHRP failover.
+</details>
+
+**Q3.** An engineer wants both routers on one VLAN to forward traffic for that VLAN at the same time, without splitting hosts across different gateway addresses. Which FHRP does this, and how?
+
+- **A.** HSRP, by giving both routers the same priority
+- **B.** VRRP, by enabling preemption on both routers
+- **C.** GLBP, because the AVG answers ARP requests with different virtual MACs for different hosts
+- **D.** HSRP version 2, because it supports up to 4096 groups
+
+<details><summary>Answer</summary>
+
+**Answer: C.** GLBP has one Active Virtual Gateway that answers ARP for the shared virtual IP, handing out the virtual MACs of different forwarders, so several routers forward together. **Why not the others:** HSRP and VRRP (A, B) have exactly one router forwarding for a virtual IP at a time; to share load you make different routers active for different VLANs. More groups (D) doesn't change that.
+</details>
+
+**Q4.** In which two designs is no FHRP needed? (Choose two.)
+
+- **A.** Routed access, where the access switch is the hosts' gateway
+- **B.** Looped Layer 2 access with two independent distribution switches
+- **C.** Loop-free ("V") Layer 2 access with two independent distribution switches
+- **D.** A StackWise Virtual distribution pair acting as one logical switch
+- **E.** A branch with two independent routers on the LAN
+
+<details><summary>Answer</summary>
+
+**Answer: A, D.** In routed access the access switch is the only gateway. With StackWise Virtual the two chassis are one logical switch with one gateway IP. **Why not the others:** B, C and E all have two independent devices that could be the gateway, so hosts need an FHRP to have a gateway address that survives one of them failing.
+</details>
 
 ## 2.5 Stacking: Many Switches, One Brain
 
@@ -555,6 +1068,56 @@ Switch#   Role    Mac Address     Priority Version  State
 4. To make switch 1 active again you would have to reload the active (switch 2) during a maintenance window. That is why you set priorities before go-live.
 
 **Why is a stack better than separate access switches?** Two reasons. First, **cross-stack EtherChannel**: an uplink bundle can use one port on switch 1 and one on switch 3, so losing a whole switch only loses half the uplink bandwidth — with no STP blocking, because the bundle is one logical link. Second, **operational simplicity**: eight switches managed as one. *A stack turns "eight devices, eight configs" into "one device with eight line cards."*
+
+**📝 Exam-style questions — 2.5**
+
+**Q1.** A three-switch stack has priorities 15 (switch 1), 14 (switch 2) and 1 (switch 3). Switch 1 was active and fails. After repair, switch 1 rejoins the running stack. What role does it take?
+
+- **A.** Active, because it has the highest priority
+- **B.** Member, because the active election is not preemptive
+- **C.** Standby, because it was previously the active switch
+- **D.** It stays offline until the whole stack is reloaded
+
+<details><summary>Answer</summary>
+
+**Answer: B.** When switch 1 failed, switch 2 became active and switch 3 became the new standby. The election only happens at boot or when the active fails, so switch 1 joins as a member. To make it active again you would reload the active during a maintenance window. **Why not the others:** priority only matters during an election (A). The standby role is already filled (C). A repaired switch joins the running stack normally (D).
+</details>
+
+**Q2.** Which command sets switch 1's stack priority to 15 on a Catalyst 9300 stack?
+
+- **A.** `Stack(config)# switch 1 priority 15`
+- **B.** `Stack(config)# stack-priority 15`
+- **C.** `Stack# switch 1 priority 15`
+- **D.** `Stack(config-if)# switch priority 15`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Stack priority is set in privileged EXEC mode, not configuration mode. **Why not the others:** A uses the right words in the wrong mode, which is the classic trap. B and D are not valid commands.
+</details>
+
+**Q3.** Three stack members with identical hardware, software and configuration all boot together with the default stack priority of 1. Which switch becomes active?
+
+- **A.** The switch with the highest MAC address
+- **B.** The switch with stack member number 1
+- **C.** The switch that finished booting first
+- **D.** The switch with the lowest MAC address
+
+<details><summary>Answer</summary>
+
+**Answer: D.** With no current active, the highest stack priority wins. With all priorities equal, the platform tiebreakers end at the lowest MAC address. **Why not the others:** the highest MAC (A) is the wrong direction. The member number (B) is a label, not an election criterion. Boot order (C) doesn't decide the election. This is why you set priorities deliberately before go-live.
+</details>
+
+**Q4.** Why is a cross-stack EtherChannel uplink more resilient than an uplink bundle on a single stack member?
+
+- **A.** It runs at double the speed of a normal EtherChannel.
+- **B.** Losing one whole stack member only removes some of the uplink bandwidth, and because the bundle is one logical link, STP blocks nothing.
+- **C.** It lets each stack member run its own control plane.
+- **D.** It removes the need for an uplink to the distribution layer.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** With bundle members on, say, switch 1 and switch 3, a dead switch takes out only its members, and the bundle carries on over the rest. As one logical link, it has no loop for STP to block. **Why not the others:** the speed is the sum of the members, as with any bundle (A). A stack has one control plane, not one per member (C). The stack still needs uplinks (D).
+</details>
 
 ## 2.6 StackWise Virtual (and VSS Before It)
 
@@ -618,6 +1181,44 @@ After conversion, interfaces are numbered with the switch number first, so the s
 | **StackWise Virtual / VSS** | Distribution / core (2) | 1 (active + SSO standby) | **No** | **No** (MEC) |
 | Routed access | Access to distribution | 1 per switch | **No** | **No** (no L2 uplinks) |
 
+**📝 Exam-style questions — 2.6**
+
+**Q1.** Why does a StackWise Virtual distribution pair remove the need for both STP blocking on the uplinks and an FHRP?
+
+- **A.** It runs RSTP instead of classic STP, and VRRP instead of HSRP.
+- **B.** Each access switch sees one upstream switch and one EtherChannel to it, so there's no loop to block, and there's only one gateway SVI, so nothing to fail over between.
+- **C.** It disables spanning tree and ARP on the distribution switches.
+- **D.** It uses the DAD link to forward user traffic when the SVL fails.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The two chassis act as one logical switch. A multichassis EtherChannel is one logical link, so STP has nothing to block, and one logical switch means one gateway IP. A switch failure looks like losing an EtherChannel member. **Why not the others:** A and C are false. The DAD link (D) only detects dual-active; it doesn't carry user traffic.
+</details>
+
+**Q2.** In a StackWise Virtual pair, both SVL cables are cut while both switches keep running. A DAD link is configured. What happens?
+
+- **A.** Both switches stay active and share the load until the SVL is repaired.
+- **B.** The switch that was the standby shuts all its ports and reloads.
+- **C.** Both switches reload to elect a new active.
+- **D.** The former active switch enters recovery mode and shuts down all its interfaces except the SVL and DAD links; the other switch carries on alone.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The standby takes over when it stops hearing the active, so both now think they are active. The DAD link reveals that both are alive, and the old active goes into recovery mode to avoid two switches using the same IPs, router ID and MACs. When the SVL is repaired it reloads and rejoins as standby. **Why not the others:** A is the split-brain dual-active state that DAD exists to prevent. It's the *former active* that goes into recovery mode, not the standby (B). Nothing forces both to reload (C).
+</details>
+
+**Q3.** Access switch ACC1 has a multichassis EtherChannel with one member to each switch in a StackWise Virtual pair. How does that bundle look from ACC1's point of view?
+
+- **A.** As two separate uplinks, one of which STP blocks
+- **B.** As one ordinary EtherChannel to one switch
+- **C.** As two EtherChannels, one to each physical switch
+- **D.** As a routed ECMP pair with two next hops
+
+<details><summary>Answer</summary>
+
+**Answer: B.** That's the point of MEC: ACC1 can't tell its bundle reaches two chassis, because they present one logical switch. If SW1 dies, ACC1 just loses one member. **Why not the others:** nothing is blocked (A). It's one bundle, not two (C). The bundle is Layer 2 here, not routed ECMP (D).
+</details>
+
 ## 2.7 ISSU — Upgrading Without an Outage
 
 Software has to be upgraded, and a reboot costs minutes — which blows the five-nines budget in one go. **ISSU (In-Service Software Upgrade)** uses the SSO pair to upgrade one half at a time:
@@ -630,6 +1231,32 @@ Software has to be upgraded, and a reboot costs minutes — which blows the five
 On IOS XE install mode, the whole sequence runs with one command, for example `install add file bootflash:<image>.bin activate issu commit`.
 
 **Why does ISSU need SSO underneath it?** Because each step in the sequence is a supervisor switchover. If the switchover weren't stateful, every step would be an outage. *ISSU is just SSO used on purpose, twice, with an upgrade in between.*
+
+**📝 Exam-style questions — 2.7**
+
+**Q1.** Which sequence correctly orders an ISSU upgrade on a dual-supervisor switch?
+
+- **A.** Upgrade the active → switchover → upgrade the standby → commit
+- **B.** Upgrade both supervisors at once → reload → commit
+- **C.** Upgrade the standby → switchover so it becomes active → upgrade the old active, which returns as standby → commit
+- **D.** Commit → upgrade the standby → switchover → upgrade the old active
+
+<details><summary>Answer</summary>
+
+**Answer: C.** ISSU upgrades one half at a time: the standby first, then a stateful switchover makes it active, then the old active is upgraded. Commit at the end (or roll back if something's wrong). **Why not the others:** upgrading the active first (A) means rebooting the box that is forwarding. B is an ordinary reload with an outage. You commit last, after checking the result (D).
+</details>
+
+**Q2.** Why does ISSU depend on SSO?
+
+- **A.** Each ISSU step is a supervisor switchover, and only a stateful switchover keeps forwarding during it.
+- **B.** SSO compresses the software image so it fits on both supervisors.
+- **C.** SSO is what downloads the new image from the server.
+- **D.** ISSU uses the SSO link to copy the configuration to a TFTP server.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** ISSU is SSO used on purpose, twice, with an upgrade in between. If the switchover weren't stateful, each step would be an outage. **Why not the others:** B, C and D describe things SSO doesn't do. SSO keeps the standby synchronized; it has nothing to do with images or file transfer.
+</details>
 
 ## 2.8 Putting HA Together — Matching Techniques to Failures
 
@@ -646,6 +1273,32 @@ On IOS XE install mode, the whole sequence runs with one command, for example `i
 | WAN carrier outage | Dual carriers, SD-WAN, IP SLA tracking | Seconds |
 
 *Every high-availability technique is the same idea: have a second one, keep it warm, and make the switch-over faster than the application can notice.*
+
+**📝 Exam-style questions — 2.8**
+
+**Q1.** A neighbor router hangs: its interface stays up, but it stops forwarding and stops sending hellos. Which technique detects this fastest?
+
+- **A.** SSO on the neighbor
+- **B.** BFD running with the routing protocol
+- **C.** EtherChannel between the routers
+- **D.** HSRP with default timers
+
+<details><summary>Answer</summary>
+
+**Answer: B.** BFD is a lightweight hello that detects a silent failure in roughly 150–900 ms with typical timers, then tells the routing protocol. **Why not the others:** SSO (A) protects against a supervisor failure inside a chassis, not against a neighbor you can't see is dead. EtherChannel (C) reacts to a member link going down, but here the link stays up. HSRP (D) protects a host's gateway, and its default hold time is 10 seconds.
+</details>
+
+**Q2.** One switch of a StackWise Virtual distribution pair loses power. What gives recovery, and roughly how fast?
+
+- **A.** HSRP failover, in about 10 seconds
+- **B.** STP reconvergence, in about 30 seconds
+- **C.** OSPF reconvergence, in about 40 seconds
+- **D.** Loss of one member of each multichassis EtherChannel, in milliseconds
+
+<details><summary>Answer</summary>
+
+**Answer: D.** To each access switch, the failure is just one EtherChannel member going down, so flows move to the surviving member within milliseconds. SSO makes the survivor the active control plane. **Why not the others:** there's no HSRP (A) and no STP blocking (B) in an SV design. Nothing needs to wait for an OSPF dead interval (C).
+</details>
 
 ---
 
@@ -751,6 +1404,67 @@ Pruning VLANs Enabled: 2-1001
 
 **Reading the example:** the port is configured `dynamic auto` but is operating as `static access`, and DTP is on. Combined with the matrix above, the neighbor must also be `auto` (or access): nobody asked to trunk. *Administrative vs operational mode is the first thing to compare on any "why isn't this a trunk?" question.*
 
+**📝 Exam-style questions — 3.1**
+
+**Q1.** SW1 Gi1/0/1 and SW2 Gi1/0/1 are both left at the Catalyst 9000 default switchport mode. What does the link become, and why?
+
+- **A.** A trunk, because both sides are willing to trunk
+- **B.** An access link, because `dynamic auto` only answers DTP requests and neither side sends one
+- **C.** A trunk/access mismatch, because DTP can't decide which side is in charge
+- **D.** An err-disabled link, because DTP detects a loop
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The default on a Catalyst 9000 Layer 2 port is `dynamic auto`, which is passive: it agrees to trunk only if asked. Two passive ports never ask, so both run as access ports. **Why not the others:** being *willing* on both sides isn't enough (A); someone has to start the negotiation. There's no mismatch (C), because both sides agree on access. DTP doesn't err-disable ports (D).
+</details>
+
+**Q2.** Refer to the exhibit. SW1's Gi1/0/1 connects to SW2, whose port is also `dynamic auto`. The link must become a trunk. Which single change on SW1 achieves this?
+
+```
+SW1# show interfaces Gi1/0/1 switchport
+Name: Gi1/0/1
+Switchport: Enabled
+Administrative Mode: dynamic auto
+Operational Mode: static access
+Administrative Trunking Encapsulation: dot1q
+Negotiation of Trunking: On
+```
+
+- **A.** `switchport nonegotiate`
+- **B.** `switchport trunk native vlan 999`
+- **C.** `switchport mode dynamic desirable`
+- **D.** `switchport trunk allowed vlan all`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `dynamic desirable` actively asks to trunk, and SW2's `auto` port answers yes. **Why not the others:** `nonegotiate` (A) turns DTP *off*, so SW2 would never be asked. The native VLAN (B) and allowed list (D) only matter once the port is already a trunk; they don't make it one.
+</details>
+
+**Q3.** In an EVE-NG lab using IOL Layer 2 images, an engineer enters `switchport mode trunk` and the switch replies: `Command rejected: An interface whose trunk encapsulation is "Auto" can not be configured to "trunk" mode.` What fixes it?
+
+- **A.** Enter `switchport nonegotiate` first.
+- **B.** Enter `switchport trunk encapsulation dot1q` first, then `switchport mode trunk`.
+- **C.** Enter `no shutdown` on the interface first.
+- **D.** Upgrade the image, because IOL cannot trunk.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** On platforms that support both ISL and 802.1Q, the encapsulation defaults to "negotiate". A static trunk doesn't negotiate, so the switch makes you choose the encapsulation rather than guess. **Why not the others:** `nonegotiate` (A) doesn't set an encapsulation. The interface state (C) has nothing to do with the error. IOL L2 images trunk fine (D) once the encapsulation is set.
+</details>
+
+**Q4.** Two switches have correct-looking port configs, but a dynamic trunk between them won't form. Which two causes are possible? (Choose two.)
+
+- **A.** The two switches are in different VTP domains.
+- **B.** Both ports are set to `dynamic desirable`.
+- **C.** The native VLAN differs on the two ends.
+- **D.** One side is `switchport mode dynamic desirable` and the other is `switchport mode trunk`.
+- **E.** The far side is `switchport mode trunk` with `switchport nonegotiate`, and the near side is `dynamic auto`.
+
+<details><summary>Answer</summary>
+
+**Answer: A, E.** DTP carries the VTP domain name, and a domain mismatch stops a dynamic trunk from forming. With `nonegotiate` the far side sends no DTP, so an `auto` port never hears a request and stays access, a mismatch with the hard trunk opposite. **Why not the others:** `desirable` with `desirable` (B) and `desirable` with `trunk` (D) both form trunks. A native VLAN mismatch (C) doesn't stop the trunk forming; it causes leaking and PVID-inconsistent blocking once it's up.
+</details>
+
 ## 3.2 Native VLAN Mismatch
 
 ![Native VLAN mismatch leaking frames between VLANs](images/c03_native_mismatch.png)
@@ -786,6 +1500,52 @@ SW(config-if)# switchport trunk native vlan 999
 SW(config)# vlan dot1q tag native          ! optional: tag native VLAN frames too
 ```
 
+**📝 Exam-style questions — 3.2**
+
+**Q1.** Refer to the exhibit. Users in VLANs 10 and 20 can no longer pass traffic across the trunk on SW2 Gi1/0/1. What is the cause?
+
+```
+SW2# show spanning-tree inconsistentports
+Name                 Interface                Inconsistency
+-------------------- ------------------------ ------------------
+VLAN0010             GigabitEthernet1/0/1     Port VLAN ID Mismatch
+VLAN0020             GigabitEthernet1/0/1     Port VLAN ID Mismatch
+```
+
+- **A.** VLANs 10 and 20 are not in the trunk's allowed list.
+- **B.** BPDU guard has err-disabled the port.
+- **C.** Root guard is blocking a superior BPDU.
+- **D.** The two ends of the trunk use different native VLANs, so Rapid PVST+ blocked the port for the affected VLANs.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** PVST+ carries the sending VLAN inside its BPDUs. When an untagged BPDU from VLAN 10 arrives on a port whose native VLAN is 20, the port is marked PVID-inconsistent and blocked for both VLANs so the leak can't turn into a loop. **Why not the others:** a VLAN missing from the allowed list (A) doesn't show as an STP inconsistency. BPDU guard (B) err-disables the whole port and logs that. Root guard (C) shows "Root Inconsistent", not "Port VLAN ID Mismatch".
+</details>
+
+**Q2.** SW1's trunk has native VLAN 10 and SW2's end has native VLAN 20. PC-A in VLAN 10 on SW1 sends a broadcast ARP. Why does PC-B in VLAN 20 on SW2 receive it?
+
+- **A.** SW1 tags the frame with VLAN 20 by mistake.
+- **B.** SW1 sends it untagged because VLAN 10 is its native VLAN, and SW2 places every untagged frame into its own native VLAN, 20.
+- **C.** CDP forwards ARP broadcasts between native VLANs.
+- **D.** ARP broadcasts are flooded to every VLAN on a trunk.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Native VLAN frames cross untagged, and each end decides by itself which VLAN untagged frames belong to. With no tag to read, SW2 uses its own native VLAN. **Why not the others:** SW1 doesn't tag native frames at all (A). CDP only reports the mismatch (C). Broadcasts stay in their own VLAN on a correctly configured trunk (D).
+</details>
+
+**Q3.** Why does setting the trunk's native VLAN to an unused VLAN, such as 999, on both ends defeat double-tagging (VLAN hopping) attacks?
+
+- **A.** The attack depends on the attacker's access VLAN being the trunk's native VLAN, so a native VLAN that no host uses removes the condition.
+- **B.** VLAN 999 is encrypted on Catalyst switches.
+- **C.** Switches drop all frames with two 802.1Q tags when the native VLAN is above 900.
+- **D.** An unused native VLAN disables DTP.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A double-tagged frame works only when the first switch strips the outer tag because it matches the native VLAN, leaving the inner tag to be read by the next switch. If no access port is in the native VLAN, the attacker can't start the attack. **Why not the others:** VLANs aren't encrypted (B). There's no rule about VLAN numbers above 900 (C). The native VLAN has nothing to do with DTP (D).
+</details>
+
 ## 3.3 Allowed VLAN Lists and Pruning
 
 **The problem this solves:** not every VLAN needs to cross every trunk. Sending VLAN 30's broadcasts to a switch with no VLAN 30 users wastes bandwidth and widens VLAN 30's failure domain. Allowed lists (manual) and pruning (automatic) trim each trunk to the VLANs it really needs. The flip side: when a VLAN "doesn't work" across a trunk, one of these filters is often the reason.
@@ -816,6 +1576,60 @@ Gi1/0/1     10,999
 *That one command is the whole trunk-troubleshooting flowchart: allowed → exists → forwarding.*
 
 > **Exam trap — the most destructive typo in switching:** `switchport trunk allowed vlan 40` **replaces** the entire list with just VLAN 40, instantly cutting every other VLAN on that trunk. To add a VLAN, use `switchport trunk allowed vlan add 40`. (`remove`, `except` and `all` also exist.)
+
+**📝 Exam-style questions — 3.3**
+
+**Q1.** Refer to the exhibit. VLAN 30 traffic does not cross SW1's trunk to the far switch. What is the cause?
+
+```
+SW1# show interfaces trunk
+Port        Mode         Encapsulation  Status        Native vlan
+Gi1/0/1     on           802.1q         trunking      999
+
+Port        Vlans allowed on trunk
+Gi1/0/1     10,20,30,999
+
+Port        Vlans allowed and active in management domain
+Gi1/0/1     10,20,999
+
+Port        Vlans in spanning tree forwarding state and not pruned
+Gi1/0/1     10,999
+```
+
+- **A.** VLAN 30 is not allowed on the trunk.
+- **B.** VLAN 30 does not exist on SW1.
+- **C.** VLAN 30 is blocked by spanning tree on Gi1/0/1.
+- **D.** VLAN 30 has been pruned by VTP.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** VLAN 30 is in the allowed list but missing from "allowed and active", which means the VLAN isn't in SW1's VLAN database. Create it with `vlan 30`. **Why not the others:** it *is* allowed (A). STP blocking and pruning (C, D) would show as a VLAN that is in "allowed and active" but missing from the last list, which is the situation for VLAN 20, not 30.
+</details>
+
+**Q2.** A trunk currently carries VLANs 10, 20 and 30. An engineer must add VLAN 40 without disrupting anything. Which command is correct?
+
+- **A.** `switchport trunk allowed vlan 40`
+- **B.** `switchport trunk allowed vlan except 40`
+- **C.** `switchport trunk native vlan 40`
+- **D.** `switchport trunk allowed vlan add 40`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `add` appends VLAN 40 to the existing list. **Why not the others:** without `add` (A), the command *replaces* the list with just VLAN 40 and cuts VLANs 10, 20 and 30 instantly. `except 40` (B) allows everything *except* 40. Changing the native VLAN (C) doesn't add anything to the allowed list and creates a native VLAN mismatch with the neighbor.
+</details>
+
+**Q3.** In the exhibit above, VLAN 20 appears in "allowed and active" but not in "forwarding state and not pruned". Which two conditions could explain this? (Choose two.)
+
+- **A.** VLAN 20 is not in the allowed list.
+- **B.** Spanning tree has put Gi1/0/1 in blocking state for VLAN 20.
+- **C.** VLAN 20 does not exist on SW1.
+- **D.** VTP pruning removed VLAN 20 because the neighbor has no ports in it.
+- **E.** The native VLAN is 999.
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** The last list removes VLANs that STP is blocking on this port and VLANs that VTP pruning has trimmed. Check with `show spanning-tree vlan 20`. **Why not the others:** if VLAN 20 weren't allowed (A) or didn't exist (C), it wouldn't appear in "allowed and active". The native VLAN (E) doesn't remove other VLANs from the list.
+</details>
 
 ## 3.4 VTP — Version 3 and Why It Exists
 
@@ -848,6 +1662,44 @@ SW1# show vtp status
 ```
 
 **Why is "transparent" or "off" still the most common real-world VTP setting?** Because even VTPv3 is a mechanism that lets one switch change many switches' VLAN databases. Most enterprises prefer to configure VLANs explicitly, increasingly through automation (Chapters 19–21), so the blast radius of one mistake stays at one switch.
+
+**📝 Exam-style questions — 3.4**
+
+**Q1.** A production VTP version 2 domain `CORP` is at configuration revision 42 with VLANs 10, 20 and 30. A lab switch in domain `CORP`, configured as a VTP client, is at revision 57 and holds only VLAN 1. It is connected to a production trunk. What happens?
+
+- **A.** Nothing, because a VTP client cannot change other switches' VLAN databases.
+- **B.** The lab switch learns VLANs 10, 20 and 30, because servers always win over clients.
+- **C.** Every switch in the domain replaces its VLAN database with the lab switch's, deleting VLANs 10, 20 and 30.
+- **D.** The trunk is err-disabled because of the revision mismatch.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** In VTP v1 and v2, any switch advertising a higher revision number is believed, even a client. 57 beats 42, so the domain adopts the lab switch's database and every access port in VLANs 10, 20 and 30 goes inactive. **Why not the others:** A and B describe how people *expect* VTP to behave, which is why this trap is so destructive. VTP doesn't err-disable ports (D).
+</details>
+
+**Q2.** Which VTP version 3 feature prevents the overwrite in the previous question?
+
+- **A.** Only the primary server can change VLANs, and a new switch can't become primary without an explicit takeover.
+- **B.** VTPv3 resets every switch's revision number to 0 each night.
+- **C.** VTPv3 encrypts advertisements so that only clients can read them.
+- **D.** VTPv3 refuses to run on trunks.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** VTPv3 has one primary server per domain per feature, set with `vtp primary vlan` in privileged EXEC mode. Other switches can't push VLAN changes, so a stray high-revision switch can't overwrite the domain. **Why not the others:** B, C and D are not VTPv3 behaviors. VTPv3 also adds propagation of extended VLANs (1006–4094) and MST mappings.
+</details>
+
+**Q3.** Why do many enterprises still run VTP in transparent or off mode, even though VTPv3 exists?
+
+- **A.** VTPv3 isn't supported on Catalyst 9000 switches.
+- **B.** Transparent mode propagates VLANs faster than server mode.
+- **C.** VTP is required for DTP to work, and transparent mode keeps DTP running.
+- **D.** Any mechanism that lets one switch change many switches' VLANs widens the blast radius of a mistake, so they prefer to configure VLANs explicitly, often through automation.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Even VTPv3 is a way for one device to change many. Configuring VLANs per switch (by hand or with automation) keeps one mistake on one switch. **Why not the others:** Catalyst 9000 supports VTPv3 (A). Transparent mode doesn't propagate VLANs at all (B). DTP doesn't need a particular VTP mode (C), although it does compare domain names.
+</details>
 
 ## 3.5 EtherChannel Negotiation — The Mode Matrix
 
@@ -894,6 +1746,49 @@ SW(config)# spanning-tree etherchannel guard misconfig     ! on by default
 err-disable state
 ```
 
+**📝 Exam-style questions — 3.5**
+
+**Q1.** Which pair of EtherChannel modes forms a channel?
+
+- **A.** `on` and `active`
+- **B.** `passive` and `passive`
+- **C.** `active` and `passive`
+- **D.** `desirable` and `active`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Both are LACP, and one side (`active`) starts the negotiation. **Why not the others:** `on` sends no protocol frames, so it only bundles with `on` (A). Two passive sides never start (B). `desirable` is PAgP and `active` is LACP, so the protocols don't match (D).
+</details>
+
+**Q2.** SW1 has Gi1/0/1–2 in `channel-group 1 mode on`. SW2's matching ports are two plain trunks with no channel-group. Why can this create a loop?
+
+- **A.** `on` mode disables spanning tree on SW1.
+- **B.** SW1 treats both links as one logical port, while SW2 sees two separate links. SW2 makes the link with no BPDUs forwarding, so broadcasts can go out one link and come back on the other.
+- **C.** LACP frames from SW1 confuse SW2's STP.
+- **D.** SW2 bundles the links into a different channel number.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** SW1 sends BPDUs out only one member. On the other link SW2 hears none, so it makes that port designated and forwarding. Nothing blocks, and frames circle between the two switches. Negotiation (LACP or PAgP) would have refused to bundle until both sides agreed. **Why not the others:** STP still runs on SW1 (A). `on` sends no LACP frames (C). SW2 isn't bundling at all (D).
+</details>
+
+**Q3.** After an engineer configures a new EtherChannel, this log appears and the members stop forwarding. What does it indicate?
+
+```
+%PM-4-ERR_DISABLE: channel-misconfig (STP) error detected on Po1, putting Gi1/0/1 in
+err-disable state
+```
+
+- **A.** The far side isn't bundling the links, so the port-channel received BPDUs from more than one source MAC.
+- **B.** The member ports have different speeds.
+- **C.** The port-channel has no IP address.
+- **D.** LACP rate fast is configured on only one side.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** EtherChannel misconfiguration guard (on by default) watches for this sign that one side is bundled (usually `on`) and the other isn't. Err-disabling the members is far better than a loop. **Why not the others:** a speed mismatch (B) suspends a member with a CANNOT_BUNDLE message instead. A Layer 2 port-channel doesn't need an IP (C). Different LACP rates (D) still bundle.
+</details>
+
 ## 3.6 Why Members Get Suspended — Attribute Mismatches
 
 Even with matching modes, a port joins the bundle **only if its configuration matches the port-channel's**. A mismatched member is **suspended** — up physically, but excluded from the bundle.
@@ -919,6 +1814,50 @@ Even with matching modes, a port joins the bundle **only if its configuration ma
 `show etherchannel summary` shows `Gi1/0/3(s)`. The log names the attribute that differs ("vlan mask" means the allowed list). The fix is to make the member's settings match the port-channel's: on Gi1/0/3, set `switchport trunk allowed vlan 10,20,30` (the same list as Po1). Alternatively, `default interface Gi1/0/3`, re-apply the same trunk settings as Po1, then `channel-group 1 mode active`.
 
 > **Best practice:** configure the **port-channel interface**, not the members. Settings applied to `interface Port-channel1` are pushed to every member, so they can't drift apart.
+
+**📝 Exam-style questions — 3.6**
+
+**Q1.** Refer to the exhibit. Po1 is a trunk allowing VLANs 10, 20 and 30, and the trunk must keep carrying only those VLANs. What should the engineer do?
+
+```
+%EC-5-CANNOT_BUNDLE2: Gi1/0/3 is not compatible with Po1 and will be suspended
+(vlan mask is different)
+```
+
+- **A.** Change Gi1/0/3's channel-group mode from `active` to `on`.
+- **B.** Configure `switchport trunk allowed vlan 10,20,30` on Gi1/0/3 so it matches Po1.
+- **C.** Raise Gi1/0/3's LACP port priority.
+- **D.** Remove the allowed VLAN list from Po1.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** "vlan mask is different" means the member's allowed VLAN list differs from the port-channel's. Making it match lets the member bundle. **Why not the others:** forcing `on` (A) doesn't fix the mismatch and removes the safety check. Port priority (C) only picks active members among compatible ones. Removing Po1's list (D) would make the trunk carry every VLAN, which the requirement forbids.
+</details>
+
+**Q2.** Which two settings must match on every member and on the port-channel for a member to bundle? (Choose two.)
+
+- **A.** Interface description
+- **B.** Speed and duplex
+- **C.** LACP port priority
+- **D.** Native VLAN and allowed VLAN list on a trunk
+- **E.** CDP enabled or disabled
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** The bundle acts as one interface, so anything that changes how a frame is forwarded must be identical, including speed and duplex, access or trunk mode, VLAN settings and the Layer 2/Layer 3 personality. **Why not the others:** a description (A) and CDP (E) don't affect forwarding. Port priority (C) is *meant* to differ: it's how LACP picks which members are active.
+</details>
+
+**Q3.** Why does a switch suspend a member whose allowed VLAN list differs from the rest of the bundle, rather than bundle it anyway?
+
+- **A.** Because LACP can only carry one VLAN per member.
+- **B.** Because the member would run at a different speed.
+- **C.** Because flows are hashed per member, a frame for a VLAN the member doesn't allow would vanish, giving "some conversations work, others don't".
+- **D.** Because STP would block the member anyway.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The switch picks a member for each flow by hash. If one member can't carry VLAN 30, only the VLAN 30 flows that happen to hash to it would fail, which is a nightmare to troubleshoot. Suspending the odd member avoids an inconsistent link. **Why not the others:** LACP members carry every allowed VLAN (A). VLAN lists don't affect speed (B). STP sees the bundle as one port (D).
+</details>
 
 ## 3.7 Reading `show etherchannel summary`
 
@@ -999,6 +1938,51 @@ Time since last port bundled:    0d:02h:11m:32s    Gi1/0/2
 
 The **Load** column is the hash-bucket bitmap each member owns (CCNA guide 10.4): two members split the 8 buckets 4 and 4. "Time since last port bundled/unbundled" is a quick way to spot a member that keeps flapping in and out of the bundle.
 
+**📝 Exam-style questions — 3.7**
+
+**Q1.** Refer to the exhibit. What is the most likely reason Po2 is down?
+
+```
+Group  Port-channel  Protocol    Ports
+------+-------------+-----------+------------------------------------------
+1      Po1(SU)         LACP      Gi1/0/1(P)  Gi1/0/2(P)  Gi1/0/3(s)
+2      Po2(SD)         LACP      Gi1/0/5(I)  Gi1/0/6(I)
+```
+
+- **A.** Gi1/0/5 and Gi1/0/6 have a configuration that differs from Po2.
+- **B.** Gi1/0/5 and Gi1/0/6 are physically down.
+- **C.** Po2 has more than 8 members, so the extra members are in hot-standby.
+- **D.** No LACPDUs are arriving from a partner: the far side isn't configured for LACP, or both sides are `passive`.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `(I)` means stand-alone: the member hears no LACP partner, so it runs as an individual port and the port-channel stays down. **Why not the others:** a config mismatch shows `(s)`, suspended (A), as on Gi1/0/3. A physically down member shows `(D)` (B). Hot-standby shows `(H)` (C).
+</details>
+
+**Q2.** In `show lacp neighbor`, Gi1/0/1 and Gi1/0/2 show two different Dev IDs. The far side is not a stack or StackWise Virtual pair. What does this tell you?
+
+- **A.** The two members are cabled to two different switches, so they can't bundle together.
+- **B.** The partner is in passive mode.
+- **C.** The partner uses a different LACP rate on each port.
+- **D.** This is normal; every member always reports a different Dev ID.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Dev ID is the partner's LACP system ID. Members bundled together must all lead to one system, so two IDs mean two separate switches. **Why not the others:** passive mode shows as the `P` flag (B). LACP rate shows as the `S`/`F` flag (C). Members of one bundle normally all show the same Dev ID (D).
+</details>
+
+**Q3.** A port-channel has 10 LACP members configured, and two of them show the `(H)` flag. What does this mean?
+
+- **A.** The two members have a configuration mismatch.
+- **B.** The two members are err-disabled.
+- **C.** Only 8 members can be active, so the two are LACP hot-standby members that carry no traffic until an active member fails.
+- **D.** The two members are running PAgP instead of LACP.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** LACP allows up to 16 members but only 8 active. The rest wait as hot-standby, which is normal by design. **Why not the others:** a mismatch shows `(s)` (A). Err-disabled ports show as down (B). LACP and PAgP members can't be mixed in one channel (D).
+</details>
+
 ## 3.8 LACP Tuning Worth Knowing
 
 ```
@@ -1051,6 +2035,64 @@ SW1(config-if)# ip address 10.0.0.1 255.255.255.252 ! the IP lives here, never o
 
 In `show etherchannel summary` a healthy Layer 3 bundle shows **`Po10(RU)`**. **Why must you add `no switchport` to the members before `channel-group`?** Because the port-channel interface is created with the same Layer 2/Layer 3 personality as the first member added. Add Layer 2 members and you get a Layer 2 port-channel. Then a later `no switchport` on the port-channel conflicts with its members and they suspend. *Decide the layer first, then bundle.*
 
+**📝 Exam-style questions — 3.8**
+
+**Q1.** SW1 and SW2 are joined by 10 LACP links. SW1 has `lacp system-priority 100`, and SW2 is at the default. On SW1, Gi1/0/1–8 have `lacp port-priority 100` and Gi1/0/9–10 are at the default. Which links are active?
+
+- **A.** Whichever 8 links SW2 chooses, because the switch with the higher system priority value decides
+- **B.** Gi1/0/1–8, because SW1 has the lower system priority and prefers its ports with the lower port priority
+- **C.** Gi1/0/3–10, because the highest port numbers win
+- **D.** All 10, because LACP has no limit on active members
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The switch with the lower system priority value (SW1, 100 vs 32768) decides, and it picks its members with the lowest port priority values. Gi1/0/9–10 become hot-standby. **Why not the others:** in LACP, lower values win (A). Port number is only a tiebreaker when port priorities are equal, and lower wins there too (C). Only 8 members can be active (D).
+</details>
+
+**Q2.** A routed path between two buildings runs over a four-member port-channel. Three members fail, and the routing protocol keeps sending the full load over the one remaining link, which congests. Which feature makes routing move traffic to another path instead?
+
+- **A.** `lacp rate fast`
+- **B.** `lacp port-priority`
+- **C.** `port-channel load-balance src-dst-ip`
+- **D.** `port-channel min-links 2`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** With `min-links 2`, the port-channel goes down when fewer than two members are bundled, so the routing protocol sees the link fail and moves traffic to a better path. **Why not the others:** fast LACP (A) only speeds up detection of a broken member. Port priority (B) chooses active members. The hash method (C) spreads flows but can't add capacity.
+</details>
+
+**Q3.** An engineer configures a Layer 3 EtherChannel as shown. The members end up suspended. What went wrong?
+
+```
+SW1(config)# interface range Gi1/0/49 - 50
+SW1(config-if-range)# channel-group 10 mode active
+SW1(config)# interface Port-channel10
+SW1(config-if)# no switchport
+SW1(config-if)# ip address 10.0.0.1 255.255.255.252
+```
+
+- **A.** The IP address must be configured on each member, not on the port-channel.
+- **B.** The members were added while still Layer 2, so Po10 was created as Layer 2; making only Po10 Layer 3 conflicts with its members.
+- **C.** Layer 3 EtherChannels can only use mode `on`.
+- **D.** The subnet mask must be /31 on a port-channel.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A port-channel takes the Layer 2/Layer 3 personality of the first member added. The fix is `no switchport` on the members *before* `channel-group`, with the IP on the port-channel only. **Why not the others:** the IP belongs on the port-channel, never on the members (A). LACP works for Layer 3 bundles (C). /30 is a valid mask (D).
+</details>
+
+**Q4.** One fiber strand in an LACP bundle breaks, so traffic flows in one direction only. With default LACP timers, roughly how long can LACP take to notice, and what reduces it to about 3 seconds?
+
+- **A.** About 90 seconds; `lacp rate fast`
+- **B.** About 30 seconds; `lacp system-priority 1`
+- **C.** About 10 seconds; `port-channel min-links 1`
+- **D.** About 90 seconds; `spanning-tree portfast`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Slow-rate LACPDUs are sent every 30 seconds, and three missed ones (90 s) are needed to time out. `lacp rate fast` asks for LACPDUs every second, so detection takes about 3 seconds. **Why not the others:** B and C give the wrong timing and commands that don't affect detection. PortFast (D) is for edge ports and has nothing to do with LACP.
+</details>
+
 ## 3.9 Troubleshooting Summary — Symptom → Cause → Proof
 
 | Symptom | Likely cause | Command that proves it |
@@ -1068,6 +2110,32 @@ In `show etherchannel summary` a healthy Layer 3 bundle shows **`Po10(RU)`**. **
 | Bundle up but one flow can't exceed one link's speed | Normal per-flow hashing | `show etherchannel load-balance`; `test etherchannel load-balance` |
 
 *Two commands answer most Layer 2 link questions: `show interfaces trunk` for VLANs, `show etherchannel summary` for bundles. Learn to read every line of both.*
+
+**📝 Exam-style questions — 3.9**
+
+**Q1.** Overnight, VLANs disappeared from every switch in the campus and users across the site lost connectivity. Which command most directly proves the cause?
+
+- **A.** `show interfaces trunk`
+- **B.** `show etherchannel summary`
+- **C.** `show vtp status`, checking the configuration revision and "last modified by"
+- **D.** `show spanning-tree inconsistentports`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** VLANs vanishing across many switches at once is the VTP revision-number overwrite. `show vtp status` shows the revision and which device last changed the database. **Why not the others:** `show interfaces trunk` (A) would show the symptom on one trunk, not the cause. B is for bundles. D shows STP inconsistencies such as a native VLAN mismatch, which affects one trunk, not every switch.
+</details>
+
+**Q2.** A user complains that a large file transfer never goes faster than 1 Gbps, even though it crosses a healthy 4 × 1 Gbps EtherChannel. What is the explanation?
+
+- **A.** One member is suspended.
+- **B.** EtherChannel hashes each flow to one member, so a single flow can never exceed one link's speed. This is normal.
+- **C.** LACP rate fast must be enabled to use all members.
+- **D.** The port-channel is in hot-standby.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Load balancing is per flow, not per packet, so one conversation always uses one member (that keeps its packets in order). `test etherchannel load-balance` shows which member a flow uses. **Why not the others:** the bundle is healthy (A, D). The LACP rate (C) only affects how fast failures are detected.
+</details>
 
 ---
 
@@ -1160,6 +2228,56 @@ Option 2 is the more common real-world fix because it acts earlier in the decisi
 
 > **Exam trap:** setting `port-priority` on ACC1's own uplinks does **nothing** to ACC1's root-port choice. ACC1 compares the priorities *DIST-1* advertises, not its own.
 
+**📝 Exam-style questions — 4.1**
+
+**Q1.** Three switches run Rapid PVST+. For VLAN 10: DIST-1 has priority 24576 and MAC 7c21.0e5a.1b00, DIST-2 has priority 28672 and MAC 7c21.0e5a.2c00, and ACC-old has the default priority and MAC 0011.2233.4455. Which switch is root for VLAN 10?
+
+- **A.** ACC-old, because it has the lowest MAC address
+- **B.** DIST-2, because it has the highest priority value
+- **C.** DIST-1, because its bridge priority (24586) is the lowest, and priority is compared before MAC
+- **D.** No root is elected until the priorities are unique per VLAN
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The bridge ID is priority plus VLAN number (24576 + 10 = 24586), then MAC as a tiebreak. The lowest bridge ID wins, and DIST-1's priority is lowest. **Why not the others:** MAC (A) only matters when priorities tie, which is how ACC-old would have won with every switch left at default. A higher value (B) loses. STP always elects a root (D).
+</details>
+
+**Q2.** The current root for VLAN 20 has priority 24576. An engineer then enters `spanning-tree vlan 20 root primary` on DIST-2. What priority does the macro write?
+
+- **A.** 24576
+- **B.** 20480
+- **C.** 0
+- **D.** 4096
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `root primary` writes 24576, unless the current root is already at 24576 or lower, in which case it writes a value 4096 lower than the current root: 24576 − 4096 = 20480. **Why not the others:** 24576 (A) would only tie the root. 0 (C) and 4096 (D) aren't what the macro calculates. The macro runs once; a switch with a lower priority joining later will still win, which is why fixed priorities are more deterministic.
+</details>
+
+**Q3.** ACC1 has two uplinks to the root, DIST-1: Gi1/0/1 connects to DIST-1 Gi1/0/10 and Gi1/0/2 connects to DIST-1 Gi1/0/11. Both have equal cost, and Gi1/0/1 is the root port. An engineer configures `spanning-tree vlan 10 port-priority 64` on ACC1 Gi1/0/2. What changes?
+
+- **A.** Gi1/0/2 becomes the root port, because 64 beats 128.
+- **B.** Both uplinks forward, because their priorities now differ.
+- **C.** Gi1/0/1 becomes an alternate port and Gi1/0/2 a backup port.
+- **D.** Nothing, because ACC1 compares the port priorities that DIST-1 advertises, not its own.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Port priority is compared as the *sender's* port ID, which comes from the upstream switch in the BPDU. To use Gi1/0/2, set port priority on DIST-1 Gi1/0/11, or lower the cost on ACC1 Gi1/0/2. **Why not the others:** A is the exact trap the guide warns about. STP never lets two paths to the root forward (B). Port roles don't change (C), because nothing in the comparison changed.
+</details>
+
+**Q4.** ACC1 reaches the root either over a direct 1 Gbps link or over two 10 Gbps hops. With the short (802.1D-1998) cost method, ACC1 chooses the slow direct link. Why, and what fixes it?
+
+- **A.** Short costs make both paths cost 4, and the tie is broken by the lowest sender bridge ID (the root itself). Using `spanning-tree pathcost method long` everywhere makes the 10 Gbps path cost 4,000 vs 20,000.
+- **B.** Short costs prefer fewer hops. Raising the priority on ACC2 fixes it.
+- **C.** STP always prefers a direct link to the root. Only port priority can override it.
+- **D.** The 10 Gbps links are in half duplex. Forcing point-to-point fixes it.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Under short costs, 1 Gbps = 4 and 10 Gbps = 2, so 2 + 2 ties with 4. The next tiebreaker is the sender bridge ID, and the direct link's BPDUs come from the root. Long costs (20,000 vs 2,000 + 2,000) clearly prefer the faster path. **Why not the others:** STP compares total cost, not hop count (B, C). Duplex (D) affects link type, not cost.
+</details>
+
 ## 4.2 RSTP Behaviors You Need for Troubleshooting
 
 **The problem this solves:** classic 802.1D STP waits out timers before it lets a port forward: 15 s listening plus 15 s learning, and up to 20 s more to notice a failure. That's 30–50 seconds of outage every time the topology changes. RSTP (Rapid STP) gets the same loop-free result in well under a second.
@@ -1237,6 +2355,60 @@ A rapidly climbing TC count with a recent `from` interface leads you straight to
 ### Interop With Legacy STP
 
 RSTP is backward compatible **per port**: if a port hears an 802.1D BPDU, that port falls back to 802.1D behavior and timers. It's correct, just slow, so a single old switch can make part of your network converge in 30–50 seconds again.
+
+**📝 Exam-style questions — 4.2**
+
+**Q1.** Refer to the exhibit. Which statement is true?
+
+```
+SW1# show spanning-tree vlan 10
+Interface           Role Sts Cost      Prio.Nbr Type
+------------------- ---- --- --------- -------- -----------------------
+Gi1/0/1             Root FWD 4         128.1    P2p
+Gi1/0/2             Altn BLK 4         128.2    P2p
+Gi1/0/10            Desg FWD 4         128.10   P2p Edge
+Gi1/0/24            Desg FWD 19        128.24   Shr
+```
+
+- **A.** Gi1/0/2 will wait 30 seconds before forwarding if Gi1/0/1 fails.
+- **B.** Gi1/0/24 is treated as a shared link, so it can't use the fast proposal/agreement handshake and would fall back to timers.
+- **C.** Gi1/0/10 generates a topology change every time it goes up.
+- **D.** Gi1/0/1 is a backup port for Gi1/0/2.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `Shr` means the link type is shared. RSTP infers that from half duplex (or it was set with `spanning-tree link-type shared`), and the handshake only works on point-to-point links. Fix the duplex or force `spanning-tree link-type point-to-point` if the link is really full duplex. **Why not the others:** an alternate port moves straight to forwarding (A). Edge ports never generate topology changes (C). Gi1/0/1 is the root port; Gi1/0/2 is the alternate (D).
+</details>
+
+**Q2.** During RSTP's proposal/agreement handshake on a new uplink, ACC2 receives a proposal from the root on Gi1/0/1. What does ACC2 do before it sends the agreement?
+
+- **A.** It waits for two forward-delay periods (30 seconds).
+- **B.** It puts every port, including edge ports, into discarding.
+- **C.** It sends a topology change to every switch in the VLAN.
+- **D.** It runs *sync*: it puts all its non-edge designated ports into discarding, so the new path can't create a loop through it.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Sync blocks the downstream non-edge designated ports so ACC2 can safely agree. The root then moves its port straight to forwarding, and ACC2 repeats the handshake downstream. **Why not the others:** avoiding timers is the whole point of RSTP (A). Edge ports are left alone because they can't create a loop (B). The handshake itself doesn't flood a topology change first (C).
+</details>
+
+**Q3.** Users report short bursts of slowness across VLAN 10 all day. The output below is from a distribution switch. What is the most likely cause?
+
+```
+SW1# show spanning-tree vlan 10 detail | include occur|from
+  Number of topology changes 4127 last change occurred 00:00:09 ago
+          from GigabitEthernet1/0/33
+```
+
+- **A.** A flapping non-edge port downstream of Gi1/0/33 keeps triggering topology changes, which flush MAC tables and cause flooding.
+- **B.** The root bridge changes every few seconds.
+- **C.** Gi1/0/33 is err-disabled by BPDU guard.
+- **D.** The VLAN has more than 4,000 hosts.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** In RSTP, a topology change happens when a non-edge port moves to forwarding. Each one flushes MAC tables, so switches flood unicast until they relearn. Follow the `from` interface hop by hop to the access port without PortFast. **Why not the others:** root changes (B) are not what this counter shows. An err-disabled port (C) would stop flapping. The count is topology changes, not hosts (D).
+</details>
 
 ## 4.3 MST — Multiple Spanning Tree (802.1s)
 
@@ -1352,6 +2524,62 @@ The rule that keeps it working: **the root must be consistent.** Either the CIST
 
 *Best practice: when migrating to MST, put the CIST root (and all MSTI roots) in the MST core, and migrate from the core outward.*
 
+**📝 Exam-style questions — 4.3**
+
+**Q1.** Two switches have MST region name `CAMPUS` and revision 1. DIST-1 maps VLANs 20, 40 and 60 to instance 2, and ACC3 maps only VLANs 20 and 40 to instance 2. What happens?
+
+- **A.** They form one region, and VLAN 60 falls back to instance 0 on ACC3 only.
+- **B.** An error is logged and the link is err-disabled.
+- **C.** They are in different regions, so the link becomes a boundary port and MSTI load balancing is lost at that link.
+- **D.** ACC3 automatically learns the mapping from DIST-1.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Name, revision and the whole VLAN-to-instance table must all match. A different table gives a different configuration digest, so the switches see different regions. Nothing is logged; the only sign is `Boundary` / `Bound(RSTP)` and every MSTI following the CIST role on that port. **Why not the others:** one region requires identical mappings (A). There is no error or err-disable (B). MST doesn't learn mappings from neighbors (D); VTPv3 can propagate them, but that's a separate feature.
+</details>
+
+**Q2.** Refer to the exhibit. Why is the bridge priority shown as 24577?
+
+```
+SW# show spanning-tree mst 1
+##### MST1    vlans mapped:   10,30,50
+Bridge        address 7c21.0e5a.1b00  priority      24577 (24576 sysid 1)
+```
+
+- **A.** The extended system ID carries the MST instance number (1), which is added to the configured priority of 24576.
+- **B.** The extended system ID carries the lowest mapped VLAN, which is 1.
+- **C.** MST always adds 1 to the configured priority.
+- **D.** The priority was configured as 24577.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** In PVST+ the system ID is the VLAN number. In MST it is the instance number, so instance 1 gives 24576 + 1. **Why not the others:** the lowest mapped VLAN is 10, not 1 (B). There's no fixed +1 (C). Priorities can only be set in steps of 4096 (D).
+</details>
+
+**Q3.** Why does MST scale better than Rapid PVST+ in a campus with 500 VLANs?
+
+- **A.** MST uses short path costs, which are faster to calculate.
+- **B.** MST doesn't send BPDUs on trunks.
+- **C.** MST runs one instance per VLAN, but more efficiently.
+- **D.** MST runs only a few instances, each serving many VLANs, and sends one BPDU per port that carries every instance's information.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Rapid PVST+ would run 500 RSTP instances, with 500 BPDUs per trunk every 2 seconds. Most campuses have only two or three distinct topologies, so MST maps the VLANs onto a few instances and carries them as M-records inside one BPDU. **Why not the others:** MST always uses long costs (A). It does send BPDUs, from the IST (B). C describes PVST+.
+</details>
+
+**Q4.** An MST region connects to a PVST+ switch. The PVST+ switch is root for VLAN 20 but not for VLAN 10. What happens at the boundary port?
+
+- **A.** It runs normally, because PVST simulation handles split roots.
+- **B.** It goes into a PVST simulation inconsistent state and blocks.
+- **C.** It becomes an edge port.
+- **D.** It converts the PVST+ switch to MST.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** PVST simulation needs a consistent root: either the CIST root inside the MST region is better than every PVST+ VLAN root, or the PVST+ side holds the root for all VLANs. A split root makes the boundary port inconsistent. **Why not the others:** split roots are exactly what PVST simulation can't handle (A). Edge status (C) is for host ports. MST can't reconfigure another switch (D). Best practice: put the CIST root in the MST core and migrate outward.
+</details>
+
 ## 4.4 Edge Ports: PortFast Done Right
 
 **The problem this solves:** a port facing a PC can't create a loop, but STP doesn't know that. Without PortFast, the switch treats a freshly connected PC like a possible switch and makes it wait. PortFast tells STP "only an end host lives here".
@@ -1378,6 +2606,44 @@ SW(config)# spanning-tree portfast default         ! all ACCESS ports become edg
 **Why does `portfast trunk` exist when PortFast is supposed to be for hosts?** Because some hosts use trunks: a server running a hypervisor with VMs in several VLANs, or a router-on-a-stick. Those endpoints still can't form a switching loop, so the port is safe to treat as an edge port — but plain `spanning-tree portfast` is ignored on a trunk, so you have to say so explicitly.
 
 An edge port that **receives a BPDU** immediately loses its edge status and becomes a normal STP port. That's a safety net, but a weak one: the port has already been forwarding. BPDU guard turns that into a hard stop.
+
+**📝 Exam-style questions — 4.4**
+
+**Q1.** A laptop is plugged into a Rapid PVST+ access port that is not configured as an edge port. The user says the network takes about 30 seconds to work, and sometimes the laptop gets a 169.254.x.x address. Why?
+
+- **A.** The laptop doesn't run STP, so it never answers the proposal. RSTP falls back to timers (15 s discarding plus 15 s learning), and DHCP requests are lost meanwhile.
+- **B.** The port is err-disabled for 30 seconds by BPDU guard.
+- **C.** Root guard blocks the port until the laptop sends a BPDU.
+- **D.** The access port runs half duplex.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Without an agreement, RSTP can't use the fast handshake, so the port waits two forward-delay periods. DHCP fails during that time and some clients self-assign an address. `spanning-tree portfast` makes the port forward as soon as the link is up. **Why not the others:** BPDU guard (B) err-disables only when a BPDU arrives, and the port stays down. Root guard (C) reacts to superior BPDUs. Duplex (D) isn't the cause described.
+</details>
+
+**Q2.** A server runs a hypervisor with VMs in VLANs 10, 20 and 30, connected to a trunk port. The engineer wants the port to forward immediately at link-up. Which command does this?
+
+- **A.** `spanning-tree portfast`
+- **B.** `spanning-tree portfast default`
+- **C.** `spanning-tree portfast trunk`
+- **D.** `spanning-tree bpdufilter enable`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A hypervisor can't create a switching loop, so its trunk is safe as an edge port. Plain `spanning-tree portfast` is ignored on trunks, so you need the `trunk` keyword (`portfast edge trunk` on IOS XE 16 and later). **Why not the others:** A is ignored on a trunk. B is global and applies only to access ports. D turns STP off on the port, which is dangerous.
+</details>
+
+**Q3.** Why is putting PortFast on every host port the strongest defense against network-wide flooding from flapping access ports?
+
+- **A.** PortFast ports never send BPDUs.
+- **B.** Edge ports never generate topology changes, so a flapping host port doesn't flush MAC tables across the VLAN.
+- **C.** PortFast enables BPDU guard automatically.
+- **D.** PortFast lowers the port's path cost.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A non-edge port moving to forwarding triggers a topology change that flushes MAC tables everywhere, causing flooding. Edge ports are exempt. **Why not the others:** PortFast ports do send BPDUs (A). BPDU guard is a separate feature, enabled with `portfast bpduguard default` (C). Cost (D) doesn't change.
+</details>
 
 ## 4.5 The Enhancements, One by One
 
@@ -1506,6 +2772,57 @@ UDLD must run on **both ends** of the link. The default message interval is 15 s
 
 **Why run both?** Because they catch different failures. UDLD catches a broken fiber strand even on a link STP isn't blocking, and can disable just one member of an EtherChannel. Loop guard catches BPDU loss from causes UDLD can't see — a software bug, a congested CPU dropping BPDUs. *Belt and braces for the one failure STP can't detect on its own.*
 
+**📝 Exam-style questions — 4.5**
+
+**Q1.** A user plugs a desk switch into PortFast port Gi1/0/10, which has BPDU guard enabled. What happens, and how is the port restored?
+
+- **A.** The port goes root-inconsistent and recovers when the BPDUs stop.
+- **B.** The port loses edge status and runs normal STP.
+- **C.** The port goes loop-inconsistent and recovers automatically.
+- **D.** The port is err-disabled. It stays down until `shutdown`/`no shutdown`, or until err-disable recovery for `bpduguard` brings it back.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Any BPDU on a BPDU guard port err-disables it (`%SPANTREE-2-BLOCK_BPDUGUARD`). Err-disable recovery is off by default, so the port stays down unless `errdisable recovery cause bpduguard` is configured. **Why not the others:** A is root guard. B is what PortFast alone does when a BPDU arrives. C is loop guard.
+</details>
+
+**Q2.** DIST-1 is root for VLAN 10 with priority 24576. A technician connects a lab switch with priority 0 to access switch ACC5. Which feature, on which port, stops the lab switch becoming root?
+
+- **A.** BPDU guard on DIST-1's uplink to the core
+- **B.** Root guard on DIST-1's designated downlink to ACC5
+- **C.** Loop guard on ACC5's root port
+- **D.** UDLD aggressive on DIST-1's downlink to ACC5
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Root guard goes on designated ports facing switches that should never be on the path to the root. A superior BPDU puts the port into root-inconsistent state for that VLAN, and it recovers when the BPDUs stop. **Why not the others:** the core uplink (A) is the wrong place, and BPDU guard on a switch-to-switch link would err-disable it. Loop guard (C) reacts to BPDUs *stopping*. UDLD (D) detects one-way links.
+</details>
+
+**Q3.** ACC1's alternate port Gi1/0/2 to DIST-2 stops receiving BPDUs because one fiber strand broke, while the port stays up. Without any guard, what happens, and which feature prevents it?
+
+- **A.** ACC1 ages out the BPDU, makes Gi1/0/2 designated and forwarding, and a loop forms. Loop guard puts the port into loop-inconsistent state instead.
+- **B.** The port goes err-disabled immediately. Root guard prevents it.
+- **C.** Nothing happens, because an alternate port never changes role. No feature is needed.
+- **D.** ACC1 becomes root. BPDU guard prevents it.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** STP treats silence as "nobody's there", so after 3 missed hellos (6 s in RSTP) ACC1 forwards on a link whose far end is also forwarding. Loop guard on root and alternate ports blocks instead, and recovers when BPDUs return. UDLD would also catch this one-way fiber. **Why not the others:** nothing err-disables the port by default (B). Alternate ports do change role when BPDUs stop (C). ACC1 still hears the real root on its root port (D).
+</details>
+
+**Q4.** Which two statements about these enhancements are true? (Choose two.)
+
+- **A.** Root guard and loop guard can be enabled together on the same interface.
+- **B.** Interface-level `spanning-tree bpdufilter enable` stops sending BPDUs and ignores received ones, effectively turning STP off on that port.
+- **C.** If BPDU guard and BPDU filter are both on one port, BPDU guard wins and the port err-disables.
+- **D.** UDLD must be enabled on both ends of the link.
+- **E.** Root guard err-disables the port when a superior BPDU arrives.
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** Interface BPDU filter is the dangerous form, and UDLD only works when both ends echo each other's identity. **Why not the others:** root guard (designated ports) and loop guard (root/alternate ports) protect opposite roles, and IOS refuses both on one port (A). With both filter and guard, the filter drops BPDUs before guard sees them (C). Root guard makes the port root-inconsistent, not err-disabled (E).
+</details>
+
 ## 4.6 The Complete Guard Map
 
 **The problem this solves:** each guard belongs on a specific kind of port, and the exam loves putting the right feature in the wrong place. This table is the one-page answer: which port, what triggers it, what happens, how it recovers.
@@ -1531,6 +2848,32 @@ SW# show errdisable recovery                ! which causes auto-recover and the 
 ```
 
 *The pattern behind every enhancement: STP trusts BPDUs completely. Each guard adds one rule about when a BPDU — or its absence — should be distrusted.*
+
+**📝 Exam-style questions — 4.6**
+
+**Q1.** Which feature belongs on root and alternate ports, triggers when BPDUs stop arriving, and recovers automatically?
+
+- **A.** BPDU guard
+- **B.** Loop guard
+- **C.** Root guard
+- **D.** UDLD aggressive
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Loop guard protects the ports that receive BPDUs and puts them in loop-inconsistent state if BPDUs stop, then recovers when they resume. **Why not the others:** BPDU guard (A) is for edge ports, triggers on any BPDU, and err-disables. Root guard (C) is for designated ports and triggers on superior BPDUs. UDLD aggressive (D) err-disables the whole port.
+</details>
+
+**Q2.** An engineer wants one command that shows ports blocked as root-inconsistent, loop-inconsistent or PVID-inconsistent. Which command is it?
+
+- **A.** `show interfaces status err-disabled`
+- **B.** `show errdisable recovery`
+- **C.** `show spanning-tree summary`
+- **D.** `show spanning-tree inconsistentports`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Inconsistent states aren't err-disable; the port stays up but blocked for the affected VLANs, and this command lists them all. **Why not the others:** A shows err-disabled ports, such as BPDU guard and UDLD victims. B shows which err-disable causes recover automatically. C shows the STP mode and global defaults.
+</details>
 
 ---
 
@@ -1576,6 +2919,45 @@ The analogy breaks in one place: real routers don't "drive". The question is alw
 | Convergence | Slow (minutes) | Very fast with a feasible successor | Fast (SPF run) |
 | Scaling tool | None | Summarization anywhere, stub routers | Areas, summarization at ABR/ASBR |
 | Memory/CPU | Low | Low–moderate | Moderate–high |
+
+**📝 Exam-style questions — 5.1**
+
+**Q1.** Why is EIGRP classified as an *advanced distance vector* protocol rather than a link-state protocol?
+
+- **A.** It floods link-state advertisements, but only to directly connected neighbours.
+- **B.** It learns each destination as a neighbour's reported distance and never holds a full topology map, but it uses the feasibility condition to prove which alternatives are loop-free.
+- **C.** It sends its full routing table periodically, but also sends triggered updates when a link fails.
+- **D.** It runs Dijkstra's algorithm, but only over the routes learned from its successors.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** EIGRP still works like distance vector: it only knows "neighbour X says the destination is this far away, and my link to X costs this much". It never sees the map. What makes it *advanced* is DUAL's feasibility condition, which proves a backup can't loop. **Why not the others:** A describes link-state flooding, which EIGRP doesn't do. C describes RIP-style periodic updates; EIGRP sends only changes. D is wrong because EIGRP never runs Dijkstra; that's OSPF's SPF.
+</details>
+
+**Q2.** Which two statements correctly describe a link-state protocol such as OSPF, compared with EIGRP? (Choose two.)
+
+- **A.** Every router in an area holds an identical link-state database.
+- **B.** Routers accept a neighbour's computed distance to a destination without checking it.
+- **C.** Each router computes its own paths by running SPF with itself as the root.
+- **D.** Routers send their entire routing table to neighbours every 30 seconds.
+- **E.** The protocol scales to very large networks without any hierarchy.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** In OSPF every router in an area stores the same LSDB (the shared "map") and runs SPF on it with itself at the root. **Why not the others:** B describes classic distance vector (RIP), where you trust the neighbour's answer. D is RIP's periodic full-table update. E is the opposite of the truth: because every router stores the whole area and reruns SPF on changes, OSPF needs **areas** to scale.
+</details>
+
+**Q3.** Why does OSPF need areas to scale to a large network, while EIGRP does not?
+
+- **A.** OSPF can only form 16 adjacencies per area.
+- **B.** EIGRP automatically summarizes at every router, so its tables never grow.
+- **C.** OSPF's hello packets are flooded through the whole domain, while EIGRP's are link-local.
+- **D.** Every OSPF router stores the full database of its area and reruns SPF when anything in it changes, so memory and CPU grow with the area's size.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The price of link state's complete view is that every router holds and recalculates the whole map. Areas cap how big that map gets. EIGRP never holds a map, only neighbours' distances, so it limits change with summarization and stub routers instead. **Why not the others:** A is an invented limit. B is wrong because EIGRP summarizes only where you configure it (auto-summary has been off by default since IOS 15.0). C is wrong because OSPF hellos are link-local too (224.0.0.5).
+</details>
 
 ---
 
@@ -1626,6 +3008,54 @@ R1 (10.0.12.1) and R2 (10.0.12.2) share the link 10.0.12.0/24 and both run `rout
 - Matching **authentication**, if configured.
 
 Hello and hold timers **don't** have to match — each router simply tells its neighbour how long to wait. That's a classic difference from OSPF, where mismatched hello/dead timers block the adjacency.
+
+**📝 Exam-style questions — 5.2**
+
+**Q1.** Why does EIGRP use its own Reliable Transport Protocol (RTP) for Update, Query and Reply packets?
+
+- **A.** Because EIGRP sends updates only once, when something changes, so a lost update would never be corrected unless delivery is guaranteed.
+- **B.** Because EIGRP runs over UDP port 520, which has no acknowledgements.
+- **C.** Because RTP encrypts routing updates between neighbours.
+- **D.** Because Hello packets must be acknowledged to keep the neighbour up.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** RIP can afford to lose an update because a full copy arrives again 30 seconds later. EIGRP sends only partial, triggered updates and never repeats them, so it needs sequence numbers and acknowledgements to make sure each one arrives. **Why not the others:** B is wrong because EIGRP is its own IP protocol (88), not UDP; UDP 520 is RIP. C is wrong because RTP provides reliability, not encryption. D is wrong because Hellos are deliberately *not* acknowledged.
+</details>
+
+**Q2.** Refer to the exhibit. R1 and R2 are EIGRP neighbours on GigabitEthernet0/0. An engineer changed only R2. Since then the adjacency goes down and up repeatedly. What is the cause?
+
+```
+R2(config)# interface GigabitEthernet0/0
+R2(config-if)# ip hello-interval eigrp 100 20
+
+R1# show logging | include DUAL
+%DUAL-5-NBRCHANGE: EIGRP-IPv4 100: Neighbor 10.0.12.2 (Gi0/0) is down: holding time expired
+%DUAL-5-NBRCHANGE: EIGRP-IPv4 100: Neighbor 10.0.12.2 (Gi0/0) is up: new adjacency
+```
+
+- **A.** The hello intervals no longer match, and EIGRP requires matching hello intervals.
+- **B.** The K-values changed when the hello interval was changed.
+- **C.** R1 rejects R2's hellos because they now arrive from a different subnet.
+- **D.** R2 still advertises a 15-second hold time but now sends hellos only every 20 seconds, so R1's hold timer expires between hellos.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** EIGRP doesn't change the hold time when you change the hello interval. R2 tells R1 "wait 15 seconds for me", then stays silent for 20. R1 drops the neighbour, the next hello brings it back, and it flaps. The fix is `ip hold-time eigrp 100 60` on R2. **Why not the others:** A is wrong because EIGRP timers don't have to match between neighbours (that's an OSPF rule). B is wrong because the hello interval isn't a K-value. C is wrong because the interface address didn't change.
+</details>
+
+**Q3.** Which two items must match before two routers can form an EIGRP neighbour relationship? (Choose two.)
+
+- **A.** The hello interval
+- **B.** The autonomous system number
+- **C.** The hold time
+- **D.** The EIGRP router ID
+- **E.** The K-values
+
+<details><summary>Answer</summary>
+
+**Answer: B, E.** Neighbours must share the AS number, the K-values, the subnet on the link and any authentication. **Why not the others:** A and C don't have to match, because each router tells the other how long to wait for it. D must actually be *different*; it identifies each router, so it doesn't need to match.
+</details>
 
 ---
 
@@ -1697,6 +3127,70 @@ P 10.9.9.0/24, 1 successors, FD is 3072
 
 Each `via` line shows **(total metric / reported distance)**. The first line is the successor (3072 = FD). The second has RD 2816 < FD 3072, so it's a feasible successor — that's why it's listed at all. **`show ip eigrp topology` only shows successors and feasible successors**; to see every path EIGRP heard, including ones that failed the feasibility test, use `show ip eigrp topology all-links`.
 
+**📝 Exam-style questions — 5.3**
+
+**Q1.** Refer to the exhibit. R1 has these paths to 10.20.0.0/16. Which statement is correct?
+
+```
+Neighbour   Reported distance   Total metric via that neighbour
+R2          3000                5000
+R3          4500                6000
+R4          5200                5500
+```
+
+- **A.** R2 is the successor, and R3 and R4 are both feasible successors.
+- **B.** R2 is the successor, and R3 is the only feasible successor.
+- **C.** R2 is the successor, and R4 is the only feasible successor because its total is lower than R3's.
+- **D.** R2 is the successor, and there is no feasible successor.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The lowest total is via R2, so R2 is the successor and FD = 5000. A neighbour is a feasible successor only if its reported distance is lower than the FD. R3 reports 4500 < 5000, so it qualifies. R4 reports 5200, which is not below 5000, so it doesn't. **Why not the others:** A and C fail because R4's RD is too high, and a better *total* metric doesn't matter for the feasibility test. D is wrong because R3 passes the test.
+</details>
+
+**Q2.** Why does a neighbour's reported distance being lower than your feasible distance prove that its path doesn't loop back through you?
+
+- **A.** Because a lower reported distance means the neighbour has more bandwidth than you.
+- **B.** Because RTP drops any update whose reported distance is higher than the receiver's FD.
+- **C.** Because any path that runs through you must include your own distance, so it could never be shorter than your FD.
+- **D.** Because the neighbour runs SPF and checks for loops before it advertises the route.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** If the neighbour's path went through you, its distance would be your FD plus something more, so it would be *larger* than your FD. A neighbour who is closer to the destination than you are can't be routing via you. **Why not the others:** A confuses distance with bandwidth. B is invented; RTP is about reliable delivery, not filtering. D is wrong because EIGRP doesn't run SPF.
+</details>
+
+**Q3.** The successor for 10.9.9.0/24 fails, and R1 has no feasible successor for it. What does R1 do next?
+
+- **A.** It installs the next-best path from its topology table immediately.
+- **B.** It starts a hold-down timer and waits for a periodic update.
+- **C.** It reruns SPF on its topology table to find a new path.
+- **D.** It marks the route active and sends Queries to its neighbours, then waits for a Reply from every one before choosing a new path.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** With no pre-approved backup, the route goes **active** and DUAL "diffuses" a Query to the neighbours. Only when every queried neighbour has replied does R1 pick the best answer and go passive again. If replies never arrive, the route becomes stuck in active (Chapter 26). **Why not the others:** A is wrong because a path that failed the feasibility test can't be trusted to be loop-free, so it isn't used without asking. B describes RIP. C describes OSPF.
+</details>
+
+**Q4.** Refer to the exhibit. R1 has three EIGRP neighbours that all advertise 10.9.9.0/24, but only two paths are listed. Which command shows the third path?
+
+```
+R1# show ip eigrp topology
+P 10.9.9.0/24, 1 successors, FD is 3072
+        via 10.0.12.2 (3072/2816), GigabitEthernet0/1
+        via 10.0.13.3 (5632/2816), GigabitEthernet0/2
+```
+
+- **A.** `show ip eigrp topology all-links`
+- **B.** `show ip eigrp neighbors detail`
+- **C.** `show ip route eigrp`
+- **D.** `show ip eigrp topology summary`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Plain `show ip eigrp topology` lists only successors and feasible successors. The third neighbour's path failed the feasibility condition, so it's hidden. `all-links` shows every path EIGRP heard. **Why not the others:** B shows neighbours, not paths. C shows only the installed winners. D shows counts, not individual paths.
+</details>
+
 ---
 
 ## 5.4 The EIGRP Metric — K-Values, Classic and Wide
@@ -1752,6 +3246,44 @@ It's like measuring with a ruler marked only in whole metres. A 1.2 m table and 
 
 *Same idea as OSPF's reference-bandwidth problem (CCNA guide 16.6): a 1990s scale that ran out of room at modern speeds.*
 
+**📝 Exam-style questions — 5.4**
+
+**Q1.** A path to 10.30.0.0/16 crosses one FastEthernet link (bandwidth 100,000 kbps, delay 100 µs) and one GigabitEthernet link (bandwidth 1,000,000 kbps, delay 10 µs). The K-values are at their defaults. What is the classic EIGRP metric?
+
+- **A.** 3,072
+- **B.** 25,856
+- **C.** 28,160
+- **D.** 28,416
+
+<details><summary>Answer</summary>
+
+**Answer: D.** BW uses the slowest link: 10,000,000 ÷ 100,000 = 100. Delay is the sum in tens of microseconds: (100 + 10) ÷ 10 = 11. Metric = 256 × (100 + 11) = **28,416**. **Why not the others:** A is two GigabitEthernet hops. B (256 × 101) forgets the FastEthernet delay. C (256 × 110) is a single FastEthernet hop that forgets the GigabitEthernet delay.
+</details>
+
+**Q2.** Why can't classic EIGRP metrics tell a 10 Gbps path from a 100 Gbps path?
+
+- **A.** Because the bandwidth term is 10,000,000 ÷ bandwidth in kbps, which truncates to 1 or 0 at those speeds, and the smallest delay it can express is 10 µs.
+- **B.** Because classic metrics ignore bandwidth and use only delay.
+- **C.** Because the K1 value must be changed to 2 for links above 1 Gbps.
+- **D.** Because the RIB scale divides every metric by 128.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 10⁷ ÷ 10⁷ = 1 and 10⁷ ÷ 10⁸ truncates to 0, so the bandwidth term stops distinguishing fast links. Wide metrics in named mode fix this with a 64-bit calculation and picosecond delay. **Why not the others:** B is wrong because K1 = 1 includes bandwidth by default. C is invented. D describes how named mode fits its 64-bit wide metric into the routing table, not a classic-metric limit.
+</details>
+
+**Q3.** An engineer wants EIGRP to prefer GigabitEthernet0/1 over GigabitEthernet0/2 for traffic to a remote site. QoS policies on both interfaces must keep working with the true link speeds. What should the engineer change?
+
+- **A.** Lower `bandwidth` on GigabitEthernet0/2.
+- **B.** Set the K-values to K1=1, K2=1, K3=1 on R1.
+- **C.** Raise `delay` on GigabitEthernet0/2.
+- **D.** Configure `variance 2` under the EIGRP process.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Delay feeds only the EIGRP metric, so raising it on Gi0/2 makes that path worse without affecting anything else. **Why not the others:** A works for EIGRP but also changes what QoS and other protocols think the link speed is. B is wrong because K-values must match on every neighbour, or the adjacencies drop, and adding load (K2) makes routing swing with traffic. D does the opposite: it lets EIGRP *use* worse paths as well.
+</details>
+
 ---
 
 ## 5.5 Load Balancing — Equal and Unequal Cost
@@ -1785,6 +3317,52 @@ Using the 5.3 numbers with `variance 2`: FD = 3000, so the limit is 6000. R3 (to
 The share is inverse to the metric: 1/3000 against 1/4000, a ratio of **4 : 3**. So about 57% of flows go via R2 and 43% via R3. `show ip route 10.9.9.0` lists both next hops, each with a `traffic share count` showing that ratio.
 
 **Why can EIGRP do unequal-cost balancing but OSPF can't?** Because EIGRP has a built-in **proof of loop-freedom** for each alternative — the feasibility condition. OSPF's SPF produces one shortest-path tree; any non-shortest path is, by definition, not on it, and OSPF has no mechanism to prove a longer path won't loop. *Unequal-cost balancing is only safe if you can prove the worse path doesn't come back through you — and only EIGRP keeps that proof.*
+
+**📝 Exam-style questions — 5.5**
+
+**Q1.** Refer to the exhibit. R1 is configured with `variance 2`. Which neighbours does R1 install as next hops for 10.40.0.0/16?
+
+```
+Neighbour   Reported distance   Total metric
+R2          1000                2000      (successor, FD = 2000)
+R3          1500                3500
+R4          1200                4500
+R5          2500                3000
+```
+
+- **A.** R2 only
+- **B.** R2 and R3
+- **C.** R2, R3 and R5
+- **D.** R2, R3 and R4
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A path is installed only if it is a feasible successor (RD < FD 2000) **and** its total is below variance × FD = 4000. R3: RD 1500 passes and 3500 < 4000, so yes. R4: it's a feasible successor, but 4500 is over 4000, so no. R5: 3000 is under 4000, but RD 2500 is not below 2000, so it isn't a feasible successor. **Why not the others:** A ignores the variance. C installs R5, which fails the feasibility condition. D installs R4, which is over the variance limit.
+</details>
+
+**Q2.** Why can EIGRP load-balance across unequal-cost paths when OSPF cannot?
+
+- **A.** OSPF's cost metric can't represent paths with different bandwidths.
+- **B.** EIGRP's feasibility condition proves each extra path is loop-free, while OSPF's SPF produces one shortest-path tree and can't prove a longer path won't loop.
+- **C.** OSPF supports only one path per destination.
+- **D.** EIGRP uses per-packet load sharing, which makes unequal paths safe.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Unequal-cost balancing is only safe if you can prove the worse path doesn't come back through you, and only EIGRP keeps that proof. **Why not the others:** A is wrong because OSPF cost is derived from bandwidth. C is wrong because OSPF does install up to 4 equal-cost paths by default. D is wrong because CEF shares per flow by default for both protocols.
+</details>
+
+**Q3.** By default, how many equal-cost paths do EIGRP and OSPF each install for one destination, and how does CEF share traffic across them?
+
+- **A.** 1 path; no sharing
+- **B.** 4 paths; per packet, round robin
+- **C.** 4 paths; per flow, by hashing source and destination addresses
+- **D.** 16 paths; per flow, by hashing source and destination addresses
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Both protocols install up to 4 equal-cost paths by default (`maximum-paths` changes it). CEF hashes each flow onto one path so a conversation's packets stay in order. **Why not the others:** A is wrong because ECMP is on by default. B is wrong because per-packet sharing must be configured and reorders TCP packets. D is wrong about the default count; 16 or 32 is a common platform *maximum*, not the default.
+</details>
 
 ---
 
@@ -1862,6 +3440,78 @@ R1# show ip protocols | include K1|variance|Maximum path
 
 In named mode the line also shows **K6=0**, which is a quick way to tell which mode a router is running.
 
+**📝 Exam-style questions — 5.6**
+
+**Q1.** Refer to the exhibit. R3 is connected to R1's GigabitEthernet0/2 and is configured correctly, but R1 never forms an EIGRP adjacency with it. What is the cause?
+
+```
+R1# show ip interface brief | exclude unassigned
+GigabitEthernet0/1   10.0.12.1    YES manual up    up
+GigabitEthernet0/2   10.0.13.1    YES manual up    up
+GigabitEthernet0/3   192.168.1.1  YES manual up    up
+
+R1# show running-config | section router eigrp
+router eigrp 100
+ network 10.0.12.0 0.0.0.255
+ network 192.168.1.0 0.0.0.255
+ passive-interface GigabitEthernet0/3
+```
+
+- **A.** No `network` statement matches 10.0.13.1, so EIGRP isn't running on GigabitEthernet0/2.
+- **B.** GigabitEthernet0/2 is passive.
+- **C.** The `network` command needs a subnet mask, not a wildcard mask.
+- **D.** R1 needs an `eigrp router-id` before it can form a second adjacency.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The `network` command selects *interfaces*. Neither statement matches 10.0.13.1, so Gi0/2 sends no hellos. Add `network 10.0.13.0 0.0.0.255`. **Why not the others:** B is wrong because only Gi0/3 is passive. C is wrong because a wildcard mask is the correct form. D is wrong because the router ID is chosen automatically if not set, and it doesn't limit the number of neighbours.
+</details>
+
+**Q2.** In EIGRP named mode, under which configuration level do you enter `variance 2` and `maximum-paths 4`?
+
+- **A.** `router eigrp CORP`, directly
+- **B.** `address-family ipv4 unicast autonomous-system 100`
+- **C.** `af-interface GigabitEthernet0/1`
+- **D.** `topology base`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Named mode has three levels: the address family (process settings), af-interface (per-link settings such as passive and timers) and topology base (what goes into the routing table). Variance and maximum-paths control the routing table, so they live under `topology base`. **Why not the others:** A, B and C are the other levels, which reject these commands.
+</details>
+
+**Q3.** Which two statements about EIGRP named mode are true? (Choose two.)
+
+- **A.** The name after `router eigrp` must match on both neighbours.
+- **B.** A named-mode router can form an adjacency with a classic-mode router in the same AS.
+- **C.** Named mode cannot run EIGRP for IPv6.
+- **D.** Wide metrics are available only in named mode.
+- **E.** Named mode does not use an autonomous system number.
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** Neighbours don't know or care how the other side was configured, so classic and named routers peer as long as the AS, K-values and so on match. Wide (64-bit) metrics exist only in named mode. **Why not the others:** A is wrong because the name is local only. C is wrong because named mode handles IPv6 as another address family. E is wrong because the AS number is set on the address-family line.
+</details>
+
+**Q4.** Refer to the exhibit. What does the output suggest about neighbour 10.0.13.3?
+
+```
+R1# show ip eigrp neighbors
+H   Address        Interface   Hold Uptime   SRTT   RTO  Q  Seq
+                               (sec)         (ms)        Cnt Num
+0   10.0.12.2      Gi0/1         13 02:14:07    1   100  0  42
+1   10.0.13.3      Gi0/2         11 00:03:12  980  5000  9  37
+```
+
+- **A.** The neighbour has a K-value mismatch.
+- **B.** Packets to it are waiting for acknowledgements, which points to a lossy link or an overloaded neighbour, and an early warning of stuck-in-active trouble.
+- **C.** Its hold time is about to expire because its hello interval is set too high.
+- **D.** It is a stub router, so it never acknowledges queries.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Q Cnt should be 0. A queue that stays above zero, together with a huge SRTT and RTO, means reliable packets are waiting for ACKs. **Why not the others:** A is wrong because a K-value mismatch prevents the adjacency entirely, and this one is up. C is wrong because a hold of 11 seconds is normal (it counts down from 15). D is wrong because stub routers do acknowledge and answer queries; stub status only stops queries being sent *to* them.
+</details>
+
 ---
 
 ## 5.7 OSPF, Seen Side by Side
@@ -1938,6 +3588,65 @@ R1's results: R3 at cost 5, R2 at cost 8 **via R3** (not the direct link), R4 at
 
 **Why would anyone choose EIGRP over OSPF, or vice versa?** EIGRP is simpler to design (no area planning), converges extremely fast with feasible successors, and summarizes anywhere. OSPF is a **multi-vendor standard** with a predictable hierarchical design and far better visibility — every router can show you the full map of its area. *Mixed-vendor or very large structured networks lean OSPF; all-Cisco networks that value simplicity often run EIGRP.*
 
+**📝 Exam-style questions — 5.7**
+
+**Q1.** R1 learns 10.5.5.0/24 through OSPF twice: as an intra-area route with cost 50 and as an inter-area route with cost 10. Which route does R1 install?
+
+- **A.** The inter-area route, because its cost is lower.
+- **B.** Both, as equal-cost paths.
+- **C.** The intra-area route, because OSPF prefers intra-area over inter-area routes before it compares cost.
+- **D.** Neither, because OSPF reports a duplicate-prefix error.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** OSPF picks by route type first, in this order: intra-area (O), inter-area (O IA), E1/N1, E2/N2. Cost only breaks ties within the same type. **Why not the others:** A compares cost too early. B is wrong because ECMP needs the same type *and* the same cost. D is invented.
+</details>
+
+**Q2.** A branch area must not receive inter-area routes (Type 3) or external routes (Types 4 and 5), but a router inside it redistributes a local internet link into OSPF. Which area type meets both needs?
+
+- **A.** Totally NSSA
+- **B.** Stub
+- **C.** Totally stubby
+- **D.** NSSA
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A totally NSSA blocks Types 3, 4 and 5, gets a default route from the ABR, and still lets a local router bring in externals as Type 7. **Why not the others:** B and C can't contain an ASBR at all, because they reject external routes. D allows the local externals, but it still lets Type 3 inter-area routes in.
+</details>
+
+**Q3.** Refer to the exhibit. All routers are in OSPF area 0 and the costs are as shown. What is R1's cost to R5, and which neighbour is its next hop?
+
+```
+Link      Cost
+R1-R2     4
+R1-R3     1
+R3-R4     2
+R4-R2     2
+R2-R5     1
+```
+
+- **A.** Cost 6, via R3
+- **B.** Cost 5, via R3
+- **C.** Cost 5, via R2
+- **D.** Cost 4, via R2
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Via R2 directly: 4 + 1 = 5. Via R3: 1 + 2 + 2 + 1 = 6. SPF picks the lowest total, so R1 uses R2 at cost 5. **Why not the others:** A is the longer path's cost. B pairs the right cost with the wrong next hop. D forgets the R2–R5 link.
+</details>
+
+**Q4.** Every router in an OSPF domain is configured with `auto-cost reference-bandwidth 10000`. What OSPF cost does a GigabitEthernet interface get?
+
+- **A.** 1
+- **B.** 10
+- **C.** 100
+- **D.** 1000
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The reference bandwidth is in Mbps, so 10,000 Mbps ÷ 1,000 Mbps = 10. **Why not the others:** A is the result with the default 100 Mbps reference. C would need a reference of 100,000. D mixes up the units.
+</details>
+
 ---
 
 ## 5.8 Path Selection — the Order a Router Actually Uses
@@ -2011,6 +3720,52 @@ R1# show ip cef 10.1.1.5
 ```
 
 **ECMP and CEF.** With multiple equal paths, CEF load-shares **per destination (per flow) by default**, hashing source and destination addresses so one conversation always takes one path. Per-packet sharing (`ip load-sharing per-packet`) exists but reorders packets, which TCP treats as loss — avoid it. *Same reasoning as EtherChannel hashing (CCNA guide 10.4).*
+
+**📝 Exam-style questions — 5.8**
+
+**Q1.** Refer to the exhibit. R1 receives a packet for 10.2.2.9. Which route does it use?
+
+```
+Route            Source   AD/metric
+10.2.0.0/16      EIGRP    90/3072
+10.2.2.0/24      OSPF     110/20
+0.0.0.0/0        static   1/0
+```
+
+- **A.** The EIGRP /16, because EIGRP's AD (90) is lower than OSPF's (110)
+- **B.** The static default, because its AD is 1
+- **C.** The OSPF /24, because it is the longest prefix that matches
+- **D.** Both the EIGRP and OSPF routes, as load-balanced paths
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Longest match is decided first, among everything already in the routing table. The /24 is more specific than the /16 and the /0. **Why not the others:** A and B misuse AD, which only compares the *same* prefix from different sources. D is wrong because load balancing applies only to equal paths for the same prefix.
+</details>
+
+**Q2.** R1 learns 192.168.50.0/24 from an iBGP peer and from OSPF. Which route is installed in the routing table?
+
+- **A.** The iBGP route, because BGP is preferred for external destinations
+- **B.** The OSPF route, because its AD (110) is lower than iBGP's (200)
+- **C.** Both routes, because they come from different protocols
+- **D.** The route with the lower metric, after converting both metrics to the same scale
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Same prefix from two sources, so AD decides: OSPF 110 beats iBGP 200. The iBGP route stays in BGP's own table and is installed only if the OSPF route disappears. **Why not the others:** A confuses eBGP (AD 20) with iBGP (200). C is wrong because only one source per prefix enters the routing table. D is wrong because metrics from different protocols are never compared.
+</details>
+
+**Q3.** Which two statements about Cisco Express Forwarding (CEF) are true? (Choose two.)
+
+- **A.** CEF load-shares per packet by default.
+- **B.** The FIB is built from the RIB, with recursive next hops already resolved.
+- **C.** The routing protocol is consulted for every packet the router forwards.
+- **D.** The adjacency table holds pre-built Layer 2 rewrite headers, learned from ARP or IPv6 neighbour discovery.
+- **E.** The FIB is rebuilt every time a packet arrives.
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** CEF does the slow work once, when the topology changes: it resolves recursion into the FIB and prepares the Layer 2 headers in the adjacency table. Each packet then needs one FIB lookup and a header copy. **Why not the others:** A is wrong because the default is per flow. C and E are the opposite of how CEF works.
+</details>
 
 ---
 
@@ -2086,6 +3841,54 @@ If the match counters stay at zero while guests are sending traffic, the policy 
 
 Chapter 25 covers PBR configuration in depth — `verify-availability` with IP SLA tracking, `set ip next-hop recursive`, and verifying with `show route-map` and `debug ip policy`.
 
+**📝 Exam-style questions — 5.9**
+
+**Q1.** Refer to the exhibit. Guest users are on 10.50.0.0/16 and arrive on GigabitEthernet0/2. The guest traffic still follows the routing table, and the policy's match counter stays at zero. What is the problem?
+
+```
+R1(config)# ip access-list extended GUEST-NET
+R1(config-ext-nacl)# permit ip 10.50.0.0 0.0.255.255 any
+R1(config)# route-map WAN-POLICY permit 10
+R1(config-route-map)# match ip address GUEST-NET
+R1(config-route-map)# set ip next-hop 203.0.113.1
+R1(config)# interface GigabitEthernet0/1
+R1(config-if)# ip policy route-map WAN-POLICY
+```
+
+- **A.** The ACL should use a subnet mask instead of a wildcard mask.
+- **B.** The route map needs a second sequence with no `match` to forward other traffic.
+- **C.** `set ip next-hop` only works when the routing table has no route to the destination.
+- **D.** The policy is applied to GigabitEthernet0/1, but PBR acts on packets as they arrive, so it must be on GigabitEthernet0/2.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `ip policy route-map` only sees packets **arriving** on the interface it's applied to. Guests arrive on Gi0/2, so the policy never sees them. **Why not the others:** A is wrong because ACLs use wildcard masks. B is wrong because unmatched traffic is routed normally anyway. C describes `set ip default next-hop`, not `set ip next-hop`.
+</details>
+
+**Q2.** A route map uses `set ip default next-hop 203.0.113.1` for guest traffic. R1's routing table has 10.1.1.0/24 via the MPLS WAN and a default route via the MPLS WAN. Where does R1 send a guest packet for 8.8.8.8?
+
+- **A.** To 203.0.113.1, because only the default route covers 8.8.8.8, and a default route doesn't count as an explicit route
+- **B.** To the MPLS WAN, because the default route matches 8.8.8.8
+- **C.** It drops the packet, because PBR and the default route conflict
+- **D.** To the MPLS WAN, because `set ip default next-hop` applies only to router-generated traffic
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `set ip default next-hop` is used only when the routing table has no explicit route for the destination, and the default route is ignored for that check. A guest packet for 10.1.1.5 *would* follow the routing table, because 10.1.1.0/24 is explicit. **Why not the others:** B treats the default route as explicit. C is invented. D describes `ip local policy`, which is a different command.
+</details>
+
+**Q3.** An engineer wants the router's own syslog messages to leave through a specific next hop, chosen by a route map. Which command applies the policy to that traffic?
+
+- **A.** `ip policy route-map SYSLOG-PBR` on the outgoing interface
+- **B.** `ip local policy route-map SYSLOG-PBR` in global configuration
+- **C.** `ip policy route-map SYSLOG-PBR` on the loopback interface
+- **D.** `logging source-interface` with the route-map name
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Packets the router itself creates never arrive on an interface, so interface PBR can't see them. `ip local policy route-map` applies PBR to router-generated traffic. **Why not the others:** A and C use interface PBR, which only acts on arriving packets. D only chooses the source address of syslog messages; it doesn't take a route map.
+</details>
+
 ---
 
 ## 5.10 Summary — What to Be Able to Explain
@@ -2144,6 +3947,45 @@ That creates four router roles — one router can hold several at once:
 
 **The golden rule:** every non-backbone area must touch **area 0**, and traffic between two non-backbone areas always crosses area 0. **Why?** Because inter-area routing in OSPF is really **distance vector**. An ABR doesn't pass area 1's map into area 0 — it passes "network X, cost Y", the same kind of rumour RIP trades. Rumours can loop. Forcing every inter-area exchange through a single backbone gives the rumours a strict hub-and-spoke shape with no path back around, so they can't loop. *Inside an area OSPF is link state; between areas it's a distance-vector star centred on area 0.* (An area that can't physically reach area 0 needs a **virtual link** — Chapter 27.)
 
+**📝 Exam-style questions — 6.1**
+
+**Q1.** R7 has interfaces in area 0 and area 2, and it also redistributes static routes into OSPF. Which two roles does R7 hold? (Choose two.)
+
+- **A.** Internal router
+- **B.** ABR
+- **C.** DR
+- **D.** Stub router
+- **E.** ASBR
+
+<details><summary>Answer</summary>
+
+**Answer: B, E.** Interfaces in area 0 *and* another area make R7 an ABR. Redistributing routes from outside OSPF makes it an ASBR. One router can hold both roles. **Why not the others:** A is wrong because an internal router has all its interfaces in one area. C is a role on one broadcast segment, decided by election, not by where the router sits in the design. D isn't an OSPF router role (stub is a type of *area*).
+</details>
+
+**Q2.** Why must traffic between two non-backbone OSPF areas always cross area 0?
+
+- **A.** Because only area 0 routers are allowed to hold Type 5 LSAs.
+- **B.** Because the DR for every area is elected in area 0.
+- **C.** Because routing between areas works like distance vector: ABRs pass "network X, cost Y", and forcing every exchange through one backbone gives those advertisements a loop-free hub-and-spoke shape.
+- **D.** Because an ABR can only be connected to two areas.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Inside an area OSPF is link state, but between areas an ABR only passes on summaries, much like RIP. Summaries could loop, so OSPF forces them through a single backbone with no path back around. **Why not the others:** A is wrong because Type 5s flood into every normal area. B is wrong because a DR is elected per broadcast segment. D is wrong because an ABR can connect several areas.
+</details>
+
+**Q3.** In area 1, the link for 10.1.2.0/24 starts flapping. ABR1 advertises `area 1 range 10.1.0.0 255.255.252.0`, and 10.1.0.0/24, 10.1.1.0/24 and 10.1.3.0/24 stay up. What do routers in area 0 see while the link flaps?
+
+- **A.** No change, because the /22 summary stays valid while any of its components is up
+- **B.** A new Type 1 LSA from the router with the flapping link, each time it flaps
+- **C.** The Type 3 for 10.1.2.0/24 withdrawn and re-advertised each time
+- **D.** A full SPF run on every router in every area
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Area 0 knows only the /22. ABR1 keeps advertising it as long as at least one component route exists, so the flap is hidden from area 0 entirely. **Why not the others:** B is wrong because Type 1 LSAs stay inside area 1. C would happen without the summary. D is wrong because only area 1's routers rerun full SPF.
+</details>
+
 ---
 
 ## 6.2 LSA Types — What Each Router Says, and How Far It Travels
@@ -2190,6 +4032,56 @@ For the **same prefix**, OSPF also prefers an E1 route over an E2 route whatever
 | E1, A seed 30, B seed 20 | 30 + 10 = **40** | 20 + 50 = **70** | **A** | E1 counts the trip to the ASBR, so the genuinely closer exit wins |
 
 The middle row is the trap: with E2, a router can pick a far-away exit because the seed metric is all it compares. When several exits advertise the same prefixes, use E1 so every router uses the exit nearest to it.
+
+**📝 Exam-style questions — 6.2**
+
+**Q1.** Which router originates a Type 3 LSA, and which route code does it produce in the receiving area?
+
+- **A.** The ASBR; `O E2`
+- **B.** The DR; `O`
+- **C.** Every router; `O`
+- **D.** The ABR; `O IA`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** An ABR reads one area's Type 1 and Type 2 LSAs, works out each prefix and cost, and advertises it into the next area as a Type 3. There it shows as `O IA` (inter-area). **Why not the others:** A describes a Type 5. B describes a Type 2 network LSA. C describes a Type 1 router LSA.
+</details>
+
+**Q2.** Why do ABRs generate Type 4 LSAs?
+
+- **A.** To summarize several Type 5 LSAs into one advertisement
+- **B.** Because routers in other areas can't see the ASBR's Type 1 LSA, so the ABR tells them how to reach the router that advertised the externals
+- **C.** To carry NSSA external routes into the backbone
+- **D.** To advertise the default route into a stub area
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A Type 5 says "network X is reachable via this ASBR", but the ASBR's Type 1 LSA stays in its own area. The Type 4 fills the gap: "the ASBR is reachable through me, at this cost." **Why not the others:** A is wrong because Type 5s are summarized with `summary-address` on the ASBR. C is wrong because NSSA externals are Type 7s, which the NSSA ABR translates into Type 5s. D is wrong because a stub area's default arrives as a Type 3.
+</details>
+
+**Q3.** Two ASBRs redistribute 172.20.0.0/16 as E2 routes. ASBR-A uses seed metric 50 and ASBR-B uses seed metric 40. R1's internal cost is 5 to ASBR-A and 60 to ASBR-B. Which route does R1 install, and what metric does it show?
+
+- **A.** Via ASBR-A, `[110/55]`
+- **B.** Via ASBR-A, `[110/50]`
+- **C.** Via ASBR-B, `[110/100]`
+- **D.** Via ASBR-B, `[110/40]`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** E2 routes compare the seed metric only, so 40 beats 50, and the displayed metric is just the seed. R1 crosses an internal cost of 60 to save 10, which is the classic E2 trap. **Why not the others:** A and C add the internal cost, which is how *E1* routes work. B picks the higher seed.
+</details>
+
+**Q4.** R1 learns 172.30.0.0/16 twice: as `O E1` with metric 70 and as `O E2` with metric 20. Which does it install?
+
+- **A.** The E2 route, because 20 is lower than 70
+- **B.** The E1 route, because OSPF prefers E1 over E2 for the same prefix, whatever the metrics
+- **C.** Both, as unequal-cost paths
+- **D.** Whichever ASBR has the higher router ID
+
+<details><summary>Answer</summary>
+
+**Answer: B.** OSPF's route-type order is intra-area, inter-area, E1, then E2. Metrics are compared only between routes of the same type. **Why not the others:** A compares metrics across types. C is wrong because OSPF has no unequal-cost load balancing. D is invented.
+</details>
 
 ---
 
@@ -2240,6 +4132,56 @@ With two internet exits, advertise the default from both and use `metric-type 1`
 
 For example, EDGE-A and EDGE-B both use `default-information originate metric 10 metric-type 1`. R7 is cost 5 from EDGE-A and cost 20 from EDGE-B, so it sees `O*E1 0.0.0.0/0 [110/15]` via EDGE-A (10 + 5, against 10 + 20 = 30 via EDGE-B). A router on the other side of the network, close to EDGE-B, picks EDGE-B. If EDGE-A loses its own default route, it withdraws the Type 5, and R7 moves to EDGE-B at metric 30.
 
+**📝 Exam-style questions — 6.3**
+
+**Q1.** Area 1 must become totally stubby. What is the minimum correct configuration?
+
+- **A.** `area 1 stub` on the ABR only
+- **B.** `area 1 nssa no-summary` on the ABR, and `area 1 nssa` on the other routers
+- **C.** `area 1 stub no-summary` on the ABR, and `area 1 stub` on every other router in area 1
+- **D.** `area 1 stub no-summary` on the internal routers only
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Every router in the area needs the stub flag or adjacencies fail. Only the ABR needs `no-summary`, because only the ABR generates the Type 3s that it then suppresses. **Why not the others:** A sets the flag on one side only, so the ABR's adjacencies into area 1 drop, and it creates a plain stub area anyway. B creates a totally NSSA, which is a different area type. D leaves the ABR without the stub flag.
+</details>
+
+**Q2.** A new router is added to stub area 1. The engineer forgets `area 1 stub` on it. What happens?
+
+- **A.** It forms adjacencies and receives Type 5 LSAs that the other routers drop.
+- **B.** It cannot form adjacencies with its neighbours, because the stub flag is carried in the Hello and must match.
+- **C.** It becomes the area's ABR and converts the area back to normal.
+- **D.** It forms adjacencies but never runs SPF.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The stub setting is the E-bit in every Hello. Two routers that disagree would build different databases, so OSPF refuses the adjacency. `debug ip ospf hello` shows a mismatched stub/transit option bit. **Why not the others:** A is wrong because the adjacency never forms. C is invented. D is wrong because a router either forms adjacencies and runs SPF, or doesn't form them at all.
+</details>
+
+**Q3.** EDGE is configured with `default-information originate` (without `always`). Its only default route is a static route to the ISP. The static route is removed. What happens?
+
+- **A.** EDGE keeps advertising 0.0.0.0/0, because the command makes it an ASBR permanently.
+- **B.** EDGE advertises 0.0.0.0/0 with metric 16 to mark it unreachable.
+- **C.** EDGE converts the default into a Type 3 LSA.
+- **D.** EDGE withdraws its Type 5 default, so the rest of the network can fail over to another exit.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Without `always`, the default is advertised only while EDGE has a default route in its own routing table from some other source. That's the safe behaviour: a router that has lost its own exit shouldn't attract traffic it can't deliver. **Why not the others:** A describes `always`. B is a RIP idea; OSPF has no "infinite metric" like that. C is wrong because a default from `default-information originate` is always a Type 5.
+</details>
+
+**Q4.** Area 2 is a plain NSSA. Its internal routers have no default route. What must you add, and where?
+
+- **A.** `area 2 nssa default-information-originate` on the ABR
+- **B.** `default-information originate always` on every router in area 2
+- **C.** `area 2 stub` on the ABR
+- **D.** Nothing; an NSSA always receives a default automatically
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Stub, totally stubby and totally NSSA areas get a default automatically, but a plain NSSA does not. You add it on the ABR. **Why not the others:** B would make every router an ASBR advertising a default, which is wrong for internal routers with no exit. C changes the area type and breaks adjacencies. D is the trap the question tests.
+</details>
+
 ---
 
 ## 6.4 Configuring Multi-Area OSPFv2
@@ -2284,6 +4226,51 @@ Gi0/1        1     1               10.1.12.2/24       1     DR    1/1
 ```
 
 **Reading it:** Gi0/2 is in area 0 and Gi0/1 in area 1, which is what makes ABR1 an ABR. **State** is this router's role on that segment (DR, BDR, DROTHER, or P2P on point-to-point links). **Nbrs F/C** is "neighbours FULL / total neighbours". On a link with only two routers, a value like `0/1` means a neighbour has been seen but the adjacency hasn't completed. On a busy LAN, a DROTHER legitimately shows F lower than C, because it stays in 2WAY with the other DROTHERs.
+
+**📝 Exam-style questions — 6.4**
+
+**Q1.** ABR1 has `network 10.1.12.0 0.0.0.255 area 1` under `router ospf 1`. Its GigabitEthernet0/1 is 10.1.12.2/24 and is also configured with `ip ospf 1 area 0`. Which area is Gi0/1 in?
+
+- **A.** Area 1, because `network` statements are processed first
+- **B.** Area 0, because interface-level configuration wins over `network` statements
+- **C.** Both areas, so ABR1 becomes an ABR on that one interface
+- **D.** Neither; IOS rejects the conflicting configuration
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `ip ospf 1 area 0` on the interface takes priority over a matching `network` statement. **Why not the others:** A has the priority the wrong way round. C is wrong because one interface belongs to exactly one area. D is wrong because both commands are accepted.
+</details>
+
+**Q2.** Refer to the exhibit. GigabitEthernet0/1 connects ABR1 to exactly one other router. What does the output tell you about that link?
+
+```
+ABR1# show ip ospf interface brief
+Interface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C
+Gi0/2        1     0               10.0.23.2/24       1     DR    1/1
+Gi0/1        1     1               10.1.12.2/30       1     P2P   0/1
+```
+
+- **A.** The link is healthy; P2P links never show FULL neighbours.
+- **B.** No neighbour has been heard on Gi0/1.
+- **C.** A neighbour has been seen on Gi0/1, but the adjacency has not reached FULL.
+- **D.** Gi0/1 is passive.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `Nbrs F/C` is neighbours FULL over neighbours total. `0/1` means one neighbour is known but none is FULL. On a two-router link that's a stuck adjacency to investigate (MTU, network type and so on). **Why not the others:** A is wrong because P2P neighbours do reach FULL. B would show `0/0`. D would show no neighbours at all, because a passive interface ignores Hellos.
+</details>
+
+**Q3.** Why is `ip ospf <process> area <area>` on each interface usually preferred over `network` statements?
+
+- **A.** `network` statements cannot place interfaces in area 0.
+- **B.** Interface mode allows OSPF to run without a router ID.
+- **C.** Interface mode is the only way to create an ABR.
+- **D.** A `network` statement is a pattern, so an interface added later whose address happens to match joins OSPF silently; interface mode is explicit.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Interface mode puts exactly one interface in exactly one area, and reading the interface config tells you everything. **Why not the others:** A is false. B is false, since every OSPF router needs a router ID. C is false, because a router becomes an ABR the moment it has interfaces in area 0 and another area, however they were configured.
+</details>
 
 ---
 
@@ -2342,6 +4329,65 @@ R5(config-router)# summary-address 172.16.0.0 255.255.0.0   ! summarize redistri
 
 **The design price of summarizing:** you lose detail. Routers outside the area can no longer see that 10.1.3.0/24 is down — they'll keep sending traffic to ABR1, which drops it. And with two ABRs advertising the same summary, a failure *behind* one of them is invisible to the other areas. Summaries trade precision for stability.
 
+**📝 Exam-style questions — 6.5**
+
+**Q1.** Area 3 contains 172.16.8.0/24 through 172.16.15.0/24, and nothing else in that range. Which single summary covers exactly these networks?
+
+- **A.** 172.16.0.0/20
+- **B.** 172.16.8.0/22
+- **C.** 172.16.8.0/21
+- **D.** 172.16.0.0/21
+
+<details><summary>Answer</summary>
+
+**Answer: C.** In binary, 8 is 00001000 and 15 is 00001111. The first 5 bits of the third octet match and the last 3 take every value, so the prefix is 16 + 5 = /21, starting at 172.16.8.0. **Why not the others:** A also claims 172.16.0.0–7.0, which aren't in area 3. B covers only 8–11. D covers 0–7, not 8–15.
+</details>
+
+**Q2.** R5 is an ASBR that redistributes 50 EIGRP routes from 172.16.0.0/16 into OSPF. On which router, and with which command, do you summarize them?
+
+- **A.** On R5, with `summary-address 172.16.0.0 255.255.0.0`
+- **B.** On R5, with `area 0 range 172.16.0.0 255.255.0.0`
+- **C.** On the ABR, with `area 2 range 172.16.0.0 255.255.0.0`
+- **D.** On the ABR, with `summary-address 172.16.0.0 255.255.0.0`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** External routes are summarized where they're created, on the ASBR, with `summary-address`. **Why not the others:** B and C use `area range`, which only summarizes internal routes into Type 3s. D puts `summary-address` on an ABR, where it has no externals to act on (unless it's an NSSA ABR translating Type 7s, which this isn't).
+</details>
+
+**Q3.** After `area 1 range 10.1.0.0 255.255.252.0` is configured on ABR1, the route `O 10.1.0.0/22 is a summary, Null0` appears on ABR1. Why?
+
+- **A.** It marks the summary as unreachable until all four components are up.
+- **B.** It drops packets inside the /22 that have no more specific route, so they can't loop back out via a default route.
+- **C.** It advertises the summary to neighbours inside area 1.
+- **D.** It is a temporary route that disappears after SPF completes.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** If 10.1.3.0/24 goes down, other areas still send 10.1.3.x to ABR1 because of the summary. Without the discard route, ABR1 could follow its default route back toward area 0 and loop the packet until its TTL runs out. **Why not the others:** A is wrong because the summary stays up while *any* component exists. C is wrong because the summary goes to the other areas, not into area 1. D is wrong because the route stays as long as the summary is configured.
+</details>
+
+**Q4.** Refer to the exhibit. ABR1 connects area 0 and area 1. The 10.1.x.0/24 networks are in area 1, but area 0 still receives the individual /24s instead of a summary. What is wrong?
+
+```
+ABR1# show running-config | section router ospf
+router ospf 1
+ router-id 2.2.2.2
+ area 0 range 10.1.0.0 255.255.252.0
+ network 10.0.23.0 0.0.0.255 area 0
+ network 10.1.0.0 0.0.3.255 area 1
+```
+
+- **A.** The mask should be a wildcard mask, 0.0.3.255.
+- **B.** `area range` must be configured on every router in area 1.
+- **C.** The summary should use `summary-address` because it's on an ABR.
+- **D.** The area in `area range` must be the area where the routes live, area 1, not the area the summary is sent to.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `area 0 range` tries to summarize area 0's own routes. The command that summarizes area 1's prefixes into area 0 is `area 1 range 10.1.0.0 255.255.252.0`. **Why not the others:** A is wrong because `area range` takes a subnet mask. B is wrong because summarization happens only at the ABR. C is wrong because `summary-address` is for externals on an ASBR.
+</details>
+
 ---
 
 ## 6.6 Filtering
@@ -2386,6 +4432,44 @@ R3(config-router)# distribute-list prefix NO-LAB in
 ```
 
 This removes 10.1.3.0/24 from **R3's routing table only**. R3 still holds the LSA, still floods it to its neighbours, and they still install the route — and may forward traffic for it **to R3**, which now has no route and drops it (or follows a default). *A distribute-list in OSPF is a local blindfold, not a wall.* Use it deliberately, for example to stop one router installing a path it shouldn't use; use ABR filtering when you mean "this area should not know."
+
+**📝 Exam-style questions — 6.6**
+
+**Q1.** Routers in area 0 and beyond must not learn area 1's lab network 10.1.3.0/24. All other area 1 prefixes must still be advertised. Which configuration on ABR1 achieves this?
+
+- **A.** `ip prefix-list NO-LAB seq 5 deny 10.1.3.0/24` and `area 1 filter-list prefix NO-LAB out`
+- **B.** `ip prefix-list NO-LAB seq 5 deny 10.1.3.0/24`, `ip prefix-list NO-LAB seq 10 permit 0.0.0.0/0 le 32` and `area 1 filter-list prefix NO-LAB out`
+- **C.** The same two prefix-list lines as B, and `area 1 filter-list prefix NO-LAB in`
+- **D.** The same two prefix-list lines as B, and `distribute-list prefix NO-LAB in` under `router ospf 1`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `area 1 filter-list … out` filters Type 3s created *from* area 1's routes. The final `permit 0.0.0.0/0 le 32` lets every other prefix through. **Why not the others:** A has no permit line, so the implicit deny blocks every area 1 prefix. C filters Type 3s going *into* area 1, the wrong direction. D only hides the route from ABR1's own routing table; the Type 3 is still advertised.
+</details>
+
+**Q2.** R3 is in area 0 and has `distribute-list prefix NO-LAB in` under `router ospf 1`, where NO-LAB denies 10.1.3.0/24. R3's neighbours still have the route, and some of them now send traffic for 10.1.3.0/24 to R3, which drops it. Why?
+
+- **A.** The distribute-list blocks the LSA from reaching R3's neighbours, so they use a stale copy.
+- **B.** The distribute-list only affects routes R3 redistributes.
+- **C.** A distribute-list in OSPF only stops R3 installing the route in its routing table; R3 still holds and floods the LSA, so its neighbours still install the route.
+- **D.** The prefix list is missing a `permit` line.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Every router in an area must hold the same LSDB, so an OSPF distribute-list can't stop LSAs. It only filters what goes from the LSDB into that router's own routing table: a local blindfold, not a wall. **Why not the others:** A has it backwards; the LSA still floods normally. B describes `distribute-list out` on an ASBR. D is wrong because a missing permit would hide more routes on R3, but it wouldn't explain the neighbours' behaviour.
+</details>
+
+**Q3.** An engineer configures `area 1 filter-list prefix NO-LAB out` with a prefix list that has only `seq 5 deny 10.1.3.0/24`. What is the result?
+
+- **A.** Only 10.1.3.0/24 is filtered.
+- **B.** No inter-area routes from area 1 reach area 0, because the prefix list ends with an implicit deny.
+- **C.** The command is rejected because the prefix list has no permit entry.
+- **D.** Area 1's Type 1 LSAs are filtered inside area 1.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Like an ACL, a prefix list ends with an implicit deny, so every prefix that isn't 10.1.3.0/24 also matches "deny". All Type 3s from area 1 are suppressed. **Why not the others:** A is what the engineer intended, but not what the config does. C is wrong because IOS accepts it. D is wrong because filter-lists act only on Type 3s at the ABR.
+</details>
 
 ---
 
@@ -2485,6 +4569,73 @@ A passive interface **stops sending and processing hellos** — so no neighbour 
 
 **Why "passive-interface default" rather than listing the user ports?** Safety by default. A new interface added next year is passive unless someone consciously makes it a routing link. *Fail closed: an interface has to be invited into the routing protocol, not remembered and excluded.*
 
+**📝 Exam-style questions — 6.7**
+
+**Q1.** Four routers start at the same time on one Ethernet segment. Which routers become DR and BDR?
+
+```
+Router   Priority   Router ID
+R1       1          5.5.5.5
+R2       1          9.9.9.9
+R3       10         1.1.1.1
+R4       0          10.10.10.10
+```
+
+- **A.** DR R4, BDR R2
+- **B.** DR R2, BDR R1
+- **C.** DR R3, BDR R1
+- **D.** DR R3, BDR R2
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Highest priority wins first, so R3 (10) is DR. R1 and R2 tie at priority 1, so the higher router ID, R2 (9.9.9.9), is BDR. R4 has priority 0 and can never be DR or BDR, even with the highest RID. **Why not the others:** A ignores priority 0. B ignores priority and uses RID only. C picks the lower RID for BDR.
+</details>
+
+**Q2.** Refer to the exhibit. R4 is on a broadcast segment with three other OSPF routers. What is the state of this segment?
+
+```
+R4# show ip ospf neighbor
+Neighbor ID     Pri   State           Dead Time   Address         Interface
+1.1.1.1         100   FULL/DR         00:00:36    10.1.1.1        GigabitEthernet0/0
+2.2.2.2          50   FULL/BDR        00:00:33    10.1.1.2        GigabitEthernet0/0
+3.3.3.3           1   2WAY/DROTHER    00:00:38    10.1.1.3        GigabitEthernet0/0
+```
+
+- **A.** Healthy: DROTHERs form full adjacencies only with the DR and BDR, and stay in 2WAY with each other.
+- **B.** Broken: R3 is stuck in 2WAY because of an MTU mismatch.
+- **C.** Broken: R4 should be FULL with every neighbour.
+- **D.** Broken: R3 has a lower priority, so it can't exchange routes.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** On a broadcast segment DROTHERs stop at 2WAY with each other by design, and the DR re-floods everyone's updates. FULL to the DR and BDR plus 2WAY to the other DROTHER is correct. **Why not the others:** B is wrong because an MTU problem shows up as EXSTART/EXCHANGE, not 2WAY. C describes a segment with no DR. D is wrong because R3 still gets every route through the DR.
+</details>
+
+**Q3.** R1's GigabitEthernet0/1 has `ip ospf network point-to-point`. R2's end of the same link was left at the default broadcast type. Both routers show each other as FULL, but no routes learned across the link appear. What is the cause?
+
+- **A.** The hello timers don't match.
+- **B.** The two routers describe the link differently (one expects a DR and a Type 2 LSA, the other doesn't), so SPF can't connect them.
+- **C.** R2 needs a priority of 0 for point-to-point to work.
+- **D.** Point-to-point network type isn't supported on Ethernet.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Both types use 10/40 timers, so the hellos are accepted and the adjacency can reach FULL. But SPF needs both ends to describe the link the same way, so the routes never appear. Check `show ip ospf interface` on both ends. **Why not the others:** A is wrong because both types default to 10/40. C is invented. D is wrong because point-to-point on a two-router Ethernet link is common practice.
+</details>
+
+**Q4.** Which two statements describe an OSPF passive interface? (Choose two.)
+
+- **A.** The interface's subnet is no longer advertised.
+- **B.** The interface stops sending and processing Hellos, so no neighbour can form on it.
+- **C.** The interface forms neighbours but doesn't send LSAs.
+- **D.** The interface's subnet is still advertised to OSPF neighbours on other interfaces.
+- **E.** The interface is administratively shut down.
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** That's exactly what a user LAN needs: the users' subnet stays reachable, but no device there can become a neighbour and inject routes. **Why not the others:** A is the common misconception. C is wrong because no neighbours form at all. E is wrong because the interface stays up and forwards traffic.
+</details>
+
 ---
 
 ## 6.8 OSPFv3 — OSPF for IPv6 (and IPv4)
@@ -2561,6 +4712,63 @@ How the OSPFv3 adjacency above came up, step by step:
 
 Note the **link-local next hop** (`FE80::2`) — that's normal and correct for OSPFv3. The traditional-mode commands (`show ipv6 ospf neighbor`, `show ipv6 ospf interface`) still work for processes configured with `ipv6 router ospf`.
 
+**📝 Exam-style questions — 6.8**
+
+**Q1.** R1 runs only IPv6 and has no IPv4 addresses. After `ipv6 router ospf 1` is configured, the OSPFv3 process won't start. What is missing?
+
+- **A.** `ipv6 enable` on the loopback
+- **B.** A `network` statement for each IPv6 prefix
+- **C.** A 32-bit router ID set with `router-id`
+- **D.** An IPv6 global address on every interface
+
+<details><summary>Answer</summary>
+
+**Answer: C.** OSPFv3 still uses a 32-bit dotted router ID. Normally it's taken from an IPv4 address; with none, you must set it manually. **Why not the others:** A doesn't create a router ID. B is wrong because OSPFv3 has no `network` statements (you use `ipv6 ospf 1 area 0` on the interface). D isn't needed, since OSPFv3 neighbours talk over link-local addresses.
+</details>
+
+**Q2.** Refer to the exhibit. An engineer worries that the next hop is not the neighbour's global address. What is the correct interpretation?
+
+```
+R1# show ipv6 route ospf
+OI  2001:DB8:1::/48 [110/2]
+     via FE80::2, GigabitEthernet0/1
+```
+
+- **A.** The neighbour is misconfigured; it should advertise its global address as the next hop.
+- **B.** The route is an inter-area route that hasn't been summarized yet.
+- **C.** The neighbour has no global address, so the route is unusable.
+- **D.** This is normal: OSPFv3 neighbours talk over link-local addresses, so link-local next hops are expected.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** OSPFv3 Hellos come from the interface's link-local address, so routes are installed with the neighbour's link-local address plus the outgoing interface. **Why not the others:** A and C treat correct behaviour as a fault. B misreads `OI` (inter-area) and `/48` (which is already a summary).
+</details>
+
+**Q3.** Why does the IPv4 address family of OSPFv3 still need IPv6 enabled on the interface?
+
+- **A.** Because OSPFv3 packets always travel over IPv6 link-local addresses, whichever address family's routes they carry.
+- **B.** Because the IPv4 routes are converted into IPv6 prefixes.
+- **C.** Because the router ID must be an IPv6 address.
+- **D.** Because IPv4 routes are carried inside Type 5 LSAs that only exist in IPv6.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The IPv4 AF is a separate instance with its own neighbours and database, but it uses the same IPv6 transport. Even `ipv6 enable` (a link-local address only) is enough. **Why not the others:** B is wrong because the routes stay IPv4. C is wrong because the RID is a 32-bit dotted number. D is invented.
+</details>
+
+**Q4.** OSPFv3 removed prefix information from router (Type 1) and network (Type 2) LSAs. Which two LSA types carry that information instead? (Choose two.)
+
+- **A.** Type 3
+- **B.** Type 5
+- **C.** Type 8 link LSA
+- **D.** Type 7
+- **E.** Type 9 intra-area-prefix LSA
+
+<details><summary>Answer</summary>
+
+**Answer: C, E.** Type 8 carries a router's link-local address and the prefixes on one link. Type 9 carries the area's prefixes. Keeping topology (Types 1/2) and prefixes apart means adding a prefix doesn't trigger a full SPF run. **Why not the others:** A carries *inter-area* prefixes from an ABR, not the intra-area ones moved out of Types 1/2. B and D carry external routes.
+</details>
+
 ---
 
 ## 6.9 Verification and Troubleshooting Toolkit
@@ -2594,6 +4802,57 @@ R1 and R2 are connected on Gi0/1. Users report that nothing beyond R2 is reachab
 2. `show interface Gi0/1 | include MTU` shows **MTU 1500 bytes** on R1 and **MTU 1400 bytes** on R2 (someone set it for a tunnel).
 3. **Why it sticks:** in EXSTART/EXCHANGE the routers send Database Description packets that list their LSAs. R1 offers packets up to 1500 bytes. R2 sees that the MTU advertised in R1's packets exceeds its own and rejects them, so the exchange never finishes.
 4. **Fix:** make the MTU match on both ends (`mtu 1500` on R2's Gi0/1). The neighbour moves through EXCHANGE and LOADING to **FULL** within seconds, and the routes appear. `ip ospf mtu-ignore` would also bring it up, but it hides the real problem: large packets would still be dropped on that link.
+
+**📝 Exam-style questions — 6.9**
+
+**Q1.** R1 shows R2 stuck in EXSTART and the state never progresses. Which command most directly proves the likely cause?
+
+- **A.** `show ip ospf border-routers`
+- **B.** `show interface GigabitEthernet0/1 | include MTU` on both routers
+- **C.** `show ip protocols`
+- **D.** `debug ip ospf hello`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** EXSTART/EXCHANGE stalls almost always mean an MTU mismatch: the router with the smaller MTU rejects the other's Database Description packets. **Why not the others:** A shows how ABRs and ASBRs are reached. C shows process settings. D is for Hello problems, which happen before EXSTART (stuck in INIT, or no neighbour at all).
+</details>
+
+**Q2.** R1 lists R2 as a neighbour in the INIT state, and it never moves on. What does this mean?
+
+- **A.** The two routers have an MTU mismatch.
+- **B.** R1 is a DROTHER and is waiting for the DR.
+- **C.** R1 hears R2's Hellos, but R2 isn't hearing R1's, so R1's router ID never appears in R2's Hellos.
+- **D.** The routers have duplicate router IDs.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** INIT means "I can hear you, but you haven't listed me yet", a one-way problem. It's often an ACL or a multicast problem on one side. Prove it with `debug ip ospf hello`. **Why not the others:** A shows as EXSTART/EXCHANGE. B is wrong because a DROTHER stops at 2WAY, after INIT. D logs `%OSPF-4-DUP_RTRID` instead.
+</details>
+
+**Q3.** An OSPF route is in R3's LSDB but not in its routing table. Which two causes are possible? (Choose two.)
+
+- **A.** A `distribute-list in` under R3's OSPF process
+- **B.** An MTU mismatch on R3's uplink
+- **C.** The same prefix learned from another protocol with a lower administrative distance
+- **D.** A passive interface on R3
+- **E.** An `area filter-list` on R3's own ABR
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** The LSA has arrived, so the adjacency works. Something is stopping the route between the LSDB and the routing table: a local distribute-list, or a better-AD source winning for that prefix. **Why not the others:** B and D would prevent the adjacency, and then the LSA wouldn't be there at all. E would stop the Type 3 from being created, so it wouldn't be in the LSDB either.
+</details>
+
+**Q4.** The EXSTART problem can be fixed either by matching the MTU on both ends or by configuring `ip ospf mtu-ignore`. Why is matching the MTU the better fix?
+
+- **A.** `ip ospf mtu-ignore` disables OSPF authentication.
+- **B.** `ip ospf mtu-ignore` must be configured on every router in the area.
+- **C.** Matching the MTU also resets the DR election.
+- **D.** `ip ospf mtu-ignore` brings the adjacency up but hides the real problem: large packets are still dropped on that link.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The mismatch is a real fault. Ignoring it lets OSPF finish the exchange, but full-size data packets will still be dropped by the side with the smaller MTU. **Why not the others:** A and C are invented. B is wrong because the command is per interface.
+</details>
 
 ---
 
@@ -2662,6 +4921,44 @@ BGP (Border Gateway Protocol, version 4) answers all three. It's an **EGP** — 
 
 **Why is eBGP's AD 20 — better than OSPF — but iBGP's 200?** An eBGP route came from **outside** your network, from the only router that actually knows it; nothing inside your AS can know better, so trust it over your IGP. An iBGP route came from **inside**, where your IGP already describes the topology directly; if the IGP and iBGP both know a prefix, the IGP's first-hand knowledge should win. *Trust outsiders about the outside, insiders' own map about the inside.*
 
+**📝 Exam-style questions — 7.1**
+
+**Q1.** R1 is in AS 65001. It receives an eBGP update for 203.0.113.0/24 with AS_PATH `65010 65001 65020`. What does R1 do with the route?
+
+- **A.** Installs it, because eBGP routes have an AD of 20
+- **B.** Installs it, but prepends 65001 again before advertising it on
+- **C.** Rejects it, because its own AS number is already in the AS_PATH
+- **D.** Rejects it, because the AS_PATH is longer than two ASes
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Seeing its own AS in the path means the route has already passed through AS 65001, so accepting it would create a loop. This check is BGP's built-in loop prevention. **Why not the others:** A ignores the loop check, which happens before anything is installed. B is wrong because R1 never gets as far as installing or advertising the route. D is invented; there's no maximum AS_PATH length rule.
+</details>
+
+**Q2.** R1 learns 10.50.0.0/16 from an eBGP neighbour and also from OSPF. Which route does it install, and why?
+
+- **A.** The OSPF route, because IGP routes are always preferred over BGP routes
+- **B.** The eBGP route, because its AD of 20 is lower than OSPF's 110
+- **C.** The OSPF route, because BGP routes are only used when no IGP route exists
+- **D.** Both routes, because they have different next hops
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Same prefix from two sources, so AD decides, and eBGP's 20 beats OSPF's 110. **Why not the others:** A and C would be true for *iBGP* (AD 200), not eBGP. D is wrong because only one source per prefix enters the routing table.
+</details>
+
+**Q3.** Why does eBGP have an AD of 20 while iBGP has an AD of 200?
+
+- **A.** eBGP sessions use TCP and iBGP sessions use UDP.
+- **B.** iBGP routes are always less specific than eBGP routes.
+- **C.** eBGP is faster to converge than iBGP.
+- **D.** An eBGP route comes from outside your network, where the neighbour is the only one who knows it; an iBGP route describes your own network, where your IGP has first-hand knowledge and should win.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Trust outsiders about the outside, and your own IGP's map about the inside. **Why not the others:** A is wrong because both use TCP port 179. B is invented. C is not the reason; AD reflects how trustworthy a source is, not its speed.
+</details>
+
 ---
 
 ## 7.2 Autonomous System Numbers
@@ -2683,6 +4980,45 @@ BGP (Border Gateway Protocol, version 4) answers all three. It's an **EGP** — 
 **Why do private ASNs exist?** For the same reason private IP addresses do (CCNA guide 11.4). An enterprise that connects to a single ISP still needs an ASN to run BGP, but the outside world never needs to see it — the ISP strips the private ASN (`remove-private-as`) and advertises the customer's prefixes as part of its own AS.
 
 For example, the customer uses private AS 65001 and its ISP uses AS 64500 (a documentation number standing in for a real public ASN). The customer advertises 198.51.100.0/24 to the ISP with AS_PATH **65001**. The ISP has `remove-private-as` on that neighbour, so when it advertises the prefix to the rest of the internet, the path is just **64500**. To the world, the customer's block simply belongs to the ISP's AS.
+
+**📝 Exam-style questions — 7.2**
+
+**Q1.** Which two AS numbers are private and may be used internally without being assigned by an RIR? (Choose two.)
+
+- **A.** 64500
+- **B.** 65100
+- **C.** 23456
+- **D.** 4,200,000,005
+- **E.** 65535
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** The private ranges are 64,512–65,534 (2-byte) and 4,200,000,000–4,294,967,294 (4-byte). **Why not the others:** A is in the documentation range (64,496–64,511). C is AS_TRANS, which stands in for a 4-byte ASN when talking to old routers. E is reserved.
+</details>
+
+**Q2.** A customer in private AS 65001 advertises 198.51.100.0/24 to its ISP in AS 64500. The ISP has `remove-private-as` on that neighbour. What AS_PATH does the rest of the internet see for the prefix?
+
+- **A.** `64500`
+- **B.** `64500 65001`
+- **C.** `65001`
+- **D.** An empty AS_PATH
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The ISP strips the private ASN and advertises the prefix as part of its own AS. To the world, the block simply belongs to AS 64500. **Why not the others:** B is what would be seen without `remove-private-as`. C would mean the ISP never added its own AS, which eBGP always does. D is impossible for a route received over eBGP.
+</details>
+
+**Q3.** A 4-byte ASN is shown as `65538` in asplain notation. How is it written in asdot notation?
+
+- **A.** `0.65538`
+- **B.** `1.2`
+- **C.** `65.538`
+- **D.** `2.1`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** asdot writes the number as two 16-bit halves: high.low. 65538 = 1 × 65,536 + 2, so it's `1.2`. **Why not the others:** A puts everything in the low half, which can't exceed 65,535. C splits the decimal digits, which means nothing. D reverses the halves.
+</details>
 
 ---
 
@@ -2751,6 +5087,61 @@ The hold time is **negotiated**: each side proposes one in its OPEN and **both u
 **Timer negotiation, with numbers:** if the ISP had `timers bgp 10 30` and R1 kept the defaults (60/180), both sides would use the lower hold time, **30 s**, with keepalives every **10 s**. The ISP has asked for fast failure detection, and R1 goes along with it.
 
 > **Exam trap — "Active" is bad.** It sounds healthy, but it means the TCP session **failed** and BGP is retrying. A neighbour that cycles between **Idle and Active** almost always has an IP-reachability or addressing problem. One that reaches **OpenSent** and then drops back to Idle has a working TCP connection but a rejected OPEN: a wrong `remote-as` or a router-ID clash. An **MD5 password mismatch** fails earlier than that. The TCP segments themselves fail authentication (`%TCP-6-BADAUTH`), so TCP never comes up and the neighbour never leaves Idle/Active.
+
+**📝 Exam-style questions — 7.3**
+
+**Q1.** R1 uses the default BGP timers. Its eBGP neighbour is configured with `timers bgp 20 60`. What hold time and keepalive does the session use?
+
+- **A.** Hold 180 s, keepalive 60 s
+- **B.** The session fails because the timers don't match
+- **C.** Hold 120 s, keepalive 40 s
+- **D.** Hold 60 s, keepalive 20 s
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Each side proposes a hold time in its OPEN, and both use the lower one: 60 s. The keepalive becomes one-third of the negotiated hold time: 60 ÷ 3 = 20 s, so R1 also drops from its default 60 s to 20 s. **Why not the others:** A uses the higher proposal. B is wrong because BGP timers don't have to match (unlike OSPF's). C averages the proposals, which BGP never does.
+</details>
+
+**Q2.** `show ip bgp summary` shows a neighbour cycling between Idle and Active. What does this usually mean?
+
+- **A.** The session is up and is actively exchanging routes.
+- **B.** The TCP connection to port 179 keeps failing: there's no route to the neighbour, the neighbour address is wrong, or an ACL blocks TCP 179.
+- **C.** The neighbour's OPEN was rejected because of a wrong `remote-as`.
+- **D.** The neighbour was shut down with `neighbor shutdown`.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Active means TCP failed and BGP is retrying. Despite the name, it's a bad state. Start at Layer 3. **Why not the others:** A describes Established, which shows a prefix count instead of a state. C shows a different pattern: the session reaches OpenSent, then resets. D shows `Idle (Admin)`.
+</details>
+
+**Q3.** Refer to the exhibit. R1's neighbour reaches OpenSent and then drops back to Idle, over and over. What is the most likely cause?
+
+```
+%BGP-3-NOTIFICATION: sent to neighbor 203.0.113.2 passive 2/2 (peer in wrong AS) 2 bytes FDE8
+%BGP-5-NBR_RESET: Neighbor 203.0.113.2 reset (BGP Notification sent)
+```
+
+- **A.** An ACL is blocking TCP port 179.
+- **B.** The MD5 passwords don't match.
+- **C.** The AS number in R1's `neighbor 203.0.113.2 remote-as` command doesn't match the AS the neighbour sends in its OPEN.
+- **D.** The hold timers don't match.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Reaching OpenSent proves TCP works. The OPEN is then rejected with NOTIFICATION 2/2, "peer in wrong AS". (FDE8 is hex for 65000, the AS the neighbour actually sent.) **Why not the others:** A and B stop TCP from ever coming up, so the session would never reach OpenSent. D is wrong because BGP negotiates the lower hold time instead of failing.
+</details>
+
+**Q4.** Which sequence lists the BGP neighbour states in the order a healthy session passes through them?
+
+- **A.** Idle, Connect, OpenSent, OpenConfirm, Established
+- **B.** Idle, Active, Connect, OpenConfirm, OpenSent, Established
+- **C.** Connect, Idle, OpenSent, Established, OpenConfirm
+- **D.** Idle, OpenSent, Connect, OpenConfirm, Established
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Idle (not trying yet), Connect (TCP SYN sent), OpenSent (TCP up, my OPEN sent), OpenConfirm (OPENs exchanged, waiting for KEEPALIVE), Established. Active appears only when TCP *fails*. **Why not the others:** B includes Active, which a healthy session skips, and swaps OpenSent and OpenConfirm. C and D put states out of order.
+</details>
 
 ---
 
@@ -2867,6 +5258,56 @@ R1(config-router-af)# network 2001:db8:100::/48               ! exact match rule
 
 Verify with `show bgp ipv6 unicast summary` and `show bgp ipv6 unicast`. **Why the `no … activate` under IPv4?** Because `bgp default ipv4-unicast` activates IPv4 for **every** neighbour, including one addressed over IPv6. That would try to exchange IPv4 routes whose next hop is an IPv6 address, which is useless. Deactivating it (or using `no bgp default ipv4-unicast` globally) keeps each session carrying only what it should. Chapter 28.4 covers MP-BGP in depth.
 
+**📝 Exam-style questions — 7.4**
+
+**Q1.** R1 has `network 172.20.0.0 mask 255.255.0.0` under BGP. Its routing table contains only 172.20.1.0/24 and 172.20.2.0/24. The /16 is not advertised to the ISP. What is the standard fix?
+
+- **A.** Remove the `mask` keyword so BGP uses the classful mask.
+- **B.** Add `ip route 172.20.0.0 255.255.0.0 Null0` so an exact-match /16 exists in the routing table.
+- **C.** Change the command to `network 172.20.0.0 mask 255.255.255.0`.
+- **D.** Add `redistribute connected` to BGP.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** BGP's `network` advertises a prefix only if a route with exactly the same prefix and mask is in the routing table. The Null0 static anchors the /16 permanently, so the advertisement stays stable. **Why not the others:** A changes nothing here, because 172.20.0.0 is a Class B and its classful mask is already /16. C would look for 172.20.0.0/24, which doesn't exist either. D would advertise the individual connected /24s (with origin `?`), not the /16.
+</details>
+
+**Q2.** R1 has `no bgp default ipv4-unicast` configured. Which additional command is required before R1 exchanges IPv4 routes with neighbour 203.0.113.2?
+
+- **A.** `neighbor 203.0.113.2 activate` under `address-family ipv4 unicast`
+- **B.** `neighbor 203.0.113.2 ebgp-multihop 1`
+- **C.** `bgp router-id` with an IPv4 address
+- **D.** `neighbor 203.0.113.2 update-source GigabitEthernet0/0`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With the default turned off, no address family is activated automatically, so each neighbour must be activated in each address family it should carry. **Why not the others:** B is for non-connected eBGP peers, and a value of 1 is the default TTL anyway. C is needed on IPv6-only routers, but it doesn't enable route exchange. D sets the source address of the session; it's used for loopback peering.
+</details>
+
+**Q3.** R1's BGP table holds 198.51.100.0/24. An engineer adds `aggregate-address 198.51.96.0 255.255.248.0 summary-only`. What does the ISP receive?
+
+- **A.** Both the /21 and the /24
+- **B.** Only the /24, because the aggregate needs at least two components
+- **C.** Only the /21; the /24 is suppressed and shown with `s` in R1's table
+- **D.** Nothing, until a Null0 static route for the /21 is added manually
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The aggregate needs at least *one* component in the BGP table. `summary-only` suppresses the components, so only the summary is sent. R1 also installs the Null0 discard route for the /21 automatically. **Why not the others:** A is the behaviour *without* `summary-only`. B is wrong because one component is enough. D is wrong because `aggregate-address` creates its own discard route.
+</details>
+
+**Q4.** R1 has no `bgp router-id` configured. Loopback0 is 10.1.1.1 and up, Loopback1 is 10.9.9.9 and up, and GigabitEthernet0/0 is 192.168.1.1 and up. Which BGP router ID does R1 use?
+
+- **A.** 10.1.1.1
+- **B.** 10.9.9.9
+- **C.** 192.168.1.1
+- **D.** None; BGP won't start until `bgp router-id` is set.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Without a configured ID, BGP takes the highest IPv4 address on an up loopback, and only falls back to physical interfaces if there are no loopbacks. **Why not the others:** A is the lowest loopback. C is higher, but loopbacks are checked first. D applies only to a router with no IPv4 addresses at all.
+</details>
+
 ---
 
 ## 7.5 Verifying the Session and the Table
@@ -2959,6 +5400,60 @@ More views you'll use constantly:
 | `show ip bgp neighbors 203.0.113.2 routes` | What you accepted from it (after inbound policy) |
 | `show ip route bgp` | What actually made it into the routing table (`B`) |
 
+**📝 Exam-style questions — 7.5**
+
+**Q1.** Refer to the exhibit. Which statement is correct?
+
+```
+Neighbor        V    AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
+203.0.113.2     4 65002      27      25        4    0    0 00:21:43        2
+192.0.2.10      4 65004       0       0        1    0    0 never    Active
+```
+
+- **A.** 203.0.113.2 is Established and has sent 2 prefixes; 192.0.2.10 has never come up.
+- **B.** 203.0.113.2 is in state 2 (Connect); 192.0.2.10 is exchanging routes.
+- **C.** Both sessions are Established, and 192.0.2.10 is sending its routes actively.
+- **D.** 203.0.113.2 has 2 neighbours behind it; 192.0.2.10 is administratively down.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** In the last column, a number means Established, and the number is how many prefixes were received. A word is the current state. `never` in Up/Down confirms 192.0.2.10 has never reached Established. **Why not the others:** B and C misread the column. D is wrong because an administratively shut neighbour shows `Idle (Admin)`.
+</details>
+
+**Q2.** Refer to the exhibit. In what order did this route pass through autonomous systems, and which AS originated it?
+
+```
+     Network          Next Hop            Metric LocPrf Weight Path
+ *>  10.30.0.0/16     203.0.113.2                            0 65002 65030 i
+```
+
+- **A.** It was originated by AS 65002, then passed through AS 65030.
+- **B.** It was originated by AS 65030 and reached R1 through AS 65002.
+- **C.** The `i` means it was learned over iBGP from AS 65030.
+- **D.** The path can't be determined without `show ip bgp neighbors`.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The AS_PATH lists the nearest AS first and the origin AS last. The `i` at the end is the ORIGIN code (added with a `network` command), not iBGP. **Why not the others:** A reads the path backwards. C confuses the origin code with the iBGP marker, which appears on the *left* of the line. D is wrong because the AS_PATH shows it.
+</details>
+
+**Q3.** Refer to the exhibit. R1 marks this prefix as best, but it isn't used for forwarding as a BGP route. Why?
+
+```
+     Network          Next Hop            Metric LocPrf Weight Path
+ r>  10.20.0.0/16     203.0.113.2              0             0 65002 i
+```
+
+- **A.** The next hop is unreachable.
+- **B.** A route with a lower AD, such as a static route or an IGP route, already owns 10.20.0.0/16 in the routing table.
+- **C.** The route is suppressed by an aggregate.
+- **D.** The route was received from a route reflector.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `r` is RIB-failure: BGP chose the path, but another source with a lower AD already has that prefix in the routing table. **Why not the others:** A would make the path invalid, so it wouldn't have `*` or `>`. C shows `s`. D isn't shown by any of these codes.
+</details>
+
 ---
 
 ## 7.6 Path Attributes
@@ -2990,6 +5485,57 @@ The ones that matter for path selection at ENCOR level:
 When a router advertises a route to an **eBGP** neighbour, it sets NEXT_HOP to **its own address on that session**, the IP the neighbour peers with. That's why R1's routes from ISP-A show next hop 203.0.113.2. For a directly connected neighbour that address sits on a connected subnet, so the next hop is always reachable and every path is valid at step 0 of the algorithm.
 
 **Why does eBGP rewrite the next hop?** Because the receiving AS can't reach anything deep inside the advertising AS. The only address it's guaranteed to reach is the one on the shared link. iBGP does **not** rewrite it by default, and that's the source of the most common iBGP problem: routes in the table but not marked best because the next hop is unreachable. Chapter 28.2 covers that problem and its fix, `next-hop-self`.
+
+**📝 Exam-style questions — 7.6**
+
+**Q1.** Which two BGP attributes are well-known mandatory? (Choose two.)
+
+- **A.** LOCAL_PREF
+- **B.** AS_PATH
+- **C.** MED
+- **D.** COMMUNITY
+- **E.** NEXT_HOP
+
+<details><summary>Answer</summary>
+
+**Answer: B, E.** Well-known mandatory attributes (ORIGIN, AS_PATH, NEXT_HOP) must be recognised by every BGP router and included in every UPDATE. **Why not the others:** A is well-known *discretionary*. C is optional non-transitive. D is optional transitive.
+</details>
+
+**Q2.** A router receives a route carrying an optional transitive attribute it doesn't understand. What does it do with that attribute?
+
+- **A.** It drops the whole route.
+- **B.** It strips the attribute and advertises the route without it.
+- **C.** It sends a NOTIFICATION and resets the session.
+- **D.** It passes the attribute on to its neighbours unchanged, even though it can't use it.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** "Transitive" means it's passed on, even by routers that don't understand it. That's how a community set by one AS can reach another AS that acts on it. **Why not the others:** A and C would make optional attributes unusable in mixed networks. B describes how *non-transitive* attributes behave.
+</details>
+
+**Q3.** R1 receives 10.20.0.0/16 from ISP-A, whose session address is 203.0.113.2. What NEXT_HOP does R1 see for the route, and why?
+
+- **A.** 203.0.113.2, because a router advertising to an eBGP neighbour sets the next hop to its own address on that session
+- **B.** The address of the router inside ISP-A that originated the route
+- **C.** 0.0.0.0, because the route is external
+- **D.** R1's own address, 203.0.113.1
+
+<details><summary>Answer</summary>
+
+**Answer: A.** eBGP rewrites NEXT_HOP to the advertising router's session address, because that's the only address in the other AS the receiver is sure to reach. **Why not the others:** B is how iBGP behaves inside an AS (it keeps the next hop). C is how a *locally originated* route shows. D is R1's own address, which would make no sense as a next hop.
+</details>
+
+**Q4.** Which value influences path selection on one router only and is never sent to any neighbour?
+
+- **A.** LOCAL_PREF
+- **B.** MED
+- **C.** Weight
+- **D.** ORIGIN
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Weight is Cisco-only and not a real BGP attribute; it never leaves the router. **Why not the others:** A is shared across the whole AS through iBGP. B is sent to a neighbouring AS. D travels with the route everywhere.
+</details>
 
 ---
 
@@ -3050,6 +5596,61 @@ The algorithm stops at step 5. Nothing after it is looked at.
 6. Step 11: the path that has been up **longest** wins. If ISP-A's path is older, it stays best, and a new ISP-B path arriving later doesn't cause a change. That's why "oldest" exists: it stops the best path flipping back and forth every time an equal path is re-learned.
 
 **Why is MED compared only between paths from the same AS?** Because MED is a neighbour's **private suggestion** about its own links ("enter me via the New York link, not Chicago"). AS 65002's MED values are on AS 65002's scale; comparing them with AS 65003's MEDs would be comparing two different companies' internal numbering. (`bgp always-compare-med` overrides this — use it only if every neighbour uses a consistent scheme.)
+
+**📝 Exam-style questions — 7.7**
+
+**Q1.** R1 has two paths to 10.60.0.0/16. Both have weight 0, LOCAL_PREF 100 and no AIGP, and neither is locally originated. Which path wins, and at which step?
+
+```
+Path 1: via ISP-A   AS_PATH 65002 65060         ORIGIN ? (incomplete)
+Path 2: via ISP-B   AS_PATH 65003 65070 65060   ORIGIN i (IGP)
+```
+
+- **A.** Path 2, at the ORIGIN step, because `i` beats `?`
+- **B.** Path 2, at the oldest-path step
+- **C.** Path 1, at the eBGP-over-iBGP step
+- **D.** Path 1, at the AS_PATH step, because 2 ASes beat 3
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The algorithm stops at the first step that produces a winner. AS_PATH length (step 5) comes before ORIGIN (step 6), so the better origin on Path 2 is never looked at. **Why not the others:** A uses a later step. B and C come even later, and C also doesn't apply because both paths are eBGP.
+</details>
+
+**Q2.** Path A to 10.70.0.0/16 has LOCAL_PREF 150 and AS_PATH `65003 65080 65070`. Path B has LOCAL_PREF 100 and AS_PATH `65070`. Weight is 0 on both. Which path is best?
+
+- **A.** Path A, because LOCAL_PREF (step 2) is compared before AS_PATH length (step 5)
+- **B.** Path B, because its AS_PATH is shorter
+- **C.** Path B, because lower LOCAL_PREF is preferred
+- **D.** Both, because BGP load-balances by default
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Policy comes before distance: the higher LOCAL_PREF wins at step 2, and the algorithm stops there. **Why not the others:** B applies a later step. C reverses the rule; *higher* LOCAL_PREF wins. D is wrong because BGP installs one best path unless `maximum-paths` is configured.
+</details>
+
+**Q3.** Two paths to 10.80.0.0/16 tie through the ORIGIN step. One comes from AS 65002 with MED 10, the other from AS 65003 with MED 200. Default settings are used. What happens at the MED step?
+
+- **A.** The AS 65002 path wins, because MED 10 is lower.
+- **B.** The AS 65003 path wins, because higher MED is preferred.
+- **C.** MED isn't compared, because the paths come from different neighbouring ASes, so the decision moves on to the later steps.
+- **D.** Both paths are installed, because their MEDs differ.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** By default MED is compared only between paths from the same neighbouring AS, because each AS sets MED on its own private scale. `bgp always-compare-med` would change that. **Why not the others:** A applies MED across ASes. B reverses the rule (lower wins). D is invented.
+</details>
+
+**Q4.** Which sequence lists these best-path comparisons in the order Cisco IOS applies them?
+
+- **A.** Weight, LOCAL_PREF, AS_PATH length, ORIGIN, MED
+- **B.** LOCAL_PREF, Weight, AS_PATH length, MED, ORIGIN
+- **C.** Weight, AS_PATH length, LOCAL_PREF, ORIGIN, MED
+- **D.** AS_PATH length, Weight, LOCAL_PREF, MED, ORIGIN
+
+<details><summary>Answer</summary>
+
+**Answer: A.** After next-hop reachability: **W**eight, **L**ocal pref, **L**ocally originated, **A**S path (with AIGP folded in), **O**rigin, **M**ED, **N**eighbour type, **I**GP metric: "N WLLA OMNI". **Why not the others:** B swaps weight and LOCAL_PREF, and MED and ORIGIN. C and D put AS_PATH before your own policy values.
+</details>
 
 ---
 
@@ -3126,6 +5727,44 @@ Never use a plain `clear ip bgp *` on a production router — it **tears down ev
 
 **Why prepend your own AS rather than some other number?** Because prepending another AS's number would make that AS **reject** the route (loop prevention — 7.1), and it would be lying about the path. Repeating your own ASN makes the path longer without changing who's on it.
 
+**📝 Exam-style questions — 7.8**
+
+**Q1.** AS 65001 has two edge routers, R1 (to ISP-A) and R2 (to ISP-B), which are iBGP neighbours. All outbound traffic from the whole AS should leave through ISP-A. What should you configure?
+
+- **A.** `neighbor <ISP-A> weight 200` on R1
+- **B.** An inbound route map on R1's ISP-A session that sets `local-preference 200`
+- **C.** An outbound route map on R1's ISP-A session that sets `metric 50`
+- **D.** An outbound route map on R2's ISP-B session that prepends 65001 three times
+
+<details><summary>Answer</summary>
+
+**Answer: B.** LOCAL_PREF is shared across the whole AS through iBGP, so R2 also prefers the path via R1 at step 2. **Why not the others:** A affects R1 only, because weight never leaves the router. C (MED) and D (prepending) influence how *other* ASes send traffic *to* you, which is the inbound direction.
+</details>
+
+**Q2.** You want the internet to send traffic for 198.51.100.0/24 to you through ISP-A rather than ISP-B. Which change is most appropriate?
+
+- **A.** Set LOCAL_PREF 200 on routes received from ISP-A.
+- **B.** Set weight 200 on the ISP-A neighbour.
+- **C.** Prepend your own AS several times in updates sent to ISP-B.
+- **D.** Prepend ISP-A's AS number in updates sent to ISP-B.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** To change how the world sends traffic *to* you, you change what you *tell* the world. A longer AS_PATH via ISP-B makes that path less attractive to other ASes. It influences inbound traffic but can't force it. **Why not the others:** A and B control *outbound* traffic. D would make ISP-A's AS reject the route through its loop check, and it misrepresents the path.
+</details>
+
+**Q3.** An engineer changes an inbound route map on R1's session to 203.0.113.2. Nothing changes in the BGP table. Which command applies the new policy without tearing the session down?
+
+- **A.** `clear ip bgp *`
+- **B.** `clear ip bgp 203.0.113.2`
+- **C.** `clear ip bgp 203.0.113.2 soft out`
+- **D.** `clear ip bgp 203.0.113.2 soft in`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Policy applies only to updates as they arrive. A soft inbound reset asks the neighbour to resend its routes (route refresh), and they pass through the new route map. **Why not the others:** A tears down every session. B tears down this session. C re-sends *your* updates through *outbound* policy, so it doesn't apply an inbound change.
+</details>
+
 ---
 
 ## 7.9 Troubleshooting eBGP
@@ -3153,6 +5792,56 @@ Never use a plain `clear ip bgp *` on a production router — it **tears down ev
 4. Within seconds the state column moves through Connect/OpenSent to a **number**: the count of prefixes received. Established.
 
 Had the ping *worked*, the next suspects would be an ACL blocking TCP 179 (`show access-lists` for hits) and, if the session reached OpenSent before failing, the `remote-as` or router ID (step 3 of the walk-through in 7.3).
+
+**📝 Exam-style questions — 7.9**
+
+**Q1.** Refer to the exhibit. R1 can ping 203.0.113.2, but the BGP session never leaves Idle/Active. What is the cause?
+
+```
+%TCP-6-BADAUTH: No MD5 digest from 203.0.113.2(179) to 203.0.113.1(31744) tabled
+```
+
+- **A.** The `remote-as` is wrong on R1.
+- **B.** R1 has `neighbor 203.0.113.2 password` configured, but the neighbour has no password.
+- **C.** The neighbours have duplicate router IDs.
+- **D.** The hold time is set to 0 on the neighbour.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** R1 expects every TCP segment to carry an MD5 signature, and the segments from 203.0.113.2 arrive with none, so R1 drops them. TCP never comes up. **Why not the others:** A and C would let TCP come up and fail later, at OpenSent. D only disables keepalives; it doesn't stop the session.
+</details>
+
+**Q2.** R1 peers with an ISP router using the ISP router's loopback address, which is two hops away. The session never comes up, although each router can ping the other's loopback. What is the most likely reason?
+
+- **A.** eBGP packets are sent with TTL 1 by default, so a neighbour that isn't directly connected needs `ebgp-multihop` (and normally `update-source`).
+- **B.** BGP sessions can't be formed between loopback addresses.
+- **C.** The ISP needs `next-hop-self`.
+- **D.** The router IDs must match the loopback addresses.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With TTL 1, the packets die at the first router on the way. Peering over loopbacks needs `ebgp-multihop`, plus `update-source` so the session is sourced from the loopback the other side expects. **Why not the others:** B is false; it's common practice with the right commands. C fixes iBGP next-hop reachability, not session setup. D is invented.
+</details>
+
+**Q3.** Refer to the exhibit. R1 has `network 198.51.100.0 mask 255.255.255.0` under BGP, and its session to the ISP is Established, but the ISP never receives the prefix. What is the cause?
+
+```
+R1# show ip route 198.51.100.0 255.255.255.0
+% Subnet not in table
+R1# show ip route | include 198.51.100
+O        198.51.100.0/25 [110/2] via 10.0.1.2, 00:12:04, GigabitEthernet0/1
+O        198.51.100.128/25 [110/2] via 10.0.1.2, 00:12:04, GigabitEthernet0/1
+```
+
+- **A.** The session isn't activated for IPv4.
+- **B.** OSPF routes can't be advertised by BGP.
+- **C.** The ISP is filtering /24 prefixes.
+- **D.** The routing table has no exact /24, only two /25s, so the `network` statement has nothing to advertise.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** BGP's `network` needs an exact prefix-and-mask match in the routing table. Adding `ip route 198.51.100.0 255.255.255.0 Null0` fixes it. **Why not the others:** A doesn't fit; the exhibit points clearly at the missing exact route. B is false, because a `network` statement can match an OSPF route as long as the prefix and mask are exact. C is possible in theory, but the exhibit already shows R1 has nothing to send.
+</details>
 
 ---
 
@@ -3202,6 +5891,32 @@ The CCNA guide gave three reasons to synchronize clocks: log correlation, certif
 4. `show clock` on R2 shows the wrong year. Configure NTP, and R2 sets its clock, the key becomes valid, and the neighbor comes up.
 
 *A network without synchronized time can still forward packets. It just can't tell you the truth about what happened.*
+
+**📝 Exam-style questions — 8.1**
+
+**Q1.** R1 and R2 run EIGRP authentication with a key chain whose only key has `accept-lifetime 00:00:00 Jan 1 2026 infinite` and a matching `send-lifetime`. After a power cut, R2 reloads and the adjacency never comes back, although the key string on both routers is identical. NTP is not configured on R2. What is the most likely cause?
+
+- **A.** The key string is stored as type 7 on one router and type 0 on the other
+- **B.** R2's clock restarted at a date before 1 January 2026, so R2 considers the key not yet valid
+- **C.** EIGRP hello timers reset to their defaults after a reload and no longer match
+- **D.** The key chain must be re-applied to the interface after every reload
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Key chains check lifetimes against the router's own clock. With no NTP, R2's clock starts at an old default date, so from R2's point of view key 1 "hasn't started yet" and it has no valid key to sign or check packets. Configure NTP (or set the clock) and the neighbor comes up. **Why not the others:** A, the storage format of the key string doesn't change the key itself. C, hello timers come from the saved config, so a reload doesn't change them. D, the interface config is saved and re-applied automatically at boot.
+</details>
+
+**Q2.** Routing works perfectly in a network whose devices have unsynchronized clocks. Why is that still a problem for the network team?
+
+- **A.** OSPF and EIGRP refuse to form adjacencies between routers whose clocks differ by more than one second
+- **B.** Syslog messages without synchronized timestamps are dropped by the syslog server
+- **C.** Events logged on different devices can't be put in the right order, so a cause can appear to happen after its effect
+- **D.** NTP traffic floods the network until the clocks agree
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Synchronized time is what lets you line up logs, NetFlow records and SLA results from many devices into one timeline. Without it, R2 can appear to lose its neighbor before R1's interface went down. **Why not the others:** A, routing protocols don't compare clocks (only key-chain lifetimes depend on time). B, syslog servers accept messages whatever their timestamps. D, NTP sends a small poll every 64–1024 seconds and never floods.
+</details>
 
 ---
 
@@ -3368,6 +6083,77 @@ nominal freq is 250.0000 Hz, actual freq is 249.9998 Hz, precision is 2**10
 | Every source shows `x` or `-` | Sources disagree badly with each other | Compare offsets; remove the bad source |
 | Logs have no real timestamps | `service timestamps` not configured | `service timestamps log datetime msec localtime show-timezone` |
 
+**📝 Exam-style questions — 8.2**
+
+**Q1.** Refer to the exhibit. Which statement is true?
+
+```
+CORE1# show ntp associations
+
+  address         ref clock       st   when   poll reach  delay  offset   disp
+*~192.0.2.10      .GPS.            1     22     64   377  11.90   -0.310  1.880
+x~192.0.2.11      .GPS.            1     40     64   377  13.20  902.441  2.010
++~192.0.2.12      .PPS.            1      9     64   377  12.75    0.402  2.204
+ * sys.peer, # selected, + candidate, - outlyer, x falseticker, ~ configured
+```
+
+- **A.** CORE1 is a stratum 1 clock, because all three of its servers are stratum 1
+- **B.** 192.0.2.11 answers every poll but is ignored, because its time disagrees with the other two servers
+- **C.** 192.0.2.11 is unreachable, which is why it is marked `x`
+- **D.** CORE1 is synchronized to 192.0.2.12, the server with the lowest `when` value
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `x` means falseticker: the server replies (`reach 377` = the last 8 polls all answered) but its offset of about 900 ms disagrees with the two servers that agree with each other, so NTP outvotes it. **Why not the others:** A, a client is always one stratum below its source, so CORE1 is stratum 2. C, an unreachable server shows `reach 0`, not 377. D, the `*` marks the sys.peer, which is 192.0.2.10; `when` is only the seconds since the last poll.
+</details>
+
+**Q2.** Refer to the exhibit. `show ntp associations` on R5 shows `reach 377` for 192.0.2.10, but the entry never gets a `*` and `show ntp status` reports `Clock is unsynchronized, stratum 16`. The server is healthy and uses key 1 with the same secret. What is the cause?
+
+```
+ntp authentication-key 1 md5 S3cretKey1
+ntp authenticate
+ntp server 192.0.2.10 key 1
+```
+
+- **A.** The `ntp server` line needs the `prefer` keyword before R5 can synchronize
+- **B.** An ACL is blocking UDP 123 between R5 and the server
+- **C.** R5 needs `ntp master` so that it has a stratum to start from
+- **D.** Key 1 is not marked as trusted with `ntp trusted-key 1`, so R5 refuses the server's time
+
+<details><summary>Answer</summary>
+
+**Answer: D.** NTP authentication needs three lines: define the key, trust it, and enforce authentication. Here the key is defined and `ntp authenticate` is on, but no key is trusted, so R5 rejects every server. **Why not the others:** A, `prefer` only breaks ties between good servers and isn't required. B, `reach 377` proves replies are arriving, so UDP 123 isn't blocked. C, `ntp master` makes R5 serve its own clock; it doesn't help it trust a server.
+</details>
+
+**Q3.** CORE1 synchronizes to upstream server 192.0.2.10. An engineer adds the lines in the exhibit so that campus switches can get time from CORE1. CORE1 immediately stops synchronizing, although `ping 192.0.2.10` still works. What fixes it?
+
+```
+ntp access-group serve-only 20
+access-list 20 permit 10.0.0.0 0.255.255.255
+```
+
+- **A.** Add `ntp access-group peer 10` with `access-list 10 permit 192.0.2.10`
+- **B.** Add `access-list 20 permit 192.0.2.10`
+- **C.** Change `serve-only` to `query-only`
+- **D.** Remove `ntp source Loopback0` so the replies come back to the physical interface
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Once any `ntp access-group` exists, every NTP source must be permitted by a type that allows what it needs. CORE1 must *synchronize to* 192.0.2.10, and only the `peer` type allows that. **Why not the others:** B, adding the server to the `serve-only` ACL only lets it ask CORE1 for the time; CORE1 still won't sync to it. C, `query-only` is even more restrictive (control queries only). D, the source interface wasn't the problem: ping works and nothing about the replies changed except the new access group.
+</details>
+
+**Q4.** A server that showed `reach 377` for hours now shows `reach 376`. What does that tell you?
+
+- **A.** The oldest of the last eight polls failed, and the problem has already cleared
+- **B.** NTP has marked the server as a falseticker
+- **C.** The most recent poll got no reply, but the seven before it did
+- **D.** The server's stratum has changed, which resets the register
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `reach` is an 8-bit register shown in octal. Each poll shifts it left and adds 1 for a reply or 0 for none. 376 is 11111110: only the newest bit, the latest poll, is 0. **Why not the others:** A, a failure on the oldest poll would show as a 0 in the leftmost bit, giving 177. B, falseticker status is shown by an `x` in the first column, not by `reach`. D, a stratum change doesn't touch the reach register.
+</details>
+
 ---
 
 ## 8.3 How NTP and PTP Differ — the Precision Ladder
@@ -3384,6 +6170,33 @@ nominal freq is 250.0000 Hz, actual freq is 249.9998 Hz, precision is 2**10
 | Used for | Logs, certs, AAA: *everything* | Industrial automation, power utilities, 5G radio, broadcast video (AES67/SMPTE 2110), trading |
 
 **Why can't NTP just try harder and reach microseconds?** Because its error comes mostly from **variable delay it can't see**. NTP timestamps a packet when software handles it, which happens after an unpredictable wait in interrupt handling and output queues. NTP then assumes the path delay is the same in both directions, and every queue along the way breaks that assumption. PTP attacks both problems: it timestamps in **hardware at the wire**, and it lets the **switches in the path** measure and remove their own delay (8.4). *NTP estimates across a fog; PTP clears the fog hop by hop.*
+
+**📝 Exam-style questions — 8.3**
+
+**Q1.** A factory needs its controllers' clocks to agree within one microsecond. Why can PTP meet this requirement when NTP cannot? (Choose two.)
+
+- **A.** PTP takes timestamps in hardware at the port, as the packet crosses the wire
+- **B.** PTP runs over TCP, so lost timing messages are retransmitted
+- **C.** PTP-aware switches in the path can measure and remove their own queuing delay
+- **D.** PTP clocks use a higher stratum number than NTP clocks
+- **E.** PTP encrypts its messages, so they can't be delayed by an attacker
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** NTP's error comes from delay it can't see: software timestamps taken after unpredictable waits, and queues that make the path asymmetric. PTP removes both: hardware timestamps at the wire, and transparent or boundary clocks that account for the time each switch holds the packet. **Why not the others:** B, PTP uses UDP 319/320 or raw Ethernet, not TCP, and retransmission would add delay, not remove it. D, stratum is an NTP concept; PTP elects a grandmaster with the BMCA. E, PTP doesn't encrypt its messages, and encryption wouldn't improve accuracy.
+</details>
+
+**Q2.** Both NTP and PTP compute a clock offset by dividing a round-trip measurement by two. Which assumption does that rely on, and therefore which condition makes them inaccurate?
+
+- **A.** That the server's clock is stratum 1; a stratum 2 server halves the accuracy
+- **B.** That packets are never lost; any loss doubles the computed offset
+- **C.** That the client and server are in the same subnet; routed hops break the formula
+- **D.** That the trip out takes as long as the trip back; a queue in only one direction skews the result
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Halving the round trip is only correct when the path is symmetric. If a packet waits in a queue in one direction only, half of that wait is wrongly blamed on the client's clock. **Why not the others:** A, stratum affects how far the time is from the reference, not the formula. B, a lost packet just means no sample for that poll; the next sample isn't doubled. C, both protocols work across routed hops; what matters is whether the delay is the same both ways.
+</details>
 
 ---
 
@@ -3504,8 +6317,6 @@ SW1# show ptp parent
 
 Use `show ptp clock` (my own clock and mode), `show ptp port` (each port's state: MASTER, SLAVE or PASSIVE) and `show ptp parent` (who won BMCA). *Port states again mirror STP: one upstream "root" port (SLAVE), downstream "designated" ports (MASTER), and PASSIVE ports that hear a better master but aren't used, like a blocking port.*
 
----
-
 ### PTP Profiles
 
 IEEE 1588 is a toolkit, and industries publish **profiles** that fix the options (message rates, delay mechanism, transport, domain numbers) for their use case. Clocks only interoperate if they run the same profile:
@@ -3519,6 +6330,71 @@ IEEE 1588 is a toolkit, and industries publish **profiles** that fix the options
 | **Telecom (G.8275.x)** | Mobile fronthaul/backhaul | Strict accuracy budgets, boundary clocks at every hop |
 
 *On the exam, recognizing that a mismatched profile (or domain) means "no master found" matters more than memorizing every profile's numbers.*
+
+**📝 Exam-style questions — 8.4**
+
+**Q1.** Refer to the exhibit. How often does this switch send PTP Sync messages on Te1/0/1?
+
+```
+interface TenGigabitEthernet1/0/1
+ ptp announce interval 1
+ ptp sync interval -3
+ ptp delay-req interval -3
+```
+
+- **A.** Once every 3 seconds
+- **B.** Once every 8 seconds
+- **C.** Eight times per second
+- **D.** Three times per second
+
+<details><summary>Answer</summary>
+
+**Answer: C.** PTP intervals are base-2 logarithms of seconds. `-3` means 2⁻³ = 1/8 of a second between messages, which is eight per second. Negative values always mean faster than once per second. **Why not the others:** A and D read the number literally, which is the classic trap. B confuses 2³ (8 seconds, which would be `3`) with 2⁻³.
+</details>
+
+**Q2.** Three PTP clocks can hear each other. Which one becomes the grandmaster?
+
+| Clock | Priority1 | Clock class | Clock identity |
+|-------|-----------|-------------|----------------|
+| CLK-Y | 100 | 248 (free-running) | …:BB |
+| CLK-X | 128 | 6 (GPS-locked) | …:AA |
+| CLK-Z | 128 | 6 (GPS-locked) | …:11 |
+
+- **A.** CLK-Y
+- **B.** CLK-X
+- **C.** CLK-Z
+- **D.** No clock, because the BMCA refuses a free-running clock when a GPS-locked one is present
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The BMCA compares Priority1 first, before clock quality. 100 beats 128, so CLK-Y wins even though it isn't locked to GPS. That's why you lower Priority1 only on a clock you trust. **Why not the others:** B and C would only matter if Priority1 tied; then class 6 would beat 248, and the lower identity (…:11) would beat …:AA, making CLK-Z the winner. D, the BMCA always elects a winner; it has no rule that refuses a clock.
+</details>
+
+**Q3.** A Catalyst switch in a PTP network does not synchronize its own clock. Instead, it measures how long each PTP event message spent inside it and adds that time to the message's correction field. Which kind of clock is it?
+
+- **A.** Boundary clock
+- **B.** Ordinary clock
+- **C.** Grandmaster clock
+- **D.** Transparent clock
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A transparent clock records its residence time in the correction field so the slave can subtract it, and it doesn't sync itself. **Why not the others:** A, a boundary clock *does* sync itself on its upstream port and then serves fresh time downstream. B, an ordinary clock is an endpoint with a single PTP port. C, the grandmaster is the source of time for the whole domain.
+</details>
+
+**Q4.** In a PTP domain, the true one-way delay is 10 µs in each direction. A switch that is not PTP-aware holds every Sync message for an extra 40 µs in a queue but forwards Delay_Req messages immediately. By how much will the slave's computed offset be wrong?
+
+- **A.** 0 µs, because PTP averages the two directions
+- **B.** 10 µs
+- **C.** 20 µs
+- **D.** 40 µs
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The offset formula divides the difference between the two directions by two. An extra 40 µs in the master-to-slave direction only makes the path look asymmetric, and half of it (20 µs) is wrongly blamed on the slave's clock. **Why not the others:** A, averaging only cancels delay that is the same both ways; this queue is one-way. B is the real path delay, not the error. D would be the error only if the formula didn't divide by two. A transparent clock in that switch would fix the error by reporting the 40 µs in the correction field.
+</details>
+
+---
 
 ## 8.5 NAT/PAT at CCNP Depth
 
@@ -3714,6 +6590,79 @@ Tune them with `ip nat translation timeout <sec>` and per-protocol variants such
 
 **Exam trap:** changing a NAT rule doesn't touch translations that already exist. If you fix the config and nothing changes, clear the table, then retest.
 
+**📝 Exam-style questions — 8.5**
+
+**Q1.** Refer to the exhibit. ACL FROM-ISP is applied inbound on Gi0/0/1, the `ip nat outside` interface. Internet users cannot reach the web server on HTTPS, but `show ip nat translations` shows the static entry. What fixes the problem?
+
+```
+ip nat inside source static 10.1.1.10 203.0.113.10
+!
+ip access-list extended FROM-ISP
+ permit tcp any host 10.1.1.10 eq 443
+```
+
+- **A.** Apply `ip nat outside` to the LAN interface as well
+- **B.** Change the ACL entry to `permit tcp any host 203.0.113.10 eq 443`
+- **C.** Add the `overload` keyword to the static translation
+- **D.** Add `ip nat inside source static tcp 10.1.1.10 443 203.0.113.10 443`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** For traffic coming in from outside, the inbound ACL on the outside interface runs before NAT translates the destination back. The ACL therefore sees 203.0.113.10, the inside global address, and the entry for 10.1.1.10 never matches. **Why not the others:** A, marking the LAN `outside` breaks NAT entirely. C, `overload` is for many-to-one PAT and isn't valid on this static entry. D, a static port entry still leaves the ACL matching the wrong address.
+</details>
+
+**Q2.** Refer to the exhibit. Which two statements are true? (Choose two.)
+
+```
+R1# show ip nat translations
+Pro  Inside global        Inside local       Outside local       Outside global
+---  203.0.113.10         10.1.1.10          ---                 ---
+tcp  203.0.113.20:51344   10.1.1.57:51344    142.250.72.14:443   142.250.72.14:443
+udp  203.0.113.20:60211   10.1.1.61:60211    8.8.8.8:53          8.8.8.8:53
+```
+
+- **A.** 10.1.1.57 is an inside local address
+- **B.** The outside addresses are being translated, because outside local and outside global are both shown
+- **C.** The first line is a static translation that exists even with no traffic flowing
+- **D.** PAT is not working, because port 51344 was not changed
+- **E.** The UDP entry will stay in the table for 24 hours by default
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** Inside local is the inside host's real address, and the `---` outside columns with no protocol or ports mark a static entry. **Why not the others:** B, outside local equals outside global on both lines, so nothing translates the outside. D, IOS PAT keeps the original port whenever it's free on the public address; two hosts sharing 203.0.113.20 proves overload is working. E, UDP PAT entries time out after 300 seconds by default; 24 hours is the TCP and simple-entry default.
+</details>
+
+**Q3.** Refer to the exhibit. The first four lab users can browse, but the fifth gets no internet access, and the pool's `misses` counter keeps rising. Which change lets every lab user browse at the same time?
+
+```
+ip access-list standard NAT-LAB
+ permit 10.1.2.0 0.0.0.255
+ip nat pool LAB-POOL 203.0.113.24 203.0.113.27 netmask 255.255.255.224
+ip nat inside source list NAT-LAB pool LAB-POOL
+```
+
+- **A.** Add `extendable` to the `ip nat inside source` line
+- **B.** Raise the NAT translation timeout so entries last longer
+- **C.** Mark the lab interface with `ip nat outside`
+- **D.** Add `overload` to the `ip nat inside source` line
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Without `overload`, dynamic NAT maps one inside host to one pool address, so a four-address pool serves only four hosts at a time. With `overload`, all users share the pool, told apart by port numbers. **Why not the others:** A, `extendable` is for static entries that share an inside local address. B, a longer timeout makes exhaustion worse by holding addresses even longer; shortening it only helps a little. C, the lab LAN is the inside, so marking it `outside` would break translation.
+</details>
+
+**Q4.** A packet travels from an inside host to the internet through a router doing PAT. In which order does IOS XE process it?
+
+- **A.** Inbound ACL on the inside interface → routing → NAT → outbound ACL on the outside interface
+- **B.** Inbound ACL on the inside interface → NAT → routing → outbound ACL on the outside interface
+- **C.** Routing → inbound ACL on the inside interface → NAT → outbound ACL on the outside interface
+- **D.** NAT → inbound ACL on the inside interface → routing → outbound ACL on the outside interface
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Inside to outside, the router checks the inbound ACL, routes the packet (which decides that it leaves through an `ip nat outside` interface), translates the source, and only then applies the outbound ACL. That's why an outbound ACL on the outside interface sees the translated source. **Why not the others:** B puts NAT before routing, which only happens for traffic coming *in* from outside. C, an inbound ACL always runs before the routing decision. D, NAT never runs before the inbound ACL.
+</details>
+
 ---
 
 ## 8.6 Chapter Summary
@@ -3756,6 +6705,32 @@ All three protocols (HSRP, VRRP and GLBP) share one mechanism:
 4. When the hellos stop, a backup takes over the VIP *and* the virtual MAC, and sends a **gratuitous ARP** so the switches relearn which port the MAC lives on. (A gratuitous ARP is an ARP reply nobody asked for: "10.10.10.1 is at 0000.0c9f.f00a". Switches see the source MAC arrive on a new port and update their MAC address tables.)
 
 **Why does the virtual MAC matter as much as the virtual IP?** A host doesn't send frames to an IP address. It sends them to whatever MAC its ARP cache holds for the gateway, and it may keep that entry for hours. If failover moved only the IP, every host would keep sending frames to the dead router's MAC until its ARP entry aged out. Moving the MAC too makes failover invisible to hosts. *The host never learns that anything happened, which is the whole point.*
+
+**📝 Exam-style questions — 9.1**
+
+**Q1.** Why does an FHRP move the virtual MAC address to the new forwarding router during failover, and not just the virtual IP?
+
+- **A.** Because Spanning Tree only unblocks ports for MAC addresses it has already learned
+- **B.** Because hosts send frames to the gateway MAC in their ARP cache, so a moving MAC means hosts never have to re-ARP
+- **C.** Because the virtual MAC carries the group's priority, which the new router needs
+- **D.** Because ARP replies cannot carry an IP address that belongs to another router
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A host forwards off-subnet traffic to whatever MAC its ARP cache holds for the gateway, and it may keep that entry for hours. If only the IP moved, hosts would keep sending to the dead router's MAC. Moving the MAC makes failover invisible to them. **Why not the others:** A, STP decides port states per VLAN, not per MAC address. C, priority is carried in the hello packets, not in the MAC. D, ARP replies carry whichever IP and MAC the replying router answers for; that's exactly how the virtual pair works.
+</details>
+
+**Q2.** Right after an HSRP Standby router becomes Active, it sends a gratuitous ARP from the virtual MAC. What does that achieve?
+
+- **A.** It tells every host the new gateway IP address
+- **B.** It advertises the router's new priority to the rest of the group
+- **C.** It clears the hosts' ARP caches so they ARP again for the gateway
+- **D.** It makes the switches relearn which port the virtual MAC is now behind
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Switches learn MAC locations from source addresses. The gratuitous ARP arrives with the virtual MAC as its source on the new router's port, so the switches update their MAC address tables and frames reach the new Active router. **Why not the others:** A, the gateway IP never changes. B, priority travels in HSRP hellos. C, nothing needs clearing: the hosts' cached IP-to-MAC entry is still correct.
+</details>
 
 ---
 
@@ -3830,6 +6805,62 @@ The defaults are **hello 3 s, hold 10 s**. The hold time is how long a router wa
 With `timers msec 250 msec 750`, step 3 happens at about 0.75 s instead of 10 s. That's the whole reason people tune the timers.
 
 **Why hold = about 3 × hello?** So that one or two lost hellos (a busy CPU, a dropped multicast) don't trigger a failover. The backup only acts after missing roughly three in a row.
+
+**📝 Exam-style questions — 9.2**
+
+**Q1.** A host's ARP cache shows its default gateway 10.1.100.1 at MAC `0000.0c9f.f064`. Which FHRP and group is answering for the gateway?
+
+- **A.** HSRPv1, group 100
+- **B.** HSRPv2, group 64
+- **C.** HSRPv2, group 100
+- **D.** VRRP, group 100
+
+<details><summary>Answer</summary>
+
+**Answer: C.** HSRPv2 virtual MACs are `0000.0c9f.fXXX`, where XXX is the group number in hex. 0x064 is 100. **Why not the others:** A, HSRPv1 uses `0000.0c07.acXX`, so group 100 would be `0000.0c07.ac64`. B, the hex value 064 is decimal 100, not 64. D, VRRP uses `0000.5e00.01XX`.
+</details>
+
+**Q2.** Three routers share HSRP group 10 on VLAN 10. None has `preempt` configured. R1 and R2 boot first; R3 boots five minutes later. Which router is Active after R3 has been up for a minute?
+
+| Router | Interface IP | Priority |
+|--------|--------------|----------|
+| R1 | 10.10.10.2 | 100 |
+| R2 | 10.10.10.3 | 100 |
+| R3 | 10.10.10.4 | 120 |
+
+- **A.** R1
+- **B.** R2
+- **C.** R3, because it has the highest priority
+- **D.** R3, but only after the 10-second hold timer expires
+
+<details><summary>Answer</summary>
+
+**Answer: B.** When R1 and R2 boot, they tie on priority 100, so the higher interface IP wins and R2 becomes Active. R3 arrives later with a higher priority, but preemption is off by default, so it does not take over while R2 is alive. **Why not the others:** A, R1 loses the tie-break on IP address. C and D, priority only matters at an election; without `preempt`, a better router doesn't force a new one, and the hold timer only runs when the Active router's hellos stop.
+</details>
+
+**Q3.** Why is HSRP preemption disabled by default?
+
+- **A.** Every takeover briefly disrupts forwarding, and a flapping high-priority router would cause an outage both when it fails and when it grabs the role back
+- **B.** Preemption only works when HSRP authentication is configured
+- **C.** Preemption requires HSRP version 2, and version 1 is the default
+- **D.** With preemption, the Standby router would stop sending hellos
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Each change of Active router means a gratuitous ARP, a MAC move and possibly lost packets. Cisco's default favors stability; you enable preempt, ideally with a delay, when you want the better router to take the role back. **Why not the others:** B and C, preempt works without authentication and in both versions. D, preemption doesn't change which routers send hellos.
+</details>
+
+**Q4.** HSRP runs with default timers. The Active router loses power just after sending a hello. For about how long can hosts not reach anything off their subnet?
+
+- **A.** About 1 second
+- **B.** About 3 seconds
+- **C.** About 30 seconds
+- **D.** About 10 seconds
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The default hold time is 10 seconds. The Standby only becomes Active when the hold timer expires, so frames sent to the virtual MAC are lost for roughly 10 seconds. **Why not the others:** B, 3 seconds is the hello interval, not the hold time. A, sub-second failover needs tuned timers (for example `timers msec 250 msec 750`) or BFD. C, 30 seconds is classic STP's listening-plus-learning time, not an HSRP timer.
+</details>
 
 ---
 
@@ -3914,6 +6945,81 @@ interface Vlan10
 
 **Why is the IPv6 VIP a link-local address?** Because IPv6 hosts learn their default gateway from **Router Advertisements**, and the router in an RA is identified by its **link-local** address (CCNA guide 13.8). The HSRP Active router sends RAs from the virtual link-local address, so hosts install the VIP as their gateway automatically, without any static configuration.
 
+**📝 Exam-style questions — 9.3**
+
+**Q1.** Refer to the exhibit. DSW2 is configured with `standby 10 priority 100` and `standby 10 preempt`. When DSW1's uplink Gi1/0/48 fails, DSW1 stays Active for VLAN 10. Why?
+
+```
+track 1 interface GigabitEthernet1/0/48 line-protocol
+!
+interface Vlan10
+ standby version 2
+ standby 10 ip 10.10.10.1
+ standby 10 priority 110
+ standby 10 preempt
+ standby 10 track 1 decrement 5
+```
+
+- **A.** DSW2 needs a priority above 110 before it can preempt
+- **B.** The track object must watch Vlan10 instead of the uplink
+- **C.** 110 − 5 = 105, which is still higher than DSW2's 100, so DSW2 has no reason to take over
+- **D.** Tracking only works with HSRP version 1
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The decrement must be large enough to push DSW1 below its peer. 105 is still higher than 100, so DSW2's preempt never triggers. A decrement of 20 (giving 90) would work. **Why not the others:** A, DSW2 only needs a higher priority than DSW1's *current* value, not its configured one. B, watching Vlan10 misses the point: tracking exists to react to the uplink, which the VLAN interface knows nothing about. D, tracking works in both versions.
+</details>
+
+**Q2.** DSW1 (priority 110, `standby 10 track 1 decrement 20`) loses its uplink, and `show standby` on DSW1 shows `Priority 90 (configured 110)`. DSW2 has priority 100 but DSW1 is still Active. What must be added?
+
+- **A.** `standby 10 preempt` on DSW2
+- **B.** `standby 10 preempt` on DSW1
+- **C.** `standby 10 track 1 decrement 30` on DSW1
+- **D.** `standby 10 priority 120` on DSW2
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Tracking lowers DSW1's priority, but only preemption lets the *other* router act on it. Without `preempt` on DSW2, DSW1 stays Active at 90 even though its uplink is dead. **Why not the others:** B, preempt on DSW1 lets DSW1 take the role back later; it doesn't help DSW2 take it now. C, DSW1 is already below DSW2; a bigger decrement changes nothing without preempt on DSW2. D, a higher priority still needs preempt to trigger a takeover from an existing Active router.
+</details>
+
+**Q3.** Refer to the exhibit. Which two statements describe how this configuration behaves? (Choose two.)
+
+```
+ip sla 1
+ icmp-echo 10.255.255.1 source-interface Vlan10
+ frequency 5
+ip sla schedule 1 life forever start-time now
+!
+track 2 ip sla 1 reachability
+ delay down 10 up 30
+!
+interface Vlan10
+ standby 10 track 2 decrement 20
+```
+
+- **A.** A single lost ping immediately lowers the HSRP priority by 20
+- **B.** The probe must keep failing for 10 seconds before the track object goes Down
+- **C.** After the pings recover, the track object waits 30 seconds before going Up again
+- **D.** IP SLA pings the HSRP virtual IP to check that the Active router is alive
+- **E.** `delay down 10` requires a matching `preempt delay minimum 10`
+
+<details><summary>Answer</summary>
+
+**Answer: B, C.** `delay down 10 up 30` damps flaps: the track object waits 10 seconds of failure before going Down, and 30 seconds of success before going Up, so a flapping path has to prove it is stable. **Why not the others:** A, the delay exists precisely so one lost probe doesn't move the gateway. D, the probe targets 10.255.255.1, something beyond the uplink, which is the point of reachability tracking. E, track delays and the preempt delay are independent settings.
+</details>
+
+**Q4.** Why is the virtual IP of an IPv6 HSRP group (`standby 110 ipv6 autoconfig`) a link-local address?
+
+- **A.** Because HSRP version 2 cannot carry global IPv6 addresses in its hellos
+- **B.** Because a link-local VIP saves a global address in every subnet
+- **C.** Because DHCPv6 hands hosts the gateway's link-local address
+- **D.** Because IPv6 hosts learn their default gateway from Router Advertisements, which identify the router by its link-local address
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The Active router sends Router Advertisements from the virtual link-local address, so hosts automatically install the VIP as their default gateway without any static configuration. **Why not the others:** A, HSRPv2 is what *enables* IPv6 HSRP; the choice of link-local is about how hosts find gateways. B, saving an address is not the reason. C, DHCPv6 does not tell hosts their default gateway; that's the RA's job.
+</details>
+
 ---
 
 ## 9.4 Load Sharing — Using Both Routers
@@ -3980,6 +7086,44 @@ This is the per-VLAN load sharing pattern. It balances **per VLAN**, not per hos
 | Uplink restored | DSW1, 60 s later | DSW2 | DSW1 is back at 110; its preempt delay expires |
 
 During the failure DSW2 carries both VLANs, which is exactly the redundancy you wanted. Once the uplink returns, the split restores itself without anyone touching a console.
+
+**📝 Exam-style questions — 9.4**
+
+**Q1.** For VLAN 10, DSW2 is the STP root bridge and DSW1 is the HSRP Active router. The access switch has one uplink to each distribution switch. What happens to a host's traffic toward its gateway?
+
+- **A.** It goes up the forwarding uplink to DSW2 and then crosses the inter-distribution link to DSW1
+- **B.** Both distribution switches become HSRP Active, so traffic is split between them
+- **C.** STP blocks the inter-distribution link, so the host can't reach the gateway at all
+- **D.** It goes directly to DSW1, because HSRP overrides Spanning Tree port states
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With DSW2 as root, the access switch's uplink to DSW1 is the blocked one for VLAN 10. Frames to the virtual MAC must go up to DSW2 and then across to DSW1, an extra hop on every packet. Aligning the STP root with the HSRP Active router removes the detour. **Why not the others:** B, the two switches still hear each other's hellos, so there is one Active. C, the inter-distribution link stays forwarding; it's the access uplink to DSW1 that blocks. D, HSRP has no influence on STP port states.
+</details>
+
+**Q2.** A campus uses one HSRP group per VLAN, with DSW1 Active for odd VLANs and DSW2 Active for even VLANs. Which statement about this design is true?
+
+- **A.** It balances traffic per host, so each switch carries about half of every VLAN's traffic
+- **B.** It balances per VLAN, so the split is only even if the odd and even VLANs carry similar loads
+- **C.** It only works with GLBP, because HSRP can't have different Active routers on one switch
+- **D.** It requires both switches to have the same priority in every group
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Each VLAN's traffic goes to that VLAN's Active router. If the even VLANs carry most of the traffic, DSW2 carries most of the load. **Why not the others:** A, per-host balancing inside one group is what GLBP does, not HSRP. C, a switch can be Active in some HSRP groups and Standby in others; that's the whole pattern. D, the design relies on *different* priorities, so that each switch wins in its own VLANs.
+</details>
+
+**Q3.** In this chapter's load-sharing design, DSW1 is Active for VLAN 10 with `standby 10 priority 110`, `standby 10 preempt delay minimum 60` and `standby 10 track 1 decrement 20`. DSW2 has priority 100 with preempt. DSW1's uplink fails, DSW2 takes over, and then the uplink is restored. When does DSW1 become Active for VLAN 10 again?
+
+- **A.** Immediately, as soon as its priority returns to 110
+- **B.** Never, until someone runs `clear standby` on DSW2
+- **C.** About 60 seconds after its priority returns to 110
+- **D.** Only after DSW2 reloads
+
+<details><summary>Answer</summary>
+
+**Answer: C.** When the track object comes back up, DSW1's priority returns to 110, higher than DSW2's 100. DSW1 has preempt, but with a 60-second minimum delay, so it waits 60 seconds (letting its routing table settle) and then takes the role back. **Why not the others:** A ignores the preempt delay. B and D, preemption restores the design automatically, with no manual action or reload.
+</details>
 
 ---
 
@@ -4064,6 +7208,57 @@ Interface      Grp  A-F Pri  Time Own Pre State   Master addr/Group addr
 Vl20            20 IPv4 110     0  N   Y  MASTER  10.10.20.2(local) 10.10.20.1
 ```
 
+**📝 Exam-style questions — 9.5**
+
+**Q1.** A VRRP Master stops advertising. A backup with priority 200 uses the default 1-second advertisement interval. After about how long does it declare the Master down?
+
+- **A.** 3.0 seconds
+- **B.** 3.61 seconds
+- **C.** 10 seconds
+- **D.** 3.22 seconds
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Master down interval = 3 × advertisement interval + skew, and skew = (256 − priority) ÷ 256. For priority 200 that's 3 × 1 + 56/256 ≈ 3.22 s. **Why not the others:** A ignores the skew. B is the value for a priority-100 backup (156/256 ≈ 0.61). C is HSRP's default hold time.
+</details>
+
+**Q2.** R1's interface Vlan20 has the address 10.10.20.1 and R1 runs VRRP group 20 with VIP 10.10.20.1 at default priority. R2 runs the same group with `priority 150`. Both are up. Which router is Master?
+
+- **A.** R2, because 150 is higher than R1's default of 100
+- **B.** R1, because it owns the VIP address and therefore runs at priority 255
+- **C.** Both, because the VIP conflicts with R1's real address
+- **D.** Whichever router has the higher real interface IP address
+
+<details><summary>Answer</summary>
+
+**Answer: B.** VRRP allows the VIP to be one of a router's real addresses. The router that owns it automatically gets priority 255 and always becomes Master. **Why not the others:** A, 255 beats any configured priority. C, using a real address as the VIP is normal in VRRP (in HSRP it would cause a duplicate-address problem). D, the IP tie-break only applies when priorities tie.
+</details>
+
+**Q3.** Which two statements describe VRRP but not HSRP? (Choose two.)
+
+- **A.** Preemption is enabled by default
+- **B.** Hellos are sent to UDP port 1985
+- **C.** The IPv4 virtual MAC has the form `0000.5e00.01XX`
+- **D.** A Standby router sends hellos alongside the Active router
+- **E.** Version 3 supports MD5 authentication
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** VRRP preempts by default and uses the IETF virtual MAC range `0000.5e00.01XX`. **Why not the others:** B, UDP 1985 is HSRP; VRRP is IP protocol 112. D, that's HSRP's Active/Standby pair; in VRRP only the Master advertises. E, VRRPv3 removed authentication; only VRRPv2 has it.
+</details>
+
+**Q4.** During a migration, DSW1 runs VRRPv3 and DSW2 still runs VRRPv2 for group 20. Both show `MASTER`. Which change on DSW1 fixes this without upgrading DSW2 yet?
+
+- **A.** Add `vrrpv2` under `vrrp 20 address-family ipv4`
+- **B.** Configure matching MD5 authentication on both switches
+- **C.** Raise DSW1's priority to 255
+- **D.** Change DSW1 to a different group number
+
+<details><summary>Answer</summary>
+
+**Answer: A.** VRRPv2 and v3 use different packet formats, so neither understands the other and both become Master. The `vrrpv2` command makes the v3 router also send v2-format advertisements that DSW2 understands. **Why not the others:** B, VRRPv3 has no authentication, and auth wasn't the cause. C, priority doesn't matter if the advertisements can't be read. D, a different group number would only make the routers ignore each other on purpose.
+</details>
+
 ---
 
 ## 9.6 GLBP — Briefly, for Comparison
@@ -4075,6 +7270,32 @@ Vl20            20 IPv4 110     0  N   Y  MASTER  10.10.20.2(local) 10.10.20.1
 **Worked example.** R1 is the AVG and AVF 1 (vMAC `0007.b400.0a01`), and R2 is AVF 2 (`0007.b400.0a02`), in group 10 with VIP 10.10.10.1. PC-A ARPs for 10.10.10.1 and the AVG answers with `.0a01`, so PC-A uses R1. PC-B ARPs next and the AVG answers with `.0a02`, so PC-B uses R2. Both PCs have the same gateway IP, but their frames go to different routers. If R2 dies, R1 takes over forwarding for `.0a02` too, so PC-B keeps working without re-ARPing.
 
 It's elegant, but it fits poorly in modern designs. Spreading one VLAN's hosts across two gateways conflicts with STP alignment (9.4), and Catalyst 9000 switches often don't support it at all. You'll meet it in comparison questions far more than in production. It isn't named in the ENCOR v1.2 blueprint, which says "HSRP, VRRP".
+
+**📝 Exam-style questions — 9.6**
+
+**Q1.** In a GLBP group with VIP 10.10.10.1, PC-A's traffic goes to R1 and PC-B's traffic goes to R2, although both PCs use 10.10.10.1 as their gateway. How does GLBP achieve that?
+
+- **A.** R1 and R2 both answer every ARP request, and each PC keeps the first reply
+- **B.** The PCs run equal-cost multipath to the two routers
+- **C.** The AVG answers ARP requests for the VIP with different virtual MACs, each owned by a different AVF
+- **D.** Each router uses a different VIP, handed out by DHCP
+
+<details><summary>Answer</summary>
+
+**Answer: C.** One router, the AVG, answers ARP for the VIP and hands out a different virtual MAC to different hosts. Each virtual MAC belongs to an AVF, so hosts with the same gateway IP send frames to different routers. **Why not the others:** A, only the AVG answers ARP. B, a PC has one default gateway and doesn't do ECMP. D, GLBP uses one shared VIP.
+</details>
+
+**Q2.** Why is GLBP rarely chosen for a modern Catalyst 9000 campus with looped Layer 2 access?
+
+- **A.** GLBP can't authenticate its hellos
+- **B.** GLBP allows only one forwarding router per VLAN
+- **C.** GLBP has no preemption at all
+- **D.** Spreading one VLAN's hosts across several gateways conflicts with aligning the gateway with the STP root
+
+<details><summary>Answer</summary>
+
+**Answer: D.** In a looped design, STP blocks one uplink, so the hosts GLBP sends to the gateway on the blocked side reach it by a detour through the other distribution switch. Per-VLAN HSRP or VRRP load sharing, with each VLAN's active gateway on its STP root, fits the design better. **Why not the others:** A, GLBP supports MD5 authentication. B is the opposite of the truth: forwarding on several routers in one group is GLBP's main feature. C, GLBP has preemption: off by default for the AVG, on by default for AVFs.
+</details>
 
 ---
 
@@ -4092,6 +7313,32 @@ It's elegant, but it fits poorly in modern designs. Spreading one VLAN's hosts a
 | Default timers | 3 s / 10 s | 1 s advert, ~3.6 s master down | 3 s / 10 s |
 | VIP can be a real IP? | No | **Yes** | No |
 | Load balancing in one group | No | No | **Yes** |
+
+**📝 Exam-style questions — 9.7**
+
+**Q1.** Which FHRP lets you use a router's real interface address as the virtual IP?
+
+- **A.** HSRP version 1
+- **B.** HSRP version 2
+- **C.** GLBP
+- **D.** VRRP
+
+<details><summary>Answer</summary>
+
+**Answer: D.** VRRP allows it, and the router owning the address becomes Master at priority 255. **Why not the others:** A, B and C all require the VIP to be an address that no router uses on its interface; reusing a real address causes duplicate-address problems.
+</details>
+
+**Q2.** An interface ACL between two distribution switches must permit VRRP advertisements. Which entry does that?
+
+- **A.** `permit 112 any host 224.0.0.18`
+- **B.** `permit udp any host 224.0.0.18 eq 1985`
+- **C.** `permit udp any host 224.0.0.102 eq 3222`
+- **D.** `permit tcp any host 224.0.0.18 eq 112`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** VRRP is its own IP protocol, number 112, sent to 224.0.0.18. In an ACL you match the protocol number directly. **Why not the others:** B mixes VRRP's address with HSRP's UDP port. C is GLBP (UDP 3222 to 224.0.0.102). D, 112 is a protocol number, not a TCP port.
+</details>
 
 ---
 
@@ -4130,6 +7377,66 @@ Vlan10 - Group 10 (version 2)
 3. Fix: `standby version 2` on DSW2. Within one hello interval DSW2 hears DSW1, the election runs, and one of them drops to Standby.
 
 **Read it from the top:** this router is Active, and it lists a real **Standby router**, so hellos are flowing both ways. Preemption is on, with a delay. Priority equals configured priority, which means no tracked object has fired. If you saw `Standby router is unknown` on *both* switches, they can't hear each other. Go straight to the first row of the table.
+
+**📝 Exam-style questions — 9.8**
+
+**Q1.** Refer to the exhibit. Both distribution switches report `State is Active` and `Standby router is unknown` for HSRP group 10 on VLAN 10. Both run version 2 with matching authentication. What is the most likely cause?
+
+```
+DSW1# show interfaces trunk
+Port        Mode         Encapsulation  Status        Native vlan
+Po1         on           802.1q         trunking      1
+
+Port        Vlans allowed on trunk
+Po1         20,30
+```
+
+- **A.** VLAN 10 is not allowed on Po1, the link between the distribution switches, so their hellos never reach each other
+- **B.** Neither switch has `preempt` configured
+- **C.** The two switches have the same priority
+- **D.** The tracking decrement is too small
+
+<details><summary>Answer</summary>
+
+**Answer: A.** "Two Actives" always means the hellos aren't getting through. Po1 only carries VLANs 20 and 30, so VLAN 10's hellos are dropped and each switch believes it is alone. **Why not the others:** B, preempt only decides who takes over once routers can hear each other. C, a priority tie is broken by the highest IP, giving one Active. D, tracking changes priority; it can't make a router invisible.
+</details>
+
+**Q2.** Refer to the exhibit. What is wrong?
+
+```
+DSW1# show standby vlan 10
+Vlan10 - Group 10 (version 2)
+  State is Active
+  Virtual IP address is 10.10.10.1
+  Preemption enabled, delay min 60 secs
+  Active router is local
+  Standby router is 10.10.10.3, priority 100 (expires in 8.920 sec)
+  Priority 90 (configured 110)
+    Track object 1 state Down decrement 20
+```
+
+- **A.** DSW1 is missing `preempt`
+- **B.** Tracking is not configured on DSW1
+- **C.** DSW2 (10.10.10.3) is not configured with `preempt`
+- **D.** The decrement of 20 is too small to cross DSW2's priority
+
+<details><summary>Answer</summary>
+
+**Answer: C.** DSW1's tracked uplink is down and its priority has fallen to 90, below DSW2's 100, yet DSW1 is still Active. DSW2 would take over only if it had `preempt`. **Why not the others:** A, the output shows `Preemption enabled` on DSW1. B, the output shows track object 1 working. D, 90 is already below 100, so the decrement is big enough.
+</details>
+
+**Q3.** Users report that traffic between hosts and their gateway crosses the link between the two distribution switches. Which two commands confirm that the STP root and the HSRP Active router are on different switches for that VLAN? (Choose two.)
+
+- **A.** `show spanning-tree vlan 10`
+- **B.** `show standby brief`
+- **C.** `show ip route`
+- **D.** `show vrrp brief`
+- **E.** `show track`
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** `show spanning-tree vlan 10` shows which switch is root for the VLAN, and `show standby brief` shows which switch is HSRP Active. If they differ, traffic takes the detour. **Why not the others:** C, the routing table says nothing about Layer 2 paths or FHRP roles. D, this design uses HSRP, not VRRP. E, `show track` shows tracked objects, not who is root or Active.
+</details>
 
 ---
 
@@ -4188,6 +7495,32 @@ Multicast is almost always **UDP**, which means no handshake, no retransmission 
 1. **Host ↔ first router:** a receiver says "I want group G". That's **IGMP**.
 2. **Router ↔ router:** routers build a tree from the source to every router with interested receivers. That's **PIM**.
 
+**📝 Exam-style questions — 10.1**
+
+**Q1.** A server sends a 4 Mbps multicast stream to 300 receivers, spread over three branches behind its first-hop router. How many copies of the stream cross the link between the server and that first-hop router?
+
+- **A.** One
+- **B.** Three, one per branch
+- **C.** 300, one per receiver
+- **D.** One per receiver subnet
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A multicast source always sends a single copy. Routers replicate it only where the paths to interested receivers split, so the first link carries one 4 Mbps copy no matter how many viewers there are. **Why not the others:** B, the three copies are made *by* the first-hop router, on its three downstream links. C is what unicast would need. D, replication happens at branch points in the tree, not per subnet at the source.
+</details>
+
+**Q2.** Which pairing correctly describes the two halves of a multicast design?
+
+- **A.** PIM between hosts and their first router; IGMP between routers
+- **B.** IGMP between hosts and their first router; MSDP between routers in the same domain
+- **C.** IGMP between hosts and their first router; PIM between routers
+- **D.** MLD between IPv4 hosts and routers; PIM between routers
+
+<details><summary>Answer</summary>
+
+**Answer: C.** IGMP is how a receiver tells its local router "I want group G". PIM is how routers build the delivery tree from the source to every router with interested receivers. **Why not the others:** A swaps the two protocols. B, MSDP connects RPs, usually in different domains (or in Anycast RP); it doesn't build trees. D, MLD is IPv6's version of IGMP, not IPv4's.
+</details>
+
 ---
 
 ## 10.2 Multicast Addressing
@@ -4220,6 +7553,44 @@ A group address has 28 significant bits (32 minus the fixed `1110` prefix). Only
 **Why does this overlap matter?** A host that joined 239.1.1.1 will have its NIC accept frames for 224.129.1.1 too. The IP stack discards them, but only after the CPU has looked at them. It's mostly harmless, but it's why addressing plans avoid groups that differ only in those 5 bits. *Exam favorite: "how many IP groups share one multicast MAC?" The answer is 32.*
 
 (IPv6 multicast is FF00::/8, mapped to MAC **33:33** plus the low 32 bits. IPv6 uses **MLD** instead of IGMP: MLDv1 ≈ IGMPv2, MLDv2 ≈ IGMPv3.)
+
+**📝 Exam-style questions — 10.2**
+
+**Q1.** A host joins group 239.1.1.1, so its NIC accepts frames sent to `01:00:5e:01:01:01`. Traffic for which other group will the NIC also accept?
+
+- **A.** 239.1.1.2
+- **B.** 224.129.1.1
+- **C.** 239.129.2.1
+- **D.** 239.1.2.1
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Only the low 23 bits of the group address are copied into the MAC, so 5 bits are lost and 32 groups share each MAC. 129 is `1000 0001`; its top bit is one of the lost bits, leaving `000 0001`, the same as 239.1.1.1's second octet. The last two octets also match, so the MAC is identical. **Why not the others:** A and D differ in the last two octets, which are always copied in full. C differs in the third octet (2 instead of 1).
+</details>
+
+**Q2.** An enterprise wants multicast group addresses for internal applications, the way RFC 1918 addresses are used for unicast. Which range should it use?
+
+- **A.** 224.0.0.0/24
+- **B.** 232.0.0.0/8
+- **C.** 233.0.0.0/8
+- **D.** 239.0.0.0/8
+
+<details><summary>Answer</summary>
+
+**Answer: D.** 239.0.0.0/8 is administratively scoped: the "private addresses" of multicast, meant for use inside one organization. **Why not the others:** A is link-local control traffic (OSPF, PIM hellos) and never routed. B is reserved for Source-Specific Multicast. C is GLOP, mapped from AS numbers.
+</details>
+
+**Q3.** A developer configures a video application to send to group 224.0.0.150. Receivers on the same VLAN as the server get the stream, but receivers on other subnets get nothing, although PIM sparse mode is running everywhere. Why?
+
+- **A.** Groups in 224.0.0.0/24 are link-local control addresses that routers never forward
+- **B.** The group is in the SSM range, so receivers must use IGMPv3
+- **C.** No RP has been configured for 224.0.0.0/4
+- **D.** The group maps to the same MAC address as OSPF's 224.0.0.5
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 224.0.0.0/24 is reserved for local network control. Packets are sent with TTL 1 and routers never route them, whatever PIM does. The app should use a group from 239.0.0.0/8. **Why not the others:** B, SSM is 232.0.0.0/8. C, even with an RP, 224.0.0.0/24 traffic isn't routed. D, 224.0.0.150 and 224.0.0.5 map to different MACs (the last octet differs), and MAC overlap wouldn't stop routing anyway.
+</details>
 
 ---
 
@@ -4296,6 +7667,57 @@ SW1# show ip igmp snooping querier           ! who is querying in each VLAN
 
 If `show ip igmp snooping groups` lists a group but no ports, or `mrouter` shows nothing, the stream either floods or never reaches the router. Those two outputs pin down most Layer 2 multicast faults.
 
+**📝 Exam-style questions — 10.3**
+
+**Q1.** Two PCs on VLAN 10 watch group 239.1.1.1 using IGMPv2. PC-B closes the application and sends a Leave. PC-A is still watching. What does the router do next?
+
+- **A.** Stops forwarding 239.1.1.1 onto VLAN 10 immediately
+- **B.** Sends a group-specific query for 239.1.1.1 and keeps forwarding because PC-A answers
+- **C.** Waits for the next general query, up to 60 seconds later, before deciding
+- **D.** Sends a PIM Prune upstream for 239.1.1.1
+
+<details><summary>Answer</summary>
+
+**Answer: B.** IGMP tracks whether *anyone* on the subnet wants a group, not who. After a Leave, the router asks "does anyone still want G?" with a group-specific query (1-second response time, sent twice on IOS). PC-A reports, so forwarding continues. **Why not the others:** A ignores the other members, which IGMP can't see. C describes IGMPv1's slow behaviour; v2 added the group-specific query to avoid it. D, a Prune is only sent if nobody answers and no other downstream interface wants the group.
+</details>
+
+**Q2.** Which two changes did IGMPv3 make compared with IGMPv2? (Choose two.)
+
+- **A.** Membership reports are sent to 224.0.0.22
+- **B.** Hosts suppress their report when they hear another host report the same group
+- **C.** Hosts can ask for a group from specific sources only, using INCLUDE and EXCLUDE lists
+- **D.** Hosts send a Leave Group message to 224.0.0.2
+- **E.** General queries are sent every 10 seconds
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** IGMPv3 sends reports to 224.0.0.22 so routers and snooping switches hear every one, and adds source filtering, which is what makes SSM possible. **Why not the others:** B, IGMPv3 *removed* report suppression so the router can track individual members. D, the Leave message to 224.0.0.2 is IGMPv2; v3 leaves with a state-change report. E, IOS sends general queries every 60 seconds; 10 seconds is the max response time.
+</details>
+
+**Q3.** VLAN 50 has IGMP snooping enabled but no multicast router; a server and its receivers sit in the same VLAN. The stream works at first, then after a few minutes receivers stop getting it reliably. Which command fixes this?
+
+- **A.** `ip igmp snooping vlan 50 immediate-leave`
+- **B.** `no ip igmp snooping`
+- **C.** `ip pim sparse-mode` on the switch's access ports
+- **D.** `ip igmp snooping querier`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Snooping builds its group table from reports, and hosts only keep reporting when someone sends queries. With no router in the VLAN, nobody queries, the entries time out and snooping breaks. The snooping querier makes the switch send the queries itself. **Why not the others:** A makes ports leave faster; it doesn't keep entries alive. B would "fix" it by flooding every stream to every port, losing the benefit of snooping. C, PIM runs between routers on Layer 3 interfaces; it isn't a query source for an access VLAN.
+</details>
+
+**Q4.** An engineer enables `ip igmp snooping vlan 20 immediate-leave` on a switch where each access port connects to a small unmanaged switch with several PCs behind it. What problem will appear?
+
+- **A.** Streams will flood to every port in VLAN 20
+- **B.** The switch will stop learning the mrouter port
+- **C.** When one PC behind a port leaves a group, the other PCs behind that port lose the stream too
+- **D.** IGMPv3 reports will be ignored
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Immediate-leave removes the port from the group the instant a Leave arrives, with no query to check whether anyone else behind that port still wants it. It's only safe when exactly one receiver sits behind each port. **Why not the others:** A, snooping still forwards only to ports in the group table. B, mrouter learning comes from queries and PIM hellos, which immediate-leave doesn't touch. D, the feature changes leave handling, not which IGMP versions are accepted.
+</details>
+
 ---
 
 ## 10.4 PIM — Building the Tree Between Routers
@@ -4346,6 +7768,56 @@ On a **receiver** segment, the DR is the router that turns IGMP reports into PIM
 The loser stops forwarding onto that LAN. *The DR decides who asks for traffic; the Assert decides who delivers it when two routers end up delivering.*
 
 **Worked example.** R1 and R2 both forward (10.5.5.10, 239.1.1.1) onto VLAN 30. R1's route to 10.5.5.10 is OSPF (AD 110). R2's is EIGRP (AD 90). They exchange Asserts. Step 1 already decides it: **R2 wins** with the lower AD, so R1 removes VLAN 30 from its outgoing list for that (S,G). VLAN 30 now receives one copy of each packet instead of two.
+
+**📝 Exam-style questions — 10.4**
+
+**Q1.** What does "protocol independent" mean in Protocol Independent Multicast?
+
+- **A.** PIM keeps no routing table of its own and uses the unicast routing table, whichever protocol built it, to find the direction of a source or RP
+- **B.** PIM works with any version of IGMP
+- **C.** PIM can carry both TCP and UDP multicast applications
+- **D.** PIM can elect an RP without any manual configuration
+
+<details><summary>Answer</summary>
+
+**Answer: A.** PIM borrows the unicast table built by OSPF, EIGRP, BGP or static routes. That's what it uses for the RPF check and to send Joins toward a source or RP. **Why not the others:** B, IGMP version support is a separate matter. C, multicast applications are almost always UDP; that has nothing to do with the name. D, RP discovery uses static config, Auto-RP or BSR; none of that is what "protocol independent" refers to.
+</details>
+
+**Q2.** VLAN 10 has two PIM routers. R1 (10.10.10.2) has `ip pim dr-priority 5` on its VLAN 10 interface. R2 (10.10.10.3) uses the default. A receiver on VLAN 10 joins 239.1.1.1. Which router sends the PIM Join upstream?
+
+- **A.** R2, because it has the higher IP address
+- **B.** R1, because it has the higher DR priority
+- **C.** Both, and the Assert process then picks one
+- **D.** Whichever router is the IGMP querier
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The DR is the router with the highest DR priority (default 1), and on a receiver segment the DR is the one that turns IGMP reports into PIM Joins. 5 beats 1, so R1 is DR. **Why not the others:** A, the IP address only breaks a priority tie. C, only the DR sends the Join; Assert resolves duplicate *forwarding*, not joining. D, the IGMPv2 querier (lowest IP) is a separate election from the PIM DR.
+</details>
+
+**Q3.** R1 and R2 both forward (10.5.5.10, 239.1.1.1) onto VLAN 30, so receivers get every packet twice. R1 reaches 10.5.5.10 through OSPF with metric 20. R2 reaches it through EIGRP with metric 3072. Which router keeps forwarding onto VLAN 30?
+
+- **A.** R1, because its metric is lower
+- **B.** R1, because OSPF is a link-state protocol
+- **C.** R2, because its route has the lower administrative distance
+- **D.** Both continue; Assert only applies to shared-tree traffic
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The PIM Assert compares the administrative distance of each router's route back to the source first: EIGRP's 90 beats OSPF's 110, so R2 wins and R1 stops forwarding onto VLAN 30. **Why not the others:** A, the metric is only compared if the AD ties, and metrics from different protocols can't be compared anyway. B, the protocol type isn't a criterion. D, Assert resolves duplicates for (S,G) traffic as well as (\*,G).
+</details>
+
+**Q4.** Why has PIM sparse mode replaced dense mode in enterprise networks?
+
+- **A.** Dense mode can't use the unicast routing table for the RPF check
+- **B.** Dense mode requires an RP in every area
+- **C.** Sparse mode floods traffic faster to new receivers
+- **D.** Dense mode floods every stream everywhere and prunes it back, and the prunes expire, so the flooding repeats every few minutes
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Dense mode assumes receivers are everywhere: push first, prune later. That puts every stream on every link periodically and keeps state on routers that never wanted it. Sparse mode only sends traffic down branches that explicitly joined. **Why not the others:** A, dense mode uses the RPF check too. B, it's sparse mode that uses an RP; dense mode has none. C, sparse mode doesn't flood at all.
+</details>
 
 ---
 
@@ -4427,6 +7899,82 @@ Seeing an (S,G) entry with the **T** flag at the LHR means the switchover in ste
 
 **Reading this exact output as a story:** R3 has a receiver directly connected (**C**) on Gi0/2. It first joined the shared tree toward RP 10.0.0.1 through Gi0/1. Then it learned source 10.5.5.10 and joined the SPT (**J**). Traffic now arrives on Gi0/0 straight from the source side (**T**) and goes out Gi0/2 to the receiver. The incoming interfaces differ (Gi0/1 toward the RP, Gi0/0 toward the source) because the shortest path to the source doesn't pass through the RP.
 
+**📝 Exam-style questions — 10.5**
+
+**Q1.** Refer to the exhibit. Which statement is true about R3?
+
+```
+R3# show ip mroute 239.1.1.1
+(*, 239.1.1.1), 00:04:12/00:02:51, RP 10.0.0.1, flags: SJC
+  Incoming interface: GigabitEthernet0/1, RPF nbr 10.1.13.1
+  Outgoing interface list:
+    GigabitEthernet0/2, Forward/Sparse, 00:04:12/00:02:51
+
+(10.5.5.10, 239.1.1.1), 00:03:58/00:02:59, flags: JT
+  Incoming interface: GigabitEthernet0/0, RPF nbr 10.1.23.2
+  Outgoing interface list:
+    GigabitEthernet0/2, Forward/Sparse, 00:03:58/00:02:51
+```
+
+- **A.** Traffic from 10.5.5.10 now arrives on Gi0/0 along the shortest-path tree and is forwarded out Gi0/2 to a connected receiver
+- **B.** Traffic from 10.5.5.10 still arrives through the RP on Gi0/1
+- **C.** R3 has no receivers for 239.1.1.1, so the stream is being pruned
+- **D.** Packets arriving on Gi0/0 are failing the RPF check
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The (S,G) entry has the **T** flag (traffic flowing on the SPT), with Gi0/0 as its incoming (RPF) interface, and Gi0/2 in the outgoing list. The **C** flag on the (\*,G) entry shows a directly connected receiver. **Why not the others:** B, Gi0/1 is the RPF interface for the shared tree toward the RP; the switchover to the SPT has already happened. C, the outgoing list contains Gi0/2, so a receiver wants it. D, Gi0/0 *is* the RPF interface listed for the source, so packets arriving there pass.
+</details>
+
+**Q2.** Refer to the exhibit. R3 receives a packet from source 10.5.5.10 for group 239.1.1.1 on GigabitEthernet0/1. What does R3 do with it?
+
+```
+R3# show ip route 10.5.5.10
+Routing entry for 10.5.5.0/24
+  Known via "ospf 1", distance 110, metric 20, type intra area
+  Routing Descriptor Blocks:
+  * 10.1.23.2, from 2.2.2.2, 00:12:40 ago, via GigabitEthernet0/0
+```
+
+- **A.** Forwards it, because the group has receivers downstream
+- **B.** Forwards it, because PIM is enabled on Gi0/1
+- **C.** Sends it back out Gi0/0 toward the source
+- **D.** Drops it, because it arrived on an interface other than the one R3 uses to reach the source
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The RPF check looks up the *source* in the unicast table. R3's route to 10.5.5.10 points out Gi0/0, so only copies arriving on Gi0/0 pass. A copy on Gi0/1 has come round a loop or a non-preferred path, and it is dropped. **Why not the others:** A and B, having receivers or PIM on the interface doesn't override a failed RPF check. C, routers never send a failed packet back toward the source.
+</details>
+
+**Q3.** Which sequence correctly orders these PIM-SM events for a new source and a receiver that joined first?
+
+1. The first-hop router sends the source's packets to the RP inside unicast Register messages.
+2. The last-hop router sends a (\*,G) Join toward the RP.
+3. The first packet from the source reaches the last-hop router down the shared tree.
+4. The last-hop router sends an (S,G) Join directly toward the source.
+
+- **A.** 1, 2, 4, 3
+- **B.** 2, 1, 4, 3
+- **C.** 2, 1, 3, 4
+- **D.** 1, 3, 2, 4
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The receiver joins the shared tree toward the RP (2). The source starts sending and its first-hop router registers with the RP (1). The RP de-encapsulates the packets and forwards them down the shared tree, so the first packet reaches the last-hop router (3). That packet reveals the source's address, so the last-hop router, with the default SPT threshold of 0, joins the shortest-path tree straight away (4). **Why not the others:** A and D put the source first, but the question says the receiver joined first. B has the last-hop router join toward the source before any packet has told it the source's address.
+</details>
+
+**Q4.** On IOS, the SPT threshold is 0, so a last-hop router switches to the shortest-path tree on the very first packet. Why does PIM-SM still need the shared tree and the RP?
+
+- **A.** Because the shared tree always has a lower cost than the SPT
+- **B.** Because the last-hop router doesn't know the source's address until the first packet arrives through the RP
+- **C.** Because the RPF check only works on the shared tree
+- **D.** Because IGMP reports can only reach the RP
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A receiver asks for a group, not a source, so its last-hop router can't build a tree toward a source it has never heard of. The RP is the meeting place: sources register there, receivers join there, and the first packet delivered through it introduces the source. **Why not the others:** A, the shared tree often detours through the RP; the SPT is usually shorter. C, the RPF check applies to both trees (toward the RP or the source). D, IGMP never leaves the local subnet.
+</details>
+
 ---
 
 ## 10.6 SSM, Bidir and MSDP — Three Variations on PIM-SM
@@ -4487,6 +8035,57 @@ Every router in a PIM-SM domain must agree on which router is the RP for each gr
 | **Auto-RP** (Cisco) | Candidate RPs announce to **224.0.1.39**; a **mapping agent** picks one per group and announces to **224.0.1.40** | Chicken-and-egg: those groups need flooding before an RP is known (`ip pim autorp listener`) |
 | **BSR** (standard, PIMv2) | A **bootstrap router** is elected; candidate RPs unicast to it; it floods the RP set hop by hop in PIM messages to 224.0.0.13 | Standards-based; IPv6 too |
 
+**📝 Exam-style questions — 10.6**
+
+**Q1.** An IPTV service will use Source-Specific Multicast, so no RP is needed. Which two conditions are required? (Choose two.)
+
+- **A.** Receivers' interfaces run IGMPv3, so hosts can report (S,G)
+- **B.** A static RP address is configured on every router
+- **C.** The groups are in 232.0.0.0/8, the range `ip pim ssm default` treats as SSM
+- **D.** MSDP peering between the first-hop and last-hop routers
+- **E.** `ip pim autorp listener` on every router
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** SSM needs the receiver to name the source, which takes IGMPv3, and the group must be in the SSM range so routers join toward the source instead of looking for an RP. **Why not the others:** B and E are ways to find an RP, which SSM doesn't use. D, MSDP connects RPs; with no RP there is nothing to connect.
+</details>
+
+**Q2.** Bidirectional PIM keeps only (\*,G) state and sends traffic both up and down the shared tree. Why can't it use the normal RPF check to stop loops?
+
+- **A.** Because Bidir has no RP to check against
+- **B.** Because Bidir only runs on point-to-point links
+- **C.** Because Bidir replaces PIM Joins with IGMP reports
+- **D.** Because traffic legitimately flows in both directions on a link, so instead each link elects a Designated Forwarder that alone may forward toward the RP
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A normal RPF check expects traffic from one direction only. In Bidir, sources send *up* toward the RP and traffic comes *down* to receivers on the same tree, so each link elects a DF (the router with the best unicast route to the RP) to keep the tree loop-free. **Why not the others:** A, Bidir does use an RP as the root of its shared tree. B, Bidir works on any link type. C, routers still send PIM Joins; IGMP stays between hosts and routers.
+</details>
+
+**Q3.** Two companies connect their multicast networks. Each has its own PIM-SM domain and RP. Receivers in company B join 239.1.1.1 but never receive a stream sourced in company A, although unicast routing between them works. What is missing?
+
+- **A.** An MSDP peering between the two RPs, so company A's RP can announce its active sources with Source-Active messages
+- **B.** IGMPv3 on company B's receivers
+- **C.** A shared RP address configured in both domains with no further protocol
+- **D.** PIM dense mode on the link between the companies
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The source registers with company A's RP, and company B's RP never hears about it. MSDP (TCP 639) lets A's RP send a Source-Active message, after which B's RP joins toward the source across the boundary. **Why not the others:** B, IGMPv3 would help only with SSM, and the receivers don't know the source. C, pointing everyone at one RP isn't how separate domains interconnect, and anycast RP addresses still need MSDP to share sources. D, dense mode would flood rather than fix source discovery.
+</details>
+
+**Q4.** Which RP-discovery method is a standard (not Cisco-proprietary), floods the RP set hop by hop in PIM messages, and also works for IPv6?
+
+- **A.** Static `ip pim rp-address`
+- **B.** Auto-RP
+- **C.** Bootstrap Router (BSR)
+- **D.** Anycast RP
+
+<details><summary>Answer</summary>
+
+**Answer: C.** BSR is part of PIMv2: candidate RPs report to the elected bootstrap router, which floods the RP set to 224.0.0.13 hop by hop. **Why not the others:** A, static configuration isn't a discovery protocol at all. B, Auto-RP is Cisco-proprietary and uses the 224.0.1.39 and 224.0.1.40 groups. D, Anycast RP is a redundancy design (shared RP address plus MSDP), not a discovery method.
+</details>
+
 ---
 
 ## 10.7 Chapter Summary
@@ -4527,6 +8126,32 @@ The CCNA guide (17.7) explained *why* QoS exists: voice can't tolerate delay or 
 | **DiffServ** (Differentiated Services) | Traffic is **classified and marked** at the edge into a handful of classes; each hop applies a **per-hop behavior (PHB)** based on the marking | Scales because routers keep **no per-flow state**. It's the model behind everything below |
 
 **Why did DiffServ win?** Because state is what kills scale. IntServ asks every router in the path to remember every conversation. DiffServ asks every router to remember about **eight classes** and read one field in each packet. The trade-off is that DiffServ gives **relative** guarantees ("voice goes first") rather than absolute ones ("this call gets 80 kbps end to end"). For an enterprise, that's almost always the right trade.
+
+**📝 Exam-style questions — 11.1**
+
+**Q1.** Why does the DiffServ QoS model scale to large networks when IntServ does not?
+
+- **A.** DiffServ reserves bandwidth with RSVP only on the congested links
+- **B.** DiffServ routers keep per-flow state, but only for voice flows
+- **C.** Traffic is classified and marked at the edge, and each hop only reads the marking to pick a per-hop behavior, so no router keeps per-flow state
+- **D.** DiffServ gives every flow an absolute bandwidth guarantee, so no admission control is needed
+
+<details><summary>Answer</summary>
+
+**Answer: C.** DiffServ asks each router to know a handful of classes and read one field in every packet. Nothing is remembered per conversation, so state doesn't grow with the number of flows. **Why not the others:** A, RSVP reservations are IntServ. B, DiffServ keeps no per-flow state for any traffic. D, DiffServ's guarantees are relative ("voice goes first"), not absolute.
+</details>
+
+**Q2.** Which statement describes the IntServ model?
+
+- **A.** Each application reserves bandwidth end to end with RSVP before sending, and every router on the path keeps state for each reserved flow
+- **B.** Packets are marked once at the trust boundary and queued per class at every hop
+- **C.** All traffic shares one first-in, first-out queue
+- **D.** The access switch polices each flow and the WAN router shapes the aggregate
+
+<details><summary>Answer</summary>
+
+**Answer: A.** IntServ gives strict per-flow guarantees by reserving resources hop by hop with RSVP, which is why it doesn't scale: every router must remember every reservation. **Why not the others:** B is DiffServ. C is best effort. D describes two DiffServ tools, not a QoS model.
+</details>
 
 ---
 
@@ -4605,6 +8230,57 @@ The trust boundary is the point where you start believing markings. Everything o
 
 The goal in every case: only the real phone's voice reaches the priority queue. **Platform note:** older Catalyst switches with `mls qos` enabled treat every port as untrusted until you say otherwise. Catalyst 9000 switches preserve (trust) incoming markings by default, so on those you must *explicitly* remark untrusted ports.
 
+**📝 Exam-style questions — 11.2**
+
+**Q1.** A packet arrives with DSCP 34. Which per-hop behavior is it marked for?
+
+- **A.** AF31
+- **B.** AF41
+- **C.** AF42
+- **D.** CS4
+
+<details><summary>Answer</summary>
+
+**Answer: B.** AFxy = 8x + 2y. 34 = 8 × 4 + 2 × 1, so x = 4 and y = 1: AF41, the interactive-video class with low drop precedence. **Why not the others:** A, AF31 = 8 × 3 + 2 = 26. C, AF42 = 8 × 4 + 4 = 36. D, CS4 = 8 × 4 = 32.
+</details>
+
+**Q2.** A packet capture shows a voice packet with `Differentiated Services Field: 0xb8`. Which DSCP marking does the packet carry?
+
+- **A.** CS5
+- **B.** AF41
+- **C.** DSCP 184
+- **D.** EF
+
+<details><summary>Answer</summary>
+
+**Answer: D.** 0xB8 is the whole ToS byte, `10111000`. The top 6 bits are DSCP and the bottom 2 are ECN, so DSCP = 184 ÷ 4 = 46, which is EF. **Why not the others:** A, CS5 is DSCP 40 (ToS byte 0xA0). B, AF41 is DSCP 34. C, DSCP is only 6 bits, so it can't exceed 63; 184 is the full byte, ECN bits included.
+</details>
+
+**Q3.** Which two statements about traffic marked AF11 and AF13 are true? (Choose two.)
+
+- **A.** Both are placed in the same queue
+- **B.** When that queue congests, AF13 packets are dropped before AF11 packets
+- **C.** AF13 is placed in a higher-priority queue than AF11
+- **D.** AF13 is served by the low-latency priority queue
+- **E.** AF11 is DSCP 14
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** The first digit (x) picks the class, and so the queue. The second digit (y) is drop precedence within that class: a higher y is dropped first. **Why not the others:** C, AF13 isn't "better" than AF11; it's the same class with a higher drop chance. D, the priority queue is normally for EF voice. E, AF11 is 8 + 2 = 10; DSCP 14 is AF13.
+</details>
+
+**Q4.** An access port is set to trust markings only while CDP detects a Cisco IP phone. Someone unplugs the phone and connects a laptop whose software marks all its traffic EF. What happens to the laptop's EF marking?
+
+- **A.** It is trusted, because the port was configured to trust DSCP
+- **B.** It is re-marked to CoS 0 by the IP phone's built-in switch
+- **C.** The switch stops trusting the port because no phone is detected, so the laptop's marking isn't believed
+- **D.** The port goes into err-disabled state because an EF marking arrived from a non-phone device
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Conditional trust follows the phone: no phone seen by CDP, no trust. The laptop can't jump the voice queue by marking its own traffic. **Why not the others:** A, the trust is conditional, not unconditional. B, the phone is no longer there to re-mark anything. D, a QoS trust decision never err-disables a port.
+</details>
+
 ---
 
 ## 11.3 MQC — the Three-Part Structure Every Config Uses
@@ -4668,6 +8344,80 @@ interface GigabitEthernet1/0/10
 | Web browsing that the PC marked EF | no | no | no | class-default: reset to **0** |
 
 **Reading it:** a Webex packet the PC marked EF is re-marked to AF41, because the policy classifies by **application** and ignores what the PC claimed. An unknown packet marked EF is reset to 0 by `class-default`. *An ingress marking policy is how an untrusted port is "re-colored" to match your design.*
+
+**📝 Exam-style questions — 11.3**
+
+**Q1.** Refer to the exhibit. Which traffic does class VOICE-AND-SIGNALING match?
+
+```
+class-map VOICE-AND-SIGNALING
+ match dscp ef
+ match dscp cs3
+```
+
+- **A.** None, because one packet can't be marked both EF and CS3
+- **B.** Only packets marked EF, the first match line
+- **C.** Packets marked either EF or CS3
+- **D.** Only packets marked CS3, the last match line
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Class-maps default to `match-all`: a class-map typed with no keyword behaves as `match-all`, which requires every `match` line to be true for the same packet. A packet carries one DSCP value, so nothing matches. `class-map match-any` would match either. **Why not the others:** B and D, class-maps don't use only the first or last line. C is the `match-any` behavior, which this class-map doesn't have.
+</details>
+
+**Q2.** Refer to the exhibit. A PC on Gi1/0/10 sends Webex meeting screen-sharing traffic (not RTP audio) that it has marked EF itself. What DSCP does the traffic carry after the policy?
+
+```
+class-map match-any VOICE-IN
+ match protocol rtp audio
+class-map match-any WEBEX-IN
+ match protocol webex-meeting
+!
+policy-map MARK-ACCESS-IN
+ class VOICE-IN
+  set dscp ef
+ class WEBEX-IN
+  set dscp af41
+ class class-default
+  set dscp default
+!
+interface GigabitEthernet1/0/10
+ service-policy input MARK-ACCESS-IN
+```
+
+- **A.** EF, because the PC's marking is kept
+- **B.** 0, because untrusted traffic falls into class-default
+- **C.** AF11
+- **D.** AF41
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The policy classifies by application with NBAR. Screen sharing doesn't match VOICE-IN (it isn't RTP audio), it does match WEBEX-IN, and that class sets AF41, overwriting whatever the PC claimed. **Why not the others:** A, the policy ignores the PC's own marking. B, the packet matched WEBEX-IN first, so it never reaches class-default. C, there is no AF11 action in this policy.
+</details>
+
+**Q3.** An ingress policy contains `set qos-group 10` in one class. What does that do?
+
+- **A.** It rewrites the DSCP of matching packets to 10 (AF11)
+- **B.** It sets the 802.1Q CoS of matching frames to 10
+- **C.** It attaches an internal label inside this device that an output policy can match, without changing the packet
+- **D.** It places matching packets in hardware queue 10
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A QoS group is an internal tag that never leaves the box. An egress policy can then use `match qos-group 10` to act on a decision made at ingress. **Why not the others:** A, that would be `set dscp af11` (DSCP 10). B, CoS is 3 bits, so 0–7; `set cos` is a different command. D, queue selection is done by the output policy, not by the group number.
+</details>
+
+**Q4.** An engineer applies a marking policy to a user access port with `service-policy output MARK-ACCESS-IN` instead of `input`. What is the effect?
+
+- **A.** The policy is rejected, because marking is allowed only inbound
+- **B.** It marks traffic the switch sends toward the PC, so traffic arriving from the PC keeps whatever marking the PC set
+- **C.** It marks traffic in both directions
+- **D.** It has the same effect as `input`, because MQC applies policies to both directions
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A service policy acts only in the direction it's applied. To re-mark what a user's PC sends, the policy must be applied **inbound** at the trust boundary. Outbound, it marks frames on their way to the PC, which is the wrong traffic. **Why not the others:** A, marking actions are valid outbound too. C and D, one service policy covers one direction only.
+</details>
 
 ---
 
@@ -4736,6 +8486,65 @@ policy-map POLICE-GUEST
 | Voice/video | Neither on the voice itself, beyond the LLQ's built-in policer | Shaping adds delay. Voice is protected by the priority queue instead |
 
 **Why does shaping only work outbound?** Because buffering means *holding packets you haven't sent yet*, and you can only hold what's waiting to leave. Traffic arriving inbound has already crossed the wire. You can drop or remark it, but you can't make it arrive later.
+
+**📝 Exam-style questions — 11.4**
+
+**Q1.** A router is configured with `shape average 20000000 40000`. How long is the shaper's time interval, Tc?
+
+- **A.** 2 ms
+- **B.** 20 ms
+- **C.** 0.5 ms
+- **D.** 4 ms
+
+<details><summary>Answer</summary>
+
+**Answer: A.** On `shape`, Bc is in bits. Tc = Bc ÷ CIR = 40,000 bits ÷ 20,000,000 bps = 0.002 s = 2 ms. Every 2 ms the shaper may release 40,000 bits. **Why not the others:** B is off by a factor of ten. C inverts the division. D is the chapter's 50 Mbps / 200,000-bit example, not this config.
+</details>
+
+**Q2.** A policer is configured with `police cir 8000000 bc 250000`. What does `bc 250000` represent?
+
+- **A.** A burst of 250,000 bits, about 31 ms of traffic at the CIR
+- **B.** A burst of 250,000 packets
+- **C.** A burst of 250,000 bytes (2 Mbit), which is 250 ms of traffic at the CIR
+- **D.** A measurement interval of 250 ms written in microseconds
+
+<details><summary>Answer</summary>
+
+**Answer: C.** On `police`, `bc` and `be` are in **bytes**. 250,000 bytes × 8 = 2,000,000 bits, and 2 Mbit ÷ 8 Mbps = 0.25 s. **Why not the others:** A uses the `shape` unit (bits), the classic trap. B, buckets hold bytes, not packets. D, `bc` is a size, not a time.
+</details>
+
+**Q3.** A branch router connects to a 50 Mbps WAN service through a 1 Gbps Ethernet port. The provider polices at 50 Mbps. Why should the branch router shape its outbound traffic to 50 Mbps?
+
+- **A.** Because shaping is the only way to mark traffic for the provider
+- **B.** Because policing can't be applied outbound
+- **C.** Because shaping removes the need for a priority queue
+- **D.** Because otherwise the router bursts at 1 Gbps and the provider's policer drops the excess blindly, voice included; shaping makes the router hold the excess where its own QoS policy decides who waits
+
+<details><summary>Answer</summary>
+
+**Answer: D.** If you don't smooth your traffic to the contract rate, someone else drops it, without knowing what's important. Shaping creates the congestion on your own router, where your queuing policy can protect voice. **Why not the others:** A, marking is done with `set`, not shaping. B, policing works in both directions. C, shaping adds delay and makes a priority queue *more* important, not less.
+</details>
+
+**Q4.** Refer to the exhibit. Both buckets are full when a 400,000-byte burst arrives all at once. Ignoring token refill during the burst, what happens to it?
+
+```
+policy-map POLICE-GUEST
+ class class-default
+  police cir 10000000 bc 312500 be 312500
+   conform-action transmit
+   exceed-action set-dscp-transmit af13
+   violate-action drop
+```
+
+- **A.** All 400,000 bytes conform and are transmitted unchanged
+- **B.** 312,500 bytes conform and are sent unchanged; 87,500 bytes exceed and are sent re-marked AF13; nothing is dropped
+- **C.** 312,500 bytes conform; the remaining 87,500 bytes are dropped
+- **D.** 312,500 bytes are re-marked AF13 and 87,500 bytes are dropped
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The first 312,500 bytes use the Bc bucket and conform. The next 87,500 bytes find Bc empty but Be still holding 312,500 bytes, so they exceed: transmitted but re-marked AF13. Nothing reaches the violate stage. **Why not the others:** A ignores the 312,500-byte Bc limit. C forgets the Be bucket; this is a single-rate three-color policer. D starts the re-marking too early and drops traffic that Be can still cover.
+</details>
 
 ---
 
@@ -4829,6 +8638,56 @@ If voice and video are quiet, the same ratios divide the whole 1 Gbps instead. A
 
 `trust device cisco-phone` is the key line to recognize. If the phone is unplugged and a PC is connected directly, CDP no longer sees a phone, so the switch stops trusting and the PC's self-marked EF is ignored. The generated class-maps and policy-maps have names beginning `AutoQos-4.0-` (for example an input policy for Cisco phones and a shared output queuing policy). `show auto qos interface Gi1/0/10` lists what was applied, and `show running-config` shows the full expansion. *AutoQoS doesn't do anything you couldn't type yourself: it's the Cisco-validated design typed for you, and you still need to read it.*
 
+**📝 Exam-style questions — 11.5**
+
+**Q1.** A 200 Mbps link has a policy with `priority percent 25` for voice and `bandwidth remaining percent 40` for business data. During congestion, how much bandwidth is business data guaranteed?
+
+- **A.** 80 Mbps
+- **B.** 50 Mbps
+- **C.** 60 Mbps
+- **D.** 40 Mbps
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The priority class takes 25% of 200 = 50 Mbps, leaving 150 Mbps. `bandwidth remaining percent 40` means 40% of what's left: 0.4 × 150 = 60 Mbps. **Why not the others:** A is 40% of the whole 200 Mbps, the `bandwidth percent 40` answer. B is the voice class's share. D treats the percentage as Mbps.
+</details>
+
+**Q2.** A voice class has `priority 5000` (5 Mbps). During congestion, the voice class receives 7 Mbps of traffic. What happens to it?
+
+- **A.** All 7 Mbps is sent, because the priority queue is always served first
+- **B.** The extra 2 Mbps waits in the priority queue until the congestion clears
+- **C.** The extra 2 Mbps is moved into class-default
+- **D.** 5 Mbps is sent with strict priority and the extra 2 Mbps is dropped by the LLQ's built-in policer
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The priority command is both a guarantee and a cap. During congestion, priority traffic above the configured rate is dropped, so the priority queue can never starve the other classes. **Why not the others:** A ignores the implicit policer. B, excess priority traffic is dropped, not queued. C, MQC never moves packets between classes.
+</details>
+
+**Q3.** On a Catalyst 9000 1 Gbps port, the two priority queues are using their full caps of 400 Mbps in total. The other classes have `bandwidth remaining ratio` values of 10, 30 and 60. How much bandwidth does the class with ratio 30 get?
+
+- **A.** 180 Mbps
+- **B.** 300 Mbps
+- **C.** 120 Mbps
+- **D.** 30 Mbps
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 1,000 − 400 = 600 Mbps is left after the priority queues. The ratios add up to 100 shares, so 30 shares = 30% of 600 = 180 Mbps. **Why not the others:** B is 30% of the whole 1 Gbps. C is 30% of the 400 Mbps the priority queues use. D treats the ratio as Mbps; ratios are relative weights, not rates.
+</details>
+
+**Q4.** An engineer runs `auto qos voip cisco-phone` on an access port. Which line in the generated configuration makes the port trust markings only while a Cisco phone is attached?
+
+- **A.** `auto qos trust dscp`
+- **B.** `trust device cisco-phone`
+- **C.** `priority level 1`
+- **D.** `mls qos trust cos`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `trust device cisco-phone` is the conditional-trust line: the switch trusts markings only while CDP detects a Cisco phone. Unplug the phone and plug in a PC, and the PC's self-marked EF is no longer believed. **Why not the others:** A is a different AutoQoS command, used on uplinks and unconditional. C defines a priority queue in an egress policy. D is the legacy command that trusts CoS unconditionally, whatever device is attached.
+</details>
+
 ---
 
 ## 11.6 Congestion Avoidance — Dropping Smartly
@@ -4863,6 +8722,45 @@ Between the two thresholds the drop chance climbs in a straight line from 0 to t
 **ECN** lets WRED **mark** packets (set the ECN bits to "congestion experienced") instead of dropping them, *if* both endpoints support ECN. The receiver echoes the signal and the sender slows down. The result is the same signal with no lost packet (`random-detect ecn`).
 
 **Why not use WRED on the voice class?** Voice is UDP and has no congestion response, so dropping voice packets early just degrades the call for no benefit. WRED belongs on **TCP-heavy** classes.
+
+**📝 Exam-style questions — 11.6**
+
+**Q1.** WRED is configured for AF21 with a minimum threshold of 20 packets, a maximum threshold of 40 packets and a mark probability denominator of 10. The average queue depth is 30 packets. What is the drop probability for an arriving AF21 packet?
+
+- **A.** 0%
+- **B.** 10%
+- **C.** 50%
+- **D.** 5%
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Between the thresholds, the drop chance rises in a straight line from 0 to the mark probability (1/10 = 10%). 30 is halfway between 20 and 40, so the chance is half of 10% = 5%. **Why not the others:** A would apply below 20 packets. B is the probability at the maximum threshold. C confuses "halfway" with the probability itself.
+</details>
+
+**Q2.** Why is WRED normally left off the voice class?
+
+- **A.** Voice is UDP and has no congestion response, so dropping voice packets early only damages the call without slowing the sender
+- **B.** WRED can only be applied to class-default
+- **C.** WRED requires ECN, which phones don't support
+- **D.** Voice packets have no DSCP value for WRED to read
+
+<details><summary>Answer</summary>
+
+**Answer: A.** WRED works by making TCP senders slow down before the queue overflows. Voice runs over UDP/RTP, which doesn't back off, so early drops just lose audio. Voice is protected by the priority queue instead. **Why not the others:** B, WRED can be used in any CBWFQ class. C, ECN is optional. D, voice is marked EF (46).
+</details>
+
+**Q3.** Which two statements about WRED and ECN are true? (Choose two.)
+
+- **A.** With ECN enabled, WRED can mark packets as having experienced congestion instead of dropping them, if both endpoints support ECN
+- **B.** WRED decides drops using the instantaneous queue depth, so any short burst causes drops
+- **C.** With `random-detect dscp-based`, AF13 typically has a lower minimum threshold than AF11, so it starts being dropped sooner
+- **D.** WRED prevents TCP global synchronization by dropping all flows at the same moment
+- **E.** Above the maximum threshold, the drop probability equals the mark probability
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** ECN gives the same "slow down" signal without losing a packet, and dscp-based WRED is how drop precedence is put into action: higher drop precedence, shallower threshold. **Why not the others:** B, WRED uses the *average* depth, so short bursts don't trigger drops on their own. D, it does the opposite: random early drops hit different flows at different times. E, above the maximum threshold every packet is dropped (tail drop).
+</details>
 
 ---
 
@@ -5013,6 +8911,87 @@ R1# show policy-map interface GigabitEthernet0/0/2 input
 | Voice choppy despite LLQ | Priority policer drops; or jitter introduced elsewhere (no QoS on another hop) | `b/w exceed drops`, then check each hop's policy |
 | Policy rejected when applied | Mixing `bandwidth` and `bandwidth remaining`, or total over 100% | The CLI error on `service-policy` |
 
+**📝 Exam-style questions — 11.7**
+
+**Q1.** Refer to the exhibit. These are the class-maps used by the WAN-QUEUING policy, whose classes are VOICE, VIDEO, SIGNALING, CRITICAL-DATA, SCAVENGER and class-default. Which class handles a packet marked AF31?
+
+```
+class-map match-any VOICE
+ match dscp ef
+class-map match-any VIDEO
+ match dscp af41 af42 af43
+class-map match-any SIGNALING
+ match dscp cs3
+class-map match-any CRITICAL-DATA
+ match dscp af21 af22 af23
+class-map match-all SCAVENGER
+ match dscp cs1
+```
+
+- **A.** VIDEO
+- **B.** CRITICAL-DATA
+- **C.** class-default
+- **D.** None; the packet is dropped because no class matches it
+
+<details><summary>Answer</summary>
+
+**Answer: C.** No class-map matches AF31: VIDEO matches AF41–AF43, CRITICAL-DATA matches AF21–AF23. Anything unmatched falls into class-default, which always exists. **Why not the others:** A and B match different AF classes. D, unmatched packets are never dropped for lack of a class; they go to class-default.
+</details>
+
+**Q2.** Refer to the exhibit. Why is the queuing policy nested inside a parent shaper instead of being applied directly to the interface?
+
+```
+policy-map WAN-SHAPER
+ class class-default
+  shape average 50000000
+  service-policy WAN-QUEUING
+!
+interface GigabitEthernet0/0/1
+ description 50M MPLS handoff on a 1G port
+ service-policy output WAN-SHAPER
+```
+
+- **A.** The 1 Gbps interface would never congest at 50 Mbps of traffic, so the queuing policy alone would never activate; the shaper creates congestion at 50 Mbps where the child policy can act
+- **B.** IOS XE doesn't allow `priority` outside a hierarchical policy
+- **C.** The parent shaper polices voice to 50 Mbps
+- **D.** The shaper converts the percentages in WAN-QUEUING into absolute values in bytes
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Queuing only acts when packets are waiting. Without the shaper, the router sends at up to 1 Gbps, its own queues never fill, and the provider's 50 Mbps policer drops the excess blindly. This parent/child arrangement is Hierarchical QoS. **Why not the others:** B, `priority` works in a flat policy on an interface that congests. C, the shaper buffers the aggregate; it doesn't police voice. D, the percentages are resolved against the shaped rate, but in bps, and that isn't why the hierarchy exists.
+</details>
+
+**Q3.** Refer to the exhibit. Users report choppy voice on this 50 Mbps WAN link. What explains it?
+
+```
+        Class-map: VOICE (match-any)
+          30 second offered rate 6100000 bps, drop rate 1100000 bps
+          Match: dscp ef (46)
+          Priority: 10% (5000 kbps), burst bytes 125000, b/w exceed drops: 18322
+```
+
+- **A.** WRED in the VOICE class is dropping packets early
+- **B.** More EF traffic is arriving than the 5 Mbps priority cap, so the LLQ's policer drops the excess
+- **C.** The parent shaper is set higher than the circuit rate
+- **D.** class-default is starving the priority queue
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 6.1 Mbps is offered into a 5 Mbps priority class, and `b/w exceed drops` is climbing, with a 1.1 Mbps drop rate. Either there are more calls than the design allowed for, or something that isn't voice is marked EF. Raise the priority rate or fix the marking. **Why not the others:** A, there's no `random-detect` in the VOICE class. C, nothing in this output points to the shaper. D, the priority queue is always served first, so no other class can starve it.
+</details>
+
+**Q4.** In the WAN-QUEUING policy nested under the 50 Mbps WAN-SHAPER, VIDEO has `bandwidth percent 30`. How much bandwidth is VIDEO guaranteed during congestion?
+
+- **A.** 300 Mbps
+- **B.** 30 Mbps
+- **C.** 50 Mbps
+- **D.** 15 Mbps
+
+<details><summary>Answer</summary>
+
+**Answer: D.** In a child policy, percentages are of the parent's shaped rate: 30% of 50 Mbps = 15 Mbps. **Why not the others:** A is 30% of the 1 Gbps interface, which the child policy never sees. B treats the percent as Mbps. C is the whole shaped rate.
+</details>
+
 ---
 
 ## 11.8 Chapter Summary
@@ -5049,6 +9028,32 @@ A physical server in 2005 typically ran **one** application at 5–15% CPU. The 
 
 **Why does this matter to a network engineer and not just a server admin?** Because the moment servers became VMs, **the access layer moved inside the server**. Traffic between two VMs on the same host may never touch a physical switch, so your VLANs, ACLs and monitoring have to reach into that host too. *Virtualization didn't remove the network; it hid part of it inside a box.*
 
+**📝 Exam-style questions — 12.1**
+
+**Q1.** A server team moves 30 physical servers onto three hypervisor hosts. Which consequence matters most to the network engineer?
+
+- **A.** VMs can't use VLANs, so the physical switch must now route between every VM.
+- **B.** Traffic between two VMs on the same host can be switched inside the host and never reach a physical switch, so physical ACLs, monitoring and SPAN don't see it.
+- **C.** Each VM needs its own physical switch port, so the access layer must triple in size.
+- **D.** Hypervisors block broadcasts, so every VM needs a DHCP relay on the physical switch.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Once servers become VMs, part of the access layer moves *inside* the host: a vSwitch delivers VM-to-VM frames in software, so tools that only watch the physical network miss that traffic. **Why not the others:** A is wrong because VMs use VLANs normally (port groups map to VLANs). C is wrong because many VMs share a host's few physical NICs. D is wrong because a vSwitch forwards broadcasts within a VLAN like any switch, so DHCP works as usual.
+</details>
+
+**Q2.** Why did data centers adopt server virtualization in the first place?
+
+- **A.** Operating systems of the time could run only one application at once.
+- **B.** VMs run faster than the same workload on a physical server.
+- **C.** A typical physical server ran one application at around 5–15% CPU, so most of its power, cooling, rack space and licence cost was wasted.
+- **D.** Containers needed a hypervisor underneath them to run.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Virtualization lets one host run many isolated VMs, so the hardware is actually used. **Why not the others:** A is false; the problem was utilization, not an OS limit. B is wrong because a VM is at best near-native speed, never faster. D is wrong because containers share the host's kernel and don't need a hypervisor.
+</details>
+
 ## 12.2 Hypervisors — Type 1 vs Type 2
 
 **The problem it solves:** several operating systems each expect to own the CPU, the memory and the network card. Something has to sit underneath them, hand out slices of the real hardware, and stop one guest from touching another's slice.
@@ -5068,6 +9073,45 @@ The **hypervisor** (or *virtual machine monitor*) is the software layer that cre
 **Why is type 1 faster?** Because a type 2 hypervisor is just another application. When a VM asks for disk or network I/O, the request goes VM → hypervisor → **host OS** → hardware, and the host OS schedules it among everything else it's doing. A type 1 hypervisor *is* the operating system: VM → hypervisor → hardware. One fewer layer to wait on, and nothing else competing for the CPU.
 
 > **Exam trap:** KVM is the one that confuses people. It's a Linux kernel module, so it "runs on Linux". It's still classed as **type 1**, because the kernel itself becomes the hypervisor; there's no separate host OS underneath it. Your EVE-NG server is built on exactly this (QEMU/KVM).
+
+**📝 Exam-style questions — 12.2**
+
+**Q1.** Which two are type 1 (bare-metal) hypervisors? (Choose two.)
+
+- **A.** VMware Workstation
+- **B.** KVM
+- **C.** Oracle VirtualBox
+- **D.** Microsoft Hyper-V
+- **E.** Parallels Desktop
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** KVM and Hyper-V run directly on the hardware (KVM turns the Linux kernel itself into the hypervisor). **Why not the others:** VMware Workstation, VirtualBox and Parallels are applications installed on top of a normal desktop OS, which makes them type 2.
+</details>
+
+**Q2.** Why does a type 1 hypervisor usually perform better than a type 2 hypervisor?
+
+- **A.** A type 1 hypervisor dedicates one physical core to each VM, so vCPUs are never shared.
+- **B.** A type 1 hypervisor runs each VM as a container that shares its kernel.
+- **C.** A type 1 hypervisor emulates hardware in software, while type 2 passes it through directly.
+- **D.** With type 1, a VM's I/O goes from the hypervisor straight to the hardware; with type 2 it also passes through a host OS that schedules it among everything else.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A type 2 hypervisor is just another application, so every disk or network request takes the extra hop VM → hypervisor → host OS → hardware. Type 1 removes that layer. **Why not the others:** A is false; vCPUs are time-slices of shared physical cores. B confuses VMs with containers. C has it backwards and isn't the reason for the speed difference.
+</details>
+
+**Q3.** An engineer runs EVE-NG on a bare-metal Linux server using QEMU/KVM. A colleague says KVM is a type 2 hypervisor "because it runs on Linux". Which statement is correct?
+
+- **A.** KVM is classed as type 1, because the Linux kernel itself becomes the hypervisor; there is no separate host OS underneath it.
+- **B.** The colleague is right: any hypervisor installed on Linux is type 2.
+- **C.** KVM is type 2 unless the server's NICs use SR-IOV.
+- **D.** KVM is not a hypervisor at all; it is a container runtime.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** KVM is a kernel module, so the kernel *is* the hypervisor, which is the definition of type 1. **Why not the others:** B is the exact misconception the exam tests. C is wrong because SR-IOV is a NIC feature and has nothing to do with the hypervisor type. D is wrong because KVM runs full VMs with their own kernels; containers share the host kernel. Re-read: 12.2 exam trap.
+</details>
 
 ## 12.3 What a Virtual Machine Actually Is
 
@@ -5098,6 +9142,44 @@ Each VM runs its **own guest OS** with its own kernel. That's the key difference
 **Worked example — what breaks if VLAN 20 is missing:** Host B's uplink trunk only allows VLANs 10 and 30. The migration in steps 1–4 still succeeds (it uses the separate migration network), so the server team sees "migration complete". But the frame in step 5 is dropped at the physical switch port, because VLAN 20 isn't allowed there. WEB01 is running and unreachable. `show interfaces trunk` on the switch shows VLAN 20 missing from the "allowed" list for Host B's port. The fix is on your switch, not the server: `switchport trunk allowed vlan add 20`.
 
 *Live migration is one of the main reasons data centers wanted Layer 2 stretched everywhere — and one of the main reasons VXLAN exists (Chapter 13).*
+
+**📝 Exam-style questions — 12.3**
+
+**Q1.** Which statement correctly distinguishes a virtual machine from a container?
+
+- **A.** A container includes its own guest kernel; a VM shares the host's kernel.
+- **B.** A VM runs its own guest OS and kernel; a container shares the host's kernel and packages only the application and its libraries.
+- **C.** Both share the host's kernel, but a VM starts faster.
+- **D.** Only containers can have their own IP and MAC address.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** That kernel difference is why VMs give stronger isolation and containers are lighter and start in seconds. **Why not the others:** A swaps the two. C is wrong twice: VMs don't share the kernel and they start more slowly. D is wrong because every VM has a vNIC with its own MAC and IP.
+</details>
+
+**Q2.** A VM in VLAN 20 is live-migrated from Host A to Host B. The server team reports "migration complete", but the VM is now unreachable. Host B's uplink is an 802.1Q trunk allowing VLANs 10 and 30. What is the cause and fix?
+
+- **A.** The VM's MAC address changed during migration; clear the ARP cache on the default gateway.
+- **B.** The virtual disk stayed on Host A; copy the disk file to Host B's storage.
+- **C.** VLAN 20 isn't allowed on Host B's trunk, so the VM's frames are dropped at the physical switch; add it with `switchport trunk allowed vlan add 20`.
+- **D.** Host B's management IP must be in VLAN 20; re-address Host B's management interface.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The migration itself uses a separate migration network, so it succeeds, but the VM keeps its IP and MAC in VLAN 20, and that VLAN must exist on the new host's trunk. The fix is on the switch. **Why not the others:** A is wrong because the VM keeps its MAC. B is wrong because live migration relies on shared storage both hosts can reach; the disk doesn't need copying. D is wrong because the host's management address has nothing to do with which VLANs its VMs can use.
+</details>
+
+**Q3.** After a VM live-migrates to a new host, how do the physical switches learn that its MAC address now lives behind a different port?
+
+- **A.** The new host sends a frame sourced from the VM's MAC out its uplink (VMware uses a RARP frame), and the switches update their MAC tables.
+- **B.** The migration triggers an STP topology change that flushes every MAC table in the VLAN.
+- **C.** The default gateway sends a gratuitous ARP for the VM's IP address.
+- **D.** The VM receives a new MAC address from the new host, so no update is needed.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** One frame from the VM's MAC on the new port is enough for every switch to relearn the location. **Why not the others:** B is wrong because a migration isn't an STP event (and a VMware vSwitch doesn't run STP). C is wrong because the gateway's own ARP says nothing about where the *VM's* MAC is. D is wrong because the VM keeps its MAC, which is the whole point of live migration.
+</details>
 
 ## 12.4 Virtual Switching
 
@@ -5134,6 +9216,56 @@ Software switching costs CPU. Two techniques reduce that:
 
 *The network engineer's takeaway:* VMs connect to vSwitches, vSwitches connect to your physical switch via trunks, and NFV means some of your routers are now VMs too.
 
+**📝 Exam-style questions — 12.4**
+
+**Q1.** VMs FIN01 and FIN02 run on the same host and connect to the same vSwitch port group. An engineer sets up SPAN on the physical access switch for the host's two uplinks but captures none of the traffic between the two VMs. Why?
+
+- **A.** SPAN can't capture 802.1Q-tagged frames arriving on a trunk.
+- **B.** The vSwitch encrypts traffic between VMs on the same host.
+- **C.** The physical switch drops frames whose source and destination MAC are learned on the same port.
+- **D.** The vSwitch delivers frames between local VMs in software, so they never reach the uplinks.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The vSwitch finds FIN02's MAC on a local virtual port and switches the frame inside the host. Only traffic to destinations outside the host goes out an uplink. **Why not the others:** A is false; SPAN copies tagged frames. B is false; a vSwitch doesn't encrypt. C describes normal filtering of a frame that *arrives*, but these frames never arrive at the physical switch at all.
+</details>
+
+**Q2.** What is the main reason to use a distributed virtual switch instead of standard vSwitches on 40 hosts?
+
+- **A.** Port groups are defined once and every host gets them, and a VM's port settings and statistics follow it when it migrates.
+- **B.** A distributed switch runs STP with the physical switches, so loops are impossible.
+- **C.** A distributed switch removes the need for 802.1Q trunks on the host uplinks.
+- **D.** A distributed switch bypasses the hypervisor to give VMs line-rate performance.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With standard vSwitches, the same port group must be built by hand on every host, and one missed host breaks any VM that migrates there. **Why not the others:** B is wrong; loop avoidance doesn't come from STP. C is wrong; uplinks are still trunks. D describes SR-IOV, not a distributed switch.
+</details>
+
+**Q3.** Which technology lets a VM bypass the vSwitch and get near line-rate performance, at the cost of the hypervisor no longer seeing or policing that traffic and live migration becoming harder?
+
+- **A.** DPDK
+- **B.** SR-IOV
+- **C.** NFV
+- **D.** Open vSwitch
+
+<details><summary>Answer</summary>
+
+**Answer: B.** SR-IOV lets one physical NIC present many virtual functions, and a VM gets one directly. **Why not the others:** A, DPDK, speeds up a software switch by polling the NIC, but traffic still goes through that switch. C, NFV, means running network functions as VMs; it isn't a fast-path technique. D, Open vSwitch, is itself a software vSwitch.
+</details>
+
+**Q4.** A host's vSwitch has two uplinks, each connected to a different physical switch, and the vSwitch doesn't run spanning tree. Why doesn't this create a Layer 2 loop?
+
+- **A.** The physical switches automatically put one uplink into BPDU guard err-disable.
+- **B.** The vSwitch only forwards tagged frames, and loops need untagged frames.
+- **C.** The vSwitch never forwards a frame that arrived on one uplink back out another uplink.
+- **D.** LACP must be configured on both uplinks, and LACP blocks one of them.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A VMware vSwitch acts as an access switch for its VMs and never bridges uplink to uplink, so it can't join two physical switches into a loop. **Why not the others:** A is wrong; nothing err-disables because the vSwitch sends no BPDUs. B is false; tagged frames loop as easily as untagged ones. D is wrong because no LACP is needed, and LACP bundles links rather than blocking one.
+</details>
+
 ---
 
 ## 12.5 VRF — Many Routing Tables in One Router
@@ -5167,6 +9299,45 @@ Same destination, same router, two different answers. That's the isolation.
 - **Management isolation.** Many devices put the management port in its own VRF (e.g. `Mgmt-vrf` on Catalyst 9000) so management traffic never mixes with user traffic.
 
 **VRF-Lite vs MPLS VPN.** Using VRFs on their own, hop by hop, with each link carrying one VRF (usually one 802.1Q subinterface per VRF), is called **VRF-Lite**. When VRFs are carried across an MPLS core using MP-BGP, it's an **MPLS L3VPN** (Chapter 29). Chapter 25 covers VRF-Lite troubleshooting and route leaking for ENARSI. ENCOR wants you to configure and verify the basics.
+
+**📝 Exam-style questions — 12.5**
+
+**Q1.** A packet arrives at a router that has several VRFs. What determines which routing table is used to forward it?
+
+- **A.** The packet's destination address
+- **B.** The packet's source address
+- **C.** The VRF that the ingress interface belongs to
+- **D.** The longest matching prefix across all VRF tables
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The interface's VRF membership is the only thing that picks the table; the router then looks up the destination in that table alone. **Why not the others:** A and B are wrong because the same addresses can exist in several VRFs, so addresses can't choose the table. D is wrong because tables are never searched together; that would break isolation.
+</details>
+
+**Q2.** R1 has Gi0/1 in VRF CUST-A and Gi0/2 in VRF CUST-B. CUST-A has a route to 10.9.9.0/24, CUST-B has no matching route, and the global table has a default route. A packet to 10.9.9.9 arrives on Gi0/2. What happens?
+
+- **A.** It is forwarded using CUST-A's route, because that is the only match on the router.
+- **B.** It is forwarded using the global default route as a fallback.
+- **C.** It is queued until a routing protocol in CUST-B learns the prefix.
+- **D.** It is dropped, because only CUST-B's table is consulted.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A lookup that fails in the interface's VRF ends in a drop; the router doesn't try the global table or any other VRF. **Why not the others:** A and B would defeat the isolation VRFs exist to provide. C is wrong because routers don't queue packets waiting for routes. Re-read: the worked example in 12.5.
+</details>
+
+**Q3.** Which two are reasons to deploy VRFs? (Choose two.)
+
+- **A.** To encrypt traffic between two sites
+- **B.** To let two customers use overlapping IP address ranges on the same router
+- **C.** To replace spanning tree in the campus
+- **D.** To reduce the memory used by the CEF table
+- **E.** To keep guest, IoT and corporate users on shared hardware but unable to reach each other unless routed deliberately
+
+<details><summary>Answer</summary>
+
+**Answer: B, E.** Separate tables allow overlapping addresses and give segmentation on shared hardware. **Why not the others:** A is IPsec's job; a VRF doesn't encrypt anything. C is unrelated; VRFs are Layer 3. D is wrong because more VRFs mean more tables, not less memory.
+</details>
 
 ## 12.6 Configuring a VRF on IOS XE (Try It!)
 
@@ -5254,6 +9425,63 @@ R1# show ip arp vrf CUST-A
 ```
 
 **The trap that catches everyone:** `ping 10.1.1.254` with no VRF keyword uses the **global** table. If the address only exists in CUST-A, the ping fails and it looks like the network is broken. *Every VRF verification command needs `vrf NAME`.*
+
+**📝 Exam-style questions — 12.6**
+
+**Q1.** Refer to the exhibit. Afterwards, `show run interface GigabitEthernet0/1` shows no IP address. What is the cause and fix?
+
+```
+R1(config)# interface GigabitEthernet0/1
+R1(config-if)# ip address 10.1.1.1 255.255.255.0
+R1(config-if)# vrf forwarding CUST-A
+% Interface GigabitEthernet0/1 IPv4 disabled and address(es) removed due to enabling VRF CUST-A
+R1(config-if)# end
+```
+
+- **A.** The VRF has no route distinguisher; add `rd 65000:1` under `vrf definition CUST-A`.
+- **B.** Applying `vrf forwarding` removed the address; enter `ip address 10.1.1.1 255.255.255.0` again, after `vrf forwarding`.
+- **C.** `vrf forwarding` is only valid on subinterfaces; move the address to Gi0/1.10.
+- **D.** The interface must be shut down before it can join a VRF; `shutdown` and `no shutdown` it.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The address was a connected route in the global table; moving the interface to CUST-A would leave it in the wrong table, so IOS removes it. Always apply `vrf forwarding` first, then the address. **Why not the others:** A is wrong because an RD is optional for VRF-Lite. C is wrong because physical interfaces can be in a VRF too. D is wrong because no shutdown is required; the message tells you exactly what happened.
+</details>
+
+**Q2.** `show ip route vrf CUST-A` on R1 shows `10.1.1.0/24` as connected, but `ping 10.1.1.254` from R1 fails. Which command correctly tests reachability to that host?
+
+- **A.** `ping 10.1.1.254 repeat 100`
+- **B.** `show ip route 10.1.1.254`
+- **C.** `ping vrf CUST-A 10.1.1.254`
+- **D.** `ping 10.1.1.254 size 1500`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A ping without a VRF keyword uses the global table, where 10.1.1.0/24 doesn't exist. Every VRF verification command needs `vrf NAME`. **Why not the others:** A and D still use the global table, just with more or bigger packets. B also checks the global table, so it would show no route and mislead you further.
+</details>
+
+**Q3.** Refer to the exhibit. Why are both subinterfaces allowed to use the same address?
+
+```
+interface GigabitEthernet0/3.100
+ encapsulation dot1Q 100
+ vrf forwarding CUST-A
+ ip address 172.16.100.1 255.255.255.252
+interface GigabitEthernet0/3.200
+ encapsulation dot1Q 200
+ vrf forwarding CUST-B
+ ip address 172.16.100.1 255.255.255.252
+```
+
+- **A.** Each subinterface is in a different VRF, so each connected route is installed in a different routing table.
+- **B.** The two subinterfaces use different 802.1Q tags, and IOS treats the tag as part of the address.
+- **C.** IOS always allows duplicate addresses on subinterfaces of the same physical interface.
+- **D.** The two OSPF processes keep the addresses apart.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** An address only conflicts with others in the *same* table. CUST-A and CUST-B never share a table. **Why not the others:** B is wrong because the tag separates the traffic on the wire, but it's the VRF that lets the address be reused. C is false; without VRFs, IOS rejects the second address as overlapping. D is wrong because routing processes don't decide whether an address may be configured.
+</details>
 
 ---
 
@@ -5349,6 +9577,65 @@ Read three things: **line protocol up**, the **source/destination** are what you
 
 **GRE's big weakness:** it is **not encrypted**. Anyone on the path can read the inner packets. That's what IPsec is for.
 
+**📝 Exam-style questions — 12.7**
+
+**Q1.** What is the default IP MTU of a GRE tunnel interface over a 1500-byte Ethernet path, and why?
+
+- **A.** 1480, because GRE adds only a 20-byte outer IP header
+- **B.** 1400, because Cisco reserves room for IPsec
+- **C.** 1476, because GRE adds a 20-byte outer IP header plus a 4-byte GRE header
+- **D.** 1500, because the router fragments the outer packet automatically
+
+<details><summary>Answer</summary>
+
+**Answer: C.** 1500 − 24 = 1476. **Why not the others:** A forgets the 4-byte GRE header. B is the value the guide *configures* with `ip mtu 1400` to leave room for IPsec, not the default. D is wrong because a 1500-byte inner packet would become 1524 bytes and no longer fit.
+</details>
+
+**Q2.** Refer to the exhibit. Tunnel0 keeps going down and coming back up about once a minute. What is the cause?
+
+```
+%TUN-5-RECURDOWN: Tunnel0 temporarily disabled due to recursive routing
+R1# show ip route 203.0.113.2
+Routing entry for 203.0.113.0/24
+  Known via "ospf 1", distance 110, metric 1001, type intra area
+  Routing Descriptor Blocks:
+  * 172.16.0.2, from 2.2.2.2, 00:00:41 ago, via Tunnel0
+```
+
+- **A.** The route to the tunnel destination is being learned through the tunnel itself.
+- **B.** The keepalive timers on the two tunnel ends don't match.
+- **C.** The tunnel's IP MTU is too large for the path.
+- **D.** The tunnel source interface is administratively down.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** To send any tunnel packet, R1 must look up 203.0.113.2, and the best route points into Tunnel0. The /24 from OSPF beats the static default (/0) by longest match, even though its AD is worse. The fix is to stop advertising the transport addresses into the routing protocol that runs over the tunnel. **Why not the others:** B would cause a keepalive failure, not a recursive-routing message. C causes dropped large packets, not tunnel flaps. D would keep the tunnel down permanently.
+</details>
+
+**Q3.** A plain GRE tunnel shows `Tunnel0 is up, line protocol is up`, but the far router has been powered off for an hour and a static route still points into the tunnel. What explains this, and what fixes it?
+
+- **A.** GRE uses BFD by default, but its timers are too slow; lower the BFD interval.
+- **B.** `tunnel mode gre ip` is missing; add it so the tunnel can detect the peer.
+- **C.** The tunnel source is a loopback, which never goes down; use a physical interface instead.
+- **D.** GRE has no handshake, so the tunnel stays up while a route to the destination exists; add `keepalive 10 3`.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** With keepalives, three missed replies bring line protocol down, the static route is withdrawn and a backup path can take over. **Why not the others:** A is false; GRE doesn't run BFD by default. B is wrong because `gre ip` is already the default mode. C is wrong; the tunnel's state depends on reachability of the destination, not on what kind of interface the source is.
+</details>
+
+**Q4.** Users across a GRE tunnel report that pings work and small web pages load, but large downloads and HTTPS sessions hang. Which command fixes the problem at the TCP handshake?
+
+- **A.** `ip mtu 1500` on the tunnel interface
+- **B.** `ip tcp adjust-mss 1360` on the tunnel interface
+- **C.** `keepalive 10 3` on the tunnel interface
+- **D.** `bandwidth 100000` on the tunnel interface
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `adjust-mss` rewrites the MSS in TCP SYNs, so both hosts agree on segments small enough to fit after the tunnel headers are added. 1360 = 1400 − 40 bytes of IP and TCP headers. **Why not the others:** A makes the problem worse by promising room that isn't there. C detects a dead peer but does nothing for packet size. D only changes the routing metric.
+</details>
+
 ---
 
 ## 12.8 IPsec — Making the Tunnel Private
@@ -5418,6 +9705,57 @@ If step 2 fails you'll see `NO_PROPOSAL_CHOSEN` (no common proposal). If step 4 
 | Add a new subnet | Edit ACLs on **both** sides | Just route it |
 
 **Why is VTI the modern answer?** Because it turns VPN design back into *routing*. With a crypto map, the routing table says "send it out Gi0/0" and a hidden ACL decides whether it's encrypted, so two separate policies must agree. With a VTI, encryption is simply a property of an interface: if the route points into the tunnel, it's encrypted. *One decision instead of two, and you can run OSPF across it.*
+
+**📝 Exam-style questions — 12.8**
+
+**Q1.** Which two statements about ESP are true? (Choose two.)
+
+- **A.** It is IP protocol 51.
+- **B.** It authenticates the outer IP header, so NAT breaks it.
+- **C.** It encrypts the payload.
+- **D.** It can never pass through a NAT device.
+- **E.** It is IP protocol 50.
+
+<details><summary>Answer</summary>
+
+**Answer: C, E.** ESP (protocol 50) encrypts and leaves the outer header alone, which is why it works through NAT, using NAT-T (UDP 4500). **Why not the others:** A and B describe AH. D is false; NAT-T exists exactly so ESP can cross NAT.
+</details>
+
+**Q2.** An IKEv2 tunnel won't come up, and `debug crypto ikev2` shows `NO_PROPOSAL_CHOSEN`. What failed?
+
+- **A.** IKE_AUTH failed, because the pre-shared keys differ.
+- **B.** The Child SA failed, because the crypto ACLs aren't mirror images.
+- **C.** NAT-T failed, because UDP 4500 is blocked.
+- **D.** IKE_SA_INIT failed, because the peers have no proposal (encryption, integrity, DH group) in common.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** In the first exchange, the responder must pick one of the initiator's proposals. If none match, it answers NO_PROPOSAL_CHOSEN. **Why not the others:** A produces `AUTH_FAILED`, in the second exchange. B is a crypto-map (IKEv1) problem, and it fails after Phase 1. C would stop packets after NAT detection, not give a proposal error.
+</details>
+
+**Q3.** When is IPsec **transport** mode the right choice?
+
+- **A.** When two routers protect traffic for hosts on the LANs behind them
+- **B.** When the IPsec peers are themselves the endpoints of the traffic, as in GRE over IPsec
+- **C.** Whenever AH is used instead of ESP
+- **D.** Whenever NAT is detected between the peers
+
+<details><summary>Answer</summary>
+
+**Answer: B.** GRE already wraps the packet in a header between the two routers, so IPsec can keep that header and encrypt what follows, saving 20 bytes. **Why not the others:** A is the classic use of tunnel mode, which hides the original header. C is wrong because the mode doesn't depend on ESP or AH. D is wrong; NAT triggers NAT-T, not a mode change.
+</details>
+
+**Q4.** Why is a VTI usually preferred to a crypto map for new site-to-site VPNs?
+
+- **A.** A VTI uses AH, which is more secure than ESP.
+- **B.** A VTI doesn't need IKE.
+- **C.** Encryption becomes a property of an interface: anything routed into it is encrypted, so routing protocols can run over it and adding a subnet only needs a route.
+- **D.** Crypto maps can't use AES encryption.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** With a crypto map, a routing decision and a separate crypto ACL must agree. A VTI makes it one decision: route into the tunnel and it's encrypted. **Why not the others:** A is false; VTIs use ESP. B is false; VTIs still use IKE to build SAs. D is false; crypto maps support AES.
+</details>
 
 ## 12.9 Configuring a Static VTI with IKEv2 (Try It!)
 
@@ -5494,6 +9832,60 @@ interface Tunnel1
 ```
 
 `show crypto ikev2 proposal default` and `show crypto ipsec transform-set default` reveal what the defaults actually are on your release. **Why does this matter for the exam?** Because a config with no `crypto ikev2 proposal` or `transform-set` is *not* incomplete. It's using the defaults, and both sides will agree as long as both use them. Defining your own proposal (as in the full config above) overrides the default for that policy.
+
+**📝 Exam-style questions — 12.9**
+
+**Q1.** A static IKEv2 VTI is built from a tunnel interface, an IPsec profile, a transform set, an IKEv2 profile and an IKEv2 keyring. Which chain shows correctly which piece references which?
+
+- **A.** Tunnel interface → IPsec profile → transform set and IKEv2 profile → keyring
+- **B.** Tunnel interface → keyring → IKEv2 profile → IPsec profile
+- **C.** IKEv2 proposal → tunnel interface → transform set → keyring
+- **D.** Transform set → tunnel interface → IKEv2 policy → IPsec profile
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `tunnel protection ipsec profile` names the IPsec profile, which names the transform set and the IKEv2 profile, and the IKEv2 profile names the keyring. A typo anywhere in that chain breaks it, often without a clear error. **Why not the others:** B, C and D put the pieces in an order that doesn't match which command references which.
+</details>
+
+**Q2.** Refer to the exhibit. A colleague says the configuration can't work because it has no `crypto ikev2 proposal` and no `crypto ipsec transform-set`. Which statement is correct?
+
+```
+crypto ikev2 keyring KR-SITEB
+ peer R2
+  address 203.0.113.2
+  pre-shared-key Str0ng-Secret!
+crypto ikev2 profile IKEV2-PROF
+ match identity remote address 203.0.113.2 255.255.255.255
+ authentication remote pre-share
+ authentication local pre-share
+ keyring local KR-SITEB
+crypto ipsec profile default
+ set ikev2-profile IKEV2-PROF
+interface Tunnel1
+ tunnel protection ipsec profile default
+```
+
+- **A.** The colleague is right; the tunnel will negotiate without encryption.
+- **B.** It works: IOS XE's IKEv2 smart defaults supply a default proposal, policy, transform set and IPsec profile, so only the peer and authentication must be configured.
+- **C.** It falls back to IKEv1 because no IKEv2 proposal exists.
+- **D.** It works only if the peer is configured with the same named proposal.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The parts that can't have a default are who the peer is and how to authenticate it; everything else comes built in. **Why not the others:** A is false; IOS never silently skips encryption. C is false; there's no automatic fallback to IKEv1. D is wrong because both sides just need to agree, and both using the defaults agrees.
+</details>
+
+**Q3.** Which interface command makes a tunnel a static VTI, with no GRE header?
+
+- **A.** `tunnel mode gre ip`
+- **B.** `tunnel mode gre multipoint`
+- **C.** `tunnel protection ipsec profile IPSEC-PROF`
+- **D.** `tunnel mode ipsec ipv4`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** That mode makes the tunnel pure IPsec tunnel mode. **Why not the others:** A is the default GRE mode. B is multipoint GRE, used for DMVPN. C adds encryption to whatever mode the tunnel is in, so on a GRE tunnel it gives GRE over IPsec, not a static VTI.
+</details>
 
 ## 12.10 GRE over IPsec
 
@@ -5578,6 +9970,63 @@ dst             src             state          conn-id status
 
 *IKEv1 crypto maps and IKEv2 VTIs protect traffic equally well. The difference is that a crypto map ties encryption to an ACL, while a VTI ties it to routing (12.8).*
 
+**📝 Exam-style questions — 12.10**
+
+**Q1.** Why would you build GRE over IPsec instead of a static IPsec VTI?
+
+- **A.** Static VTIs can't carry routing protocols.
+- **B.** GRE over IPsec adds less overhead than a static VTI.
+- **C.** GRE can carry non-IP protocols and several protocols over one tunnel, and it is the basis for mGRE in DMVPN.
+- **D.** A static VTI requires a crypto map on the physical interface.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Those are the jobs only GRE can do. **Why not the others:** A is false; you can run OSPF over a static VTI. B is false; GRE adds a header a static VTI doesn't have. D is false; a VTI uses `tunnel protection`, not a crypto map.
+</details>
+
+**Q2.** Refer to the exhibit. What is the most likely cause?
+
+```
+R1# show crypto isakmp sa
+IPv4 Crypto ISAKMP SA
+dst             src             state          conn-id status
+203.0.113.2     198.51.100.1    MM_KEY_EXCH       1001 ACTIVE
+```
+
+- **A.** The pre-shared keys on the two peers don't match.
+- **B.** Phase 1 is complete and healthy.
+- **C.** The peer isn't replying at all.
+- **D.** The crypto ACLs on the two peers aren't mirror images.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** MM_KEY_EXCH means the keys were exchanged but authentication failed, which is usually a pre-shared key mismatch. **Why not the others:** B describes QM_IDLE. C describes MM_NO_STATE. D is a Phase 2 problem, which only shows up after Phase 1 reaches QM_IDLE.
+</details>
+
+**Q3.** A legacy GRE-over-IPsec tunnel uses a crypto map. `show crypto isakmp sa` shows QM_IDLE, but no IPsec SAs are built. What is the most likely cause?
+
+- **A.** The ISAKMP policies use different DH groups.
+- **B.** The pre-shared keys don't match.
+- **C.** The tunnel interface is missing `tunnel protection`.
+- **D.** The crypto ACLs on the two peers aren't mirror images of each other.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** QM_IDLE means Phase 1 succeeded, so the failure is in Phase 2, and mismatched crypto ACLs are the classic Phase 2 failure. **Why not the others:** A and B would stop Phase 1 from reaching QM_IDLE. C is wrong because the crypto-map design deliberately has no `tunnel protection`; the crypto map does the encrypting.
+</details>
+
+**Q4.** GRE over IPsec in transport mode crosses the internet. Which IP protocol number does a router in the middle see in the outer header?
+
+- **A.** 50 (ESP)
+- **B.** 47 (GRE)
+- **C.** 51 (AH)
+- **D.** 17 (UDP), port 500
+
+<details><summary>Answer</summary>
+
+**Answer: A.** IPsec encrypts everything after the outer header, including the GRE header, and the protocol field changes to 50. The internet can't even tell GRE is inside. **Why not the others:** B is what you'd see *without* IPsec. C would need AH, which isn't used here. D is IKE's control traffic, not the data packets. (With NAT-T, data would be in UDP 4500.)
+</details>
+
 ## 12.11 Verifying and Troubleshooting Tunnels
 
 **Why a method matters here:** a tunnel has three layers that can each fail on their own: the underlay (public path), the tunnel and crypto (GRE/IKE/IPsec), and the overlay (routes into it). The commands below each look at one layer, so read them in that order.
@@ -5632,6 +10081,53 @@ Peer: 203.0.113.2 port 500
 
 *The underlying principle for every tunnel problem:* check the **underlay** first (can I reach the far public IP?), then the **tunnel** (up, SA ready?), then the **overlay** (routes pointing into it?). Fix them in that order. An overlay problem can't be solved while the underlay is broken.
 
+**📝 Exam-style questions — 12.11**
+
+**Q1.** Refer to the exhibit. Users at Site A can't reach Site B over Tunnel1. What is the most likely cause?
+
+```
+R1# show crypto ikev2 sa
+Tunnel-id Local                 Remote                fvrf/ivrf            Status
+1         198.51.100.1/500      203.0.113.2/500       none/none            READY
+R1# show crypto ipsec sa interface Tunnel1 | include pkts
+    #pkts encaps: 240, #pkts encrypt: 240, #pkts digest: 240
+    #pkts decaps: 0, #pkts decrypt: 0, #pkts verify: 0
+```
+
+- **A.** The pre-shared keys don't match.
+- **B.** The far side has no route back into the tunnel, or ESP is being blocked on the path.
+- **C.** No traffic is being routed into the tunnel.
+- **D.** The transform sets on the two routers don't match.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** READY means authentication worked and the SAs exist. R1 is encrypting and sending (encaps 240), but nothing comes back (decaps 0), so look at the far end's return routing and at anything filtering protocol 50 or UDP 4500. **Why not the others:** A and D would stop the SAs from being built at all. C would leave encaps at 0 as well.
+</details>
+
+**Q2.** An IKEv2 SA is READY, but `show crypto ipsec sa` shows both `#pkts encaps` and `#pkts decaps` at 0 while users complain. What should you check next?
+
+- **A.** The routing table: whether routes to the remote subnets point into the tunnel
+- **B.** The pre-shared key on both peers
+- **C.** Whether UDP 500 is blocked by a firewall
+- **D.** The DH group in the IKEv2 proposal
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Zero on both counters means nothing is being routed into the tunnel, so it's an overlay routing problem, not a crypto one. **Why not the others:** B, C and D would all stop the IKEv2 SA from reaching READY, and it already has.
+</details>
+
+**Q3.** A GRE-over-IPsec tunnel between two sites is down. Which troubleshooting order is most efficient?
+
+- **A.** Overlay routes → tunnel and crypto → underlay
+- **B.** Tunnel and crypto → underlay → overlay routes
+- **C.** Underlay → tunnel and crypto → overlay routes
+- **D.** Underlay → overlay routes → tunnel and crypto
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Each layer depends on the one below it: no public path means no SA, and no SA means routes into the tunnel can't work. Fix them bottom-up. **Why not the others:** A and B start above a layer that may already be broken. D checks routes into a tunnel before confirming the tunnel itself is up.
+</details>
+
 ## 12.12 Chapter Summary
 
 | Topic | What to be able to say |
@@ -5675,6 +10171,32 @@ If the address *is* the location, moving means renumbering, which breaks session
 
 *The overlay idea: give each endpoint a stable identity, and keep a separate, changeable record of where it currently is.*
 
+**📝 Exam-style questions — 13.1**
+
+**Q1.** Overlay technologies such as LISP separate two jobs that a traditional IP address does at the same time. Which two jobs?
+
+- **A.** Unicast delivery and multicast delivery
+- **B.** Network address and broadcast address
+- **C.** Identity (who the device is) and location (where it is attached)
+- **D.** Layer 2 forwarding and Layer 3 forwarding
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Because the prefix ties an address to one subnet in one place, a device that moves must change its identity too. Overlays keep a stable identity and a separate, changeable record of location. **Why not the others:** A, B and D are real distinctions, but none of them is the conflict that appears when an endpoint moves.
+</details>
+
+**Q2.** Before overlays, the usual way to let a VM keep its IP address after moving to another building was to stretch its VLAN everywhere. What was the main drawback?
+
+- **A.** Every move required renumbering the host.
+- **B.** It required a LISP mapping system in every building.
+- **C.** It stopped VMs from keeping their MAC addresses.
+- **D.** It created huge broadcast domains with spanning tree running across the whole campus or data center.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A stretched VLAN works, but one Layer 2 domain everywhere means flooding, blocked links and a large failure domain. **Why not the others:** A is the problem stretching *avoided*. B is wrong because LISP is the overlay alternative, not part of the old workaround. C is false; MACs don't change when VLANs are stretched.
+</details>
+
 ## 13.2 Underlay vs Overlay
 
 | Term | What it is | Example |
@@ -5687,6 +10209,33 @@ If the address *is* the location, moving means renumbering, which breaks session
 **Story Time 📖:** the underlay is the motorway network. It only knows how to get a lorry from one depot to another, and it doesn't care what's inside. The overlay is the parcel company's own delivery network that runs on top of it: parcels are addressed to people, sorted at the depot, loaded into lorries addressed depot-to-depot, and unpacked at the other end. You can reorganise parcel routes (move a customer, add a new delivery zone) without building a single new road. *Where it breaks:* real roads can jam, but a well-built routed underlay mostly doesn't, because ECMP spreads the load over every link.
 
 **Why is a simple routed underlay so attractive?** Because routed links have **no spanning tree**, use **every link at once with ECMP**, and converge in milliseconds. The overlay provides the flexibility endpoints need (mobility, segmentation, stretched subnets) *without* turning the physical network back into one giant Layer 2 domain.
+
+**📝 Exam-style questions — 13.2**
+
+**Q1.** Which statement correctly describes the underlay and the overlay?
+
+- **A.** The underlay is the set of tunnels; the overlay is the physical routed network the tunnels cross.
+- **B.** The underlay is the physical routed network that only needs to connect the tunnel endpoints; the overlay is the logical network built from tunnels on top of it.
+- **C.** The underlay carries endpoint MAC addresses; the overlay carries only routing protocol traffic.
+- **D.** The underlay and the overlay are two names for the same network, used by different vendors.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The underlay only has to move packets between tunnel endpoints (for example OSPF or IS-IS between loopbacks); the overlay provides what endpoints need. **Why not the others:** A swaps the two. C is wrong because the underlay never learns endpoint MACs; it only routes between tunnel endpoints. D is wrong; they are separate layers.
+</details>
+
+**Q2.** Which two are advantages of a fully routed underlay? (Choose two.)
+
+- **A.** It learns every endpoint's MAC address, so no overlay control plane is needed.
+- **B.** It has no spanning tree, so no links sit blocked.
+- **C.** It extends VLANs between every pair of switches.
+- **D.** It uses all links at the same time with ECMP and converges quickly.
+- **E.** It removes the need for any encapsulation.
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** Routed links don't run STP between switches, so ECMP uses every path and convergence is fast. **Why not the others:** A is wrong because a routed underlay knows only tunnel endpoints, not endpoints' MACs. C describes a Layer 2 design, the opposite of a routed underlay. E is wrong; the overlay depends on encapsulation to cross the underlay.
+</details>
 
 ---
 
@@ -5773,6 +10322,68 @@ A LISP EID is really a pair: **(Instance ID, EID prefix)**. The **Instance ID (I
 
 The laptop kept `10.50.1.25`, its TCP sessions survived, and no underlay route changed. Only one directory entry and one cache entry did.
 
+**📝 Exam-style questions — 13.3**
+
+**Q1.** Which LISP role registers the EID prefixes behind it with the Map Server?
+
+- **A.** ITR
+- **B.** ETR
+- **C.** Map Resolver
+- **D.** PITR
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The ETR sends periodic Map-Registers (about every 60 seconds) for its EIDs, and is also what answers Map-Requests for them. **Why not the others:** A, the ITR, *asks* for mappings and encapsulates. C, the Map Resolver, receives Map-Requests from ITRs. D, the PITR, attracts traffic from non-LISP sites.
+</details>
+
+**Q2.** A host behind ITR-A sends the first packet to an EID behind ETR-B. ETR-B registered its prefix earlier. Which sequence correctly orders what happens next?
+
+- **A.** ITR-A sends a Map-Request to the Map Resolver → the Map Server forwards it to ETR-B → ETR-B sends a Map-Reply directly to ITR-A → ITR-A caches the mapping and encapsulates to ETR-B's RLOC
+- **B.** ITR-A sends a Map-Register → the Map Server sends a Map-Reply → ITR-A floods the packet to every RLOC
+- **C.** ITR-A sends a Map-Request to ETR-B → ETR-B forwards it to the Map Server → the Map Server sends the Map-Reply to ITR-A
+- **D.** ITR-A forwards the packet natively → ETR-B sends a Solicit-Map-Request → ITR-A sends a Map-Register
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The ITR doesn't know where ETR-B is, so it asks the mapping system; the mapping system passes the question to the authority (ETR-B), which answers directly. **Why not the others:** B uses Map-Register, which only ETRs send, and LISP never floods to find an EID. C has the ITR contacting the ETR before it knows the ETR's RLOC. D misuses the Solicit-Map-Request, which is for stale caches after a move.
+</details>
+
+**Q3.** Refer to the exhibit. How does the ITR send traffic to 10.2.0.0/16?
+
+```
+xTR-A# show ip lisp map-cache
+LISP IPv4 Mapping Cache for EID-table default (IID 0), 2 entries
+
+0.0.0.0/0, uptime: 00:05:12, expires: never, via static-send-map-request
+  Negative cache entry, action: send-map-request
+10.2.0.0/16, uptime: 00:00:05, expires: 23:59:54, via map-reply, complete
+  Locator         Uptime    State      Pri/Wgt
+  198.51.100.2    00:00:05  up           1/100
+  198.51.100.3    00:00:05  up           2/100
+```
+
+- **A.** It shares flows 50/50 between the two locators, because their weights are equal.
+- **B.** It sends everything to 198.51.100.3, because a higher priority value is preferred.
+- **C.** It sends everything to 198.51.100.2 and uses 198.51.100.3 only if .2 becomes unavailable.
+- **D.** It alternates packet by packet between the two locators.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Priority is compared first and the *lower* number wins; weight only shares traffic among locators with the same priority. So .3, with priority 2, is a backup. **Why not the others:** A would be true only if both had priority 1. B gets the priority rule backwards. D is wrong because LISP shares by flow, not per packet.
+</details>
+
+**Q4.** A laptop with EID 10.50.1.25/32 roams from Edge 1 to Edge 2. Edge 3 keeps sending the laptop's traffic to Edge 1 using its cached mapping. What makes Edge 3 refresh its cache?
+
+- **A.** The Map Server sends a Map-Notify directly to Edge 3.
+- **B.** Edge 3 sends a Map-Register for the laptop's EID.
+- **C.** Nothing; Edge 3 waits for the 24-hour map-cache TTL to expire.
+- **D.** Edge 1, which no longer has the EID, sends Edge 3 a Solicit-Map-Request, and Edge 3 sends a fresh Map-Request.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The old edge receives traffic for an EID that has left, so it tells the sender its cache is stale. The new Map-Reply points at Edge 2. **Why not the others:** A is wrong because the Map-Notify goes to the *old* xTR (Edge 1), not to every ITR. B is wrong because Edge 3 has nothing to register; the laptop isn't behind it. C would leave traffic black-holed for a day, which is exactly what SMR avoids.
+</details>
+
 ---
 
 ## 13.4 VXLAN — Layer 2 Over Layer 3
@@ -5848,6 +10459,57 @@ With flood-and-learn, step 4 only happens after a frame from VM-B has actually r
 
 SD-Access uses a VXLAN variant with the **Group Policy Option (VXLAN-GPO)**, which uses some reserved header bits to carry a **16-bit Scalable Group Tag (SGT)**. The destination edge can then enforce group-based policy (Chapter 14) without looking anything up. *One header carries the segment (VNI = virtual network) and the identity group (SGT).*
 
+**📝 Exam-style questions — 13.4**
+
+**Q1.** Hosts in a VXLAN fabric send full 1500-byte IP packets, and the outer frames are untagged. What is the minimum underlay MTU needed so these packets aren't dropped?
+
+- **A.** 1500
+- **B.** 1524
+- **C.** 1550
+- **D.** 9216, because VXLAN requires jumbo frames
+
+<details><summary>Answer</summary>
+
+**Answer: C.** 1500 + 14 (inner Ethernet) + 8 (VXLAN) + 8 (UDP) + 20 (outer IP) = 1550. Jumbo MTU is recommended, but 1550 is the minimum. **Why not the others:** A leaves no room for the 50 bytes of overhead. B is the GRE figure (24 bytes of overhead). D is common practice, not a requirement.
+</details>
+
+**Q2.** Why does VXLAN put its header inside UDP and set the UDP source port from a hash of the inner frame?
+
+- **A.** So that underlay routers, which hash the 5-tuple for ECMP, spread different inner flows across different paths while keeping each flow on one path
+- **B.** So that VTEPs can retransmit lost frames
+- **C.** Because UDP encrypts the inner frame
+- **D.** Because the destination VTEP uses the source port to identify the VNI
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Without the varying source port, all traffic between two VTEPs would have the same outer header and land on one path. **Why not the others:** B is wrong because UDP has no retransmission. C is false; UDP doesn't encrypt anything. D is wrong because the VNI is in the VXLAN header itself.
+</details>
+
+**Q3.** Which two statements describe BGP EVPN as a VXLAN control plane? (Choose two.)
+
+- **A.** It needs PIM in the underlay for every VNI.
+- **B.** VTEPs learn remote MAC addresses only from data traffic.
+- **C.** VTEPs advertise MAC and IP addresses to each other in BGP route type 2.
+- **D.** It limits the fabric to 4,094 segments.
+- **E.** Leaf switches can answer ARP requests locally (ARP suppression).
+
+<details><summary>Answer</summary>
+
+**Answer: C, E.** EVPN *tells* every VTEP where each MAC and IP is, so a leaf can answer ARP itself instead of flooding. **Why not the others:** A describes flood-and-learn with a multicast underlay; EVPN can use ingress replication. B describes flood-and-learn. D is the VLAN limit; VNIs are 24-bit (about 16.7 million).
+</details>
+
+**Q4.** Leaf 1 maps VLAN 10 to VNI 10010. Leaf 2 maps VLAN 210 to VNI 10010. Can a host in VLAN 10 on Leaf 1 talk at Layer 2 to a host in VLAN 210 on Leaf 2?
+
+- **A.** No, because the VLAN IDs must match on every leaf.
+- **B.** Yes, because the VNI defines the Layer 2 segment across the fabric and VLAN numbers are only locally significant.
+- **C.** Only if a router routes between VLAN 10 and VLAN 210.
+- **D.** Only if both leaves carry the original 802.1Q tag inside the VXLAN packet.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Each VTEP maps its local VLAN to the VNI on the way in and from the VNI back to its own local VLAN on the way out. **Why not the others:** A is the old VLAN-trunking rule that VXLAN removes. C is wrong because they're the same Layer 2 segment, so no routing is needed. D is wrong because the original VLAN tag isn't carried; the VNI replaces it.
+</details>
+
 ---
 
 ## 13.5 LISP vs VXLAN at a Glance
@@ -5865,6 +10527,32 @@ SD-Access uses a VXLAN variant with the **Group Policy Option (VXLAN-GPO)**, whi
 | Where you'll meet it | SD-Access control plane, multihomed branches, mobility | Data-center fabrics (EVPN), SD-Access data plane |
 
 **Exam trap:** "Which protocol does SD-Access use for its data plane?" — **VXLAN** (with GPO). "Control plane?" — **LISP**. "Underlay routing?" — **IS-IS** (when Catalyst Center's LAN automation builds it). "Policy plane?" — **TrustSec/SGT**. Learn the four as a set; questions usually test whether you can keep them apart.
+
+**📝 Exam-style questions — 13.5**
+
+**Q1.** Which option correctly matches each SD-Access plane to its technology?
+
+- **A.** Data plane: LISP. Control plane: VXLAN. Underlay: OSPF. Policy plane: IPsec
+- **B.** Data plane: IPsec. Control plane: OMP. Underlay: BGP. Policy plane: ACLs
+- **C.** Data plane: VXLAN. Control plane: BGP EVPN. Underlay: EIGRP. Policy plane: VRFs
+- **D.** Data plane: VXLAN (GPO). Control plane: LISP. Underlay: IS-IS. Policy plane: TrustSec/SGTs
+
+<details><summary>Answer</summary>
+
+**Answer: D.** LISP answers "where is it?", VXLAN carries it, IS-IS (built by LAN automation) connects the loopbacks, and SGTs decide who may talk to whom. **Why not the others:** A swaps LISP and VXLAN. B describes SD-WAN pieces (OMP, IPsec). C uses EVPN, the data-center control plane, not SD-Access's.
+</details>
+
+**Q2.** Two virtual networks in an SD-Access fabric both use 10.1.0.0/16. Which field keeps their mappings apart in the LISP mapping system, and which field does the same job in the VXLAN data plane?
+
+- **A.** The LISP Instance ID; the VXLAN VNI
+- **B.** The RLOC; the VXLAN UDP source port
+- **C.** The Map-Reply TTL; the outer IP header
+- **D.** The route distinguisher; the 802.1Q tag
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Both are 24-bit segment IDs. Each virtual network gets its own IID in LISP and its own VNI in VXLAN, so overlapping addresses never collide. **Why not the others:** B: the RLOC is a location and the source port is for ECMP hashing. C: a TTL and a header don't identify segments. D: the RD does this job in MPLS VPNs, not in LISP, and the 802.1Q tag isn't carried across the fabric.
+</details>
 
 ---
 
@@ -5892,6 +10580,32 @@ The classic enterprise WAN was **MPLS** circuits from one provider to every bran
 **SD-WAN's answer:** treat every transport — MPLS, internet, LTE — as a pool of interchangeable paths, build **encrypted tunnels over all of them**, measure each path continuously, and let a **central policy** decide which application uses which path.
 
 **Story Time 📖:** a traditional WAN is a company that sends every parcel by one expensive courier on one fixed route, and every branch office writes its own shipping rules on a notepad. SD-WAN is a modern logistics firm. It has contracts with several carriers (MPLS, broadband, 4G), tracks every carrier's delivery times live, writes the shipping rules once at head office, and for each parcel picks whichever carrier is meeting the promised delivery time right now. Urgent medical supplies (voice) always get the carrier that's on time today; bulk catalogues (backups) take the cheapest.
+
+**📝 Exam-style questions — 14.1**
+
+**Q1.** A company's branches reach Microsoft 365 by sending all traffic over MPLS to the data center first, then out to the internet. Users complain about slow cloud applications. Which traditional-WAN problem does this describe?
+
+- **A.** MPLS circuits can't carry encrypted traffic.
+- **B.** Each branch router has too many routing protocols.
+- **C.** Cloud traffic is backhauled through the data center, adding latency.
+- **D.** Broadband circuits are too unreliable to be used at all.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Applications moved to the cloud, but the WAN design still sent branch traffic home first. SD-WAN fixes this with direct internet access and measured paths. **Why not the others:** A is false; MPLS can carry encrypted traffic. B isn't the issue described. D overstates it: broadband is unreliable *on its own*, which SD-WAN handles by combining transports.
+</details>
+
+**Q2.** Which statement best summarizes the Catalyst SD-WAN approach?
+
+- **A.** Treat MPLS, internet and LTE as a pool of paths, build encrypted tunnels over all of them, measure every path continuously, and let central policy choose a path per application.
+- **B.** Replace every transport with a single high-capacity MPLS circuit managed by Cisco.
+- **C.** Configure each branch router by hand, but with a faster CLI.
+- **D.** Send each application over the cheapest transport, regardless of path quality.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Transport independence, encryption, measurement and central policy are the four ideas behind it. **Why not the others:** B is the old single-provider model SD-WAN moves away from. C keeps the box-by-box problem. D ignores the measured SLAs that application-aware routing uses.
+</details>
 
 ## 14.2 Catalyst SD-WAN Components
 
@@ -5929,6 +10643,57 @@ The classic enterprise WAN was **MPLS** circuits from one provider to every bran
 
 All control traffic runs inside **DTLS** (Datagram TLS, over UDP, the default) or **TLS** (over TCP) tunnels, authenticated with certificates in both directions. Nothing is trusted just because it's on the right subnet. The default base port is **12346** (UDP for DTLS). Devices with several control connections use **port offsets** above it, and **port hopping** moves to 12366, 12386, 12406 and 12426 if a NAT or firewall blocks the base port. Firewalls in front of controllers must allow this range.
 
+**📝 Exam-style questions — 14.2**
+
+**Q1.** Which Catalyst SD-WAN component is the first point of contact for a new WAN Edge, authenticates it, tells it where the Controllers and Managers are, helps with NAT traversal, and must have a publicly reachable IP address?
+
+- **A.** SD-WAN Manager
+- **B.** SD-WAN Controller
+- **C.** WAN Edge
+- **D.** SD-WAN Validator
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The Validator (formerly vBond) is the orchestration plane. Its connection to an edge is transient: once onboarding is done it is torn down. **Why not the others:** A, the Manager (vManage), is the management GUI and API. B, the Controller (vSmart), runs OMP. C, the WAN Edge, is the router being onboarded.
+</details>
+
+**Q2.** A new WAN Edge never completes onboarding. Which two are likely causes? (Choose two.)
+
+- **A.** The BFD hello interval is set to 1 second.
+- **B.** The organization name configured on the edge differs in case from the one on the controllers.
+- **C.** The control connections use DTLS instead of TLS.
+- **D.** The edge's serial number isn't on the authorized WAN Edge list.
+- **E.** The edge has two transport colors.
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** The organization name is embedded in the certificates and must match exactly, and the Validator rejects any serial number it doesn't know. **Why not the others:** A is the default BFD hello, and BFD only matters after tunnels exist. C is wrong because DTLS is the default. E is normal; most edges have several colors.
+</details>
+
+**Q3.** In which plane does the SD-WAN Controller operate, and which protocol does it run with the WAN Edges?
+
+- **A.** Management plane; NETCONF
+- **B.** Control plane; OMP
+- **C.** Data plane; IPsec
+- **D.** Orchestration plane; DTLS
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The Controller (formerly vSmart) is the routing brain. It runs OMP with every edge and acts much like a BGP route reflector. **Why not the others:** A describes the Manager, which pushes configuration over NETCONF. C describes the WAN Edges. D describes the Validator; DTLS is the transport for all control connections, not a routing protocol.
+</details>
+
+**Q4.** A firewall in front of a branch blocks UDP 12346. What does Catalyst SD-WAN do to keep the control connections up?
+
+- **A.** Port hopping moves the connection to another port in the range (12366, 12386, 12406, 12426).
+- **B.** It falls back to IKE on UDP 500.
+- **C.** It switches to NETCONF on TCP 830.
+- **D.** It sends the control traffic unencrypted over port 80.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Port hopping tries the next base ports when a NAT or firewall blocks one, which is why firewalls in front of controllers must allow the whole range. **Why not the others:** B is wrong because SD-WAN control connections use DTLS or TLS, not IKE. C is how the Manager pushes configuration, not a fallback for control connections. D is false; control traffic is always authenticated and encrypted.
+</details>
+
 ## 14.3 OMP and TLOCs — How Routes and Paths Are Shared
 
 **OMP (Overlay Management Protocol)** runs between each WAN Edge and the Controllers, never edge to edge. It carries three kinds of route:
@@ -5959,6 +10724,44 @@ A **TLOC (Transport Locator)** identifies one WAN attachment point of one router
 By default each TLOC tries to build an IPsec tunnel to every remote TLOC, so Branch 20 attempts four tunnels: mpls↔biz-internet, mpls↔lte, biz-internet↔biz-internet and biz-internet↔lte. The two from the MPLS TLOC stay down, because a private MPLS circuit has no route to internet addresses. Engineers usually add the **`restrict`** keyword to the `mpls` color so it only tries to build tunnels to other `mpls` TLOCs and doesn't waste time on attempts that can never come up. BFD then shows the two working internet-side tunnels as up.
 
 **Why TLOCs instead of just IP addresses?** Because a WAN interface's IP can change (DHCP on broadband, NAT, a new circuit), and the overlay shouldn't care. An OMP route says *"10.20.0.0/16 is reachable via TLOC {System IP 1.1.1.20, color biz-internet}"*. If that circuit's public address changes, only the TLOC route changes; the prefixes stay valid. *Notice that's exactly LISP's split from 13.3 — identity (the prefix) is separated from location (the TLOC).*
+
+**📝 Exam-style questions — 14.3**
+
+**Q1.** Which three values make up a TLOC?
+
+- **A.** Site ID, VPN ID and public IP address
+- **B.** System IP, OMP route and BFD session
+- **C.** System IP, color and encapsulation
+- **D.** Organization name, serial number and color
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A TLOC identifies one WAN attachment point of one router. **Why not the others:** A mixes in the VPN ID and an IP address, which can change; avoiding that dependency is the point of TLOCs. B lists things that use TLOCs. D lists onboarding values.
+</details>
+
+**Q2.** Why does Catalyst SD-WAN advertise prefixes as reachable "via a TLOC" instead of via a WAN interface's IP address?
+
+- **A.** TLOCs are shorter, so OMP updates are smaller.
+- **B.** IP addresses can't be carried in OMP.
+- **C.** A TLOC encrypts the prefix, while an IP address would expose it.
+- **D.** A WAN address can change (DHCP, NAT, a new circuit), and only the TLOC route then needs updating; the prefixes stay valid.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** This separates identity (the prefix) from location (the TLOC), the same idea as LISP's EID and RLOC. **Why not the others:** A isn't the reason. B is false; TLOC routes themselves carry the transport addresses. C is false; a TLOC is an identifier, not encryption.
+</details>
+
+**Q3.** Branch 20 has TLOCs with colors `mpls` and `biz-internet`. Branch 30 has `biz-internet` and `lte`. The `mpls` color on Branch 20 is configured with `restrict`. How many tunnels does Branch 20 attempt to build to Branch 30?
+
+- **A.** 1
+- **B.** 2
+- **C.** 3
+- **D.** 4
+
+<details><summary>Answer</summary>
+
+**Answer: B.** With `restrict`, the `mpls` TLOC only tries other `mpls` TLOCs, and Branch 30 has none. The `biz-internet` TLOC still tries both remote TLOCs: biz-internet↔biz-internet and biz-internet↔lte. **Why not the others:** D is the count *without* `restrict` (every local TLOC to every remote TLOC). A and C don't match either case.
+</details>
 
 ## 14.4 The Data Plane
 
@@ -6004,6 +10807,62 @@ SD-WAN policy comes in two families, defined in SD-WAN Manager:
 
 **Why the split?** Centralized policy expresses *network-wide intent* ("branches talk only through hubs"), so it belongs on the Controller that sees every route. Localized policy is about *one box's interfaces* (queues, ACLs), so it's pushed straight to that box. A classic exam question: "Which policy changes the overlay topology?" Centralized **control** policy, because it manipulates OMP routes and TLOCs on the Controller.
 
+**📝 Exam-style questions — 14.4**
+
+**Q1.** How are data-plane IPsec keys distributed between WAN Edges in Catalyst SD-WAN, and why?
+
+- **A.** Each edge sends its keys to the Controller over OMP, and the Controller reflects them to the edges that need them, so key exchange scales linearly instead of needing pairwise IKE between every pair of sites.
+- **B.** Every pair of edges runs IKEv2, so each tunnel has its own negotiation.
+- **C.** The Manager pushes the same pre-shared key to every edge over NETCONF.
+- **D.** The Validator generates all keys during onboarding and never changes them.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Pairwise IKE between 1,000 sites would mean about 500,000 negotiations; one channel per edge to the Controller avoids that. **Why not the others:** B is the scaling problem SD-WAN avoids. C is wrong because keys come from the edges through the Controller, and a shared key would be weak. D is wrong because the Validator only handles onboarding.
+</details>
+
+**Q2.** With default BFD settings, how long does a WAN Edge take to declare an SD-WAN tunnel down after the path dies?
+
+- **A.** About 150 ms
+- **B.** About 1 second
+- **C.** About 7 seconds
+- **D.** About 12 hours
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The defaults are a 1-second hello and a multiplier of 7. **Why not the others:** A is a typical tuned campus BFD value (50 ms × 3), not the SD-WAN default. B is the hello interval, not the detection time. D is the default OMP graceful-restart period, which applies when the *controllers* are lost.
+</details>
+
+**Q3.** Refer to the exhibit. The voice SLA class is loss < 1%, latency < 150 ms, jitter < 30 ms, and policy prefers biz-internet when both paths qualify. Which path does voice use at 09:20?
+
+```
+Window   biz-internet                     LTE
+09:00    0.1% loss, 35 ms, 4 ms jitter    0.3% loss, 70 ms, 12 ms jitter
+09:20    3% loss, 40 ms, 25 ms jitter     0.3% loss, 72 ms, 11 ms jitter
+```
+
+- **A.** biz-internet, because its latency is lower
+- **B.** biz-internet, because its jitter is still under 30 ms
+- **C.** Both paths equally, because one path meets the SLA
+- **D.** LTE, because biz-internet now breaks the loss limit
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A path must meet *every* SLA value. At 09:20 biz-internet has 3% loss, above the 1% limit, so Application-Aware Routing moves voice to LTE, which still meets all three. **Why not the others:** A and B judge one metric and ignore the loss. C is wrong because only one path qualifies.
+</details>
+
+**Q4.** An engineer wants branches to talk only through the hubs instead of building a full mesh of tunnels. Which kind of SD-WAN policy changes the overlay topology like this?
+
+- **A.** Localized policy pushed to each WAN Edge
+- **B.** Centralized control policy, applied on the Controllers to OMP routes and TLOCs
+- **C.** Application-aware routing policy
+- **D.** A data policy for direct internet access
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Topology is decided by which OMP routes and TLOCs each edge receives, and that is what centralized control policy manipulates. **Why not the others:** A covers one device's interfaces (QoS, ACLs), not the network-wide topology. C picks between existing paths per application. D acts on packets at the edge, not on the topology.
+</details>
+
 ## 14.5 SD-WAN Benefits and Limitations
 
 | Benefits | Limitations |
@@ -6014,6 +10873,33 @@ SD-WAN policy comes in two families, defined in SD-WAN Manager:
 | **Zero-touch provisioning** — ship a router, plug it in | **Licensing and cost** — subscription licences; savings depend on replacing MPLS |
 | **Direct cloud / internet access** from branches (Cloud OnRamp for SaaS/IaaS) | **Internet transports have no SLA** — SD-WAN steers around problems; it can't create bandwidth that isn't there |
 | **Built-in segmentation** (VPNs) and encryption | **Full-mesh scale** — tunnel counts grow as roughly n²; large designs need regional/hub topologies |
+
+**📝 Exam-style questions — 14.5**
+
+**Q1.** Which two are limitations of Catalyst SD-WAN? (Choose two.)
+
+- **A.** Onboarding and changes depend on the Controllers and Validators, so they must be designed for high availability.
+- **B.** Traffic can't be encrypted over broadband transports.
+- **C.** Only one transport can carry traffic at a time.
+- **D.** It can steer around a poor internet path, but it can't create bandwidth or an SLA the transport doesn't have.
+- **E.** Every branch must still be configured by hand.
+
+<details><summary>Answer</summary>
+
+**Answer: A, D.** Controller dependency and the lack of an SLA on internet transports are real limits. **Why not the others:** B is false; every tunnel is IPsec. C is false; all transports are used, and AAR picks per application. E is false; zero-touch provisioning and central templates are core benefits.
+</details>
+
+**Q2.** All SD-WAN Controllers become unreachable for two hours. What happens to existing traffic between branches?
+
+- **A.** All tunnels go down immediately, because OMP sessions are lost.
+- **B.** Traffic falls back to unencrypted forwarding over the internet.
+- **C.** Edges keep forwarding with their last-known routes and keys thanks to OMP graceful restart (up to 12 hours by default), but no changes can be made.
+- **D.** The Validators take over the Controllers' role automatically.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A controller outage isn't a site outage; the data plane keeps working. **Why not the others:** A is what graceful restart prevents. B is false; nothing falls back to clear text. D is wrong because the Validator holds no routes and can't replace the Controllers.
+</details>
 
 ---
 
@@ -6036,6 +10922,45 @@ Traditional campus networks segment with VLANs and ACLs: every new group means n
 | **Overlay — data plane** | **VXLAN-GPO** (13.4) | Carries endpoint traffic between fabric nodes, including the VN and the SGT |
 | **Policy plane** | **Cisco TrustSec** — **SGTs** and SGACLs, from **ISE** | Decides who may talk to whom, by group |
 | **Management plane** | **Catalyst Center** | Design, automation, assurance |
+
+**📝 Exam-style questions — 14.6**
+
+**Q1.** Which problem of the traditional campus does SD-Access address most directly?
+
+- **A.** Switches can't run IS-IS.
+- **B.** A user's VLAN, subnet and security policy depend on the port they plug into, so policy written as IP ACLs breaks when users move.
+- **C.** Wireless and wired users can't share a building.
+- **D.** Campus links can't run faster than 1 Gbps.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** SD-Access puts users in a virtual network and a group based on identity (802.1X/MAB through ISE), wherever they connect. **Why not the others:** A is false, and IS-IS is the fabric's own underlay. C and D aren't problems the fabric was built to solve.
+</details>
+
+**Q2.** Which component provides the SD-Access policy plane?
+
+- **A.** Cisco TrustSec: SGTs and SGACLs, defined in ISE
+- **B.** LISP Map-Registers
+- **C.** VXLAN VNIs
+- **D.** IS-IS metrics
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The policy plane decides who may talk to whom, by group. **Why not the others:** B is the control plane (where endpoints are). C is part of the data plane, and a VNI identifies a virtual network, not a permission. D is the underlay.
+</details>
+
+**Q3.** Which two statements describe the SD-Access underlay? (Choose two.)
+
+- **A.** It carries every user VLAN as an 802.1Q trunk between switches.
+- **B.** It runs spanning tree between all fabric nodes.
+- **C.** It is a routed IP network, normally IS-IS built by Catalyst Center LAN automation.
+- **D.** It must know every endpoint's IP address.
+- **E.** It only needs to connect the fabric nodes' loopbacks; there are no VLANs and no STP between switches.
+
+<details><summary>Answer</summary>
+
+**Answer: C, E.** The underlay is simple routing between loopbacks; everything endpoint-related lives in the overlay. **Why not the others:** A and B describe a traditional Layer 2 campus. D is wrong because endpoint locations are held by the LISP control plane node, not the underlay.
+</details>
 
 ## 14.7 SD-Access Fabric Roles
 
@@ -6089,6 +11014,56 @@ Nowhere in those steps did anyone write an ACL with an IP address in it.
 
 **Why tag-based policy beats IP ACLs:** an IP ACL says "10.1.5.0/24 cannot reach 10.9.0.0/16". When users move, change subnet, or DHCP hands out new addresses, the rule is wrong. An SGT policy says "*Contractors* cannot reach *Finance-Servers*". The tag follows the authenticated identity, so the rule stays correct wherever the user connects. The ingress edge stamps the SGT into the VXLAN-GPO header, and the egress edge enforces the SGACL.
 
+**📝 Exam-style questions — 14.7**
+
+**Q1.** Which SD-Access node holds the host tracking database that maps every endpoint to the edge node it sits behind?
+
+- **A.** Border node
+- **B.** Intermediate node
+- **C.** Catalyst Center
+- **D.** Control plane node
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The control plane node is the LISP Map Server/Map Resolver. **Why not the others:** A connects the fabric to outside networks (though the roles are often on the same box). B only routes the underlay and knows nothing about the overlay. C is the controller in the management plane, not the control plane node. That distinction is a classic exam trap.
+</details>
+
+**Q2.** A laptop with SGT 10 on Edge 1 sends to a printer with SGT 20 on Edge 2. Where is the SGACL for SGT 10 → SGT 20 enforced?
+
+- **A.** On Edge 1, before the packet is encapsulated
+- **B.** On every intermediate node along the path
+- **C.** On Edge 2, after it decapsulates the packet and reads the source SGT from the VXLAN-GPO header
+- **D.** On the control plane node, when Edge 1 queries it
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The ingress edge stamps the source SGT into the header; the egress edge knows the destination's SGT (the printer authenticated there) and applies the policy it downloaded from ISE. **Why not the others:** A is wrong because Edge 1 doesn't need to know the printer's tag. B is wrong because intermediate nodes only route on the outer header. D is wrong because the control plane node answers location queries; it doesn't enforce policy.
+</details>
+
+**Q3.** How does a wireless client's data reach the network in an SD-Access fabric?
+
+- **A.** The fabric AP encapsulates it in VXLAN straight to its edge switch, which treats the client like a wired one.
+- **B.** It is tunneled in CAPWAP to the fabric WLC, which forwards it into the fabric.
+- **C.** It is bridged onto a traditional VLAN trunked to the distribution layer.
+- **D.** It goes to the control plane node, which forwards it to the destination edge.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The WLC handles the control plane for wireless clients, but client data goes straight to the edge, so wired and wireless share the same VN, SGT enforcement and anycast gateway. **Why not the others:** B is the traditional centralized wireless model; in the fabric only CAPWAP *control* goes to the WLC. C describes a non-fabric campus. D is wrong because the control plane node never forwards user data.
+</details>
+
+**Q4.** In the Corporate virtual network, contractors must not reach the finance servers, but both groups must keep their current subnets. Which mechanism fits?
+
+- **A.** Create a separate VN (VRF) for contractors.
+- **B.** Assign scalable group tags and an SGACL between the two groups (micro-segmentation).
+- **C.** Write IP ACLs on every edge node.
+- **D.** Put the two groups in different LISP instance IDs inside the same VN.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** SGTs separate groups inside one VN, and the rule follows the user's identity rather than an IP address. **Why not the others:** A works but is the heavy macro option; VNs are for groups that must never meet, and they need a fusion device to cross. C ties policy to IP addresses that change. D is wrong because one VN has one instance ID.
+</details>
+
 ## 14.8 Traditional Campus Interoperating With SD-Access
 
 Very few organisations rip out the whole campus at once. The blueprint asks how the fabric connects to what's already there.
@@ -6130,6 +11105,44 @@ A large organisation runs several **fabric sites** (a campus, a branch, a data c
 
 **Exam trap:** the **control plane node** is not "the controller". The controller (management plane) is **Catalyst Center**. The control plane node is a *switch* running LISP MS/MR. Don't mix them up.
 
+**📝 Exam-style questions — 14.8**
+
+**Q1.** Why does an SD-Access deployment usually need a fusion router or firewall?
+
+- **A.** The VNs are isolated VRFs, yet they all need shared services such as DHCP, DNS and ISE; the fusion device leaks routes between those VRFs and the shared-services table at one controlled point.
+- **B.** It translates LISP into OMP for SD-WAN.
+- **C.** It replaces the border node for internet access.
+- **D.** It runs the IS-IS underlay for the fabric.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** It "fuses" the separate VNs with the shared services while keeping the VNs apart from each other. **Why not the others:** B is not its job. C is wrong; the border hands off to the fusion device, it doesn't get replaced by it. D is wrong because the fusion router sits outside the fabric.
+</details>
+
+**Q2.** An organization wants to move users into the fabric switch by switch, without readdressing hosts still on the old network. Which interoperability method fits?
+
+- **A.** A routed connection from the border to the legacy core
+- **B.** An SD-Access transit between sites
+- **C.** A fusion router leaking routes between VRFs
+- **D.** A Layer 2 handoff, bridging a fabric subnet to the traditional VLAN
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Old and new endpoints share one subnet with one gateway in the fabric during the cutover. **Why not the others:** A connects separate subnets, so hosts would have to readdress. B joins fabric sites to each other. C gives access to shared services but doesn't stretch a subnet.
+</details>
+
+**Q3.** Two fabric sites are joined with an IP-based transit (VRF-Lite and BGP). What happens to the scalable group tags between sites?
+
+- **A.** They are carried end to end in the VXLAN header, just as with an SD-Access transit.
+- **B.** They are converted into BGP communities automatically.
+- **C.** They are lost when the VXLAN header is removed at the border, so they must be carried another way, such as inline tagging or SXP.
+- **D.** They are copied into the 802.1Q tag.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** VNs survive as VRFs, but the tag lived in the VXLAN header. **Why not the others:** A describes an SD-Access transit, which keeps VN and SGT in VXLAN. B and D are invented mechanisms.
+</details>
+
 ---
 
 ## 14.9 SD-WAN and SD-Access Side by Side
@@ -6148,6 +11161,32 @@ A large organisation runs several **fabric sites** (a campus, a branch, a data c
 | Policy | Centralized control and data policy, AAR | Group-based access control via ISE |
 
 *The pattern repeats:* a central controller holds intent, a control protocol maps identities to locations, tunnels carry the data across a simple underlay, and VRFs plus tags keep the segments apart. Learn the pattern once and both architectures make sense.
+
+**📝 Exam-style questions — 14.9**
+
+**Q1.** Which protocol does the SD-WAN Controller use to distribute routes to the WAN Edges?
+
+- **A.** LISP
+- **B.** OMP
+- **C.** BGP EVPN
+- **D.** IS-IS
+
+<details><summary>Answer</summary>
+
+**Answer: B.** OMP runs between each edge and the Controllers. **Why not the others:** A is SD-Access's control plane. C is the data-center VXLAN control plane. D is the SD-Access underlay. Swapping one architecture's terms into the other is a favourite distractor.
+</details>
+
+**Q2.** In SD-Access, what plays the same role as the SD-WAN TLOC, identifying *where* traffic should be sent?
+
+- **A.** The SGT
+- **B.** The VNI
+- **C.** The instance ID
+- **D.** The RLOC (the fabric node's loopback)
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Both are location identifiers that keep the endpoint's prefix separate from where it is attached. **Why not the others:** A is a group identity for policy. B and C identify the virtual network (segment), not the location.
+</details>
 
 ---
 
@@ -6235,6 +11274,51 @@ R1# traceroute 10.3.3.3 source Loopback0
 
 The single `*` in line 3 is normal: many devices rate-limit ICMP replies, so one probe of three goes unanswered. A whole line of `* * *` followed by more hops that *do* answer usually means one router simply doesn't send time-exceeded messages; the path still works.
 
+**📝 Exam-style questions — 15.1**
+
+**Q1.** R1 and R2 are directly connected, and R2 has no ACLs. From R1, `ping 10.2.2.2` succeeds, but `ping 10.2.2.2 source Loopback0` (Loopback0 is 1.1.1.1 and is up) returns `.....`. What is the most likely cause?
+
+- **A.** The R1–R2 link has an MTU mismatch
+- **B.** R2 has no route back to 1.1.1.1
+- **C.** Loopback0 cannot be used as a ping source until `ip unnumbered` is configured
+- **D.** R1 has no route to 10.2.2.2
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A plain ping leaves from the exit interface, whose subnet R2 knows as directly connected, so the reply always finds its way home. Sourcing from Loopback0 makes R2 reply to 1.1.1.1, and if R2 has no route to that address the replies are dropped, which ping shows as timeouts. **Why not the others:** A, both pings cross the same link with the same 100-byte size, so an MTU problem would hit both. C, any up interface with an IP address can be a ping source; no extra command is needed. D, if R1 had no route to 10.2.2.2, the plain ping would fail too.
+</details>
+
+**Q2.** Refer to the exhibit. What do the results show?
+
+```
+R1# ping 10.2.2.2 source Loopback0 size 1476 df-bit
+!!!!!
+R1# ping 10.2.2.2 source Loopback0 size 1477 df-bit
+MMMMM
+```
+
+- **A.** 1477-byte packets are timing out because of congestion
+- **B.** The path MTU is 1477 bytes, and the DF packets are being fragmented
+- **C.** The path MTU is 1476 bytes; a router could not forward the larger DF packet and returned "fragmentation needed"
+- **D.** R2 has an ACL that blocks ICMP packets larger than 1476 bytes
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `M` means "could not fragment": a router on the path needed to split the packet, the DF bit forbade it, so it dropped the packet and sent back ICMP fragmentation-needed. The largest size that works, 1476, is the path MTU (typical of a GRE tunnel over a 1500-byte link). **Why not the others:** A, a timeout shows as `.`, not `M`. B, DF packets are never fragmented, and the 1477-byte test failed. D, an ACL drop shows as `.` or `U`; `M` specifically reports a fragmentation problem.
+</details>
+
+**Q3.** How does IOS traceroute know it has reached the destination?
+
+- **A.** The destination replies with ICMP time exceeded
+- **B.** The destination replies with an ICMP echo reply
+- **C.** The TTL reaches the 30-hop maximum
+- **D.** The destination replies with ICMP port unreachable to the UDP probe
+
+<details><summary>Answer</summary>
+
+**Answer: D.** IOS sends UDP probes to high ports (33434 and up) that nothing listens on. Routers along the way answer with time exceeded as the TTL runs out, but the destination doesn't expire the probe; it finds no application on that port and answers port unreachable, which ends the trace. **Why not the others:** A, time exceeded comes from the routers in between, not from the destination. B, IOS traceroute doesn't send echo requests, so it gets no echo reply. C, 30 hops is the limit a trace reaches when it never gets a port unreachable back, for example because the destination filters UDP.
+</details>
+
 ## 15.2 Debugs — and Doing Them Safely
 
 **The problem debugs solve:** `show` commands give you the *result* (the neighbor isn't there). They don't tell you *why*. To see why, you need to watch the protocol's own decisions as they happen: "I received a hello, I rejected it, here's the reason."
@@ -6296,6 +11380,52 @@ R1# no debug condition all
 Reading it: `R` is what was **received** from the neighbor and `C` is what is **configured** here. The neighbor sends hellos every 30 s with a 120 s dead time (the OSPF non-broadcast defaults), and R1 expects 10 and 40. So the neighbor's interface is probably set to a different OSPF network type. The exact prefix on each line varies a little by release, but the `R`/`C` comparison is the part to look for. Three lines of output, one clear answer, and the CPU barely noticed.
 
 **Exam trap:** debug conditions **stay in place** after `undebug all`. If you forget to clear them, the next engineer's debug silently shows only part of the picture.
+
+**📝 Exam-style questions — 15.2**
+
+**Q1.** An engineer must debug an OSPF adjacency problem on a busy core router over SSH. Which two actions reduce the risk to the router? (Choose two.)
+
+- **A.** Run `debug ip packet` without an ACL to capture everything in one pass
+- **B.** Enter `terminal monitor` on the console to slow the output down
+- **C.** Send output to RAM with `logging buffered` and turn off `logging console`
+- **D.** Set `logging console debugging` so the output is not stored in RAM
+- **E.** Set `debug condition interface` for the affected interface before enabling the debug
+
+<details><summary>Answer</summary>
+
+**Answer: C, E.** Debug output is generated by the CPU, and the console is the slowest, most expensive place to send it, so buffering to RAM keeps the router responsive. A debug condition throws away messages about other interfaces, so only the lines you need are produced and stored. **Why not the others:** A, a per-packet debug with no filter is exactly what drives a busy router's CPU to 100%. B, `terminal monitor` only makes log output appear on your own VTY session; it doesn't reduce anything, and it's pointless on the console. D, sending debugs to the console is the most dangerous choice of all.
+</details>
+
+**Q2.** Refer to the exhibit. What does the output tell you?
+
+```
+R1# debug condition interface GigabitEthernet0/1
+R1# debug ip ospf hello
+OSPF-1 HELLO Gi0/1: Mismatched hello parameters from 10.1.12.2
+OSPF-1 HELLO Gi0/1: Dead R 120 C 40, Hello R 30 C 10
+```
+
+- **A.** The neighbor sends 30 s hellos with a 120 s dead time, the defaults for non-broadcast and point-to-multipoint networks, so its interface probably uses a different OSPF network type
+- **B.** R1 sends hellos every 30 s and the neighbor every 10 s
+- **C.** The adjacency is failing because of an MTU mismatch
+- **D.** The two routers have different authentication keys
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `R` is what was **received** from the neighbor and `C` is what is **configured** on R1. The neighbor uses 30/120, the OSPF default for non-broadcast and point-to-multipoint networks, while R1 uses the broadcast/point-to-point 10/40, so the timers don't match and no adjacency forms. **Why not the others:** B reverses R and C. C, an MTU mismatch lets hellos through and gets stuck later in EXSTART/EXCHANGE. D, an authentication mismatch produces an authentication error, not a hello-parameter mismatch.
+</details>
+
+**Q3.** Yesterday an engineer ran `debug condition interface GigabitEthernet0/1`, investigated, and finished with `undebug all`. Today a colleague runs `debug ip ospf adj` on the same router. OSPF runs on four interfaces in area 0, and an adjacency is flapping on Gi0/2, but the debug only shows events for Gi0/1. Why?
+
+- **A.** OSPF adjacency debugs only cover the first interface in the OSPF process
+- **B.** The logging buffer is full and is discarding messages for the other interfaces
+- **C.** The debug condition from yesterday is still in place, because `undebug all` does not remove conditions
+- **D.** `terminal monitor` shows only messages for the interface the SSH session arrived on
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Debug conditions persist after `undebug all`. Yesterday's condition is still filtering every debug to Gi0/1, so Gi0/2's events are thrown away. Clear it with `no debug condition all`, and check with `show debug condition`. **Why not the others:** A, an OSPF debug covers every OSPF interface unless something filters it. B, a full buffer overwrites old messages; it doesn't pick an interface. D, `terminal monitor` displays all log output on the session, whatever interface you connected through.
+</details>
 
 ## 15.3 Syslog
 
@@ -6375,6 +11505,51 @@ R1# show logging                                  ! settings + the local buffer
 **Why set `logging source-interface`?** The syslog server identifies devices by source IP. Without it, a router's messages come from whichever interface faces the server, which can change after a reroute, so its logs appear under a different "device". A loopback is always the same.
 
 **Why are timestamps essential?** Because troubleshooting is **correlating events across devices**: "BGP dropped on R1 at 14:02:11.318 — what happened on R2 at that moment?" Without accurate time (NTP, Chapter 8) and millisecond timestamps, logs from different devices can't be lined up. *Logs without synchronised timestamps are anecdotes.*
+
+**📝 Exam-style questions — 15.3**
+
+**Q1.** Refer to the exhibit. Interface Gi0/1 goes down and R1 generates `%LINEPROTO-5-UPDOWN`. Which destinations receive that message?
+
+```
+logging console warnings
+logging buffered 64000 informational
+logging trap notifications
+logging host 10.0.0.50
+```
+
+- **A.** The console, the local buffer and the syslog server
+- **B.** The local buffer and the syslog server only
+- **C.** The local buffer only
+- **D.** The syslog server only
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The message is severity 5. Each destination accepts messages whose number is less than or equal to its level: the buffer takes 0–6 (5 passes), the server takes 0–5 (5 passes), and the console takes 0–4 (5 is too high a number, so it is blocked). **Why not the others:** A, the console's `warnings` level (4) excludes severity 5. C, `notifications` on the server includes level 5. D, the buffer's `informational` level (6) includes level 5.
+</details>
+
+**Q2.** Why do engineers configure `logging source-interface Loopback0`?
+
+- **A.** It encrypts syslog messages between the router and the server
+- **B.** It keeps the router's log messages after a reload
+- **C.** It changes the syslog transport from UDP 514 to TCP
+- **D.** The server identifies devices by source IP, and a loopback keeps that address the same whichever interface the messages leave through
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Without it, messages are sourced from whichever interface faces the server, which can change after a reroute, so the same router's logs appear under a different "device". A loopback never goes down and never changes. **Why not the others:** A, syslog sourcing has nothing to do with encryption. B, only the server copy survives a reload, whatever the source address is; the local buffer is lost either way. C, the source interface doesn't change the transport protocol or port.
+</details>
+
+**Q3.** A router logs `*Oct 26 14:02:11.318 EST: %LINK-3-UPDOWN: Interface Gi0/1, changed state to down`. What do the leading `*` and the number 3 tell you?
+
+- **A.** The clock isn't NTP-synchronized, and the message is severity 3 (errors)
+- **B.** The message is debug output, and severity 3 means warnings
+- **C.** The message has been repeated, and severity 3 means notifications
+- **D.** The clock is synchronized to NTP, and severity 3 means critical
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A leading `*` marks a timestamp from a clock that isn't NTP-synchronized, which matters when you try to line up logs from several devices. In `%LINK-3-UPDOWN`, the middle field is the severity, and 3 is errors. **Why not the others:** B, debug output is severity 7, and warnings is 4. C, the `*` doesn't mean repetition, and notifications is 5. D, it's the opposite: the `*` means **not** synchronized, and critical is 2.
+</details>
 
 ## 15.4 SNMP
 
@@ -6474,6 +11649,64 @@ Configure the `engineID remote` **before** the remote user: the user's keys are 
 
 **A quirk worth knowing:** SNMPv3 users **don't appear in `show running-config`**. Their keys are localized and hashed, so you verify them with `show snmp user`. This surprises people the first time they check a config backup.
 
+**📝 Exam-style questions — 15.4**
+
+**Q1.** Which two statements about SNMP traps and informs are true? (Choose two.)
+
+- **A.** Traps are sent to the manager on UDP 161
+- **B.** An inform must be acknowledged by the manager, and the agent retransmits it until it is, up to its retry limit
+- **C.** Informs are sent by the manager to poll the agent
+- **D.** Traps are more reliable than informs because they use TCP
+- **E.** Informs use more memory on the agent, because it holds a copy of each one until it is acknowledged
+
+<details><summary>Answer</summary>
+
+**Answer: B, E.** An inform waits for a Response from the manager and is resent if none arrives, so the agent must keep a copy in memory until then. That's the price of reliability, and why traps are still used for high-volume events. **Why not the others:** A, traps and informs go to the manager on UDP 162; the agent listens on 161. C, informs are notifications from the agent; polls are Get requests from the manager. D, SNMP runs over UDP, and a trap is sent once with no acknowledgement, so it's the less reliable of the two.
+</details>
+
+**Q2.** An NMS polls `ifInOctets` on a WAN interface every 5 minutes. It reads 2,000,000,000 at 10:00:00 and 2,150,000,000 at 10:05:00. What was the average inbound rate?
+
+- **A.** 0.5 Mbps
+- **B.** 1.2 Mbps
+- **C.** 4 Mbps
+- **D.** 40 Mbps
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The difference is 150,000,000 bytes. × 8 = 1,200,000,000 bits, ÷ 300 seconds = 4,000,000 bit/s = 4 Mbps. **Why not the others:** A is the bytes-per-second figure (500,000 bytes/s) read as megabits, which forgets the × 8. B treats the 1.2 billion bits moved over the whole five minutes as if it were a rate; those bits still have to be divided by the 300 seconds. D is a factor of ten too high.
+</details>
+
+**Q3.** Refer to the exhibit. The NMS at 10.0.0.51 never logs an inform from R1, and R1 keeps retransmitting them. The NMS can poll R1 successfully with `nms-admin`. What is missing?
+
+```
+snmp-server group NMS-GRP v3 priv
+snmp-server user nms-admin NMS-GRP v3 auth sha Auth#1 priv aes 128 Priv#1
+snmp-server host 10.0.0.51 informs version 3 priv nms-admin
+snmp-server enable traps
+```
+
+- **A.** `snmp-server engineID remote` for 10.0.0.51, and a copy of the user created with `remote 10.0.0.51`
+- **B.** The group must use `auth` instead of `priv` for informs
+- **C.** A community string with an ACL permitting 10.0.0.51
+- **D.** The `snmp-server host` line must use the `traps` keyword instead of `informs`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** For an inform, the receiver is the authoritative SNMP engine because it must acknowledge. R1 therefore needs the manager's engine ID and a user localized to it; without them the informs can't be validated, so they're never acknowledged and R1 retransmits forever. Polls work because for a Get the router is authoritative. **Why not the others:** B, informs work at any v3 level; dropping encryption fixes nothing. C, v3 uses users, not community strings. D, switching to traps would stop the retransmissions only by giving up acknowledgement; it wouldn't make the configuration correct.
+</details>
+
+**Q4.** An auditor flags `snmp-server community R3ad0nly RO 20`. What is the main risk that SNMPv3 removes?
+
+- **A.** SNMPv2c doesn't support GetBulk, so polling is slow
+- **B.** The ACL on a read-only community is ignored, so any host can poll
+- **C.** SNMPv2c traps are encrypted but polls are not
+- **D.** The community string crosses the network in clear text in every packet, so anyone who captures one can use it; v3 adds per-user authentication and encryption
+
+<details><summary>Answer</summary>
+
+**Answer: D.** In v1/v2c the community string is the password, and every poll carries it unencrypted. v3 replaces it with named users, authenticates each message with a keyed hash and can encrypt it. **Why not the others:** A, GetBulk was added in v2c. B, the ACL (20 here) is applied, and it's the only protection a community has. C, nothing in v2c is encrypted.
+</details>
+
 ---
 
 ## 15.5 Flexible NetFlow
@@ -6561,6 +11794,45 @@ R1# show flow monitor MON-WAN statistics           ! cache size, active/added/ag
 **Why `cache timeout active`?** A flow is normally exported when it **ends** (TCP FIN/RST, or inactive for 15 seconds by default). A two-hour file transfer would then appear on the collector only after it finished, so for two hours the graphs would show nothing. The active timeout forces long flows to be exported in slices (default 1800 s; 60 s is common), so the collector sees traffic as it happens.
 
 **Common FNF problems:** monitor applied in only one direction (half the conversation is missing); the exporter's source interface has no route to the collector; a collector expecting a different port or format (v5 vs v9 vs IPFIX). **NetFlow v5** has a *fixed* format (IPv4 only, no templates); **v9 and IPFIX** are *template-based*, which is what makes flexible records possible.
+
+**📝 Exam-style questions — 15.5**
+
+**Q1.** A flow record matches only on IPv4 source and destination address and collects bytes and packets. The team wants HTTPS and SSH between the same two hosts to appear as separate flows. Which line should be added to the record?
+
+- **A.** `collect transport destination-port`
+- **B.** `match transport destination-port`
+- **C.** `collect counter bytes long`
+- **D.** `cache timeout active 60`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `match` lines are key fields, and key fields decide what counts as a separate flow. Adding the destination port as a key splits port 443 and port 22 traffic into different cache entries. **Why not the others:** A, `collect` makes the port a non-key field: it's recorded for each flow, but the two sessions still merge into one entry. C is already a measurement and doesn't change flow identity. D is a flow monitor command about export timing, not about what defines a flow.
+</details>
+
+**Q2.** A two-hour file transfer appears on the NetFlow collector only after it finishes, so the graphs show nothing while it runs. Which change fixes this?
+
+- **A.** `cache timeout inactive 3600` under the flow monitor
+- **B.** `export-protocol ipfix` under the flow exporter
+- **C.** `ip flow monitor MON-WAN output` on the interface
+- **D.** `cache timeout active 60` under the flow monitor
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A flow is normally exported when it ends or goes idle. The active timeout (default 1800 s) forces long-lived flows to be exported in slices, so with 60 s the collector sees the transfer minute by minute. **Why not the others:** A, the inactive timer covers idle flows; a busy transfer is never idle, and raising it only delays exports further. B, the export format doesn't change when flows are exported. C adds the other direction of traffic but doesn't make long flows export sooner.
+</details>
+
+**Q3.** `show flow monitor MON-WAN cache` shows flows, but the collector receives nothing. Which two problems could explain this? (Choose two.)
+
+- **A.** The exporter's source interface has no route to the collector
+- **B.** The monitor is applied in the input direction only
+- **C.** The collector listens on a different UDP port or expects a different export format
+- **D.** The flow record matches on `interface input`
+- **E.** The inactive timeout is still at its default of 15 seconds
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** The cache is filling, so the monitor and record work; the failure is in getting records to the collector. Either the exported packets can't reach it, or they arrive where it isn't listening or in a format it doesn't expect. `show flow exporter ... statistics` tells you whether packets are being sent. **Why not the others:** B would give you only half of each conversation, not nothing. D is a normal key field. E is the normal default and causes idle flows to be exported, not withheld.
+</details>
 
 ---
 
@@ -6652,6 +11924,54 @@ Many analyzers (Wireshark, commercial probes) can receive and decode ERSPAN dire
 - The number of monitor sessions is limited by platform, often to just a few per switch. Check the platform's limits before you rely on another one being free.
 - Mirroring adds load; ERSPAN adds GRE overhead to the network it crosses (so mind the MTU).
 - A port can't be both a source and a destination, and an EtherChannel member can't be a destination.
+
+**📝 Exam-style questions — 15.6**
+
+**Q1.** SPAN source Gi1/0/1 (both directions) is a 1 Gbps server port receiving 700 Mbps and sending 600 Mbps. The destination Gi1/0/24 is also 1 Gbps. Wireshark reports "previous segment not captured", but the server shows no retransmissions. What explains this?
+
+- **A.** The session mirrors only received traffic, so half of each conversation is missing
+- **B.** SPAN copies are encrypted, so Wireshark can't decode some of them
+- **C.** 700 + 600 = 1.3 Gbps of copies exceed the 1 Gbps destination, and the excess copies are silently dropped
+- **D.** The destination port takes part in STP and blocks some frames
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Mirroring both directions creates copies of everything received and sent. The destination can only carry 1 Gbps, so about 300 Mbps of copies are discarded with no error. The real traffic was delivered fine; only the capture is incomplete. Fix it by mirroring one direction, filtering VLANs, or using a faster destination port. **Why not the others:** A, the session uses `both`. B, SPAN copies the frames exactly as they are; it doesn't encrypt anything. D, a SPAN destination port doesn't take part in STP.
+</details>
+
+**Q2.** Traffic on SW1 must be mirrored to an analyzer on SW3 through SW2 using RSPAN VLAN 999. Which two requirements apply? (Choose two.)
+
+- **A.** VLAN 999 needs an SVI with an IP address on each switch
+- **B.** VLAN 999 must be configured with `remote-span` on every switch the copies cross
+- **C.** SW3 must run an ERSPAN destination session
+- **D.** VLAN 999 must be allowed on every trunk in the path
+- **E.** SW1 and SW3 must be in different Layer 2 domains
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** The `remote-span` flag turns off MAC learning in that VLAN, so the copies (which carry the original MAC addresses) don't corrupt the switches' MAC tables. The copies travel as ordinary VLAN 999 frames, so every trunk on the way must allow the VLAN or they stop there. **Why not the others:** A, RSPAN is pure Layer 2; no IP addressing is involved. C, ERSPAN is a different, GRE-based mechanism. E, it's the opposite: RSPAN needs both switches in the same Layer 2 domain.
+</details>
+
+**Q3.** Refer to the exhibit. The analyzer at 10.9.9.9 receives nothing, although the switch can ping 10.9.9.9 from 10.1.1.1. What is the most likely fix?
+
+```
+monitor session 10 type erspan-source
+ source interface GigabitEthernet1/0/1 both
+ destination
+  erspan-id 100
+  ip address 10.9.9.9
+  origin ip address 10.1.1.1
+```
+
+- **A.** Enter `no shutdown` under the monitor session
+- **B.** Change `erspan-id 100` to match the VLAN of Gi1/0/1
+- **C.** Create VLAN 100 with `remote-span`
+- **D.** Change the source direction from `both` to `rx`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** ERSPAN sessions are shut down by default, and this one has no `no shutdown`, so nothing is sent. **Why not the others:** B, the ERSPAN ID only has to match on the sender and receiver; it has nothing to do with VLANs. C, ERSPAN carries copies in GRE across IP; it doesn't use an RSPAN VLAN. D would cut the volume of copies, but a shut session sends nothing in either direction.
+</details>
 
 ---
 
@@ -6779,6 +12099,56 @@ Users lost about 10 seconds of connectivity instead of hours. To stop a flapping
 
 This is how a router fails over when an ISP's *link* stays up but the ISP's *network* is broken, which an interface-down check would never notice. Chapter 9 uses the same tracking to lower HSRP priority, and Chapter 32 covers troubleshooting tracking and jitter operations at ENARSI depth.
 
+**📝 Exam-style questions — 15.7**
+
+**Q1.** An engineer configures `ip sla 10` with `icmp-echo 8.8.8.8`, `frequency 10` and `threshold 300`, and ties `track 1 ip sla 10 reachability` to the primary default route. `show ip sla statistics 10` shows no start time and no successes. What is wrong?
+
+- **A.** The threshold is lower than the round-trip time
+- **B.** `frequency` must be at least 60 seconds
+- **C.** The track must use `state` instead of `reachability`
+- **D.** The operation was never scheduled; add `ip sla schedule 10 life forever start-time now`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** An IP SLA operation that's configured but not scheduled never runs, so it has no start time and no results. (Leaving the default life of 3600 s is the related trap: it stops after an hour.) **Why not the others:** A, a slow reply would still record a start time and an "Over threshold" result. B, 10 seconds is a valid frequency (60 is only the default). C changes how results are interpreted, but there are no results to interpret.
+</details>
+
+**Q2.** Operation 10 has `threshold 300`. The primary default route must be removed when the path is down **or** when replies take longer than 300 ms. Which track configuration meets this?
+
+- **A.** `track 1 ip sla 10 reachability`
+- **B.** `track 1 ip sla 10 state`
+- **C.** `track 1 interface GigabitEthernet0/0 line-protocol`
+- **D.** `track 1 ip sla 10 reachability` with `delay down 5 up 30`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `state` is up only when the return code is OK, so "Over threshold" (slow) and Timeout (dead) both take it down. **Why not the others:** A, `reachability` stays up for "Over threshold", so a 450 ms path wouldn't trigger failover. C watches only the local interface, which can stay up while the ISP's network is broken or slow. D just adds damping to the same `reachability` behaviour.
+</details>
+
+**Q3.** A `udp-jitter` operation from R1 to R2 fails every time with a Timeout return code, although R1 can ping R2. What is the most likely cause?
+
+- **A.** R2 needs its own `ip sla schedule` for the operation
+- **B.** The operation must use `codec g729a`
+- **C.** R2 is missing `ip sla responder`
+- **D.** The probe's destination port must be 1967
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `udp-jitter` needs the far Cisco device to run the IP SLA responder, which agrees to listen on the probe port and timestamps every probe. Without it, nothing answers the probes, so every operation times out, even though ping works. **Why not the others:** A, the operation is scheduled on R1 only. B, the codec only shapes the probe stream; any codec fails without a responder. D, UDP 1967 is the responder's control port; the probe port (16384 in the guide's example) is set in the operation.
+</details>
+
+**Q4.** Why does a `udp-jitter` operation need a responder when `icmp-echo` doesn't?
+
+- **A.** One-way delay and jitter need timestamps from both ends, and the responder stamps each probe and removes its own processing time
+- **B.** The responder encrypts the probes so they aren't dropped by firewalls
+- **C.** Without a responder, R1 cannot measure even the round-trip time
+- **D.** The responder sends the results to the NMS by SNMP
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A round trip can be measured from one end, but delay and jitter in each direction need the far end to say when each probe arrived and left. Subtracting the responder's own processing time makes the figures reflect the network, not the far router's CPU. **Why not the others:** B, the responder doesn't encrypt anything. C, `icmp-echo` measures round-trip time with no responder at all. D, results are read on the source router (`show ip sla statistics`), not pushed by the responder.
+</details>
+
 ---
 
 ## 15.8 Choosing the Right Tool
@@ -6805,6 +12175,32 @@ This is how a router fails over when an ISP's *link* stays up but the ISP's *net
 No debug and no packet capture were needed. *Broad tools found the right place; narrow tools would only have been needed if the broad ones had pointed at a single misbehaving device.*
 
 *The habit to build:* go from broad and cheap tools (logs, counters, flows) to narrow and expensive ones (debugs, captures). Start the expensive ones only once you know where to point them.
+
+**📝 Exam-style questions — 15.8**
+
+**Q1.** Users report choppy VoIP calls between two sites every afternoon. Which tool measures one-way jitter and loss in each direction, continuously?
+
+- **A.** Flexible NetFlow
+- **B.** SNMP polling of interface counters
+- **C.** SPAN to a packet analyzer
+- **D.** IP SLA `udp-jitter`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `udp-jitter` sends a stream that mimics a voice call, on a schedule, and reports one-way delay, jitter, loss and a MOS estimate in each direction. **Why not the others:** A shows who is using the link, not voice quality. B shows how busy interfaces are, averaged over the poll interval. C captures packets at one point in time and one place; it doesn't measure the path continuously.
+</details>
+
+**Q2.** A WAN link runs at 98% every morning. The manager wants to know which hosts and applications are using it, without capturing any payload. Which tool should you use?
+
+- **A.** SNMP polling of `ifInOctets`
+- **B.** Flexible NetFlow
+- **C.** A conditional `debug ip packet`
+- **D.** SPAN to Wireshark
+
+<details><summary>Answer</summary>
+
+**Answer: B.** NetFlow records who talked to whom, on which ports, and how many bytes, without keeping any payload: the phone bill, not the recording. **Why not the others:** A proves the link is full but not who is filling it. C is CPU-heavy and impractical at link-saturating volumes. D captures payloads, which the manager specifically doesn't want, and a SPAN port would struggle with that volume anyway.
+</details>
 
 ---
 
@@ -6842,6 +12238,32 @@ No debug and no packet capture were needed. *Broad tools found the right place; 
 | Monitoring | Separate SNMP, syslog, NetFlow tools | **Assurance** — correlated health scores per device, client, application |
 | Troubleshooting | Engineer's experience + `show` commands | Guided issues with suggested actions, path trace, AI baselines |
 | Integration | Screen-scraping CLI | **Intent API** (REST), webhooks, ITSM integration (Chapter 20) |
+
+**📝 Exam-style questions — 16.1**
+
+**Q1.** Which sequence correctly orders the intent-based networking loop?
+
+- **A.** Assure → express the intent → translate and activate
+- **B.** Express the intent → translate and activate → assure, then back to the intent
+- **C.** Translate and activate → express the intent → assure
+- **D.** Express the intent → assure → translate and activate
+
+<details><summary>Answer</summary>
+
+**Answer: B.** State *what* you want, let the controller work out and push the per-device configuration, then continuously verify the network is delivering it. **Why not the others:** A and D try to verify before anything has been deployed. C pushes configuration before anyone has said what it should achieve.
+</details>
+
+**Q2.** Why does intent-based networking treat assurance as an essential step rather than an optional extra?
+
+- **A.** Because Catalyst Center can't push configuration without first collecting telemetry
+- **B.** Because assurance replaces the need for configuration templates
+- **C.** Because SNMP is the only way to configure devices
+- **D.** Because a configuration that was pushed successfully can still fail to deliver what was intended, so the network's actual behaviour must be checked continuously
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Pushing configuration was never the hard part; scripts could already do that. The hard part is knowing that users are actually getting what was asked for, right now. **Why not the others:** A is false; provisioning doesn't depend on assurance data. B is wrong; assurance verifies configuration, it doesn't replace it. C is false; Catalyst Center mostly configures devices over SSH, and NETCONF where supported.
+</details>
 
 ## 16.2 The Four Workflows
 
@@ -6971,6 +12393,64 @@ Intent is turned into device changes, and telemetry collected, over ordinary man
 
 *Northbound, Catalyst Center offers the Intent API (REST) to your scripts (Chapter 20). Southbound, it is still mostly SSH and SNMP to the devices, which is why device credentials and reachability are the first things to check when provisioning fails.*
 
+**📝 Exam-style questions — 16.2**
+
+**Q1.** A Catalyst Center discovery finds several switches but marks them "Authentication failed". What is the most likely cause?
+
+- **A.** The CLI credentials or SNMP community in the discovery job don't match the devices, or an SNMP ACL on the devices doesn't permit Catalyst Center.
+- **B.** The switches have no DHCP option 43 configured.
+- **C.** The switches aren't running the golden image.
+- **D.** The switches haven't been claimed in the PnP workflow.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Discovery is SSH and SNMP underneath; Catalyst Center manages a device only as well as it can log in to it. **Why not the others:** B and D are about Plug and Play for *new* devices, not discovering existing ones. C is a SWIM compliance issue, not a login failure.
+</details>
+
+**Q2.** Refer to the exhibit. A new switch with no startup configuration gets a DHCP lease from this pool. What does it do next?
+
+```
+ip dhcp pool PNP-VLAN99
+ network 10.99.0.0 255.255.255.0
+ default-router 10.99.0.1
+ option 43 ascii "5A1N;B2;K4;I10.10.10.50;J80"
+```
+
+- **A.** Downloads a configuration file from TFTP server 10.10.10.50
+- **B.** Contacts Catalyst Center at 10.99.0.1 over HTTPS on port 443
+- **C.** Contacts Catalyst Center at 10.10.10.50 over HTTP on port 80 and appears as an Unclaimed device, identified by its serial number
+- **D.** Looks up `pnpserver.<domain>` in DNS, because option 43 is ignored when a default router is set
+
+<details><summary>Answer</summary>
+
+**Answer: C.** In the option 43 string, `B2` = an IPv4 server address, `K4` = HTTP, `I10.10.10.50` = the server and `J80` = port 80. The device then waits to be claimed to a site. **Why not the others:** A is wrong because PnP talks to Catalyst Center over HTTP(S), not TFTP. B uses the default gateway's address and the wrong protocol and port. D is wrong because the DNS lookup is the fallback used only when option 43 is missing.
+</details>
+
+**Q3.** Which two methods can a new device use to find Catalyst Center through Plug and Play? (Choose two.)
+
+- **A.** An SNMP trap from Catalyst Center
+- **B.** DHCP option 43
+- **C.** A CDP announcement from its neighbour
+- **D.** A NETCONF hello from Catalyst Center
+- **E.** A DNS lookup of `pnpserver.<domain>`
+
+<details><summary>Answer</summary>
+
+**Answer: B, E.** The third method is a redirect from Cisco's cloud PnP Connect service. **Why not the others:** A and D are things Catalyst Center does with devices it already manages. C is something Catalyst Center's *discovery* can use to crawl an existing network, not how a new device finds the controller.
+</details>
+
+**Q4.** A site has 25 devices: 20 have a health score of 8–10, 3 score 4–7 and 2 score 1–3. What network health does Catalyst Center show for the site?
+
+- **A.** 92%
+- **B.** 8 out of 10
+- **C.** 88%
+- **D.** 80%
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Network health is the percentage of devices that are healthy, meaning a score of 8–10: 20 ÷ 25 = 80%. **Why not the others:** A counts the "fair" devices as healthy (23 ÷ 25). B treats network health as an average score, which it isn't. C doesn't match any correct calculation.
+</details>
+
 ## 16.3 AI-Powered Workflows
 
 The v1.2 blueprint specifically asks about **AI-powered workflows**. The core idea: the network already produces vastly more telemetry than people can read, so machine learning and reasoning engines turn that data into **baselines, anomalies, root causes and natural-language answers**.
@@ -7011,6 +12491,44 @@ Cisco has added a generative-AI **AI Assistant** to Catalyst Center and other ma
 
 **What's different from traditional workflows?** The engineer no longer needs to know *which page or command* holds the answer. They state the question, and the system finds and correlates the data. The engineer's judgement still matters: AI output is a starting point that must be verified, especially before any change is made.
 
+**📝 Exam-style questions — 16.3**
+
+**Q1.** Why does AI Network Analytics use a learned baseline instead of a static threshold such as "alert when DHCP response time is over 500 ms"?
+
+- **A.** A static threshold can't be configured in Catalyst Center.
+- **B.** Baselines need no telemetry, so they work on unmanaged devices.
+- **C.** What's normal differs by site and by time of day and week, so a fixed threshold raises false alarms in some places and misses real problems in others.
+- **D.** Baselines are calculated on each switch, so no data leaves the device.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A baseline asks "is this unusual here and now?", which cuts alert fatigue and catches subtle deviations. **Why not the others:** A is false. B is backwards; baselines are learned *from* telemetry. D is wrong because AI Network Analytics sends anonymized telemetry to Cisco's cloud ML service.
+</details>
+
+**Q2.** What is the key difference between the Machine Reasoning Engine (MRE) and AI Network Analytics?
+
+- **A.** MRE automates *known* expert troubleshooting logic (for example, checking whether a PSIRT advisory applies to a device's configuration), while AI Network Analytics finds *unknown* patterns in telemetry.
+- **B.** MRE is a natural-language chat interface, while AI Network Analytics classifies endpoints.
+- **C.** MRE needs no device data, while AI Network Analytics logs in to devices.
+- **D.** They are two names for the same cloud ML service.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Many problems have a known logical diagnosis that experts can write down; learning it from data would be pointless. **Why not the others:** B describes the AI Assistant and AI Endpoint Analytics. C is wrong because MRE gathers configs, `show` output and state from devices. D is wrong; Catalyst Center deliberately uses both approaches.
+</details>
+
+**Q3.** Which Catalyst Center feature suggests labels for unknown devices on the network, such as cameras or medical devices, so they can be placed in the correct group for policy?
+
+- **A.** Path Trace
+- **B.** AI Endpoint Analytics
+- **C.** SWIM
+- **D.** Intelligent Capture
+
+<details><summary>Answer</summary>
+
+**Answer: B.** It classifies endpoints using deep packet inspection, network probes and ML clustering, feeding group-based policy with ISE. **Why not the others:** A computes the hop-by-hop path between two endpoints. C manages software images. D captures packet and RF data for one wireless client.
+</details>
+
 ## 16.4 Traditional vs AI-Powered — Same Problem, Two Workflows
 
 **Scenario:** users at the Leeds office report that Wi-Fi "keeps dropping" every morning.
@@ -7025,6 +12543,32 @@ Cisco has added a generative-AI **AI Assistant** to Catalyst Center and other ma
 | Verify | Wait for complaints to stop | Assurance shows client health back to 8–10 the next morning (**time travel** to compare) |
 
 *The point:* the network and the engineer haven't changed. What's changed is how quickly the evidence is assembled, and that the system can see a problem *before* users report it.
+
+**📝 Exam-style questions — 16.4**
+
+**Q1.** A user reports that the Wi-Fi was poor during a meeting three hours ago, but everything looks healthy now. Which Assurance capability lets you see the client's and AP's state at the time of the complaint?
+
+- **A.** Path Trace
+- **B.** Time travel
+- **C.** Sensor tests
+- **D.** SWIM post-checks
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Stored, correlated history lets you look at that client, AP and moment directly, turning "can't reproduce" into evidence. **Why not the others:** A shows the current path between two endpoints. C runs synthetic tests from now on; it can't look back. D checks devices after a software upgrade.
+</details>
+
+**Q2.** Users at one office report that Wi-Fi "keeps dropping" every morning between 08:30 and 09:30. With AI-powered Assurance, what lets Catalyst Center notice these morning disconnects before most users open tickets?
+
+- **A.** An AI baseline that flags disconnects far above what is normal for that site at that time
+- **B.** A static SNMP trap threshold on the WLC
+- **C.** A Velocity template pushed to every AP
+- **D.** The PnP Connect cloud service
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The anomaly is a deviation from the learned normal for that site and time, so it shows up without anyone complaining. **Why not the others:** B is the traditional static-threshold approach the scenario contrasts with. C pushes configuration; it doesn't detect anything. D is for onboarding new devices.
+</details>
 
 ## 16.5 Exam-Ready Summary
 
@@ -7161,6 +12705,73 @@ R1(config)# login block-for 120 attempts 5 within 60  ! brute-force brake (see b
 
 **Worked example.** A password-guessing script hits R1. Its 1st to 5th wrong guesses arrive at 10:00:02, :09, :15, :21 and :30, all inside one 60-second window. On the 5th failure R1 logs `%SEC_LOGIN-1-QUIET_MODE_ON` and refuses every login for 120 seconds, until 10:02:30. The script now gets about 5 guesses every two minutes or so instead of hundreds per minute. Meanwhile an admin at 10.99.0.15 can still log in, because the quiet-mode ACL exempts the management subnet. `show login` displays the current state and the blocked time remaining.
 
+**📝 Exam-style questions — 17.1**
+
+**Q1.** Refer to the exhibit. A security audit finds Telnet sessions to SW1 from outside the management subnet. Why?
+
+```
+line vty 0 4
+ transport input ssh
+ access-class MGMT-HOSTS in
+ login local
+line vty 5 15
+ transport input telnet
+ password Cisco123
+ login
+```
+
+- **A.** `access-class` filters only Telnet sessions, not SSH
+- **B.** Lines 5–15 keep their own older settings, so sessions that land on them can use Telnet with no source restriction
+- **C.** `transport input ssh` takes effect only after `ip ssh version 2` is configured
+- **D.** VTY ACLs apply only to the first five lines by design
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Each VTY range has its own settings. Hardening `vty 0 4` does nothing for `vty 5 15`, which still accepts Telnet with a shared password and has no `access-class`. That's why you check every VTY block with `show running-config | section line vty`. **Why not the others:** A, `access-class` filters sessions by source address whatever the protocol. C, `transport input ssh` is effective as soon as it's configured. D, an `access-class` applies to every line it's configured on; here it simply isn't configured on 5–15.
+</details>
+
+**Q2.** Only hosts in 10.99.0.0/24 may open management sessions to R1, which has ten interfaces and a loopback, all reachable. What is the most efficient way to enforce this?
+
+- **A.** Apply an extended ACL inbound on all eleven interfaces
+- **B.** Configure `ip access-group MGMT-HOSTS in` under `line vty 0 15`
+- **C.** Configure `access-class MGMT-HOSTS in` under `line vty 0 15`
+- **D.** Configure `access-class MGMT-HOSTS out` under `line vty 0 15`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `access-class ... in` protects the VTY lines themselves, so it applies to sessions arriving through any interface, configured once. **Why not the others:** A works but needs the same entry on eleven interfaces, and it's easy to miss one. B, `ip access-group` is an interface command, not a line command. D, `access-class ... out` controls where a user may connect **to** from the router, not who may connect in.
+</details>
+
+**Q3.** Refer to the exhibit. No `password` is configured under the VTY lines. What happens when an administrator opens a Telnet session to R1?
+
+```
+line vty 0 15
+ transport input telnet
+ login
+```
+
+- **A.** The session is refused with "Password required, but none set"
+- **B.** The administrator gets a level 1 shell with no prompt
+- **C.** The administrator is asked for a username from the local database
+- **D.** The administrator lands in privileged EXEC mode
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `login` means "check the line's own password". On a VTY with no password set, IOS refuses every session rather than letting people in. **Why not the others:** B describes `no login`, the open door. C describes `login local`. D would need `privilege level 15` on the line, and the session never gets that far.
+</details>
+
+**Q4.** R1 has `login block-for 120 attempts 5 within 60` and `login quiet-mode access-class MGMT-HOSTS`. A script fails five logins within 30 seconds. What happens next?
+
+- **A.** Only the script's source address is blocked, for 60 seconds
+- **B.** The VTY lines are shut down until an administrator clears them
+- **C.** All logins, including those from the management subnet, are refused for 120 seconds
+- **D.** All logins are refused for 120 seconds, except from sources permitted by MGMT-HOSTS
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Five failures inside 60 seconds trigger quiet mode, which refuses all logins for 120 seconds. The quiet-mode access-class exempts the management subnet, so administrators can still get in during the attack. **Why not the others:** A, quiet mode blocks everyone not exempted, not just the attacker, and it lasts 120 s (the 60 s is the window for counting failures). B, quiet mode ends by itself. C ignores the exemption that `login quiet-mode access-class` provides.
+</details>
+
 ---
 
 ## 17.2 Local Users, Privilege Levels and Password Hashes
@@ -7245,6 +12856,61 @@ username admin privilege 15 secret 9 $9$7Mbz3XS/W/tKpe$ue8JC8/kk4lCSUbsZB3CKS5U7
 **Story Time 📖:** Type 7 is a note written in a simple code that comes with its own decoder ring, and everyone owns a copy of the ring. A hash is a fingerprint: you can check whether a finger matches it, but you can't grow a finger from the print. MD5 lets an attacker test billions of fingers a second; scrypt makes each test slow and expensive.
 
 > **Exam trap:** `enable password` and `enable secret` can both exist; if they do, **`enable secret` wins** and `enable password` is ignored. And `service password-encryption` does **not** touch `secret` values. It only converts type 0 to type 7.
+
+**📝 Exam-style questions — 17.2**
+
+**Q1.** Refer to the exhibit. User `noc` can run `show running-config` but sees little more than the `version` line and `end`. What explains this, and what fixes it?
+
+```
+username noc privilege 5 algorithm-type scrypt secret N0c-Viewer!
+privilege exec level 5 show running-config
+```
+
+- **A.** Level 5 users can't run any `show` commands; move the user to level 15
+- **B.** `privilege exec` must name level 15 for `show` commands; change it to `level 15`
+- **C.** Below level 15, `show running-config` shows only the commands the user may configure; assign `show running-config view full` to level 5
+- **D.** `service password-encryption` hides the configuration from lower levels; disable it
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Moving the command to level 5 lets `noc` run it, but the output is filtered to commands that user is allowed to configure, which is almost none. `show running-config view full` displays the whole config regardless of level (granting `file privilege 5` is another option). **Why not the others:** A, level 5 can run any command assigned to levels 0–5, including this one. B, setting the command to level 15 would stop `noc` running it at all. D, password encryption only changes how passwords are stored.
+</details>
+
+**Q2.** A configuration backup was pasted into a public ticket. Which line should be treated as the most urgent to change?
+
+- **A.** `username admin privilege 15 secret 9 $9$nhEmQVczB7dqsO$X.HsgL6x1il0RxkO...`
+- **B.** `enable secret 9 $9$7Mbz3XS/W/tKpe$ue8JC8/kk4lCSUbsZB3...`
+- **C.** `username ops privilege 15 secret 8 $8$dsYGNam3K1SIJO$7nv/35M/qr6t.dVc...`
+- **D.** `username noc privilege 5 password 7 0822455D0A16`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Type 7 is reversible encoding with a public algorithm, so anyone with the backup can recover that password in seconds. **Why not the others:** A and B are type 9 (scrypt) and C is type 8 (PBKDF2-SHA-256). All three are salted one-way hashes, so an attacker can only guess and test, which these algorithms make slow. They should still be rotated, but they aren't readable.
+</details>
+
+**Q3.** R1 has `enable password Cisco123` and an `enable secret` set to a different password. An administrator types `enable` and enters `Cisco123`. What happens?
+
+- **A.** It is accepted, because `enable password` is checked first
+- **B.** It is rejected, because `enable secret` takes precedence and `enable password` is ignored
+- **C.** It is accepted only if `service password-encryption` is enabled
+- **D.** It is accepted, because either password is valid
+
+<details><summary>Answer</summary>
+
+**Answer: B.** When both exist, only the `enable secret` is used. The old `enable password` is ignored, so typing it fails. **Why not the others:** A and D, IOS never falls back to `enable password` while a secret exists. C, `service password-encryption` only turns type 0 passwords into type 7; it doesn't change which password is checked.
+</details>
+
+**Q4.** Why is a type 9 (scrypt) secret stronger than a type 5 (MD5) secret, when both are one-way hashes?
+
+- **A.** scrypt is deliberately slow and memory-hungry, so each guess costs an attacker far more than an MD5 guess
+- **B.** scrypt can be decrypted by the router, which allows password recovery
+- **C.** MD5 hashes are reversible, like type 7
+- **D.** scrypt hashes are unsalted, so they are shorter and harder to steal
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Cracking a hash means guessing and hashing every guess. MD5 was built to be fast, so GPUs can test billions of guesses per second; scrypt makes every guess use real time and memory, which makes mass guessing expensive. **Why not the others:** B, neither type can be decrypted; the router compares hashes at login. C, MD5 is one-way; type 7 is the reversible one. D, type 9 is salted, which is what stops two identical passwords producing the same hash.
+</details>
 
 ---
 
@@ -7365,6 +13031,57 @@ The 10-second pause in row 3 is normal and worth expecting: it's the timeout for
 
 > **Exam trap:** "The admin's TACACS+ account was disabled but they can still log in using the local account" is **impossible** while the TACACS+ server is reachable. If they can, the server must be unreachable (ERROR), so check reachability, keys and source interface (Chapter 31).
 
+**📝 Exam-style questions — 17.3**
+
+**Q1.** R1 uses `aaa authentication login default group ADMIN-TACACS local`. The TACACS+ server is reachable. User `jdoe` has been disabled on the server but still has a local account on R1, and types the local password. What happens?
+
+- **A.** The server returns ERROR, so R1 tries `local` and `jdoe` logs in
+- **B.** R1 tries `local` first because it's faster, and `jdoe` logs in
+- **C.** The server returns FAIL, the login is denied, and `local` is never tried
+- **D.** The server returns FAIL, so R1 tries `local` and `jdoe` logs in
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The next method is tried only after an ERROR (no valid answer). A reachable server that rejects the user returns FAIL, which ends the list. Fallback exists for an absent server, never for a server that said no. **Why not the others:** A, a reachable server that answers gives FAIL, not ERROR. B, methods are tried strictly left to right. D is the bypass the ERROR-vs-FAIL rule is designed to prevent.
+</details>
+
+**Q2.** An engineer is connected by SSH to a remote router whose VTYs use `password` and `login`. The router has no `username` lines. The engineer enters only `aaa new-model` and logs out. What happens on the next SSH login?
+
+- **A.** It still uses the line password, because no method list is defined
+- **B.** It fails: the VTYs now use the `default` list, which with nothing defined means `local`, and no local users exist
+- **C.** It succeeds with no password, because no method is defined
+- **D.** It uses the enable secret instead
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `aaa new-model` stops line `login`/`password` being used. With no `default` list defined, the implicit default is `local`, and with no usernames there's nothing to match, so the engineer is locked out. Always create a local privilege-15 user first. **Why not the others:** A, line passwords stop being used the moment AAA is enabled. C, an undefined list falls back to local, not to "allow". D, the enable secret only applies to `enable`, unless a list names the `enable` method.
+</details>
+
+**Q3.** The console must stay usable when every AAA server is unreachable, without waiting for server timeouts. Which configuration achieves this?
+
+- **A.** `aaa authentication login default group ADMIN-TACACS local`
+- **B.** `aaa authentication login CONSOLE group ADMIN-TACACS none`, applied to `line con 0`
+- **C.** `aaa authentication login default none`
+- **D.** `aaa authentication login CONSOLE local`, applied with `login authentication CONSOLE` under `line con 0`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A named `local`-only list on the console never contacts a server, so it never waits for timeouts. **Why not the others:** A is the VTY list: the console would wait for every server to time out before falling back. B still waits for the servers, and `none` lets anyone in when they're down. C makes every line an open door.
+</details>
+
+**Q4.** After a routing change, TACACS+ logins to R1 fail, and the TACACS+ server logs requests from an unknown device, 10.0.13.1 (an R1 physical interface). Which two actions fix the problem and stop it recurring? (Choose two.)
+
+- **A.** Configure `ip tacacs source-interface Loopback0` in the TACACS+ server group
+- **B.** Change the TACACS+ transport to UDP 49
+- **C.** Add `single-connection` to the server definition
+- **D.** Register R1's Loopback0 address as the device on the TACACS+ server
+- **E.** Change the method list to `group radius`
+
+<details><summary>Answer</summary>
+
+**Answer: A, D.** The server answers only devices it knows by source IP. Sourcing from a loopback gives R1 one address that never changes with routing, and the server must know R1 by that address. **Why not the others:** B, TACACS+ uses TCP 49; there's no UDP option. C reuses one TCP session but doesn't change the source address. E swaps protocols, and the RADIUS server would have the same source-address problem.
+</details>
+
 ---
 
 ## 17.4 Authorization and Accounting
@@ -7437,6 +13154,57 @@ R1# show aaa servers            ! UP/DEAD state, request counts, response times
 R1# show aaa sessions
 R1# debug aaa authentication    ! Chapter 31 walks through reading this output
 ```
+
+**📝 Exam-style questions — 17.4**
+
+**Q1.** Why does per-command authorization require TACACS+ rather than RADIUS?
+
+- **A.** RADIUS uses TCP, which is too slow to check every command
+- **B.** TACACS+ encrypts only the password, so it's faster
+- **C.** RADIUS cannot return a privilege level
+- **D.** RADIUS combines authentication and authorization in one exchange at login, while TACACS+ keeps them separate so each command can be authorized later
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Because TACACS+ separates the three A's, the device can ask a fresh question ("may jsmith run `shutdown`?") for every command, long after login. RADIUS hands back its attributes at login and the conversation is over. **Why not the others:** A, RADIUS uses UDP; TACACS+ is the TCP one. B, it's RADIUS that encrypts only the password; TACACS+ encrypts the whole payload. C, RADIUS can return a privilege level at login; what it can't do is authorize commands one by one.
+</details>
+
+**Q2.** Which command makes R1 ask the AAA server whether a user may have a shell at all, and at which privilege level?
+
+- **A.** `aaa authorization exec default group ADMIN-TACACS local if-authenticated`
+- **B.** `aaa authorization commands 15 default group ADMIN-TACACS local if-authenticated`
+- **C.** `aaa accounting exec default start-stop group ADMIN-TACACS`
+- **D.** `aaa authentication enable default group ADMIN-TACACS enable`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Exec authorization decides whether a shell starts and at what level (the server returns, for example, `priv-lvl=15`). **Why not the others:** B checks each level-15 command after the shell exists. C records sessions; it doesn't decide anything. D authenticates the `enable` command, which is a different step.
+</details>
+
+**Q3.** Which two statements about TACACS+ and RADIUS are true? (Choose two.)
+
+- **A.** RADIUS encrypts the entire payload
+- **B.** TACACS+ uses TCP 49 and encrypts the entire payload
+- **C.** TACACS+ uses UDP 1812 for authentication
+- **D.** RADIUS supports per-command authorization
+- **E.** RADIUS is the usual protocol for network access such as 802.1X and VPN
+
+<details><summary>Answer</summary>
+
+**Answer: B, E.** TACACS+ is the device-administration protocol: TCP 49, whole payload encrypted, A's separate. RADIUS is the network-access protocol used by 802.1X, VPN and Wi-Fi. **Why not the others:** A, RADIUS encrypts only the password attribute. C, UDP 1812 is RADIUS authentication. D, per-command authorization needs TACACS+.
+</details>
+
+**Q4.** An interface was shut down at 03:12 and nobody admits to it. Which configuration would have recorded who did it?
+
+- **A.** `aaa authorization config-commands`
+- **B.** `aaa accounting exec default start-stop group ADMIN-TACACS`
+- **C.** `aaa accounting commands 15 default start-stop group ADMIN-TACACS`
+- **D.** `aaa authorization console`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Command accounting sends the server a record of every level-15 command with the user, device, source and time, which answers "who typed `shutdown` at 03:12?". **Why not the others:** A and D are authorization commands; they decide what's allowed but don't keep a record. B records when sessions start and stop, but not the commands typed in them.
+</details>
 
 ---
 
@@ -7560,6 +13328,72 @@ R1(config-if)# ipv6 traffic-filter V6-EDGE-IN in           ! not "access-group"
 **Why does IPv6 hide two permits before the implicit deny?** Because IPv6 has no ARP. Neighbor Discovery (NS/NA) is how neighbours find each other's MACs (CCNA guide 13.8), and it runs over ICMPv6. If the implicit deny blocked ND, any IPv6 ACL would break basic reachability on the link. **The trap:** those hidden permits sit *after* your last line. If you write your own explicit `deny ipv6 any any` at the end (to log it, say), you've placed it *above* the hidden ND permits, and you break neighbor discovery. *That's why the example above permits `nd-na` and `nd-ns` explicitly before its own deny.*
 
 **Worked example of the trap.** An engineer writes `permit tcp any host 2001:db8:20::10 eq 443` then `deny ipv6 any any log`, and applies it inbound on the link to the upstream router. Web traffic works for a few minutes, then everything stops. Why: the upstream router's Neighbor Solicitations and Advertisements now hit the explicit deny. Once R1's neighbor cache entry for the upstream router expires and can't be refreshed, R1 can no longer resolve its MAC address, so nothing can be sent to it. `show ipv6 neighbors` shows the entry stuck at `INCMP` (incomplete), and the deny line's counter is climbing with ICMPv6 packets. Adding the two `nd-` permits above the deny fixes it. Chapter 31 covers IPv6 filtering troubleshooting.
+
+**📝 Exam-style questions — 17.5**
+
+**Q1.** Refer to the exhibit. ACL EDGE-IN is applied inbound on the internet interface. A packet arrives: TCP from 198.51.100.7 to 203.0.113.10 port 80. What happens?
+
+```
+Extended IP access list EDGE-IN
+    10 permit tcp any host 203.0.113.10 eq 443
+    25 permit udp any host 203.0.113.53 eq domain
+    30 deny ip any any log
+```
+
+- **A.** It is denied by line 30, and a log message is generated
+- **B.** It is permitted by line 10, because the destination host matches
+- **C.** It is denied silently by the implicit deny
+- **D.** It is permitted, because no line explicitly denies TCP port 80
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The packet doesn't match line 10 (port 443 only) or line 25 (UDP), so it reaches line 30, which matches everything and logs. Line 30's counter goes up by one. **Why not the others:** B, line 10 needs both the host **and** port 443. C, the explicit line 30 matches first, so the implicit deny is never reached. D, ACLs stop at the first match, and the deny on line 30 matches all IP traffic.
+</details>
+
+**Q2.** An ACL inbound from the internet has `permit tcp any 10.0.0.0 0.255.255.255 established` followed by `deny ip any any log`. Which packet is permitted even though it shows this ACL's weakness?
+
+- **A.** A TCP SYN from 198.51.100.7 to 10.1.1.25 port 3389
+- **B.** A DNS reply over UDP from 8.8.8.8 to 10.1.1.25
+- **C.** An ICMP echo reply from 52.96.10.4 to 10.1.1.25
+- **D.** A crafted TCP segment with the ACK bit set from 198.51.100.7 to 10.1.1.25 port 3389
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `established` only checks whether ACK or RST is set. It doesn't remember which connections exist, so an attacker who sets ACK on a crafted packet gets through, which is why it isn't a firewall. **Why not the others:** A, a plain SYN has no ACK, so it's denied (as intended). B and C aren't TCP, so they don't match the `established` line and are denied, which is the other weakness of this trick: it does nothing for UDP or ICMP replies.
+</details>
+
+**Q3.** Refer to the exhibit. Web traffic to 2001:db8:20::10 works for a few minutes after the ACL is applied, then all traffic through the interface stops. `show ipv6 neighbors` shows the upstream router as `INCMP`. What is the fix?
+
+```
+ipv6 access-list V6-EDGE-IN
+ permit tcp any host 2001:db8:20::10 eq 443
+ deny ipv6 any any log
+!
+interface GigabitEthernet0/0/0
+ ipv6 traffic-filter V6-EDGE-IN in
+```
+
+- **A.** Apply the ACL with `ipv6 access-group` instead of `ipv6 traffic-filter`
+- **B.** Add `permit icmp any any nd-na` and `permit icmp any any nd-ns` above the deny line
+- **C.** Remove `log` from the deny line
+- **D.** Convert the ACL to a standard IPv6 ACL
+
+<details><summary>Answer</summary>
+
+**Answer: B.** IPv6 ACLs hide two Neighbor Discovery permits **before** their implicit deny. An explicit `deny ipv6 any any` sits above those hidden permits, so NS/NA messages are dropped. When the cached neighbor entry expires it can't be refreshed (`INCMP`), and traffic to the upstream router stops. **Why not the others:** A, `ipv6 traffic-filter` is the correct command. C, logging doesn't change what's matched. D, IPv6 has no standard ACLs; they are all named extended.
+</details>
+
+**Q4.** Line 10 of an ACL is `permit object-group WEB-PORTS any object-group WEB-SERVERS`. WEB-PORTS holds `tcp eq 80` and `tcp eq 443`; WEB-SERVERS holds three entries. An engineer adds one more host to WEB-SERVERS. How many port/destination combinations does line 10 now permit?
+
+- **A.** 5
+- **B.** 6
+- **C.** 8
+- **D.** 9
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The line expands to every service in WEB-PORTS for every destination in WEB-SERVERS: 2 × 4 = 8 after the new host is added. The ACL line itself wasn't touched, which is the point of object-groups. **Why not the others:** A adds the counts (2 + 3) instead of multiplying. B is the count before the new host (2 × 3). D is 3 × 3, which miscounts the ports.
+</details>
 
 ---
 
@@ -7687,6 +13521,56 @@ Read it as: *ICMP is arriving at ~61 kbps against a 64 kbps contract, and 3,319 
 
 > 🔬 **Platform note.** On Catalyst 9000 switches, CoPP is **on by default** as a system-defined policy (`system-cpp-policy`). You tune its per-queue rates (`show policy-map system-cpp-policy`) rather than attaching your own policy to `control-plane`. Routers (ISR/ASR/Catalyst 8000) use the user-defined MQC policy shown above. Both follow the same idea: classify punted traffic and rate-limit it per class.
 
+**📝 Exam-style questions — 17.6**
+
+**Q1.** During a ping flood aimed at R1's own loopback, transit traffic keeps flowing at full speed, but R1's OSPF neighbors go down. What explains this, and what prevents it?
+
+- **A.** The flood saturates the data plane; QoS on the egress interfaces prevents it
+- **B.** Traffic to the router is punted to the CPU, which drowns and misses OSPF hellos; CoPP rate-limits each class of punted traffic
+- **C.** OSPF hellos are dropped by the interface ACL; permit protocol 89 to fix it
+- **D.** The forwarding hardware stops during the flood; enable CEF to fix it
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Transit traffic is forwarded in hardware, which doesn't notice the flood, but packets addressed to the router itself go to the slow CPU. When the CPU is overwhelmed, it can't answer OSPF hellos, so neighbors time out. CoPP polices each class of punted traffic so a ping flood gets only a trickle. **Why not the others:** A, the data plane is fine; that's the clue. C, nothing in the scenario changed the interface ACLs. D, the forwarding hardware is still working, which is why transit traffic is unaffected.
+</details>
+
+**Q2.** A CoPP policy-map lists `class CM-ALL-TCP` (matching all TCP) above `class CM-COPP-ROUTING` (matching OSPF and BGP). How is BGP traffic to the router policed?
+
+- **A.** At CM-ALL-TCP's rate, because the first matching class wins and BGP is TCP
+- **B.** At CM-COPP-ROUTING's rate, because it is the more specific match
+- **C.** At both rates, one after the other
+- **D.** At the class-default rate, because BGP matches two classes
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A policy-map is evaluated top-down and stops at the first class that matches. BGP runs over TCP port 179, so it matches CM-ALL-TCP first and never reaches the routing class. OSPF (not TCP) still reaches CM-COPP-ROUTING. Put specific classes first. **Why not the others:** B, MQC doesn't choose the most specific class, only the first. C, a packet is policed by one class only. D, class-default is only for traffic that matches no class.
+</details>
+
+**Q3.** CoPP class CM-COPP-ICMP is policed at `cir 64000` with `exceed-action drop`. A host sends R1 1,000 pings per second, each 100 bytes. Roughly how many pings per second reach the CPU?
+
+- **A.** About 640
+- **B.** About 160
+- **C.** About 800
+- **D.** About 80
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The flood is 1,000 × 100 bytes × 8 = 800,000 bps. The policer allows 64,000 bps, which is 8% of that: about 80 pings per second (80 × 800 bits = 64,000 bps). The other ~920 per second are dropped before they reach the CPU. **Why not the others:** A treats the 64,000 bps CIR as 64% of the flood. B doubles the right answer, as if the pings were 50 bytes. C is the flood measured in kilobits per second (800 kbps), not pings per second.
+</details>
+
+**Q4.** In an ACL used by a CoPP class-map, what does a `deny` line do to a packet that matches it?
+
+- **A.** The packet is dropped before it reaches the CPU
+- **B.** The packet is sent to the CPU without any policing
+- **C.** The packet is not a member of that class, so the next class is evaluated
+- **D.** The packet is placed in class-default immediately, skipping the remaining classes
+
+<details><summary>Answer</summary>
+
+**Answer: C.** In CoPP, ACLs only classify. `permit` means "this packet belongs in the class"; `deny` means "not this class, try the next one". Nothing is dropped by the ACL itself; the policers decide. **Why not the others:** A and B treat the ACL as a filter, which it isn't here. D, the remaining classes are still checked in order; class-default is only for packets that match none of them.
+</details>
+
 ---
 
 ## 17.7 Putting It Together — A Hardening Checklist
@@ -7735,6 +13619,32 @@ Modern networks work the same way, for a reason the castle builders never faced:
 
 This is the thinking behind **zero trust**: *never trust because of location, always verify identity and posture, and grant the least access needed.* TrustSec (18.5) and ISE are Cisco's main tools for building it into the campus.
 
+**📝 Exam-style questions — 18.1**
+
+**Q1.** Which statement best describes a zero-trust approach?
+
+- **A.** Trust everything inside the perimeter and inspect everything that crosses it
+- **B.** Never trust a device because of where it is; verify identity and posture, and grant the least access needed
+- **C.** Encrypt all internal traffic with IPsec so no device needs to be trusted
+- **D.** Block all inbound traffic from the internet and allow all outbound traffic
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Zero trust drops the idea that "inside" means "safe". Every user and device proves who it is and that it's healthy, and gets only the access it needs. **Why not the others:** A is the old hard-perimeter, soft-inside model zero trust replaces. C, encryption protects data in transit but says nothing about who should be allowed to reach what. D is a perimeter rule, which does nothing once an attacker is inside.
+</details>
+
+**Q2.** Why do modern designs add internal segmentation and behaviour monitoring instead of relying on a strong perimeter firewall alone?
+
+- **A.** Perimeter firewalls can't inspect encrypted traffic at all
+- **B.** Internal segmentation is cheaper than a perimeter firewall
+- **C.** Attackers are often already inside (phishing, infected devices), and a flat trusted inside lets them spread freely
+- **D.** Regulations forbid perimeter firewalls in campus networks
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A phishing click or an infected laptop puts the attacker inside the wall. If everything inside trusts everything else, they can reach anything. Layers inside (segmentation, endpoint protection, flow analytics) limit how far they get and how fast you notice. **Why not the others:** A, firewalls can inspect encrypted traffic with TLS decryption, and that isn't the reason for layers anyway. B, cost isn't the argument; containment is. D isn't true.
+</details>
+
 ---
 
 ## 18.2 Threat Defense — The Cisco Secure Portfolio
@@ -7772,6 +13682,44 @@ The exam expects you to recognise the main products and what each one contribute
 6. **XDR** shows all of this as one incident with one timeline, instead of five separate alerts in five consoles.
 
 *No single step had to be perfect. That's defense in depth working as designed.*
+
+**📝 Exam-style questions — 18.2**
+
+**Q1.** Which product stops a laptop connecting to a malware command-and-control server by refusing to resolve the domain, for any port or protocol, before a connection exists?
+
+- **A.** Cisco Umbrella
+- **B.** Cisco Secure Firewall
+- **C.** Cisco Secure Malware Analytics
+- **D.** Cisco Secure Email
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Umbrella is DNS-layer security. Almost every connection starts with a DNS lookup, so refusing to resolve a known-bad domain stops the connection before any packet of it exists, on any port. **Why not the others:** B inspects traffic as it crosses the edge, after a connection has started. C is a sandbox that detonates suspicious files. D filters email.
+</details>
+
+**Q2.** Which product spots an internal host suddenly sending 40 GB to an unfamiliar destination at 3 a.m., using flow records from existing routers and switches?
+
+- **A.** Cisco Secure Endpoint
+- **B.** Cisco Secure Malware Analytics
+- **C.** Cisco Duo
+- **D.** Cisco Secure Network Analytics
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Secure Network Analytics (formerly Stealthwatch) collects NetFlow and models normal behaviour, so unusual volumes, peers or times stand out, even inside encrypted traffic. **Why not the others:** A runs on the endpoint and watches files and processes, not network-wide flows. B analyses files in a sandbox. C provides multi-factor authentication.
+</details>
+
+**Q3.** A file that every security product considered clean last week has just been convicted as malware. Which capability finds every laptop where that file ran?
+
+- **A.** Talos threat intelligence feeds
+- **B.** Umbrella DNS filtering
+- **C.** The retrospective security feature of Cisco Secure Endpoint
+- **D.** Next-generation firewall URL filtering
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Secure Endpoint records where files ran, so when a verdict changes it can find and quarantine the file everywhere it was seen. That's retrospective security. **Why not the others:** A supplies the new verdict but doesn't track where files ran. B and D act on network traffic going forward; they can't look back at files already on endpoints.
+</details>
 
 ---
 
@@ -7883,6 +13831,57 @@ Newer IOS XE uses the **IBNS 2.0** style (`access-session` commands and C3PL pol
 
 **Why check posture rather than just identity?** Because a valid user on an infected or unpatched laptop is still a threat. Authentication proves *who* is connecting, and posture proves the *device* is in a safe state. *Zero trust verifies both, every time.*
 
+**📝 Exam-style questions — 18.3**
+
+**Q1.** A switch port uses `authentication order dot1x mab` with default timers. A printer with no 802.1X supplicant takes about 90 seconds to get network access. Why?
+
+- **A.** ISE needs 90 seconds to profile a printer
+- **B.** The switch keeps sending EAP identity requests (every `tx-period`, 30 s, with `max-reauth-req` retries) before falling back to MAB
+- **C.** MAB always waits for the printer's DHCP lease to expire
+- **D.** The port is in monitor mode, which delays all authentication by 90 seconds
+
+<details><summary>Answer</summary>
+
+**Answer: B.** With 802.1X first, the switch asks for an identity, waits 30 s, and asks again twice more. Only after about 90 seconds does it give up and try MAB. Lowering `tx-period` (for example to 10 s) or using `order mab dot1x` with `priority dot1x mab` shortens the wait. **Why not the others:** A, profiling happens after MAB sends the MAC, and takes moments. C, MAB uses the MAC from the device's first frame; it doesn't wait for DHCP. D, monitor mode forwards traffic regardless of the result; it doesn't add a delay.
+</details>
+
+**Q2.** Ports use `authentication order mab dot1x` and `authentication priority dot1x mab`. A corporate laptop passes MAB and gets a restricted policy, then its supplicant completes 802.1X successfully. What happens?
+
+- **A.** The 802.1X result replaces the MAB result, because 802.1X has the higher priority
+- **B.** The laptop keeps the MAB policy, because MAB was tried first
+- **C.** The session is torn down because two methods succeeded
+- **D.** The switch applies both policies at once
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `order` sets which method is **tried** first (MAB here, for fast onboarding). `priority` decides which result **wins** when more than one succeeds. 802.1X has priority, so the laptop is upgraded to its 802.1X policy. **Why not the others:** B confuses order with priority. C and D, the switch keeps one authorized result per session, chosen by priority.
+</details>
+
+**Q3.** ISE holds a laptop in a posture-pending policy until its antivirus is updated. The agent then reports the laptop compliant. How does it get full access without the user unplugging?
+
+- **A.** The user must log off and on again to restart 802.1X
+- **B.** The switch re-runs MAB every 60 seconds and picks up the new policy
+- **C.** The posture agent changes the laptop's VLAN directly
+- **D.** ISE sends a RADIUS Change of Authorization (CoA) to the switch, which re-authorizes the session
+
+<details><summary>Answer</summary>
+
+**Answer: D.** CoA lets ISE push a new policy to an existing session. The switch re-authorizes the port, and the laptop moves from the restricted policy to full employee access. **Why not the others:** A and B describe ways to start a new authentication, which CoA makes unnecessary. C, the agent only reports health to ISE; the network enforces the policy.
+</details>
+
+**Q4.** Which two statements about 802.1X are true? (Choose two.)
+
+- **A.** EAP-TLS requires certificates on both the client and the server
+- **B.** The authenticator (the switch) checks the user's credentials itself
+- **C.** In monitor mode, traffic from devices that fail authentication is dropped
+- **D.** MAB sends the device's MAC address to the RADIUS server as its identity
+- **E.** EAPOL is carried between the switch and ISE over UDP 1812
+
+<details><summary>Answer</summary>
+
+**Answer: A, D.** EAP-TLS is the strongest method because both sides prove themselves with certificates, so there are no passwords. MAB is the fallback for devices without a supplicant: the MAC address is the identity, which is why it's paired with profiling and a restricted policy. **Why not the others:** B, the authenticator only relays; ISE decides. C, monitor mode forwards all traffic whatever the result; it's for visibility. E, EAPOL runs between the endpoint and the switch; the switch re-wraps EAP in RADIUS toward ISE.
+</details>
+
 ---
 
 ## 18.4 Next-Generation Firewalls
@@ -7934,6 +13933,44 @@ To the port-based firewall the two are identical. Only the application and ident
 | **Data-centre edge / internal segmentation** | East–west traffic between zones (users ↔ servers, PCI zone) |
 | **Branch** (often inside SD-WAN routers, Chapter 14) | Direct internet access without backhauling to HQ |
 | **Cloud** (virtual NGFW or cloud-delivered firewall) | Workloads and users that never touch your hardware |
+
+**📝 Exam-style questions — 18.4**
+
+**Q1.** Two sessions from the same PC both use TCP 443: a Webex meeting and an upload to a personal Dropbox account. Policy says Finance may use Webex but not personal file sharing. Which NGFW capability lets the firewall treat them differently?
+
+- **A.** Stateful inspection
+- **B.** An extended ACL with the `established` keyword
+- **C.** Application visibility and control (AVC), combined with user identity
+- **D.** Network Address Translation
+
+<details><summary>Answer</summary>
+
+**Answer: C.** AVC identifies the application regardless of port, and identity awareness knows the user is in Finance, so the firewall can permit Webex and block Dropbox on the same port. **Why not the others:** A tracks connections but still decides on addresses and ports, which are identical here. B is a stateless port filter. D translates addresses; it doesn't classify applications.
+</details>
+
+**Q2.** Why are an NGFW's IPS and file inspection largely blind to HTTPS traffic unless TLS decryption is enabled?
+
+- **A.** The firewall can't see the IP addresses of encrypted sessions
+- **B.** Without decryption, the firewall sees mainly the server name and certificate, not the content IPS and malware inspection need
+- **C.** HTTPS traffic bypasses the firewall's state table
+- **D.** IPS signatures only exist for UDP traffic
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Encryption hides the payload, which is where exploits and files are. The firewall can still identify many applications from the TLS handshake, but deep inspection needs decryption, with its costs in performance, privacy and certificate management. **Why not the others:** A, IP headers aren't encrypted by TLS. C, HTTPS sessions are tracked like any TCP session. D isn't true; IPS covers TCP traffic heavily.
+</details>
+
+**Q3.** A new TCP 443 connection reaches an NGFW. How does the firewall apply an application-based rule when it can't know the application from the first packet?
+
+- **A.** It blocks the SYN until the client sends the application name
+- **B.** It decides from the destination port alone
+- **C.** It looks up the application only after the session has closed
+- **D.** It lets the handshake and the first few packets through while the application detector identifies the application, then applies the full rule set
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The first packet only reveals addresses and ports. The firewall lets the session start, identifies the application from the early packets (for TLS, the requested server name and certificate), then permits or resets the session according to policy. **Why not the others:** A, there is no such step in TCP. B, port-only decisions are exactly what an NGFW improves on. C would let a blocked application run for its whole session.
+</details>
 
 ---
 
@@ -8011,6 +14048,56 @@ IP Address              SGT     Source
 10.50.0.10              30      CLI
 ```
 
+**📝 Exam-style questions — 18.5**
+
+**Q1.** In TrustSec, why is the SGACL usually enforced at the egress device, close to the destination?
+
+- **A.** That device knows both the source SGT, carried with the traffic, and the destination's SGT
+- **B.** The ingress switch has no TCAM space for ACLs
+- **C.** SGTs are removed at the first hop, so only the egress device can see them
+- **D.** ISE can only download policy to data-centre switches
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Classification happens where the source is known (the access switch). The source tag travels with the traffic, and the device nearest the destination also knows the destination's group, so it has both halves of the matrix lookup. **Why not the others:** B isn't the design reason. C, the tag is carried inline or by SXP precisely so it survives to the enforcement point. D, ISE pushes matrix cells to any device that protects a given group.
+</details>
+
+**Q2.** ISE assigns a contractor SGT 20 when they authenticate, but the contractor's access switch is too old to insert SGTs into frames. How can the data-centre switch still enforce policy on the contractor's traffic?
+
+- **A.** By re-authenticating the contractor with 802.1X at the data-centre switch
+- **B.** By converting the SGT into a VLAN tag on the access switch
+- **C.** The access switch sends the IP-to-SGT binding over SXP (TCP 64999) to the data-centre switch, which maps the packet's source IP to SGT 20
+- **D.** By using MACsec to carry the SGT on the old switch's uplink
+
+<details><summary>Answer</summary>
+
+**Answer: C.** SXP sends IP-to-SGT mappings over a TCP control-plane connection from devices that can't tag to devices that can enforce. The enforcer then learns the source group from the packet's IP address instead of from a tag. **Why not the others:** A, the contractor authenticates at the access edge, not in the data centre. B, a VLAN tag isn't an SGT. D, MACsec can protect inline tags, but an old switch that can't insert tags can't do inline tagging at all.
+</details>
+
+**Q3.** A PCI database server at 10.50.0.10 never authenticates to the network. How is it placed in the PCI-Servers group (SGT 30)?
+
+- **A.** By MAB on the server's switch port
+- **B.** By a static mapping such as `cts role-based sgt-map 10.50.0.10 sgt 30`
+- **C.** ISE learns the group from the server's DHCP requests
+- **D.** It isn't possible; SGTs require 802.1X
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Servers and devices that never authenticate are classified statically, by IP or subnet, VLAN or port. **Why not the others:** A, MAB is a form of authentication, which the stem rules out. C, ISE uses DHCP for profiling, but the server still has to authenticate to receive a dynamic tag. D, static classification exists exactly for this case.
+</details>
+
+**Q4.** A contractor (SGT 20) moves to another building and receives a different IP address. What change to the TrustSec policy is needed to keep blocking them from the PCI servers?
+
+- **A.** Add the new IP address to the SGACL
+- **B.** Create a new SGT for the new building
+- **C.** Update the static IP-to-SGT mapping on the data-centre switch
+- **D.** None: the contractor authenticates, is assigned SGT 20 again, and the same matrix cell applies
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Policy is written between groups, not addresses. The contractor's group hasn't changed, so the existing rule "Contractors → PCI-Servers: deny" still applies. **Why not the others:** A, SGACLs don't list IP addresses. B, groups describe roles, not locations. C, contractors are classified dynamically by ISE, not by static mappings.
+</details>
+
 ---
 
 ## 18.6 MACsec — Encrypting the Wire
@@ -8056,6 +14143,44 @@ The attacker learns which two MAC addresses are talking, and nothing else.
 **Why hop-by-hop instead of end-to-end like IPsec?** Because the network *needs* to look inside frames at every hop: to read the SGT for enforcement, apply QoS, run NetFlow and do security inspection. IPsec (Chapter 12) hides the payload from everything in the middle, which is right across an untrusted WAN but wrong inside your own campus. MACsec protects each **wire** while every **device** still sees the traffic. *IPsec protects a conversation across someone else's network; MACsec protects the cables in your own.*
 
 **Why MACsec and TrustSec go together.** An inline SGT in clear text could be forged by anyone who taps the link and rewrites the tag. MACsec's integrity check makes the tag tamper-proof between trusted devices.
+
+**📝 Exam-style questions — 18.6**
+
+**Q1.** Why is MACsec, rather than IPsec, the usual choice for encrypting links inside a campus?
+
+- **A.** Every device must read headers, SGTs and QoS markings, and MACsec decrypts at each hop while IPsec hides the payload end to end
+- **B.** MACsec encrypts the MAC addresses, which IPsec cannot do
+- **C.** IPsec cannot run on switches
+- **D.** MACsec needs no keys
+
+<details><summary>Answer</summary>
+
+**Answer: A.** MACsec protects each cable but decrypts inside each device, so switches can still enforce SGTs, apply QoS and export NetFlow. IPsec is right across an untrusted WAN, but inside your own campus it would hide traffic from your own devices. **Why not the others:** B, MACsec leaves the MAC addresses visible so switching works. C isn't the design reason. D, MACsec keys are agreed by MKA.
+</details>
+
+**Q2.** Two switches run MACsec with MKA and a pre-shared key. Which key actually encrypts the data frames?
+
+- **A.** The CAK (Connectivity Association Key)
+- **B.** The CKN (Connectivity Association Key Name)
+- **C.** The SAK (Secure Association Key) generated by the key server
+- **D.** A key derived from the switches' RSA host keys
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The key server generates a random SAK and distributes it, protected by a key derived from the CAK. The SAK encrypts the traffic and is replaced periodically. **Why not the others:** A, the CAK is the long-term secret used to prove membership and protect the SAK; it never encrypts traffic itself. B is just the CAK's name. D, RSA host keys belong to SSH, not MACsec.
+</details>
+
+**Q3.** An attacker taps an inter-building fibre protected by MACsec with a default configuration. What can they still learn from captured frames?
+
+- **A.** The VLAN tags and SGTs, but not the payload
+- **B.** Only the source and destination MAC addresses
+- **C.** The IP addresses and ports, but not the payload
+- **D.** Nothing at all, because the whole frame is encrypted
+
+<details><summary>Answer</summary>
+
+**Answer: B.** MACsec encrypts everything after the source MAC, including the 802.1Q tag and the SGT field. The MAC addresses stay in clear text so the frame can still be switched. **Why not the others:** A and C, VLAN tags, SGTs, IP headers and ports are all encrypted by default (Cisco's optional `macsec dot1q-in-clear` leaves the VLAN tag readable, but that isn't the default). D, the MAC addresses must stay visible.
+</details>
 
 ---
 
@@ -8121,6 +14246,56 @@ Reading the error code tells you which control stopped you. That's exactly how E
 
 > **Exam focus:** expect questions that pair a scenario with a control: "a script is overloading the controller" → **rate limiting**; "credentials visible in a packet capture" → **HTTPS/TLS**; "a read-only monitoring tool changed configuration" → **authorization / RBAC**; "a stolen credential remained usable for months" → **expiring tokens / OAuth 2.0**.
 
+**📝 Exam-style questions — 18.7**
+
+**Q1.** A badly written script sends thousands of requests per minute and slows a controller for everyone. Which API security control addresses this, and what does the script receive?
+
+- **A.** Authorization (RBAC); 403 Forbidden
+- **B.** Input validation; 400 Bad Request
+- **C.** HTTPS/TLS; 401 Unauthorized
+- **D.** Rate limiting; 429 Too Many Requests
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Rate limiting caps requests per client per time window and returns 429 when the limit is exceeded, so the script must back off. **Why not the others:** A stops callers doing things their role doesn't allow. B rejects malformed payloads. C protects data in transit; 401 means the caller isn't authenticated.
+</details>
+
+**Q2.** A packet capture of RESTCONF over plain HTTP shows `Authorization: Basic YWRtaW46Q2lzY28xMjM=`. Which statement is true?
+
+- **A.** The value is Base64, which anyone can decode to `admin:Cisco123`; Basic auth is only safe inside TLS
+- **B.** The value is an encrypted hash, so the password is safe
+- **C.** The value is a one-time token that expires after one request
+- **D.** The value is safe because RESTCONF rejects requests that come from captures
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Base64 is encoding, not encryption. Anyone who captures the header can decode it instantly, so Basic auth relies entirely on HTTPS for confidentiality. **Why not the others:** B, there's no hashing or encryption in a Basic header. C, Basic auth sends the same username and password on every request. D, the device can't tell a replayed header from a real one.
+</details>
+
+**Q3.** A monitoring script holds a Catalyst Center token for an account with the observer role. It sends a `DELETE` request for a device. What response does it receive?
+
+- **A.** 401 Unauthorized
+- **B.** 429 Too Many Requests
+- **C.** 403 Forbidden
+- **D.** 400 Bad Request
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The token is valid, so authentication succeeds, but the observer role isn't allowed to delete devices, so authorization fails with 403. **Why not the others:** A means the caller isn't authenticated (missing, wrong or expired token). B means too many requests. D means the request itself is malformed.
+</details>
+
+**Q4.** An API key leaked into a public Git repository and stayed usable for months. Which change limits the damage of future leaks most directly?
+
+- **A.** Moving the key from a header into the URL query string
+- **B.** Using short-lived, scoped tokens (for example OAuth 2.0 access tokens) instead of a long-lived static key
+- **C.** Encoding the key in Base64
+- **D.** Disabling certificate validation in the script
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Every credential eventually leaks. A token that expires within an hour and is limited to specific scopes gives an attacker a small window and limited power, and can be revoked centrally. **Why not the others:** A makes leaks worse, because URLs end up in logs and browser history. C hides nothing; Base64 decodes instantly. D adds a new vulnerability (impostor servers) and does nothing about leaked keys.
+</details>
+
 ---
 
 <a name="chapter-19"></a>
@@ -8185,6 +14360,59 @@ hello R1
 The common wrong answer puts `hello R1` second, because it *appears* second in the file. *Definition order isn't run order: follow the calls.*
 
 **Why did the network industry settle on Python?** Readability (it reads close to English), a huge library ecosystem for networking (`requests`, `netmiko`, `ncclient`, `napalm`, Ansible itself), and it's preinstalled on most Linux systems, including the Guest Shell (a small Linux container that runs on the router itself) on IOS XE. *The libraries are the real reason: someone has already written the hard part.*
+
+**📝 Exam-style questions — 19.1**
+
+**Q1.** Refer to the exhibit. What does the script print?
+
+```python
+def tag(dev):
+    print(f"tagging {dev}")
+print("begin")
+tag("SW1")
+print("end")
+tag("SW2")
+```
+
+- **A.** `tagging SW1`, `begin`, `end`, `tagging SW2`
+- **B.** `begin`, `end`, `tagging SW1`, `tagging SW2`
+- **C.** `begin`, `tagging SW1`, `end`, `tagging SW2`
+- **D.** `tagging {dev}`, `begin`, `end`, `tagging {dev}`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Python runs the file top to bottom. The `def` only stores the function, so the first thing printed is `begin`. Each call to `tag()` then runs the function body at that moment: `tagging SW1` after `begin`, and `tagging SW2` after `end`. **Why not the others:** A runs the function body where it is defined, which never happens. B delays both calls to the end, but calls run exactly where they appear. D forgets that the `f` makes `{dev}` print the argument's value.
+</details>
+
+**Q2.** Why does nothing print when the interpreter reaches a `def` line?
+
+- **A.** `def` only stores the function under its name; the indented body runs each time the function is called.
+- **B.** Python runs all function bodies after the rest of the script finishes.
+- **C.** Function bodies run only if they are indented with tabs instead of spaces.
+- **D.** The body runs once at the `def` line, but its output is hidden until the first call.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A `def` is like the margin sub-recipe in 19.1: it is written down, not cooked. The body runs only when a later line calls the function. **Why not the others:** B is wrong because calls run the body immediately, in the middle of the script, not at the end. C is wrong because tabs versus spaces only affects whether the indentation is valid. D invents hidden output; a body that hasn't been called hasn't run at all.
+</details>
+
+**Q3.** Refer to the exhibit. How many times is `done` printed, and why?
+
+```python
+for vlan in [10, 20]:
+    print(vlan)
+print("done")
+```
+
+- **A.** Never, because the loop ends the script.
+- **B.** Once, because `print("done")` is not indented under the `for`, so it runs after the loop finishes.
+- **C.** Twice, because it follows the loop body.
+- **D.** Three times: once per item and once at the end.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Indentation is syntax in Python. Only `print(vlan)` is indented under the `for`, so only it repeats. `print("done")` is back at the left margin, so it runs once, after both turns of the loop. **Why not the others:** a loop finishing doesn't end the script (A). C and D treat the unindented line as part of the loop body, which is exactly the misreading the indentation rule prevents.
+</details>
 
 ---
 
@@ -8262,6 +14490,61 @@ print(a - b)                   # {10}      — in a but not b
 
 A set is unordered and holds each value once. Scripts use it to answer "which VLANs exist on SW1 but not SW2?" in one line. `{}` on its own is an empty **dict**, not a set; an empty set is `set()`.
 
+**📝 Exam-style questions — 19.2**
+
+**Q1.** Refer to the exhibit. What does the script print?
+
+```python
+old = ["Gi1", "Gi2"]
+new = old
+new.append("Gi3")
+print(len(old), len(new))
+```
+
+- **A.** `2 3`
+- **B.** `2 2`
+- **C.** A `TypeError`
+- **D.** `3 3`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `new = old` does not copy the list. It puts a second name (a second sticky note) on the same list, so appending through `new` changes the one list both names point at. Both lengths are 3. **Why not the others:** A is the answer you'd get if assignment copied the list; to really copy it, use `list(old)`. B ignores the append. C is wrong because appending to a list and calling `len()` are both valid.
+</details>
+
+**Q2.** Refer to the exhibit. What is printed?
+
+```python
+print(9 / 3, 9 // 2, 9 % 4, -9 // 2)
+```
+
+- **A.** `3 4 1 -4`
+- **B.** `3.0 4.5 1 -5`
+- **C.** `3.0 4 1 -5`
+- **D.** `3.0 4 1 -4`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `/` always returns a float, so `9 / 3` is `3.0`. `//` is floor division: `9 // 2` is 4, and `-9 // 2` floors *down* to -5 (toward negative infinity, not toward zero). `%` is the remainder: 9 divided by 4 leaves 1. **Why not the others:** A prints `3` instead of `3.0`. B treats `//` as normal division. D rounds -4.5 toward zero, which is how many people expect it to work but not what Python does.
+</details>
+
+**Q3.** Refer to the exhibit. Which two statements are true? (Choose two.)
+
+```python
+mtu = "9000"
+x = {}
+```
+
+- **A.** `mtu * 2` raises a `TypeError`.
+- **B.** `mtu + 100` raises a `TypeError`.
+- **C.** `x` is an empty set.
+- **D.** `len(mtu)` returns 9000.
+- **E.** `int(mtu) + 100` evaluates to 9100.
+
+<details><summary>Answer</summary>
+
+**Answer: B, E.** `mtu` holds the *text* `"9000"`, not a number. Adding an integer to a string is a `TypeError`, and converting first with `int()` gives the arithmetic you wanted: 9100. **Why not the others:** A is wrong because multiplying a string by an integer repeats it (`"90009000"`), which is legal. C is wrong because `{}` on its own is an empty **dict**; an empty set is `set()`. D is wrong because `len()` counts characters, so it returns 4.
+</details>
+
 ---
 
 ## 19.3 Strings and f-strings
@@ -8330,6 +14613,56 @@ print("%s has %d uplinks" % (sw, count))         # %s = string, %d = integer
 ```
 
 Every line prints `SW1 has 3 uplinks` (the third adds `, SW1!`). Format specs work in all of them: `f"{port:>4}"` right-aligns in 4 characters, and `f"{util:.1f}"` shows one decimal place (`37.46` → `37.5`).
+
+**📝 Exam-style questions — 19.3**
+
+**Q1.** Refer to the exhibit. What does the script print?
+
+```python
+line = "Loopback0   2.2.2.2   YES NVRAM  administratively down   down"
+f = line.split()
+print(len(f), f[4], f[-1])
+```
+
+- **A.** `7 administratively down`
+- **B.** `6 down down`
+- **C.** `7 down down`
+- **D.** `6 administratively down`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `split()` with no argument splits on every run of spaces. The status `administratively down` is two words, so the line becomes seven fields: `Loopback0`, `2.2.2.2`, `YES`, `NVRAM`, `administratively`, `down`, `down`. Index 4 (the fifth field) is `administratively`, and `f[-1]` is the last field, `down`. **Why not the others:** B and D count six fields, which forgets that the two-word status splits in two. C picks the wrong item for `f[4]`; counting starts at 0.
+</details>
+
+**Q2.** The variables `sw = "SW2"` and `n = 4` are set. Which line prints `SW2 has 4 uplinks`?
+
+- **A.** `print("{} has {} uplinks" % (sw, n))`
+- **B.** `print("%d has %s uplinks" % (sw, n))`
+- **C.** `print("{1} has {0} uplinks".format(sw, n))`
+- **D.** `print(f"{sw} has {n} uplinks")`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The f-string evaluates each `{}` expression in place. **Why not the others:** A mixes styles: `{}` placeholders belong to `.format()`, so the `%` operator finds nothing to fill and raises `TypeError: not all arguments converted`. B puts `%d` (an integer) where the string `"SW2"` goes, which also raises a `TypeError`. C is valid but the numbers swap the arguments, printing `4 has SW2 uplinks`.
+</details>
+
+**Q3.** Refer to the exhibit. What does the script print?
+
+```python
+ip = "10.1.1.1/24"
+addr, plen = ip.split("/")
+print(int(plen) + 8, addr[0:4])
+```
+
+- **A.** `248 10.1`
+- **B.** `32 10.1`
+- **C.** `32 10.1.`
+- **D.** A `TypeError`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `split("/")` returns two strings, `"10.1.1.1"` and `"24"`, which are unpacked into `addr` and `plen`. `int(plen) + 8` is 32. The slice `[0:4]` takes indexes 0, 1, 2 and 3 (up to, not including, 4), giving `10.1`. **Why not the others:** A would be string joining (`"24" + "8"`), but `int()` made it a number first. C includes index 4, which a slice never does. D is wrong because the `int()` conversion avoids the str + int error.
+</details>
 
 ---
 
@@ -8407,6 +14740,57 @@ print(data["response"][0]["hostname"])
 | 4 | `data["response"][0]["hostname"]` | The string `'SW1'` — this is what prints |
 
 The rule that unlocks it: **a word in the brackets means "look up this key in a dict"; a number means "take this position from a list."** If the data at that step isn't the kind the bracket expects, Python stops with an error: a key on a list raises `TypeError`, and a missing key raises `KeyError`.
+
+**📝 Exam-style questions — 19.4**
+
+**Q1.** Refer to the exhibit. What does the script print?
+
+```python
+data = {"response": [{"hostname": "SW1", "ports": ["Gi1/0/1", "Gi1/0/2"]},
+                     {"hostname": "SW2", "ports": ["Gi1/0/3"]}]}
+print(data["response"][1]["ports"][0])
+```
+
+- **A.** `Gi1/0/1`
+- **B.** `Gi1/0/2`
+- **C.** `Gi1/0/3`
+- **D.** A `KeyError`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Unwrap it one bracket at a time. `data["response"]` is the list of two dicts. `[1]` is the **second** dict (SW2), because lists count from 0. `["ports"]` is SW2's list, and `[0]` is its first item, `Gi1/0/3`. **Why not the others:** A and B come from treating `[1]` as the first entry (SW1). D is wrong because every key in the chain exists.
+</details>
+
+**Q2.** Given `device = {"hostname": "R1", "interfaces": ["Gi1", "Gi2"]}`, which expression raises a `KeyError`?
+
+- **A.** `device.get("serial")`
+- **B.** `device["interfaces"][-1]`
+- **C.** `"Gi2" in device["interfaces"]`
+- **D.** `device["Hostname"]`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Dictionary keys are case-sensitive. `"Hostname"` with a capital H is not the key `"hostname"`, so square-bracket lookup raises `KeyError`. **Why not the others:** A uses `.get()`, which returns `None` instead of raising for a missing key. B returns the last list item, `Gi2`. C is a membership test on the list and returns `True`.
+</details>
+
+**Q3.** Refer to the exhibit. What does the script print?
+
+```python
+intfs = [{"name": "Gi1", "mtu": 1500}, {"name": "Gi2", "mtu": 9000},
+         {"name": "Gi3", "mtu": 9000}]
+jumbo = [i["name"] for i in intfs if i["mtu"] > 1500]
+print(jumbo)
+```
+
+- **A.** `['Gi2', 'Gi3']`
+- **B.** `['Gi1']`
+- **C.** `[9000, 9000]`
+- **D.** `['Gi1', 'Gi2', 'Gi3']`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Read the comprehension as: for each `i` in `intfs`, if its MTU is over 1500, keep `i["name"]`. Gi2 and Gi3 pass the test; Gi1 (exactly 1500) does not. **Why not the others:** B keeps the item that *fails* the test. C keeps the MTU values, but the expression at the front says to keep the name. D ignores the `if` filter.
+</details>
 
 ---
 
@@ -8516,6 +14900,62 @@ Gi2 is down
 Gi3 shut on purpose - stopping
 down count: 1
 ```
+
+**📝 Exam-style questions — 19.5**
+
+**Q1.** Refer to the exhibit. How many lines does the script print?
+
+```python
+for sw in ["SW1", "SW2", "SW3"]:
+    for port in range(1, 3):
+        if sw == "SW2":
+            break
+        print(sw, port)
+```
+
+- **A.** 2
+- **B.** 4
+- **C.** 3
+- **D.** 6
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `range(1, 3)` gives ports 1 and 2. SW1 prints two lines. For SW2, `break` runs on the first port, but `break` leaves only the **innermost** loop, so the outer loop carries on to SW3, which prints two more lines: `SW1 1`, `SW1 2`, `SW3 1`, `SW3 2`. **Why not the others:** A assumes `break` stops both loops. C miscounts the range (it never includes 3). D ignores the `break` entirely.
+</details>
+
+**Q2.** Refer to the exhibit. What does the script print?
+
+```python
+cpu = 92
+if cpu > 75:
+    print("warning")
+elif cpu > 90:
+    print("critical")
+else:
+    print("ok")
+```
+
+- **A.** `critical`
+- **B.** `warning`, then `critical`
+- **C.** `warning`
+- **D.** `ok`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** An `if`/`elif`/`else` chain runs only the **first** branch whose condition is true, then skips the rest. 92 is greater than 75, so `warning` prints and the `elif` is never tested. **Why not the others:** A is what the author probably intended; to get it, the `> 90` test must come first. B treats `elif` as a separate `if`. D needs every condition to be false.
+</details>
+
+**Q3.** Which expression produces the list `[30, 20, 10]`?
+
+- **A.** `list(range(30, 10, -10))`
+- **B.** `list(range(10, 31, 10))`
+- **C.** `list(range(30, 9))`
+- **D.** `list(range(30, 0, -10))`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `range(start, stop, step)` never includes the stop value. Counting down from 30 in steps of -10 gives 30, 20 and 10, and stops before 0. **Why not the others:** A stops *before* 10, giving `[30, 20]`. B counts up: `[10, 20, 30]`. C has no step, so it counts up from 30 toward 9 and produces an empty list.
+</details>
 
 ---
 
@@ -8637,6 +15077,92 @@ if __name__ == "__main__":
 
 Python sets the special variable `__name__` to `"__main__"` when a file is **run directly** (`python inventory.py`), and to the module's name when the file is **imported** by another script. So the guarded block runs only when you run the file, not when someone imports its functions to reuse them. *It means "if this file is the program, start here."*
 
+**📝 Exam-style questions — 19.6**
+
+**Q1.** Refer to the exhibit. What does the script print?
+
+```python
+def get_mtu(intf):
+    print(f"{intf}: 1500")
+
+result = get_mtu("Gi1")
+print(result)
+```
+
+- **A.** `Gi1: 1500` only
+- **B.** `Gi1: 1500`, then `None`
+- **C.** `None`, then `Gi1: 1500`
+- **D.** `Gi1: 1500` twice
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Calling `get_mtu("Gi1")` runs its `print`, which shows `Gi1: 1500`. The function has no `return`, so it hands back `None`, and `result` holds `None`. The last line prints that. **Why not the others:** A forgets the second `print`. C reverses the order; the call happens before `print(result)`. D assumes the function returned its printed text, but printing and returning are different things.
+</details>
+
+**Q2.** Refer to the exhibit. What is printed?
+
+```python
+def to_vlan(v):
+    try:
+        n = int(v)
+    except ValueError:
+        print("invalid")
+        return None
+    else:
+        print("valid")
+        return n
+    finally:
+        print("logged")
+
+to_vlan("4O")   # letter O, not zero
+```
+
+- **A.** `invalid`, then `logged`
+- **B.** `invalid` only
+- **C.** `valid`, then `logged`
+- **D.** `logged`, then `invalid`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `int("4O")` fails because the letter O is not a digit, so Python jumps to the `except ValueError` block and prints `invalid`. The `return` there would end the function, but `finally` always runs on the way out, so `logged` prints next. **Why not the others:** B forgets that `finally` runs even when the function returns. C would need the conversion to succeed. D gets the order wrong: `finally` runs last.
+</details>
+
+**Q3.** The file `inventory.py` ends with `if __name__ == "__main__": main()`. Another script runs `import inventory`. What happens?
+
+- **A.** `main()` runs immediately during the import.
+- **B.** The import fails with a `NameError` because `__name__` is not defined.
+- **C.** `main()` does not run, and the importing script can call `inventory.main()` itself.
+- **D.** `main()` runs twice: once on import and once when the importer finishes.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** When a file is imported, Python sets its `__name__` to the module name (`"inventory"`), not `"__main__"`, so the guarded block is skipped. The functions are loaded and ready to call. **Why not the others:** A describes running the file directly with `python inventory.py`. B is wrong because Python always sets `__name__`. D invents a second run that never happens.
+</details>
+
+**Q4.** Refer to the exhibit. The device answers the GET with HTTP **401**. What is printed?
+
+```python
+try:
+    response = requests.get(url, timeout=5)
+    response.raise_for_status()
+except requests.exceptions.Timeout:
+    print("device did not answer")
+except requests.exceptions.HTTPError:
+    print("API error")
+finally:
+    print("done")
+```
+
+- **A.** `device did not answer`, then `done`
+- **B.** `done` only, because a reply arrived
+- **C.** `API error` only
+- **D.** `API error`, then `done`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A 401 is a reply, so `get()` itself succeeds. Then `raise_for_status()` turns the 4xx code into an `HTTPError`, which the second `except` catches. `finally` always runs last. **Why not the others:** A is the timeout path, which needs no reply within 5 seconds. B would be true without `raise_for_status()`, which is exactly why that line is there. C forgets `finally`.
+</details>
+
 ---
 
 ## 19.7 Reading a Real Script — Line by Line
@@ -8747,6 +15273,72 @@ Output: `GigabitEthernet1`. Note what `"up" in line` really tests: *the two lett
 
 **Why is netmiko considered a fallback compared with RESTCONF?** Because it scrapes **human-formatted text**. If a software upgrade changes a column width, `split()[0]` can silently pick the wrong field. An API returns **structured data** whose keys don't move. *Parse text when you must; consume structured data when you can.*
 
+**📝 Exam-style questions — 19.7**
+
+**Q1.** Refer to the exhibit. The password is wrong, so the device answers **401**. What does the script print?
+
+```python
+import requests
+
+URL = "https://10.0.0.1/restconf/data/ietf-interfaces:interfaces"
+HDR = {"Accept": "application/yang-data+json"}
+
+def names():
+    r = requests.get(URL, headers=HDR, auth=("admin", "wrong"), verify=False)
+    if r.status_code == 200:
+        return [i["name"] for i in r.json()["ietf-interfaces:interfaces"]["interface"]]
+    print(f"Error {r.status_code}")
+    return []
+
+for n in names():
+    print(n.upper())
+```
+
+- **A.** `Error 401`, followed by a `KeyError` traceback
+- **B.** Nothing
+- **C.** `Error 401` only
+- **D.** `ERROR 401`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The `for` line calls `names()`. The status is not 200, so the function skips the JSON parsing, prints `Error 401` and returns an empty list. A loop over an empty list runs zero times, so nothing else prints. **Why not the others:** A assumes the JSON lookup ran, but the `if` kept it from running. B forgets the `print` inside the function. D applies `.upper()` to the error message, but `.upper()` is only used inside the loop.
+</details>
+
+**Q2.** Refer to the exhibit. What does the script print?
+
+```python
+output = """Interface              IP-Address      OK? Method Status                Protocol
+GigabitEthernet1       10.0.0.2        YES NVRAM  up                    up
+GigabitEthernet2       unassigned      YES NVRAM  administratively down down
+GigabitEthernet3       10.1.3.1        YES manual up                    down
+Loopback0              2.2.2.2         YES NVRAM  up                    up"""
+for line in output.splitlines()[1:]:
+    if line.split()[-1] == "down":
+        print(line.split()[0])
+```
+
+- **A.** `GigabitEthernet2` and `GigabitEthernet3`
+- **B.** `GigabitEthernet2` only
+- **C.** `GigabitEthernet3` only
+- **D.** `Interface`, `GigabitEthernet2` and `GigabitEthernet3`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `splitlines()[1:]` skips the header line. For each remaining line, `split()[-1]` is the last column, the Protocol status. Gi2 (administratively down) and Gi3 (up/down) both end in `down`, and `split()[0]` prints their names. **Why not the others:** B and C each miss one of the two lines whose protocol is down. D includes the header, which the `[1:]` slice removed (and its last column is `Protocol` anyway).
+</details>
+
+**Q3.** Why is a script that parses `show` output with `split()` considered less reliable than one that reads RESTCONF data?
+
+- **A.** netmiko cannot send configuration commands, only `show` commands.
+- **B.** CLI output is formatted for people, so a software upgrade that changes a column or wording can silently shift the fields, while API keys don't move.
+- **C.** SSH sessions are not encrypted, so the output may be altered in transit.
+- **D.** `split()` works only on the first line of multi-line output.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Text parsing depends on positions and words that were designed for human eyes, such as the two-word `administratively down` status. RESTCONF returns structured data with named keys, so a script asks for `"enabled"` instead of counting columns. **Why not the others:** A is false: `send_config_set()` pushes configuration. C is false: SSH is encrypted. D is false: the script splits each line separately after `splitlines()`.
+</details>
+
 ---
 
 ## 19.8 JSON — The Rules, Exactly
@@ -8829,6 +15421,61 @@ When an exam shows a snippet and asks whether it's valid, check it in this order
 
 Now run the four passes on it: brackets balanced, all keys and strings double-quoted, commas only between items, and every value one of the six types. It's valid.
 
+**📝 Exam-style questions — 19.8**
+
+**Q1.** Which two are valid JSON? (Choose two.)
+
+- **A.** `{'vlan': 10}`
+- **B.** `{"enabled": True}`
+- **C.** `{"vlan": 10, "name": "DATA"}`
+- **D.** `{"ports": ["Gi1", "Gi2",]}`
+- **E.** `[{"id": 1}, {"id": 2}]`
+
+<details><summary>Answer</summary>
+
+**Answer: C, E.** C is an object with double-quoted keys, a number and a string. E is an array of two objects, and an array is a perfectly valid top-level value. **Why not the others:** A uses single quotes, which JSON never allows. B uses Python's `True`; JSON's boolean is lowercase `true`. D has a trailing comma after the last array item.
+</details>
+
+**Q2.** Refer to the exhibit. Why is this document invalid JSON?
+
+```
+{"hostname": "SW1", "mgmt": 10.10.10.5, "vlans": [10, 20]}
+```
+
+- **A.** An object cannot contain an array.
+- **B.** `10.10.10.5` is not a valid number (it has three dots), so it must be the string `"10.10.10.5"`.
+- **C.** Keys must not be quoted.
+- **D.** The numbers in the array must be quoted.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A JSON value must be one of the six types. A number may have at most one decimal point, so `10.10.10.5` is not a number, and unquoted it isn't anything else either. IP addresses are always strings. **Why not the others:** A is false: arrays nest inside objects all the time (`"vlans"` here is fine). C is backwards: keys **must** be double-quoted. D is false: `10` and `20` are valid numbers.
+</details>
+
+**Q3.** A requirement says: interface `Gi1/0/5`, description `uplink`, MTU 9000 as a number, not shut down, and no IP address yet. Which document is valid JSON **and** meets the requirement?
+
+- **A.** `{"name": "Gi1/0/5", "description": "uplink", "mtu": 9000, "shutdown": false, "ip": null}`
+- **B.** `{"name": "Gi1/0/5", "description": "uplink", "mtu": 9000, "shutdown": false, "ip": None}`
+- **C.** `{"name": "Gi1/0/5", "description": "uplink", "mtu": "9000", "shutdown": "false", "ip": null}`
+- **D.** `{"name": "Gi1/0/5", "description": "uplink", "mtu": 09000, "shutdown": false, "ip": null}`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Every value has the right type: the MTU is a number, "not shut down" is the boolean `false`, and "no address yet" is `null`. **Why not the others:** B uses Python's `None`, which is invalid JSON. C is valid JSON but fails the requirement: `"9000"` and `"false"` are strings, not a number and a boolean. D has a leading zero, which JSON numbers forbid.
+</details>
+
+**Q4.** Which of these is a valid JSON number?
+
+- **A.** `0x1F`
+- **B.** `+5`
+- **C.** `.5`
+- **D.** `1e3`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** JSON allows exponents, so `1e3` (1000) is valid. **Why not the others:** JSON has no hex (A), no leading `+` (B), and no bare decimal point; `.5` must be written `0.5` (C).
+</details>
+
 ---
 
 ## 19.9 JSON ↔ Python
@@ -8874,6 +15521,51 @@ So `print(data)` shows Python's spelling: `{'hostname': 'R1', 'enabled': True, '
 ```
 
 Two things to notice. Python's printout uses **single** quotes and `True`/`None`, which is *not* valid JSON, so never copy a printed dict into an API body. Always use `json.dumps()`. And invalid text fails loudly: `json.loads("{'hostname': 'R1'}")` raises `json.JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)`. The parser is telling you rule 1 from 19.8.
+
+**📝 Exam-style questions — 19.9**
+
+**Q1.** Refer to the exhibit. What does the script print?
+
+```python
+import json
+text = '{"name": "R1", "up": true, "peers": [{"ip": "10.0.0.2"}], "desc": null}'
+d = json.loads(text)
+print(d["up"], d["peers"][0]["ip"], d["desc"])
+```
+
+- **A.** `true 10.0.0.2 null`
+- **B.** `True 10.0.0.2 None`
+- **C.** `True ip None`
+- **D.** A `KeyError`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `json.loads()` converts JSON into Python: `true` becomes `True`, `null` becomes `None`, and the array of objects becomes a list of dicts. `d["peers"][0]["ip"]` opens the list, takes the first dict and reads its `ip`. **Why not the others:** A shows JSON spellings, but after `loads()` you hold Python objects. C prints the key instead of its value. D is wrong because every key in the chain exists.
+</details>
+
+**Q2.** A script has built a Python dict and must send it as the body of a REST request. Which function turns the dict into JSON text?
+
+- **A.** `json.loads()`
+- **B.** `json.load()`
+- **C.** `json.dumps()`
+- **D.** `resp.json()`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `dumps` = *dump to string*: Python object in, JSON text out. **Why not the others:** A does the opposite (JSON text in, Python out). B reads JSON from a **file**. D parses a response body that came *back*; it doesn't build one to send.
+</details>
+
+**Q3.** An engineer runs `print(payload)` on a dict, pastes the printed text into a RESTCONF request body, and gets **400 Bad Request**. What is the most likely reason?
+
+- **A.** Python's printout uses single quotes and `True`/`None`, which are not valid JSON; the body should come from `json.dumps(payload)`.
+- **B.** RESTCONF accepts only XML request bodies.
+- **C.** 400 means the username or password was wrong.
+- **D.** JSON bodies must be pretty-printed with `indent=2`.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A printed dict looks like JSON but uses Python's spellings: `{'name': 'R1', 'enabled': True}`. A JSON parser rejects the single quotes and `True`, and the API answers 400. `json.dumps()` writes real JSON. **Why not the others:** B is false: RESTCONF accepts JSON or XML (20.3). C describes 401, not 400 (20.7). D is false: whitespace never changes whether JSON is valid.
+</details>
 
 ---
 
@@ -9179,6 +15871,57 @@ The same interface data over **NETCONF** is XML. The module is named by its **na
 
 *YANG is the contract; NETCONF and RESTCONF are just two delivery trucks that carry data shaped by it.*
 
+**📝 Exam-style questions — 20.1**
+
+**Q1.** Refer to the exhibit. Which two statements are true? (Choose two.)
+
+```
+module: ietf-interfaces
+  +--rw interfaces
+     +--rw interface* [name]
+        +--rw name           string
+        +--rw description?   string
+        +--rw enabled?       boolean
+        +--ro oper-status    enumeration
+        +--ro statistics
+           +--ro in-octets?  yang:counter64
+```
+
+- **A.** `interface` is a list, and each entry is identified by its `name`.
+- **B.** `oper-status` can be changed with a RESTCONF PATCH.
+- **C.** `description` is mandatory in every interface entry.
+- **D.** `statistics` is a list of counter entries.
+- **E.** `in-octets` is state data, so it is returned by `?content=nonconfig`.
+
+<details><summary>Answer</summary>
+
+**Answer: A, E.** The `*` marks a list and `[name]` is its key. `+--ro` marks read-only state data, which is exactly what `?content=nonconfig` returns. **Why not the others:** B is wrong because `oper-status` is `ro`: you can read what actually happened, not set it. C is wrong because the `?` after `description` means optional. D is wrong because `statistics` has no `*`, so it is a container (one instance), not a list.
+</details>
+
+**Q2.** In the JSON encoding of the model in Q1, what does the `interface` node become?
+
+- **A.** A single JSON object
+- **B.** An array of objects, one per interface
+- **C.** One key/value pair with a string value
+- **D.** An XML attribute on the `interfaces` element
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The mapping to remember is: container → object, **list → array of objects**, leaf → key/value. Each array element is one interface entry. **Why not the others:** A is what a container (such as `interfaces`) becomes. C is a leaf. D mixes in XML, and even in XML a list entry is an element, not an attribute.
+</details>
+
+**Q3.** Which statement describes a benefit of a YANG data model?
+
+- **A.** It encrypts configuration data while it travels to the device.
+- **B.** It replaces SSH as the transport for device management.
+- **C.** It describes only operational state, so configuration remains CLI-only.
+- **D.** It defines types and constraints, so a device can reject an invalid change before applying it.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** YANG is a **data modelling language**: it describes what data exists, its structure, its types and its limits. Because of that, an out-of-range MTU or a missing mandatory leaf can be rejected before anything changes. **Why not the others:** A and B describe the job of protocols such as SSH and TLS; YANG carries nothing itself. C is wrong because YANG models both configuration (`rw`) and state (`ro`).
+</details>
+
 ---
 
 ## 20.2 NETCONF — The Transactional Protocol
@@ -9322,6 +16065,64 @@ An `<edit-config>` that creates a loopback looks like this (the same data a REST
 ```
 
 The device answers `<rpc-reply message-id="101" ...><ok/></rpc-reply>`. The **message-id** ties each reply to its request. Read the structure from the outside in: **message** (`<rpc>`) → **operation** (`<edit-config>`) → **datastore** (`<target><running/>`) → **content** (YANG-shaped data). Those are exactly the four layers in the table above. To delete instead of merge, mark the node with an operation attribute: `<interface nc:operation="delete">`, with `xmlns:nc` bound to the base NETCONF namespace. Use `<target><candidate/></target>` followed by `<commit/>` for the transactional version.
+
+**📝 Exam-style questions — 20.2**
+
+**Q1.** Which two statements about NETCONF are true? (Choose two.)
+
+- **A.** It runs over HTTPS on TCP port 443.
+- **B.** It runs over SSH on TCP port 830.
+- **C.** It encodes data only as JSON.
+- **D.** With the candidate datastore and `<commit>`, a change is applied all or nothing.
+- **E.** The client sends its first `<rpc>` before the `<hello>` exchange.
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** NETCONF uses SSH on port 830, and its candidate datastore stages a whole change, validates it, and commits it in one step, so a failure leaves running untouched. **Why not the others:** A describes RESTCONF. C is wrong: NETCONF encodes data as XML. E is wrong: both sides must exchange `<hello>` messages, listing their capabilities, before any RPC.
+</details>
+
+**Q2.** Which sequence correctly orders a transactional NETCONF change on a device that supports the candidate datastore?
+
+- **A.** `<hello>` exchange, `<edit-config>` to running, `<lock>`, `<commit>`, `<unlock>`
+- **B.** `<lock>`, `<hello>` exchange, `<commit>`, `<edit-config>` to candidate, `<unlock>`
+- **C.** `<hello>` exchange, `<lock>`, `<edit-config>` to candidate, `<commit>`, `<unlock>`
+- **D.** `<hello>` exchange, `<edit-config>` to candidate, `<unlock>`, `<commit>`, `<lock>`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Capabilities first, then lock so nobody else can edit, stage the change in candidate, commit it as one transaction, and finally release the lock. **Why not the others:** A edits running directly (no transaction) and locks only afterwards. B sends an RPC before the hello and commits before anything is staged. D unlocks before committing and locks at the end, which protects nothing.
+</details>
+
+**Q3.** Refer to the exhibit. A script sends `<edit-config>` with `<target><candidate/></target>` and receives an `<rpc-error>`. Which command fixes the problem?
+
+```
+R1# show netconf-yang status
+netconf-yang: enabled
+netconf-yang candidate-datastore: disabled
+netconf-yang ssh port: 830
+```
+
+- **A.** `netconf-yang feature candidate-datastore`
+- **B.** `restconf`
+- **C.** `ip http secure-server`
+- **D.** `netconf-yang ssh port 443`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** NETCONF is running, but the candidate datastore is disabled, which is the IOS XE default. Targeting a datastore the device doesn't offer fails. `netconf-yang feature candidate-datastore` turns it on (with a brief NETCONF restart). **Why not the others:** B and C enable RESTCONF and the HTTPS server, which don't affect NETCONF datastores. D changes nothing about which datastores exist.
+</details>
+
+**Q4.** The client and the device both list `urn:ietf:params:netconf:base:1.1` in their `<hello>` messages. How is each message delimited after that?
+
+- **A.** By the end-of-message marker `]]>]]>`
+- **B.** By an HTTP `Content-Length` header
+- **C.** By a newline after each closing tag
+- **D.** By chunked framing: `#<length>` before each chunk and `##` at the end
+
+<details><summary>Answer</summary>
+
+**Answer: D.** When both sides support base 1.1, they switch to chunked framing. The length prefix exists because `]]>]]>` could legally appear inside XML data and cut a message short. **Why not the others:** A is base 1.0 framing, used only while either side speaks 1.0. B belongs to HTTP (RESTCONF). C isn't a NETCONF framing method at all.
+</details>
 
 ---
 
@@ -9483,6 +16284,57 @@ HTTP/1.1 204 No Content
 | Transactions | Yes — all-or-nothing with candidate and commit | Each request stands alone |
 | Best for | Multi-step, multi-device transactional change | Simple reads and edits, web tooling, quick scripts |
 
+**📝 Exam-style questions — 20.3**
+
+**Q1.** Loopback100 has a description and an IPv4 address in the `ietf-interfaces` model. An engineer sends a RESTCONF **PUT** to `.../interface=Loopback100` with a body containing only `name`, `type` and a new `description`. What is the result?
+
+- **A.** The device answers 204; the description changes and the IPv4 address is removed.
+- **B.** The device answers 204; the description changes and the IPv4 address is kept.
+- **C.** The device answers 409 because Loopback100 already exists.
+- **D.** The device answers 201 and creates a second Loopback100.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** PUT means "make the resource exactly this". Anything not in the body, including the IPv4 address, is removed. The resource already existed, so success is 204 No Content. **Why not the others:** B describes PATCH, which merges. C is what a POST returns for an existing resource, not a PUT. D is impossible: a list key identifies exactly one entry, and 201 would mean it was newly created.
+</details>
+
+**Q2.** Which URI path, after `https://10.0.0.1/restconf/data/ietf-interfaces:interfaces/`, reads only the description of GigabitEthernet1/0/1?
+
+- **A.** `interface=GigabitEthernet1/0/1/description`
+- **B.** `interface/GigabitEthernet1%2F0%2F1/description`
+- **C.** `interface=GigabitEthernet1%2F0%2F1/description`
+- **D.** `interface[name=GigabitEthernet1/0/1]/description`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A list entry is written `list=key`, and a slash inside the key value must be percent-encoded as `%2F`, or the device reads it as the next path segment. The leaf name comes after the entry. **Why not the others:** A leaves the slashes raw, so the path breaks at `GigabitEthernet1`. B uses a slash instead of `=` before the key. D uses XPath-style brackets, the notation RESTCONF error messages use to name a node (see the 409 example in 20.7), not the syntax of a URI.
+</details>
+
+**Q3.** A script wants RESTCONF to return its data as JSON. Which request header does that?
+
+- **A.** `Content-Type: application/yang-data+json`
+- **B.** `Accept: application/yang-data+json`
+- **C.** `Accept: application/yang-data+xml`
+- **D.** `X-Auth-Token: application/yang-data+json`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `Accept` names the format you want **back**. **Why not the others:** A describes the format of a body you are **sending** (POST, PUT, PATCH), not the reply. C asks for XML. D is the Catalyst Center token header and has nothing to do with encoding.
+</details>
+
+**Q4.** Which two statements correctly compare NETCONF and RESTCONF? (Choose two.)
+
+- **A.** RESTCONF provides a candidate datastore with `<lock>` and `<commit>`.
+- **B.** RESTCONF carries `<edit-config>` RPCs over SSH.
+- **C.** NETCONF uses SSH on port 830; RESTCONF uses HTTPS on port 443.
+- **D.** NETCONF has no way to apply a change as a single transaction.
+- **E.** RESTCONF can encode data as JSON or XML; NETCONF uses XML.
+
+<details><summary>Answer</summary>
+
+**Answer: C, E.** These are the transport and encoding differences in the 20.3 comparison table. **Why not the others:** A and D are reversed: NETCONF is the one with candidate, locking and all-or-nothing commits, while each RESTCONF request stands alone. B describes NETCONF; RESTCONF uses HTTP methods such as GET, PUT and PATCH.
+</details>
+
 ---
 
 ## 20.4 Enabling and Verifying NETCONF and RESTCONF on IOS XE
@@ -9552,6 +16404,55 @@ curl -k -u admin:Cisco123 -H "Accept: application/yang-data+json" \
 4. **Fix:** `username netops privilege 15 secret Cisco123`. The same curl now returns **200**.
 
 *A 401 with a correct password almost always means a privilege or AAA-method problem, not a typo.*
+
+**📝 Exam-style questions — 20.4**
+
+**Q1.** A router has `aaa new-model`, a privilege-15 local user and the `restconf` command configured. A curl test from a workstation gets **connection refused** on TCP 443. Which command is missing?
+
+- **A.** `netconf-yang`
+- **B.** `ip http secure-server`
+- **C.** `ip http authentication local`
+- **D.** `aaa authorization exec default local`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** RESTCONF rides on the device's HTTPS server. Without `ip http secure-server`, nothing listens on 443, so the TCP connection is refused before HTTP even starts. **Why not the others:** A enables NETCONF on port 830 and doesn't open 443. C and D affect how users are authenticated and authorized; getting them wrong produces a **401** answer, which means the connection worked.
+</details>
+
+**Q2.** Refer to the exhibit. User `netops` sends RESTCONF requests with the correct password and always receives **401**. What is the cause?
+
+```
+R1# show running-config | include username|aaa|ip http|restconf
+aaa new-model
+aaa authentication login default local
+aaa authorization exec default local
+username netops secret 9 $9$Xk3pLq...
+ip http secure-server
+ip http authentication local
+restconf
+```
+
+- **A.** `ip http server` is also required for RESTCONF.
+- **B.** `restconf` must be replaced by `netconf-yang` for authenticated access.
+- **C.** The request's `Accept` header is wrong.
+- **D.** `netops` has no `privilege 15`, so it runs at the default privilege level 1.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A 401 is an HTTP answer, so HTTPS and RESTCONF are working. Authentication is local and the password is correct, but the username line has no `privilege 15`, and both APIs require a privilege-15 user. The fix is `username netops privilege 15 secret ...`. **Why not the others:** A is wrong: RESTCONF needs the secure server, which is configured. B swaps in a different protocol and doesn't fix the user. C would cause a different problem (the wrong encoding back), not a 401.
+</details>
+
+**Q3.** An engineer configured `netconf-yang` thirty seconds ago, and NETCONF connections to port 830 are refused. Which command shows whether the NETCONF processes are running yet?
+
+- **A.** `show platform software yang-management process`
+- **B.** `show ip http server secure status`
+- **C.** `show event manager policy registered`
+- **D.** `show ip ssh`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** It lists the model-driven programmability daemons (`confd`, `ncsshd` and the others) and whether each is Running. They take a minute or two to start after `netconf-yang` is enabled. **Why not the others:** B checks the HTTPS server, which RESTCONF uses, not NETCONF. C lists EEM applets. D shows the SSH server used for CLI logins, but NETCONF has its own SSH daemon (`ncsshd`) on port 830.
+</details>
 
 ---
 
@@ -9675,6 +16576,56 @@ print("FAILED" if task["isError"] else "OK", task.get("progress"))
 
 The exact fields in the task object vary a little between Catalyst Center releases, but the pattern of 202 → `taskId` → poll until finished → check for error is constant.
 
+**📝 Exam-style questions — 20.5**
+
+**Q1.** After obtaining a token from Catalyst Center, how does a script authenticate each later Intent API call?
+
+- **A.** `Authorization: Bearer <token>` header
+- **B.** `X-XSRF-TOKEN: <token>` header
+- **C.** `X-Auth-Token: <token>` header
+- **D.** `Cookie: JSESSIONID=<token>`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Catalyst Center returns `{"Token": "..."}` from `POST /dna/system/api/v1/auth/token`, and every later call carries it in `X-Auth-Token`. **Why not the others:** A is a common pattern in other APIs (such as OAuth 2.0), not Catalyst Center's. B and D belong to SD-WAN Manager, which uses a session cookie plus an XSRF token (20.6).
+</details>
+
+**Q2.** A template deployment request to Catalyst Center returns **202 Accepted** with `{"response": {"taskId": "6f2a-..."}}`. What should the script do next?
+
+- **A.** Poll `GET /dna/intent/api/v1/task/{taskId}` until the task shows it has finished, then check whether it ended in error.
+- **B.** Treat the deployment as complete and move on.
+- **C.** Send the same request again, because 202 means it was not processed.
+- **D.** Request a new token, because 202 means the old one expired.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 202 means "accepted, I'll do it", not "it's done". Long jobs run asynchronously, and the task ID is the ticket you use to check back (the coat-check pattern). **Why not the others:** B assumes success that hasn't happened yet; the job may still fail. C would queue a second deployment. D confuses 202 with 401, which is the expired-token code.
+</details>
+
+**Q3.** Which Catalyst Center API direction connects it to IT systems such as a ServiceNow ITSM platform or an IPAM tool?
+
+- **A.** Northbound (Intent API)
+- **B.** Southbound (Multivendor SDK)
+- **C.** Eastbound (events and notifications)
+- **D.** Westbound (Integration API)
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The westbound Integration API connects Catalyst Center sideways to other IT systems: ITSM, IPAM and reporting. **Why not the others:** A is how your own scripts and apps tell Catalyst Center what you want. B is how it manages devices, including third-party ones. C is how it pushes events (device down, compliance failure) out to webhooks, email or syslog.
+</details>
+
+**Q4.** A script saved its Catalyst Center token and is run again 70 minutes later with the same token. The inventory GET fails. What response does it get, and what is the fix?
+
+- **A.** 403; the account needs a different role.
+- **B.** 401; request a new token and retry.
+- **C.** 404; the inventory path changed.
+- **D.** 429; slow down the request rate.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Tokens are valid for about an hour. After that, the server no longer recognises the caller, which is a **401**. The fix is to repeat the token request and retry with the new token. **Why not the others:** A means the caller is recognised but not allowed, which a new token doesn't fix. C means a wrong URI. D means the script is sending too many requests.
+</details>
+
 ---
 
 ## 20.6 Catalyst SD-WAN Manager APIs
@@ -9751,6 +16702,44 @@ for dev in s.get(f"{BASE}/dataservice/device").json()["data"]:
 | Login | `POST /dna/system/api/v1/auth/token` with Basic auth | `POST /j_security_check` with form fields |
 | Credential on later calls | **`X-Auth-Token`** header | **`JSESSIONID`** cookie (+ **`X-XSRF-TOKEN`** header for changes) |
 | Data wrapper in responses | `"response": ...` | `"data": [...]` |
+
+**📝 Exam-style questions — 20.6**
+
+**Q1.** How does a script log in to the Catalyst SD-WAN Manager REST API?
+
+- **A.** `POST /dna/system/api/v1/auth/token` with HTTP Basic credentials
+- **B.** `POST /j_security_check` with `j_username` and `j_password` form fields, which sets a `JSESSIONID` cookie
+- **C.** `GET /dataservice/client/token` with HTTP Basic credentials
+- **D.** An SSH session to port 830
+
+<details><summary>Answer</summary>
+
+**Answer: B.** SD-WAN Manager uses a form login, and success sets the `JSESSIONID` session cookie that every later request carries. **Why not the others:** A is the Catalyst Center token call. C is a real SD-WAN Manager call, but it fetches the XSRF token *after* login, using the session cookie. D describes NETCONF to a device.
+</details>
+
+**Q2.** A script logs in to SD-WAN Manager, checks that `r.status_code == 200`, and continues. Every later API call fails. Why didn't the status check catch the problem?
+
+- **A.** 200 means the account is locked.
+- **B.** The script also needs an `X-Auth-Token` header.
+- **C.** `JSESSIONID` is only returned by a GET request.
+- **D.** A failed login still returns 200, with the HTML login page as the body; the script must check for the cookie or the page instead.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** This is the SD-WAN Manager login gotcha: a wrong password produces 200 plus the HTML login page, and no session cookie. The 20.6 script checks for `<html>` in the body for exactly this reason. **Why not the others:** A invents a meaning for 200. B is Catalyst Center's header. C is false: the cookie is set by the login POST.
+</details>
+
+**Q3.** After a successful SD-WAN Manager login, a script's GET requests work but its POST requests are rejected. What is missing?
+
+- **A.** A new `JSESSIONID` cookie for each POST
+- **B.** HTTP Basic credentials on each POST
+- **C.** An `X-XSRF-TOKEN` header carrying the token from `GET /dataservice/client/token`
+- **D.** An `Accept: application/yang-data+json` header
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Requests that change something (POST, PUT, DELETE) need the XSRF token in a header as well as the cookie. A browser attaches cookies automatically, even to forged cross-site requests, but only your own code can read the token and copy it into a header. **Why not the others:** A is wrong because one session cookie serves the whole session. B is not how SD-WAN Manager authenticates after login. D is a RESTCONF media type.
+</details>
 
 ---
 
@@ -9857,6 +16846,83 @@ Content-Type: application/yang-data+json
 ```
 
 Read it: **409** plus `error-tag: data-exists` means Loopback10 **already exists**. POST only creates. To change the existing interface, use **PATCH** (merge) or **PUT** (replace). RESTCONF error bodies always follow this `errors → error[] → error-type / error-tag / error-message` shape. *The status code tells you the category; the error-tag and message tell you the exact cause.*
+
+**📝 Exam-style questions — 20.7**
+
+**Q1.** A script with a valid, unexpired Catalyst Center token tries to delete a device and receives **403**. What should the engineer do?
+
+- **A.** Request a new token and retry.
+- **B.** Have the account given a role that is allowed to delete devices.
+- **C.** Fix the JSON body, which is malformed.
+- **D.** Change the `Content-Type` header.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 403 means "I know exactly who you are, and you may not do this": a permission (role-based access) problem. **Why not the others:** A fixes 401, and a new token for the same account has the same permissions. C is the fix for 400. D is the fix for 415.
+</details>
+
+**Q2.** Refer to the exhibit. A script sent a RESTCONF POST to create Loopback20 and received this response. What happened, and what should the script use to change the interface's description?
+
+```
+HTTP/1.1 409 Conflict
+Content-Type: application/yang-data+json
+{
+ "errors": {
+  "error": [
+   {
+    "error-type": "application",
+    "error-tag": "data-exists",
+    "error-message": "object already exists: /if:interfaces/if:interface[if:name='Loopback20']"
+   }
+  ]
+ }
+}
+```
+
+- **A.** The user lacks privilege 15; use a different account.
+- **B.** The JSON body was malformed; fix the syntax and POST again.
+- **C.** Loopback20 already exists; use PATCH to merge the new description.
+- **D.** The URI was wrong; POST to `.../interface=Loopback20` instead.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** 409 plus `error-tag: data-exists` says the object is already there, and POST only ever creates. PATCH merges a change into an existing resource (PUT would replace it entirely). **Why not the others:** A would produce 401. B would produce 400. D is wrong because the request reached the right place: the device found the object, which is why it says it exists.
+</details>
+
+**Q3.** A RESTCONF PATCH sent with the header `Content-Type: application/json` returns **415**. What is the fix?
+
+- **A.** Send `Accept: application/json` instead.
+- **B.** Use POST instead of PATCH.
+- **C.** Add the `X-Auth-Token` header.
+- **D.** Send `Content-Type: application/yang-data+json`.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** 415 Unsupported Media Type means the server can't accept the body's declared format. RESTCONF expects the YANG media types, `application/yang-data+json` or `application/yang-data+xml`. **Why not the others:** A changes the format you want back, not the one you're sending. B changes the operation and would also need the right media type. C is a Catalyst Center header and doesn't apply to RESTCONF.
+</details>
+
+**Q4.** Refer to the exhibit. The response came back with status **200** and was parsed into `data`. Which expression returns the hostname of the device that needs attention?
+
+```json
+{
+  "response": [
+    {"hostname": "core-1", "reachabilityStatus": "Reachable"},
+    {"hostname": "dist-2", "reachabilityStatus": "Reachable"},
+    {"hostname": "edge-9", "reachabilityStatus": "Unreachable"}
+  ],
+  "version": "1.0"
+}
+```
+
+- **A.** `data["response"][2]["hostname"]`
+- **B.** `data["response"][3]["hostname"]`
+- **C.** `data["response"]["edge-9"]`
+- **D.** `data[2]["hostname"]`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `edge-9` is the unreachable one, and it is the third object in the `response` array, which is index 2. **Why not the others:** B is off by one (index 3 doesn't exist: `IndexError`). C looks up a key in a list, which raises `TypeError`; a list needs a position. D skips `["response"]`, so it asks the top-level dict for a key `2`, which raises `KeyError`.
+</details>
 
 ---
 
@@ -10021,6 +17087,74 @@ This fires only when **both** tracked objects are down, which one-event applets 
 
 > **Watch out for AAA.** If command authorization is on (17.4), applet commands are authorized too, as a user with no name, and get rejected. Fix it with `event manager session cli username "eem-svc"` pointing at an account that's authorized on the AAA server.
 
+**📝 Exam-style questions — 21.1**
+
+**Q1.** Refer to the exhibit. In what order does EEM run the actions?
+
+```
+event manager applet COLLECT
+ event none
+ action 1.0 cli command "enable"
+ action 2.0 cli command "show clock"
+ action 3.0 cli command "show ip route summary"
+ action 10.0 syslog msg "COLLECT finished"
+```
+
+- **A.** 1.0, 2.0, 3.0, 10.0
+- **B.** 10.0, 1.0, 2.0, 3.0
+- **C.** 1.0, 10.0, 2.0, 3.0
+- **D.** 1.0, 2.0, 10.0, 3.0
+
+<details><summary>Answer</summary>
+
+**Answer: C.** EEM sorts labels as **strings**, character by character. `"1.0"` and `"10.0"` both start with `1`, and at the second character `.` sorts before `0`, so `1.0` comes first and `10.0` second, ahead of everything starting with `2` or `3`. The "finished" message is logged before the work is done. **Why not the others:** A is numeric order, which EEM doesn't use. B and D don't match string order either. Padded labels (`010`, `020` …) avoid the problem.
+</details>
+
+**Q2.** Refer to the exhibit. The applet is run with `event manager run LOOP0-DESC`, but the description is never set, and `debug event manager action cli` shows `% Invalid input`. What fixes it?
+
+```
+event manager applet LOOP0-DESC
+ event none
+ action 010 cli command "configure terminal"
+ action 020 cli command "interface Loopback0"
+ action 030 cli command "description Set by EEM"
+ action 040 cli command "end"
+```
+
+- **A.** Add `action 005 cli command "enable"`.
+- **B.** Change `event none` to `event timer watchdog time 60`.
+- **C.** Add `maxrun 60` to the event line.
+- **D.** Renumber the labels as 1.0 to 4.0.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** An applet's CLI session starts at **user EXEC**, where `configure terminal` is invalid input. `enable` must run first, and label `005` sorts before `010`. **Why not the others:** B changes when it fires, not what privilege it has. C fixes applets killed after 20 seconds, but this one fails at once. D would keep the order the same (all labels under 10) and leave the missing `enable`.
+</details>
+
+**Q3.** `$_cli_result` holds `     87 input errors, 0 CRC, 0 frame, 0 overrun, 0 ignored`. The applet then runs `action 030 regexp "([0-9]+) input errors" "$_cli_result" match errs`. What does `$errs` contain?
+
+- **A.** `87 input errors`
+- **B.** `87`
+- **C.** `1`
+- **D.** The whole contents of `$_cli_result`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The first variable after the input (`match`) receives the **whole match**, and the next one (`errs`) receives the first bracketed group, which captures only the digits. **Why not the others:** A is the value of `$match`. C is the value of `$_regexp_result`, which is 1 when the pattern matched. D is the input string, which `regexp` reads but doesn't copy.
+</details>
+
+**Q4.** Why is EEM a better choice than an external script for capturing diagnostics the moment a WAN uplink fails?
+
+- **A.** EEM applets can be written in Python only.
+- **B.** EEM sends the diagnostics to a central server automatically.
+- **C.** EEM can run commands that are not available at the CLI.
+- **D.** EEM runs on the device itself, so it still works when the failure cuts the path from the server, and it captures data during the event.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** When the uplink fails, a central script may no longer be able to reach the device, and a short event is over before anyone logs in. An applet is already on the box and reacts at once. **Why not the others:** A is false: an applet is written as ordinary configuration commands, not Python. B is false unless you add actions to send mail or syslog. C is false: `cli` actions run ordinary CLI commands.
+</details>
+
 ---
 
 ## 21.2 Three Applets You Should Be Able to Write
@@ -10158,6 +17292,69 @@ R1# debug event manager action cli           ! watch each cli action run, and it
 | Applet stops part-way through | Hit the 20-second `maxrun` | Add `maxrun` to the event line |
 | `cli` commands rejected | AAA command authorization | `event manager session cli username` |
 
+**📝 Exam-style questions — 21.2**
+
+**Q1.** Requirement: *"When the line protocol on GigabitEthernet0/1 goes down, append `show interface GigabitEthernet0/1` to a file in flash."* No tracking objects are configured on the router. Which event line meets it?
+
+- **A.** `event track 1 state down`
+- **B.** `event syslog pattern "LINEPROTO-5-UPDOWN.*GigabitEthernet0/1, changed state to down"`
+- **C.** `event cli pattern "shutdown" sync no skip no`
+- **D.** `event timer watchdog time 60`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** "When the line protocol goes down" is a log message, so the syslog detector with a pattern copied from the real `%LINEPROTO-5-UPDOWN` message is the match. **Why not the others:** A needs a tracked object that the requirement doesn't mention, and none is configured. C fires only when someone *types* `shutdown`; a cable failure would be missed. D fires every 60 seconds whether or not anything happened.
+</details>
+
+**Q2.** Refer to the exhibit. The applet fires, logs its message, but the port never comes back up. What is the fix?
+
+```
+event manager applet GI02-ERRDISABLE
+ event syslog pattern "ERR_DISABLE: bpduguard.*Gi0/2,"
+ action 010 syslog priority critical msg "Gi0/2 err-disabled - bouncing in 30s"
+ action 020 wait 30
+ action 030 cli command "enable"
+ action 040 cli command "configure terminal"
+ action 050 cli command "interface GigabitEthernet0/2"
+ action 060 cli command "shutdown"
+ action 070 cli command "no shutdown"
+ action 080 cli command "end"
+```
+
+- **A.** Change `wait 30` to `wait 20`.
+- **B.** Remove `enable`, because syslog applets already run at privilege 15.
+- **C.** Add `skip yes` to the event line.
+- **D.** Add `maxrun 60` to the event line.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** By default EEM kills an applet after **20 seconds**. The `wait 30` alone exceeds that, so the applet dies before reaching the CLI actions. `maxrun 60` gives it time to finish. **Why not the others:** A still leaves no time for the commands after the wait. B is false: every applet's CLI session starts at user EXEC. C is an option of the `cli` event detector, not the syslog detector.
+</details>
+
+**Q3.** Which applet stops anyone from running `reload` and logs who tried?
+
+- **A.** `event cli pattern "^reload" sync no skip yes` with an action `syslog priority critical msg "Command '$_cli_msg' blocked by EEM"`
+- **B.** `event cli pattern "^reload" sync no skip no` with the same syslog action
+- **C.** `event syslog pattern "reload"` with an action `cli command "no reload"`
+- **D.** `event none` with an action `reload`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `skip yes` means the matched command is **not executed**, and `$_cli_msg` holds the command that was typed. **Why not the others:** B logs the attempt but lets the reload run (`skip no`). C waits for a log message, which appears only once the reload is already under way, and `no reload` isn't a way to block it. D does the opposite: run by hand, it reloads the device.
+</details>
+
+**Q4.** The pattern in the Q2 exhibit is `ERR_DISABLE: bpduguard.*Gi0/2,`. Why does it end with a comma?
+
+- **A.** EEM requires every syslog pattern to end with punctuation.
+- **B.** The comma tells EEM to stop reading the log message.
+- **C.** Without it, the pattern would also match messages for Gi0/20 to Gi0/29, because `Gi0/2` is a prefix of those names.
+- **D.** The comma makes the applet run only once.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The real message reads `...detected on Gi0/2, putting Gi0/2 in err-disable state`. A pattern ending in `Gi0/2` also matches `Gi0/21`, so an err-disable on Gi0/21 would make the applet bounce Gi0/2, a port that was never down. Including the comma that follows the name in the real message pins it to Gi0/2. **Why not the others:** A, B and D invent rules; the pattern is an ordinary regular expression, and the comma is simply a literal character to match.
+</details>
+
 ---
 
 ## 21.3 Orchestration Tools — Agent vs Agentless
@@ -10214,6 +17411,57 @@ A **DSL** (domain-specific language) is a small language built for one job. **Ji
 **Memory hooks:** *Ansible* is agentless, push and YAML. *Puppet and Chef* are agent-based, pull and Ruby. *Salt* is agent-based, push and YAML, with a fast message bus.
 
 > **Exam trap:** "Which tool requires no software on the managed device?" → **Ansible**. "Which uses a pull model with agents checking in to a master?" → **Puppet** (or Chef). "Which uses Ruby-based recipes and cookbooks?" → **Chef**.
+
+**📝 Exam-style questions — 21.3**
+
+**Q1.** Which two statements about orchestration tools are true? (Choose two.)
+
+- **A.** Ansible requires an agent on every managed router.
+- **B.** Puppet agents periodically pull a compiled catalog from the Puppet server over HTTPS on TCP 8140.
+- **C.** Chef describes desired state in YAML playbooks.
+- **D.** SaltStack minions receive their instructions through SNMP traps.
+- **E.** Ansible connects to devices over SSH, NETCONF or REST APIs without installing software on them.
+
+<details><summary>Answer</summary>
+
+**Answer: B, E.** Puppet is agent-based and pull: every 30 minutes by default, the agent sends its facts to the server on TCP 8140 and applies the catalog it gets back. Ansible is agentless and uses the protocols devices already speak. **Why not the others:** A is the opposite of Ansible's design. C mixes tools: Chef uses Ruby recipes in cookbooks, while playbooks are Ansible's. D is wrong: Salt minions use a ZeroMQ message bus (TCP 4505/4506).
+</details>
+
+**Q2.** Why do agentless tools fit network devices better than agent-based ones?
+
+- **A.** You usually can't install third-party software on a router or switch, and every device already offers SSH, and on IOS XE also NETCONF and RESTCONF.
+- **B.** Agentless tools don't need credentials to log in to devices.
+- **C.** Agent-based tools can only manage Windows servers.
+- **D.** Agentless tools apply changes without connecting to the devices.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** An agent has to run on the managed node, and most network operating systems don't allow that (or you don't want an extra daemon on your core). An agentless tool uses what's already there. **Why not the others:** B is false: Ansible logs in with SSH or API credentials, ideally kept in Ansible Vault. C is false: Puppet and Chef manage Linux servers too. D is false: agentless tools push changes by connecting to each device.
+</details>
+
+**Q3.** An Ansible playbook runs every night against 500 routers. What happens on a router that already matches the playbook?
+
+- **A.** Every command is sent again, and the router is reported as changed.
+- **B.** The router is skipped and reported as unreachable.
+- **C.** Nothing is changed, and each task is reported as ok.
+- **D.** The whole running configuration is replaced with the playbook's lines.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** That's idempotency: like a thermostat already at the set temperature, the tool compares the desired state with the actual state and does nothing when they match. **Why not the others:** A describes a non-idempotent script that blindly re-sends commands. B means Ansible couldn't connect at all. D is wrong: `ios_config` sends only the missing lines.
+</details>
+
+**Q4.** Which pairing of tool, unit of work and model is correct?
+
+- **A.** Chef: playbooks, push
+- **B.** Ansible: minions, ZeroMQ bus
+- **C.** SaltStack: recipes in a Ruby DSL
+- **D.** Puppet: manifests, pull
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Puppet code is written in manifests, and its agents pull their configuration from the server. **Why not the others:** A swaps in Ansible's terms (Chef uses cookbooks and recipes, and pulls). B gives Ansible Salt's terms. C gives Salt Chef's terms (Salt writes YAML states).
+</details>
 
 ---
 
@@ -10322,6 +17570,57 @@ br2                        : ok=3    changed=0    unreachable=0    failed=0  ...
 
 Read the recap: **ok** counts every task that succeeded (whether or not it changed anything), **changed** counts the ones that actually altered the device, and **unreachable** counts hosts it couldn't reach at all (SSH down or wrong credentials). `changed=0` on the second run is the proof of idempotency. Add `--check --diff` to the command for a **dry run**: Ansible reports what it *would* change, and shows the lines, without touching the devices.
 
+**📝 Exam-style questions — 21.4**
+
+**Q1.** Refer to the exhibit. This is the second run of a playbook, a minute after the first. What does the recap show?
+
+```
+PLAY RECAP **********************************************************
+br1                        : ok=3    changed=0    unreachable=0    failed=0  ...
+br2                        : ok=3    changed=0    unreachable=0    failed=0  ...
+```
+
+- **A.** The playbook failed on both routers, so nothing was changed.
+- **B.** Both routers already matched the desired state, so no task needed to change anything.
+- **C.** Ansible couldn't log in, so it skipped the routers.
+- **D.** The tasks ran in check mode and were not allowed to make changes.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** **ok** counts every task that succeeded, and **changed** counts the ones that actually altered the device. Three successful tasks with zero changes is idempotency you can see: the first run fixed everything. **Why not the others:** A would show `failed` above 0. C would show `unreachable` above 0. D is wrong because in check mode Ansible still counts tasks that *would* change something as changed, so `changed=0` would mean the same thing: nothing to do.
+</details>
+
+**Q2.** An engineer wants to see which lines a playbook *would* change on each router, without touching the devices. Which command does that?
+
+- **A.** `ansible-playbook -i inventory.ini ntp.yml --check --diff`
+- **B.** `ansible-playbook -i inventory.ini ntp.yml` with `gather_facts: true`
+- **C.** `ansible-playbook -i inventory.ini ntp.yml` with `save_when: modified`
+- **D.** `ansible-playbook -i inventory.ini ntp.yml --vault`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `--check` makes it a dry run, and `--diff` shows the lines that would change. **Why not the others:** B only collects facts, and the run still makes changes. C controls whether the configuration is saved after a change. D is not an option for a dry run; Ansible Vault is for encrypting secrets such as passwords.
+</details>
+
+**Q3.** Refer to the exhibit. Which change makes Ansible manage these routers over NETCONF instead of the CLI?
+
+```ini
+[branch_routers:vars]
+ansible_network_os=cisco.ios.ios
+ansible_connection=ansible.netcommon.network_cli
+ansible_user=automation
+```
+
+- **A.** `ansible_network_os=netconf`
+- **B.** `ansible_host=830`
+- **C.** `ansible_user=netconf`
+- **D.** `ansible_connection=ansible.netcommon.netconf`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The `ansible_connection` variable picks the transport: `network_cli` is SSH to the CLI, `netconf` is NETCONF, and `httpapi` is REST. **Why not the others:** A names the device's operating system, not the transport. B would set the device's address to "830". C only changes the username.
+</details>
+
 ---
 
 ## 21.5 AI in Network Operations
@@ -10366,6 +17665,45 @@ A generated configuration is a **suggestion from a very fast junior engineer who
 The AI saved twenty minutes of typing. The guardrails stopped two bugs from reaching production.
 
 *The pattern that works: AI proposes and explains, automation executes idempotently, and humans approve. Each does what it's best at.* This is the same layering as the rest of Part I: Python and APIs (Chapters 19–20) are the hands, orchestration (21.3) is the discipline, and AI is an increasingly capable advisor on top.
+
+**📝 Exam-style questions — 21.5**
+
+**Q1.** Why does an AI-learned baseline produce more useful alerts than a fixed threshold such as "alert if DHCP takes more than 5 seconds"?
+
+- **A.** A baseline never raises alerts, so engineers aren't distracted.
+- **B.** A baseline uses the same limit for every site, which keeps alerts consistent.
+- **C.** A baseline learns what is normal for each site at each time of day, so it flags genuinely unusual behaviour that a fixed limit misses or over-reports.
+- **D.** A baseline replaces the need to collect telemetry.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A fixed limit fires all through a busy Monday morning and stays silent when a quiet site slips from 0.2 to 2 seconds. A learned baseline knows that site's normal and flags the real change, like a doctor who knows *your* resting heart rate. **Why not the others:** A is false: the point is better alerts, not no alerts. B describes a fixed threshold. D is backwards: baselines are learned *from* telemetry.
+</details>
+
+**Q2.** Which task is an example of **generative** AI rather than predictive or analytical AI?
+
+- **A.** Learning a dynamic baseline for client onboarding times
+- **B.** Drafting an Ansible playbook from a plain-language description
+- **C.** Detecting an anomaly in flow records
+- **D.** Forecasting when a link will run out of capacity
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Generative AI (LLM assistants) produces natural language and code, such as a playbook, an EEM applet or an incident summary. **Why not the others:** A, C and D are predictive or analytical AI (ML and AIOps): learning baselines, spotting anomalies and forecasting trends from telemetry.
+</details>
+
+**Q3.** Which two practices are appropriate guardrails for AI-generated network changes? (Choose two.)
+
+- **A.** Give the AI assistant write access so it can push its own changes.
+- **B.** Have a person review and approve every change before it reaches production.
+- **C.** Skip version control for AI output, because it was machine-generated.
+- **D.** Validate the change first in a lab or digital twin, with pre- and post-change checks.
+- **E.** Paste full running configurations into any public AI service to get better answers.
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** Human-in-the-loop approval and validation before deployment are what catch fluent but wrong output, like the 21.5 applet that lacked `enable` and had mis-sorting labels. **Why not the others:** A breaks least privilege: write access should go through the normal change process. C removes the audit trail and the rollback path. E leaks secrets and topology; you need to know where prompts and data go first.
+</details>
 
 ---
 
@@ -10415,6 +17753,32 @@ The general loop never changes:
 
 Notice what you never did: you never debugged OSPF, never touched the WAN and never rebooted anything. The VLAN 10 versus VLAN 20 comparison ruled all of that out in one step.
 
+**📝 Exam-style questions — 22.1**
+
+**Q1.** Users in VLAN 20 at a branch cannot reach the server 10.50.1.10. Users in VLAN 10 at the same branch reach it without problems, and so do all other branches. Which next step narrows the fault down fastest?
+
+- **A.** Run `debug ip ospf adj` on the branch router to check the WAN adjacency.
+- **B.** Run a traceroute from the data center core to 10.50.1.10.
+- **C.** Look at what is configured only for VLAN 20, such as the SVI's inbound ACL.
+- **D.** Reload the branch router during a maintenance window.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** VLAN 10 works, so everything the two VLANs share is already proven good: the uplink, the WAN, OSPF, the core and the server. Only the things that differ between the VLANs are left, such as VLAN 20's SVI, its ACL and its HSRP group. **Why not the others:** A debugs OSPF, which VLAN 10's success has already cleared. B tests the path from the wrong end and through devices that are already proven to work. D changes things without a hypothesis and destroys evidence.
+</details>
+
+**Q2.** In a structured troubleshooting process, what makes a hypothesis worth testing?
+
+- **A.** It matches the most common cause of this symptom on the exam.
+- **B.** It explains the most recent configuration change.
+- **C.** It can be tested immediately by changing the configuration.
+- **D.** It explains every fact gathered, including who is not affected.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A good hypothesis has to explain all the facts, not just some of them. "Who is not affected" is one of the strongest facts, because it rules out everything the working and broken users have in common. **Why not the others:** A and B are useful starting guesses, but a hypothesis that ignores some facts is usually wrong. C has it backwards: test with a command that proves or disproves the idea, and only change the config once the cause is proven.
+</details>
+
 ## 22.2 The Six Classic Approaches
 
 A method tells you *how* to think. An approach tells you *where to start looking*. Picking the right starting point is the difference between a five-minute fix and an hour of checking things that were never broken. Cisco's troubleshooting material names these approaches, and ENARSI scenarios quietly reward knowing when to use each one:
@@ -10433,6 +17797,44 @@ A method tells you *how* to think. An approach tells you *where to start looking
 **Story Time 📖:** Follow-the-path is like tracking a lost parcel. The parcel went through five sorting depots. Each depot read the label and chose the next truck on its own. You don't need to inspect the whole postal system: you check each depot's scan log in order until you find the one that put the parcel on the wrong truck. That depot is your broken router.
 
 **Exam trap:** don't treat these as competitors. Real troubleshooting chains them. You divide-and-conquer with a ping, follow the path with `traceroute` to find the failing hop, then compare that hop's config with its healthy twin.
+
+**📝 Exam-style questions — 22.2**
+
+**Q1.** A user reports: "Web browsing works, but my VoIP calls fail to connect." Which troubleshooting approach is the best starting point?
+
+- **A.** Top-down
+- **B.** Bottom-up
+- **C.** Swap components
+- **D.** Compare configurations
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Web traffic works, so the cable, Layer 2 and basic IP routing are fine. The difference is at the application level (VoIP signalling, its ports, QoS or a firewall rule for it), so start at the top and work down. **Why not the others:** B would spend time re-proving the physical and data-link layers that web traffic already proves. C suits suspected hardware, and nothing here points to hardware. D needs a known-good twin device and doesn't target the layer where the symptom is.
+</details>
+
+**Q2.** Traffic from a branch to the data center crosses six routers and fails somewhere along the way. The fault is a wrong forwarding decision on one of them. Which approach finds that router most directly, and why?
+
+- **A.** Bottom-up, because a routing fault usually starts with a physical error.
+- **B.** Divide-and-conquer, because one ping proves which router is broken.
+- **C.** Follow-the-path, because each router forwards independently using its own tables.
+- **D.** Swap components, because replacing routers one at a time isolates the fault.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Each router makes its own forwarding decision from its own tables. A packet that goes astray therefore goes astray at one specific router, and tracing hop by hop (with traceroute and `show ip route` on each hop) finds it directly. **Why not the others:** A assumes a physical cause with no evidence. B is a fine first step, but a failed end-to-end ping only proves that something on the path is broken, not which hop. D is slow and disruptive, and even when it isolates the fault it doesn't explain it.
+</details>
+
+**Q3.** Which statement about the swap-components approach is correct?
+
+- **A.** It is the preferred approach for routing-protocol faults.
+- **B.** It explains the root cause of the problem.
+- **C.** It always works faster than divide-and-conquer.
+- **D.** It can isolate the faulty part without explaining why it failed.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** If the problem moves when you move an SFP or a cable, you've found the faulty part, but you still don't know why it failed. That's fine for hardware, which is where this approach fits. **Why not the others:** A is wrong because routing faults live in configuration and tables, not in parts you can swap. B is the exact weakness of this approach. C is not true in general: swapping is slow and disruptive.
+</details>
 
 ## 22.3 A Repeatable Workflow for "The Route Is Wrong"
 
@@ -10483,6 +17885,67 @@ EIGRP-IPv4 Topology Entry for AS(100)/ID(2.2.2.2) for 10.50.0.0/16
 
 3. Step 4: EIGRP *does* know the prefix, so the neighbors are fine. But look at `External data`: this is an **EIGRP external** route (AD 170), redistributed from OSPF by router 4.4.4.4. OSPF's 110 beats 170, so the EIGRP copy loses the election and stays out of the RIB.
 4. Conclusion: nothing is broken in EIGRP. Someone added redistribution at 4.4.4.4, and the prefix now reaches R2 by two protocols. The real question becomes "which path do we *want*?", answered with AD tuning (22.6) or by changing the redistribution (Chapter 24).
+
+**📝 Exam-style questions — 22.3**
+
+**Q1.** Refer to the exhibit. Which two statements are correct? (Choose two.)
+
+```
+R2# show ip route 10.50.1.1
+Routing entry for 10.50.0.0/16
+  Known via "ospf 1", distance 110, metric 20, type extern 2, forward metric 2
+  Last update from 10.0.23.3 on GigabitEthernet0/1, 00:12:41 ago
+  Routing Descriptor Blocks:
+  * 10.0.23.3, from 3.3.3.3, 00:12:41 ago, via GigabitEthernet0/1
+      Route metric is 20, traffic share count is 1
+```
+
+- **A.** The prefix was redistributed into OSPF by some router.
+- **B.** The route was learned from an EIGRP neighbor at 10.0.23.3.
+- **C.** The metric 20 includes R2's own cost to reach the ASBR.
+- **D.** The router with router ID 3.3.3.3 originated the LSA for this prefix.
+- **E.** The route is installed because it has the longest prefix length in the table.
+
+<details><summary>Answer</summary>
+
+**Answer: A, D.** "type extern 2" means an OSPF E2 route, which only exists because someone redistributed the prefix into OSPF. "from 3.3.3.3" names the router ID that originated the LSA; the next hop is 10.0.23.3. **Why not the others:** B is wrong because the route is "Known via ospf 1". C is wrong because an E2 metric stays at the seed value and does not add internal cost; the internal cost to the ASBR shows separately as the "forward metric" (2). E is wrong because the output says nothing about other prefixes, and longest match chooses between different prefixes during forwarding, not which source gets installed.
+</details>
+
+**Q2.** An engineer expects R2 to reach 10.50.0.0/16 through EIGRP, but `show ip route` shows only an OSPF route for it. The EIGRP neighbors are all up. What should the engineer check next?
+
+- **A.** `debug eigrp packets`, to see whether updates for the prefix arrive.
+- **B.** `show ip eigrp topology 10.50.0.0/16`, to see whether EIGRP knows the prefix but lost the AD contest.
+- **C.** `show ip cef 10.50.0.0`, to see which next hop CEF uses.
+- **D.** `clear ip eigrp neighbors`, to force a fresh exchange of routes.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The routing table shows only the winners. EIGRP can hold a perfectly good entry for the prefix and still lose to OSPF on administrative distance. The topology table is where you see it. **Why not the others:** A produces a lot of output on a healthy protocol and doesn't answer the question directly. C shows the forwarding result, which you already know is the OSPF route. D is a disruptive change made with no hypothesis.
+</details>
+
+**Q3.** Refer to the exhibit. R2 installs an OSPF route for 10.50.0.0/16 instead of this EIGRP route. What is the reason?
+
+```
+R2# show ip eigrp topology 10.50.0.0/16
+EIGRP-IPv4 Topology Entry for AS(100)/ID(2.2.2.2) for 10.50.0.0/16
+  State is Passive, Query origin flag is 1, 1 Successor(s), FD is 3072
+  Descriptor Blocks:
+  10.0.12.1 (GigabitEthernet0/0), from 10.0.12.1, Send flag is 0x0
+      External data:
+        Originating router is 4.4.4.4
+        AS number of route is 1
+        External protocol is OSPF, external metric is 20
+```
+
+- **A.** The route is stuck in the active state, so EIGRP cannot install it.
+- **B.** The route has no feasible successor, so it is not eligible for the RIB.
+- **C.** The route is an EIGRP external route with AD 170, which loses to OSPF's AD of 110.
+- **D.** Split horizon stops R2 from using a route that was learned on Gi0/0.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The "External data" block shows that router 4.4.4.4 redistributed this prefix into EIGRP from OSPF, so on R2 it is a D EX route with AD 170. OSPF's copy has AD 110 and wins. Nothing in EIGRP is broken. **Why not the others:** A is wrong because the state is Passive. B is wrong because a successor exists ("1 Successor(s)"); a feasible successor is only a backup and isn't needed for installation. D is wrong because split horizon controls what a router advertises out an interface, not what it can use.
+</details>
 
 ## 22.4 Control Plane vs Data Plane — the RIB and the FIB
 
@@ -10546,6 +18009,56 @@ R2# show ip cef 10.50.0.0 255.255.0.0 internal    ! deep detail incl. load-share
 ```
 
 `exact-route` answers the question that confuses people with equal-cost paths: "traceroute went one way, but the user's traffic goes another." CEF load-shares **per flow** by hashing source and destination (like EtherChannel, CCNA guide 10.4). Different flows can legitimately take different paths.
+
+**📝 Exam-style questions — 22.4**
+
+**Q1.** `show ip route 10.50.1.1` on R2 shows a valid OSPF route through next hop 10.0.23.3, but traffic to 10.50.1.1 is dropped at R2. `show adjacency` shows the entry for 10.0.23.3 as incomplete. What is the most likely cause?
+
+- **A.** R2 has no ARP entry for 10.0.23.3, because the next hop is not answering ARP.
+- **B.** The OSPF adjacency with 10.0.23.3 is stuck in EXSTART.
+- **C.** The route is recursive and CEF cannot resolve it.
+- **D.** The route is in the RIB but was never copied into the FIB because its AD is too high.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The adjacency table holds the ready-made Layer 2 header for each next hop, and it is built from ARP. If it is incomplete, R2 has no MAC address for 10.0.23.3, so it cannot build the frame and drops the packets, even though the routing table looks perfect. **Why not the others:** B is wrong because a neighbor stuck in EXSTART would never have given R2 this OSPF route. C is wrong because the next hop 10.0.23.3 is directly connected. D is wrong because any route that wins the RIB contest goes into the FIB; AD has nothing to do with the RIB-to-FIB copy.
+</details>
+
+**Q2.** Which CEF entry type means that a packet is addressed to the router itself and must be handed to the CPU?
+
+- **A.** `attached`
+- **B.** `glean`
+- **C.** `punt`
+- **D.** `receive`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `receive` entries cover the router's own addresses, so packets that match them go up to the control plane. **Why not the others:** A means a directly connected subnet, where the router ARPs for the destination itself. B means a connected subnet where there is no ARP entry yet for the host, so the router sends an ARP request first. C means CEF can't switch the packet and passes it to the slow path. A `punt` packet isn't necessarily addressed to the router.
+</details>
+
+**Q3.** Why does a Cisco router forward packets with CEF instead of looking each packet up in the routing table?
+
+- **A.** The routing table can't hold more than one route per prefix.
+- **B.** CEF resolves recursive next hops and pre-builds the Layer 2 header once, so each packet needs only one lookup.
+- **C.** The routing table contains only connected and static routes.
+- **D.** CEF load-shares per packet, which the routing table can't do.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A BGP route's next hop might be several recursive lookups away from a real interface. CEF does that work once, when the route changes, and stores the result in the FIB, with the frame header ready in the adjacency table. Forwarding then becomes one lookup plus a header copy. **Why not the others:** A is false, because the RIB can hold several equal-cost paths. C is false, because the RIB holds every source. D is wrong because CEF load-shares per flow by default, not per packet.
+</details>
+
+**Q4.** R2 has two equal-cost paths to 10.50.0.0/16. A traceroute from R2 takes the path through Gi0/1, but a user's traffic from 10.1.1.10 appears to use Gi0/2. Which command shows exactly which path that user's flow takes?
+
+- **A.** `show ip route 10.50.1.1`
+- **B.** `show ip cef 10.50.0.0 255.255.0.0`
+- **C.** `show ip cef exact-route 10.1.1.10 10.50.1.1`
+- **D.** `show adjacency detail`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** CEF load-shares per flow by hashing the source and destination addresses. `exact-route` runs that hash for one specific source and destination pair and shows the link that flow uses. A traceroute from R2 is a different flow, so it can legitimately take the other link. **Why not the others:** A and B list both equal-cost paths but don't say which one a given flow takes. D lists the Layer 2 headers for the next hops without saying which flow uses which.
+</details>
 
 ## 22.5 Administrative Distance — How the Router Chooses Between Sources
 
@@ -10621,6 +18134,69 @@ AD is designed to be unique per protocol, but `distance` lets you create a tie, 
 
 **Exam trap:** a floating static must have an AD **higher** than the route it backs up. A backup for an OSPF-learned route needs an AD above 110 — set it at 111 or more. Leave the backup at the default AD of 1 and it beats OSPF immediately, so your "backup" link carries all the traffic.
 
+**📝 Exam-style questions — 22.5**
+
+**Q1.** R1 learns 10.20.0.0/16 from three sources: OSPF with cost 30, EIGRP (internal) with metric 28,160, and RIP with 2 hops. All AD values are at their defaults. Which route does R1 install?
+
+- **A.** The RIP route, because 2 hops is the lowest metric.
+- **B.** The OSPF route, because cost 30 is lower than 28,160.
+- **C.** All three, because they load-share across protocols.
+- **D.** The EIGRP route, because it has the lowest AD (90).
+
+<details><summary>Answer</summary>
+
+**Answer: D.** When different sources offer the same prefix, the router compares AD only: EIGRP 90 beats OSPF 110 and RIP 120. Metrics from different protocols are never compared with each other, because they measure different things. **Why not the others:** A and B make exactly that mistake. C is wrong because only one source is ever installed for a prefix; there is no load sharing across protocols.
+</details>
+
+**Q2.** R1's routing table contains `D 10.20.0.0/16 [90/28160]` and `O 10.20.5.0/24 [110/40]`. Which route does R1 use to forward a packet to 10.20.5.9?
+
+- **A.** The OSPF /24, because the longest match wins during forwarding.
+- **B.** The EIGRP /16, because its AD of 90 beats 110.
+- **C.** Both, load-sharing across the two routes.
+- **D.** Neither; the overlap causes a routing loop.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** These are two different prefixes, so both are installed, and forwarding picks the longest prefix that matches. AD only decides between sources offering the identical prefix. A packet to 10.20.9.9, by contrast, matches only the /16 and goes via EIGRP. **Why not the others:** B applies AD to different prefixes, which is one of the most common ENARSI mistakes. C is wrong because forwarding never load-shares across different prefixes. D is wrong because overlapping prefixes are normal and don't cause loops.
+</details>
+
+**Q3.** Which two default administrative distances are correct? (Choose two.)
+
+- **A.** EIGRP external: 90
+- **B.** eBGP: 20
+- **C.** iBGP: 20
+- **D.** EIGRP summary route: 5
+- **E.** OSPF external (E2): 170
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** eBGP is 20 and an EIGRP summary's local Null0 route is 5. **Why not the others:** A is wrong because EIGRP external is 170; 90 is EIGRP internal. C is wrong because iBGP is 200. E is wrong because all OSPF route types, including E1 and E2, use 110.
+</details>
+
+**Q4.** R1 learns its default route from OSPF. The engineer adds an LTE backup that must carry traffic only if the OSPF default disappears. Which command achieves this?
+
+- **A.** `ip route 0.0.0.0 0.0.0.0 172.16.0.1`
+- **B.** `ip route 0.0.0.0 0.0.0.0 172.16.0.1 90`
+- **C.** `ip route 0.0.0.0 0.0.0.0 172.16.0.1 110`
+- **D.** `ip route 0.0.0.0 0.0.0.0 172.16.0.1 115`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A floating static needs an AD higher than the route it backs up. OSPF is 110, so 115 stays out of the RIB while the OSPF default exists and is installed as soon as it disappears. **Why not the others:** A uses the default AD of 1 and beats OSPF straight away, so the "backup" carries everything. B (90) also beats 110. C creates a tie, and which source wins a tie is implementation behavior you can't design around.
+</details>
+
+**Q5.** Why does iBGP have a default AD of 200, far worse than any IGP?
+
+- **A.** iBGP routes are learned from another autonomous system and are less trustworthy.
+- **B.** The IGP knows internal paths more precisely, and iBGP next hops are resolved through the IGP, so iBGP must not override it.
+- **C.** iBGP routes are always summaries and lack detail.
+- **D.** iBGP runs over UDP, which is unreliable.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An iBGP route was carried across your own AS, and your IGP already knows how to reach destinations inside it, including the iBGP next hops themselves. If iBGP beat the IGP, BGP could take over internal paths and create loops. **Why not the others:** A describes eBGP, which is learned from another AS and gets AD 20. C is false; iBGP carries any prefix. D is wrong because BGP runs over TCP port 179.
+</details>
+
 ## 22.6 Changing AD — the `distance` Command, Protocol by Protocol
 
 **Why change AD at all?** The defaults suit a network that runs one protocol cleanly. Real networks merge companies, run two protocols during a migration, or learn the same prefix from a partner over BGP and over a private link. In those cases the default trust ranking can pick the wrong path, and changing AD is how you tell the router "in *this* case, trust that source more (or less)."
@@ -10688,6 +18264,62 @@ This tells BGP: *"treat my eBGP-learned copy of this prefix as AD 200 (local)."*
 
 **Worked example.** Before the change, R1 shows `B 172.30.0.0/16 [20/0] via 203.0.113.1` (the ISP) and the OSPF copy over the private link loses. After `network 172.30.0.0 mask 255.255.0.0 backdoor`, the eBGP copy is re-ranked at AD 200, so R1 installs `O 172.30.0.0/16 [110/2] via 10.99.0.2` and traffic uses the private link. If the private link fails, the OSPF route disappears and the BGP copy (now AD 200) is installed instead: the internet path becomes the automatic backup. Note that the prefix in the `backdoor` statement must match the eBGP-learned prefix exactly.
 
+**📝 Exam-style questions — 22.6**
+
+**Q1.** Refer to the exhibit. The engineer wants OSPF routes for 10.50.0.0/16 that originate at router R3 (router ID 3.3.3.3) to get AD 200. R3's neighbor address on the link is 10.0.23.3. The command has no effect. Why?
+
+```
+access-list 10 permit 10.50.0.0 0.0.255.255
+router ospf 1
+ distance 200 10.0.23.3 0.0.0.0 10
+```
+
+- **A.** OSPF per-source distance matches the router ID of the LSA's originator, not a neighbor's interface address.
+- **B.** The wildcard must be 255.255.255.255 to match a single host.
+- **C.** Per-source distance only works for external OSPF routes.
+- **D.** The ACL must be a named ACL.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** For OSPF, the "source" in `distance <AD> <source> <wildcard> <ACL>` is the router ID of the router that originated the LSA. The command should be `distance 200 3.3.3.3 0.0.0.0 10`. For EIGRP, RIP and BGP the source is the neighbor's IP address, which is where this mistake comes from. **Why not the others:** B is wrong because a wildcard of 0.0.0.0 means "exactly this address". C is wrong because the command applies to any route type. D is wrong because a numbered standard ACL works fine.
+</details>
+
+**Q2.** Which command changes the AD of only external OSPF routes to 175, leaving intra-area and inter-area routes at 110?
+
+- **A.** `distance 175` under `router ospf 1`
+- **B.** `distance eigrp 110 175` under `router ospf 1`
+- **C.** `distance ospf external 175` under `router ospf 1`
+- **D.** `distance bgp 175 200 200` under `router ospf 1`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** OSPF sets AD per route type with `distance ospf intra-area … inter-area … external …`, and any keyword you leave out keeps its default. **Why not the others:** A changes the AD of every OSPF route. B and D are EIGRP and BGP syntax and don't belong under `router ospf`.
+</details>
+
+**Q3.** R1 learns the partner network 172.30.0.0/16 by eBGP from the ISP and as an intra-area OSPF route over a private link to the partner. Traffic uses the internet path. Which change makes R1 prefer the private link while keeping the internet path as an automatic backup?
+
+- **A.** Under `router ospf 1`, configure `distance ospf external 15`.
+- **B.** Under the BGP IPv4 address family, configure `network 172.30.0.0 mask 255.255.0.0 backdoor`.
+- **C.** Configure a static route to 172.30.0.0/16 through the private link with AD 1.
+- **D.** Under BGP, configure `neighbor 203.0.113.1 weight 0`.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `backdoor` gives the eBGP-learned copy of that exact prefix AD 200, so OSPF's 110 wins while the private link is up. If the private link fails, the OSPF route goes away and the BGP route (now at AD 200) is installed instead. **Why not the others:** A only changes OSPF external routes, and this route is intra-area, so its AD stays 110. C wins permanently and doesn't fail over if the private link's far side dies while the interface stays up. D changes BGP's own best-path choice, not the AD contest between BGP and OSPF.
+</details>
+
+**Q4.** Why is changing AD the right tool when OSPF and EIGRP both offer the same prefix and the wrong one is installed?
+
+- **A.** Because AD changes are applied without resetting neighbors, while metric changes reset them.
+- **B.** Because metrics only compare routes within one protocol, and AD is the only value compared between protocols.
+- **C.** Because OSPF ignores EIGRP metrics during SPF.
+- **D.** Because the metric only affects the FIB, not the RIB.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** No OSPF cost or EIGRP delay setting can change which protocol wins: the router compares AD across sources and only uses metrics inside one protocol. **Why not the others:** A is not the reason, and metric changes don't generally reset neighbors. C is true but irrelevant, because SPF never sees EIGRP routes at all. D is false, because metrics decide the RIB entry within a protocol.
+</details>
+
 ## 22.7 When AD Causes the Problem
 
 AD is a blunt rule: it doesn't care about path quality, only about *who said it*. Three classic ENARSI scenarios come from that:
@@ -10745,6 +18377,63 @@ Routing entry for 0.0.0.0/0, supernet
 - **Fix:** `no ip route 0.0.0.0 0.0.0.0 172.16.0.1`, then `ip route 0.0.0.0 0.0.0.0 172.16.0.1 250`.
 - **Verify:** `show ip route 0.0.0.0` now shows `Known via "ospf 1", distance 110` and an `O*E2` default. Shut the MPLS interface in a maintenance window and confirm the static at `[250/0]` takes over.
 
+**📝 Exam-style questions — 22.7**
+
+**Q1.** Refer to the exhibit. The branch's primary default route should be learned by OSPF over MPLS, with LTE (172.16.0.1) as the backup. The LTE link carries all the traffic even while MPLS is up. What is the cause?
+
+```
+R1# show ip route 0.0.0.0
+Routing entry for 0.0.0.0/0, supernet
+  Known via "static", distance 1, metric 0, candidate default path
+  Routing Descriptor Blocks:
+  * 172.16.0.1
+      Route metric is 0, traffic share count is 1
+```
+
+- **A.** OSPF is not originating a default route over MPLS.
+- **B.** The static backup was configured without a raised AD, so its AD of 1 beats OSPF's 110.
+- **C.** The static route and the OSPF route are load-sharing.
+- **D.** The LTE router is advertising a better OSPF metric.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The installed default is a static route with distance 1. A floating static needs an AD above 110, for example `ip route 0.0.0.0 0.0.0.0 172.16.0.1 250`. **Why not the others:** A is possible in theory, but the exhibit already explains the symptom: a static at AD 1 would win even if OSPF did send a default. C is wrong because different sources never load-share; only one is installed. D is wrong because the route is "Known via static", not OSPF.
+</details>
+
+**Q2.** On R4, the route to 10.40.0.0/16 changes every few seconds: `show ip route` alternates between "Known via eigrp 100" and "Known via ospf 1". Two boundary routers redistribute between EIGRP and OSPF in both directions. What is the most likely cause?
+
+- **A.** An EIGRP stuck-in-active condition.
+- **B.** An OSPF network type mismatch.
+- **C.** Mutual redistribution feedback: the prefix is re-entering a domain with a better AD than its original source.
+- **D.** CEF per-flow load sharing between the two protocols.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** With two-point mutual redistribution, a prefix can leave its home domain at one boundary router and come back in at the other, now carrying a more trusted AD. Routers then prefer the looped copy, and the route flaps as each copy appears and disappears. The fix (route tags and AD tuning) is in 24.4. **Why not the others:** A would make the route go active and disappear, not alternate between protocols. B breaks routes inside OSPF but doesn't make the source change back and forth. D is wrong because CEF never load-shares across protocols.
+</details>
+
+**Q3.** Refer to the exhibit. The engineer configured a per-source distance to make OSPF routes for 10.50.0.0/16 from RID 3.3.3.3 use AD 200. The routing table still shows `O 10.50.0.0/16 [110/3]`. What should the engineer check first?
+
+```
+R1# show ip protocols | section ospf
+  Routing Information Sources:
+    Gateway         Distance      Last Update
+    3.3.3.3              110      00:03:12
+  Distance: (default is 110)
+    Address         Wild mask       Distance  List
+    3.3.3.3         0.0.0.0              200  10
+```
+
+- **A.** Whether ACL 10 actually permits 10.50.0.0/16.
+- **B.** Whether the OSPF adjacency with 3.3.3.3 is FULL.
+- **C.** Whether the wildcard 0.0.0.0 should be 255.255.255.255.
+- **D.** Whether the `distance` command was applied under `router eigrp` instead of OSPF.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The per-source rule is present with the right source (RID 3.3.3.3), but the route keeps AD 110. Only prefixes that ACL 10 permits get the new distance, so the ACL most likely doesn't match the prefix. **Why not the others:** B is wrong because the route is being learned, so the LSAs are arriving. C is wrong because 0.0.0.0 correctly means "exactly 3.3.3.3". D is wrong because the exhibit shows the rule under OSPF.
+</details>
+
 ---
 
 <a name="chapter-23"></a>
@@ -10771,6 +18460,32 @@ Saying that takes two kinds of tool. **Matching tools** — prefix lists and ACL
 | **Route map** | An ordered set of if/then clauses that uses match lists and can change route attributes |
 | **Attribute** | A property carried with a route: metric, tag, next hop, or BGP values such as local preference |
 | **Tag** | A number stuck onto a route as a label for your own policies (23.5) |
+
+**📝 Exam-style questions — 23.1**
+
+**Q1.** Which statement correctly describes how prefix lists and route maps divide the work?
+
+- **A.** A prefix list applies actions such as `set tag`, and a route map only matches routes.
+- **B.** A prefix list only describes which routes you mean, and a route map decides what to do with them.
+- **C.** Prefix lists and route maps are interchangeable; both can set attributes.
+- **D.** A route map can only match routes by tag, so it always needs a prefix list to permit or deny.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A prefix list (or ACL) is a matching tool: it picks out routes. A route map is the policy tool: its clauses permit, deny or change attributes, using match lists to decide which routes each clause applies to. **Why not the others:** A swaps the roles. C is wrong because a prefix list can never set an attribute. D is wrong because route maps can match on many things (prefix lists, ACLs, route type, interface, metric, tag) and permit or deny on their own.
+</details>
+
+**Q2.** Which requirement can be met only with a route map, not with a prefix list on its own?
+
+- **A.** Stop R1 from learning 10.99.0.0/16 on interface Gi0/1.
+- **B.** Send only the /24 networks inside 10.0.0.0/8 to a BGP neighbor.
+- **C.** Redistribute EIGRP into OSPF and mark every redistributed route with tag 90.
+- **D.** Advertise only the default route out of Gi0/2.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Changing an attribute (here, setting a tag) needs a `set` statement, and only a route map has those. **Why not the others:** A and D are pure filtering, which a distribute list with a prefix list can do. B is also pure filtering, done with a prefix list applied to the BGP neighbor.
+</details>
 
 ## 23.2 Prefix Lists — Matching Routes Precisely
 
@@ -10854,6 +18569,63 @@ IPv6 works identically with `ipv6 prefix-list`, with lengths up to 128.
 
 **Exam trap: the silent rewrite.** Type `ip prefix-list P permit 10.1.1.0/16` and IOS doesn't reject it. It **zeroes the host bits** and stores `10.1.0.0/16`. Because the entry was "fixed" for you, it may match far more (or other) routes than you meant. Always check `show run | include prefix-list` or `show ip prefix-list` after typing one, and read what IOS actually stored.
 
+**📝 Exam-style questions — 23.2**
+
+**Q1.** An engineer configures `ip prefix-list P permit 172.16.0.0/16 ge 20 le 22`. Which two routes match? (Choose two.)
+
+- **A.** 172.16.0.0/16
+- **B.** 172.16.32.0/20
+- **C.** 172.17.0.0/20
+- **D.** 172.16.4.0/22
+- **E.** 172.16.8.0/24
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** A route must match both the first 16 bits (172.16) and the length range 20–22. 172.16.32.0/20 and 172.16.4.0/22 pass both checks. **Why not the others:** A has the right network bits but length 16, which is outside 20–22. C has length 20, but its first 16 bits are 172.17. E is inside 172.16.0.0/16, but /24 is longer than the maximum of 22.
+</details>
+
+**Q2.** Refer to the exhibit. The route 203.0.113.128/25 is offered to this prefix list. What is the result?
+
+```
+ip prefix-list TO-ISP seq 5  deny   10.0.0.0/8 le 32
+ip prefix-list TO-ISP seq 10 permit 203.0.113.0/24
+ip prefix-list TO-ISP seq 15 permit 198.51.100.0/24 le 25
+```
+
+- **A.** Permitted by seq 10, because the /25 falls inside 203.0.113.0/24.
+- **B.** Permitted by seq 15, because its length of 25 is within the `le 25` range.
+- **C.** Denied by seq 5.
+- **D.** Denied by the implicit deny at the end of the list.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Seq 5 doesn't match because the route isn't inside 10.0.0.0/8. Seq 10 has no `ge` or `le`, so it matches only the exact /24, and a /25 fails. Seq 15 has the wrong network bits (198.51.100). No entry matches, so the invisible final deny drops it. **Why not the others:** A forgets that the length must match too. B ignores that the first 24 bits must equal 198.51.100. C is wrong because 203.x isn't inside 10/8.
+</details>
+
+**Q3.** An engineer types `ip prefix-list P permit 10.1.1.0/16` on a router running current IOS XE. What does the router do?
+
+- **A.** It rejects the command with an "inconsistent address and mask" error.
+- **B.** It stores the entry as typed, so it can never match any route.
+- **C.** It stores the entry as `10.1.1.0/24`.
+- **D.** It zeroes the host bits and stores `10.1.0.0/16`.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** IOS quietly corrects the entry by clearing every bit beyond the /16, giving `10.1.0.0/16`. That entry matches the /16 itself, which may not be what the engineer meant, so always read back what IOS actually stored. **Why not the others:** A is wrong because IOS accepts the line without complaint. B is wrong because the stored entry is valid and does match a route. C invents a length the engineer never typed.
+</details>
+
+**Q4.** Which prefix-list entry matches every IPv4 host route (/32) and nothing else?
+
+- **A.** `0.0.0.0/0`
+- **B.** `0.0.0.0/0 le 32`
+- **C.** `0.0.0.0/0 ge 32`
+- **D.** `0.0.0.0/32`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** With /0 there are no network bits to check, and `ge 32` with no `le` gives the range 32–32, so it matches only /32 routes. **Why not the others:** A matches only the default route. B matches every IPv4 route (lengths 0 to 32). D matches only the single host route 0.0.0.0/32.
+</details>
+
 ## 23.3 ACLs for Route Matching — and Why Prefix Lists Usually Win
 
 **Why this section exists:** ACLs were matching routes long before prefix lists were invented, so you will still meet them in older configs and exam exhibits. You need to read them correctly, and know why you shouldn't write new ones that way.
@@ -10878,6 +18650,51 @@ access-list 101 permit ip 10.1.0.0 0.0.255.0 host 255.255.255.0
 That works, but compare it with `ip prefix-list P permit 10.1.0.0/16 ge 24 le 24`. Prefix lists are clearer, they're processed more efficiently, they can be edited by sequence number, and they show hit counts. *Use ACLs to match packets and prefix lists to match routes* — the one big exception is PBR (Chapter 25), which matches **packets** and so uses ACLs.
 
 **Exam trap:** the same extended ACL means three different things depending on where it's referenced. In **BGP** it's network/mask. In an **IGP distribute list** it's neighbour/network. In **PBR** it's an ordinary packet filter with source and destination addresses. *Before reading an extended ACL, find out who is calling it.*
+
+**📝 Exam-style questions — 23.3**
+
+**Q1.** A redistribution route map uses `match ip address 10` with `access-list 10 permit 10.1.0.0 0.0.255.255`. Which routes does it match?
+
+- **A.** Only 10.1.0.0/16.
+- **B.** 10.1.0.0/16, 10.1.5.0/24 and 10.1.5.4/30, because a standard ACL can't check prefix length.
+- **C.** Only routes with a /16 to /24 length inside 10.1.0.0.
+- **D.** None, because standard ACLs can't be used to match routes.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** When a standard ACL matches routes, it checks only the network address against the wildcard. Every route whose address starts with 10.1 matches, whatever its length. That's the main reason to use prefix lists for routes. **Why not the others:** A and C assume the ACL can see the length, and it can't. D is wrong because standard ACLs are often used to match routes, especially in older configs.
+</details>
+
+**Q2.** Refer to the exhibit. What does this configuration do?
+
+```
+access-list 110 deny   ip host 10.0.12.2 10.50.0.0 0.0.255.255
+access-list 110 permit ip any any
+router eigrp 100
+ distribute-list 110 in
+```
+
+- **A.** It ignores routes inside 10.50.0.0/16 only when they are advertised by the neighbor 10.0.12.2.
+- **B.** It drops data packets from 10.0.12.2 to 10.50.0.0/16.
+- **C.** It stops R1 from advertising 10.50.0.0/16 to 10.0.12.2.
+- **D.** It matches the route 10.0.12.2/32 with a mask of 255.255.0.0.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** In an IGP distribute list, the "source" field of an extended ACL matches the neighbor that sent the update, and the "destination" field matches the network address. So the first line means "ignore 10.50.x.x routes heard from 10.0.12.2", and the second line accepts everything else. **Why not the others:** B treats the ACL as a packet filter, but a distribute list filters routing updates. C is wrong because the list is applied `in`, not `out`. D uses the BGP meaning (network/mask), which doesn't apply in an IGP distribute list.
+</details>
+
+**Q3.** In a BGP route map, which routes does `access-list 101 permit ip 10.1.0.0 0.0.255.0 host 255.255.255.0` match?
+
+- **A.** Only the /24 networks inside 10.1.0.0/16.
+- **B.** Any route inside 10.1.0.0/16, whatever its length.
+- **C.** Only routes advertised by the host 255.255.255.0.
+- **D.** Packets from 10.1.x.0 to the broadcast address 255.255.255.0.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** In BGP, an extended ACL's source field matches the network address (10.1.x.0, with the third octet free) and the destination field matches the subnet mask (exactly 255.255.255.0). Together that means "the /24s inside 10.1.0.0/16". The clearer equivalent is `ip prefix-list P permit 10.1.0.0/16 ge 24 le 24`. **Why not the others:** B ignores the mask field. C uses the IGP distribute-list meaning. D reads the ACL as a packet filter.
+</details>
 
 ## 23.4 Route Maps — If/Then Logic for Routing
 
@@ -11055,6 +18872,75 @@ The syntax is `offset-list {acl | 0} {in | out} <offset> [interface]`. `in` adju
 
 The tell-tale signs: on R1, `show ip route 10.77.0.5` points at R2. On R2, the same command returns `% Network not in table`, yet `show ip ospf database router 3.3.3.3` on R2 still lists the prefix. Fix it by removing the distribute list. If the real goal is to hide the prefix from a whole area, filter the Type 3 LSA at an ABR with `area filter-list` instead, so no router in that area computes a path to it at all.
 
+**📝 Exam-style questions — 23.4**
+
+**Q1.** Refer to the exhibit. `INFRA-P2P` permits `10.0.0.0/8 ge 30 le 30` and `BRANCH-LANS` permits `10.100.0.0/16 ge 24 le 24`. The OSPF route 10.100.8.0/25 is redistributed into EIGRP through this route map. What happens to it?
+
+```
+route-map RM-OSPF-TO-EIGRP deny 10
+ match ip address prefix-list INFRA-P2P
+route-map RM-OSPF-TO-EIGRP permit 20
+ match ip address prefix-list BRANCH-LANS
+ set tag 110
+route-map RM-OSPF-TO-EIGRP permit 30
+ set tag 111
+```
+
+- **A.** It is filtered by clause 10.
+- **B.** It is redistributed with tag 110.
+- **C.** It is filtered by the implicit deny.
+- **D.** It is redistributed with tag 111.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Clause 10 doesn't match because the route is a /25, not a /30. Clause 20 doesn't match because `BRANCH-LANS` allows only /24s. Clause 30 has no `match`, so it matches everything: the route is redistributed with tag 111. **Why not the others:** A and B both need a list to match that doesn't. C can't happen while a match-all clause (30) exists.
+</details>
+
+**Q2.** Refer to the exhibit. What happens to the route 10.9.0.0/16?
+
+```
+ip prefix-list LANS seq 5  deny   10.9.0.0/16
+ip prefix-list LANS seq 10 permit 10.0.0.0/8 le 24
+route-map RM permit 10
+ match ip address prefix-list LANS
+route-map RM permit 20
+```
+
+- **A.** It is denied, because the prefix list denies it.
+- **B.** It is permitted by clause 10, because the route map clause is a permit.
+- **C.** It is permitted by clause 20.
+- **D.** It is denied by the route map's implicit deny.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Inside a route map, a prefix list's deny means "this clause doesn't match", not "drop the route". So 10.9.0.0/16 falls through clause 10, and clause 20, which has no `match`, accepts it. **Why not the others:** A is the classic misreading of a deny inside a match list. B is wrong because clause 10's match failed. D would only happen if clause 20 didn't exist.
+</details>
+
+**Q3.** R1, R2 and R3 are in a line in OSPF area 0, and 10.77.0.0/24 is behind R3. Someone configures `distribute-list prefix NO-77 in` (denying 10.77.0.0/24) under `router ospf 1` on R2. Pings from R1 to 10.77.0.5 fail. On R1 the route points to R2, and on R2 `show ip route 10.77.0.5` returns `% Network not in table`. What is happening?
+
+- **A.** R2 stopped flooding R3's LSA, so R1's route is stale.
+- **B.** R2 still floods the LSA, so R1 computes a path through R2, but R2 has no route and drops the traffic.
+- **C.** The distribute list filtered the LSA from R2's LSDB, which caused an SPF loop.
+- **D.** R1 needs its own distribute list to match R2's.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An OSPF `distribute-list in` only keeps the route out of the local router's RIB. The LSAs still flood unchanged, so R1 computes a path through R2, and R2 drops the packets: a black hole. Remove the distribute list. To hide the prefix from a whole area, filter the Type 3 LSA at an ABR with `area filter-list` instead. **Why not the others:** A and C are wrong because a distribute list never edits or blocks LSAs. D would only hide the black hole on R1 instead of fixing it.
+</details>
+
+**Q4.** Which two statements about route-map evaluation are correct? (Choose two.)
+
+- **A.** If one clause has `match` statements of different types, all of them must be true.
+- **B.** `set` statements in a deny clause are applied before the route is filtered.
+- **C.** A clause with no `match` statement matches every route.
+- **D.** A route that matches no clause is permitted unchanged.
+- **E.** Several values listed in one `match` statement must all be true.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** Different match types in one clause are ANDed, and a clause without any `match` matches everything, which is how you write a final "permit the rest" clause. **Why not the others:** B is wrong because `set` only runs on a permit match. D is wrong because there is an implicit deny at the end. E is wrong because several values in one `match` are ORed.
+</details>
+
 ## 23.5 Route Tagging
 
 **The problem it solves:** once a route is redistributed, the new protocol forgets where it came from. Later, at another router, you need to know "was this route born in EIGRP?" so you can stop it going back. A tag carries that answer with the route.
@@ -11089,6 +18975,53 @@ Routing entry for 10.20.0.0/16
 4. An OSPF-native route such as 10.30.0.0/16 has no tag (tag 0). It fails clause 10, hits clause 20 and is redistributed into EIGRP normally.
 
 Without step 3, the EIGRP route would re-enter EIGRP at R2 as an external, and the loop described in 24.4 could form.
+
+**📝 Exam-style questions — 23.5**
+
+**Q1.** Refer to the exhibit. R1 redistributes EIGRP into OSPF with `EIGRP-TO-OSPF`. R2 redistributes OSPF into EIGRP with `OSPF-TO-EIGRP`. The EIGRP network 10.20.0.0/16 reaches R2 through OSPF. What does R2 do with it?
+
+```
+route-map EIGRP-TO-OSPF permit 10
+ set tag 90
+!
+route-map OSPF-TO-EIGRP deny 10
+ match tag 90
+route-map OSPF-TO-EIGRP permit 20
+```
+
+- **A.** It redistributes the route back into EIGRP with tag 90.
+- **B.** It does not redistribute the route into EIGRP, because the route carries tag 90.
+- **C.** It removes the route from OSPF, because tag 90 marks it as invalid.
+- **D.** It redistributes the route because OSPF strips tags at every router.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** R1 sets tag 90 when it redistributes the route into OSPF, and OSPF carries the tag unchanged to R2. On R2, clause 10 matches tag 90 and denies it, so the route is not sent back into EIGRP, which is exactly how tags prevent a redistribution loop. **Why not the others:** A ignores clause 10. C is wrong because routing protocols never act on tags themselves; only your policies do. D is wrong because OSPF carries the tag in the Type 5 LSA all the way through.
+</details>
+
+**Q2.** Why are route tags a better loop-prevention tool than prefix filters at redistribution points?
+
+- **A.** A tag records where a route came from, so it stays correct when new subnets are added, while prefix filters must be updated on every boundary router.
+- **B.** Tags are processed in hardware, while prefix filters run on the CPU.
+- **C.** Tags also change the administrative distance of the route.
+- **D.** Prefix filters can't be used in redistribution route maps.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A prefix filter describes the network as it was when it was written. Every new subnet means editing lists on every boundary router, and the one you forget becomes a loop. A tag records the route's origin, which never goes out of date. **Why not the others:** B is not the reason. C is false: a tag changes nothing unless a policy acts on it. D is false: prefix lists are very common in redistribution route maps.
+</details>
+
+**Q3.** Which statement about route tags is correct?
+
+- **A.** A tag alone stops a route being redistributed back into its original protocol.
+- **B.** OSPF carries tags in Type 1 router LSAs.
+- **C.** Routing protocols carry tags but never act on them; only your route maps and filters do.
+- **D.** BGP carries tags natively in a dedicated tag attribute.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A tag is a 32-bit label for your own policies. The protocols carry it unchanged and ignore it. **Why not the others:** A is wrong because a tag does nothing until a route map matches on it and denies. B is wrong because OSPF carries tags in external (Type 5 and Type 7) LSAs. D is wrong because BGP has no tag attribute; it uses communities, and tags can be mapped to and from BGP during redistribution.
+</details>
 
 ## 23.6 Loop Prevention — Every Mechanism, and What It Defends
 
@@ -11150,6 +19083,57 @@ router eigrp DMVPN                        ! named mode equivalent
 
 **Why can redistribution break all of these at once?** Because every mechanism above works **inside one protocol**. When a route crosses into another protocol, it loses its history: its AS_PATH, its original metric, the fact that it was a feasible successor. To the new protocol it's a brand-new external route. Send it back into its original protocol at a second router and nothing remembers it has been there before. *Redistribution is the one place where you have to supply the memory yourself — that's what tags are for.*
 
+**📝 Exam-style questions — 23.6**
+
+**Q1.** RIP routers A, B and C are in a line, and network 10.9.0.0/24 is connected to C. C's link to 10.9.0.0/24 fails. B then advertises "10.9.0.0 in 1 hop" toward C, and C installs the route via B. Which mechanism, if enabled, would have stopped B from sending that advertisement?
+
+- **A.** Hold-down timer
+- **B.** Maximum hop count
+- **C.** Route poisoning
+- **D.** Split horizon
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Split horizon stops a router from advertising a route out of the interface it learned it on. B learned 10.9.0.0/24 from C, so it would never advertise it back toward C. **Why not the others:** A stops a router accepting worse news for a while after a failure; it doesn't stop B advertising. B only ends the count-to-infinity at 16 hops after the loop has formed. C makes C advertise metric 16 straight away, which helps B learn faster, but it doesn't stop B echoing the route back.
+</details>
+
+**Q2.** EIGRP runs over a DMVPN network. The hub learns every spoke's LAN, but the spokes don't learn each other's LANs. What is the most likely fix?
+
+- **A.** Configure `no ip split-horizon eigrp 100` on the hub's Tunnel0.
+- **B.** Configure `ip summary-address eigrp 100 0.0.0.0 0.0.0.0` on each spoke.
+- **C.** Increase the EIGRP hop count limit on the hub.
+- **D.** Configure `eigrp stub` on the hub.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Every spoke reaches the hub on the same multipoint Tunnel0 interface. Split horizon stops the hub from advertising spoke A's routes back out of that interface, so spoke B never hears them. Disabling it on the hub's tunnel fixes this. **Why not the others:** B summarizes on the wrong routers and doesn't change what the hub sends. C is unrelated, because hop count isn't what blocks the routes. D would make the hub advertise less, not more.
+</details>
+
+**Q3.** Which two pairs correctly match a loop-prevention mechanism with the protocol that uses it? (Choose two.)
+
+- **A.** Hold-down timer — OSPF
+- **B.** AS_PATH check — eBGP rejects routes that already contain its own AS
+- **C.** Feasibility condition — RIP
+- **D.** Area 0 hub rule — EIGRP
+- **E.** iBGP split horizon — routes learned from one iBGP peer are not passed to another iBGP peer
+
+<details><summary>Answer</summary>
+
+**Answer: B, E.** Both are BGP's own loop defenses. iBGP split horizon is the reason iBGP needs a full mesh or route reflectors. **Why not the others:** A: hold-down is a RIP mechanism; OSPF uses an identical LSDB and SPF. C: the feasibility condition belongs to EIGRP's DUAL. D: the area 0 hub rule is OSPF's.
+</details>
+
+**Q4.** Why can redistribution create routing loops even though every protocol has its own loop prevention?
+
+- **A.** Redistribution disables split horizon on all interfaces.
+- **B.** Redistribution always sets the metric to infinity.
+- **C.** Redistributed routes are flooded with a TTL of 255.
+- **D.** A redistributed route loses its history, so its new protocol treats it as brand new and nothing remembers it has been there before.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Loop prevention works inside one protocol, using that protocol's own information (AS_PATH, metrics, feasible distances). When a route crosses into another protocol, that history is lost. If it is sent back into its original protocol at a second router, nothing recognizes it. Tags supply that missing memory. **Why not the others:** A, B and C describe behavior that doesn't exist.
+</details>
+
 ## 23.7 Troubleshooting Route Maps and Filters
 
 **Why this needs its own method:** a policy that's slightly wrong rarely breaks a network loudly. It quietly lets one extra route through, or drops one route that a branch needs. The approach is always the same: take one specific route, walk it through each clause yourself, and compare your answer with the counters and tables.
@@ -11201,6 +19185,62 @@ The `Policy routing matches` counters only count **PBR** packets — for redistr
 - **Fix:** `ip prefix-list BRANCH-LANS seq 5 permit 10.100.0.0/16 ge 24 le 24` (remove the old seq 5 first).
 - **Verify:** the hit count rises and `show ip route 10.100.7.0` on an EIGRP router shows `D EX` with `Tag 110` in `show ip eigrp topology 10.100.7.0/24`.
 
+**📝 Exam-style questions — 23.7**
+
+**Q1.** The ISP reports that R1 is advertising internal 10.x.x.x subnets to them. The BGP neighbor uses `route-map TO-ISP-RM out`, whose `permit 10` clause has `match ip address prefix-list TO-ISP`. `show ip prefix-list TO-ISP` returns nothing, but `show ip prefix-list` lists a list named `TO_ISP`. What is the cause?
+
+- **A.** The route map is missing, so BGP advertises everything.
+- **B.** The prefix list has an implicit permit at the end.
+- **C.** The route map matches a prefix list that doesn't exist, which matches every route, so clause 10 permits everything.
+- **D.** The BGP session needs a hard reset before any outbound policy works.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The route map refers to `TO-ISP` (a hyphen) but the list is called `TO_ISP` (an underscore). A `match` against a prefix list that doesn't exist matches everything, so every route is permitted. Fix the name, then run `clear ip bgp 192.0.2.1 soft out`. **Why not the others:** A is wrong because the route map exists, and a missing BGP neighbor route map would deny everything on current IOS, not permit it. B is wrong because prefix lists end with an implicit deny. D is wrong because a soft reset is enough to apply new outbound policy.
+</details>
+
+**Q2.** Refer to the exhibit. The branch LAN 10.100.7.0/24 is missing from EIGRP after redistribution, and the route map clause that permits branch LANs uses this prefix list. Which change fixes it?
+
+```
+R1# show ip prefix-list detail BRANCH-LANS
+ip prefix-list BRANCH-LANS:
+   seq 5 permit 10.100.0.0/16 (hit count: 0, refcount: 1)
+```
+
+- **A.** Replace seq 5 with `permit 10.100.0.0/16 ge 24 le 24`.
+- **B.** Replace seq 5 with `permit 10.100.0.0/24`.
+- **C.** Add `le 16` to seq 5.
+- **D.** Change the route map clause from `permit` to `deny`.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Without `ge` or `le`, the entry matches only the /16 itself, so no branch /24 ever matches (hit count 0). `ge 24 le 24` matches every /24 inside 10.100.0.0/16. **Why not the others:** B matches only the single route 10.100.0.0/24, not 10.100.7.0/24. C changes nothing, because the length range would still be exactly 16. D would filter the routes the clause is meant to let through.
+</details>
+
+**Q3.** An engineer runs `show route-map RM-OSPF-TO-EIGRP` on a router that uses this route map for redistribution. Every clause shows `Policy routing matches: 0 packets, 0 bytes`. What should the engineer conclude?
+
+- **A.** No route is matching any clause, so nothing is being redistributed.
+- **B.** The route map isn't applied to anything.
+- **C.** The counters only count policy-based routing packets, so they say nothing about redistribution. Check the prefix-list hit counts and routing tables instead.
+- **D.** The route map needs `continue` statements before its counters work.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `Policy routing matches` counts only packets handled by PBR. For redistribution and BGP it always stays at zero, even when routes are matching. Use `show ip prefix-list detail` hit counts and the resulting routes instead. **Why not the others:** A and B read the zero counters as meaningful. D is wrong because `continue` has nothing to do with counters.
+</details>
+
+**Q4.** A route-map clause contains `match ip address BRANCH-LANS`, intending to use the prefix list `BRANCH-LANS`. `show route-map` shows `ip address (access-lists): BRANCH-LANS`. What is wrong?
+
+- **A.** The `prefix-list` keyword is missing, so IOS looks for an ACL named BRANCH-LANS instead.
+- **B.** Prefix lists can't be referenced in route maps.
+- **C.** The prefix list name is case-sensitive and must be in lowercase.
+- **D.** `match ip address` only works in PBR route maps.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Without the `prefix-list` keyword, `match ip address NAME` refers to an access list. The output confirms it ("access-lists"). The line should be `match ip address prefix-list BRANCH-LANS`. **Why not the others:** B is false, because `match ip address prefix-list` is the normal way to use one. C is wrong because names are case-sensitive but don't have to be lowercase. D is false, because `match ip address` is used in redistribution and BGP route maps too.
+</details>
+
 ---
 
 <a name="chapter-24"></a>
@@ -11230,6 +19270,33 @@ Two rules hold whenever you redistribute:
 2. **The receiving protocol needs a starting metric** — a **seed metric** — because the original one is meaningless to it.
 
 **Why does rule 1 cause so many tickets?** Because the route you want to redistribute may be sitting in the OSPF database, healthy, yet lose on AD to a static route or another protocol. `redistribute ospf 1` then quietly skips it: OSPF didn't *win* that prefix on this router, so it isn't OSPF's to give away. *If it isn't in `show ip route` with the right code, it isn't going to be redistributed.*
+
+**📝 Exam-style questions — 24.1**
+
+**Q1.** R1 runs OSPF and EIGRP and has `redistribute ospf 1 metric 100000 100 255 1 1500` under `router eigrp 100`. Most OSPF prefixes appear in EIGRP, but 10.70.0.0/16 does not. `show ip ospf database` on R1 lists 10.70.0.0/16, and `show ip route 10.70.0.0` shows `Known via "static", distance 1`. Why is the prefix missing from EIGRP?
+
+- **A.** OSPF never redistributes inter-area routes into EIGRP.
+- **B.** The seed metric is too low for a /16 prefix.
+- **C.** The static route installed the prefix in R1's RIB, so OSPF has no route of its own to redistribute.
+- **D.** EIGRP rejects external routes whose prefix length is shorter than /24.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Redistribution reads from the redistributing router's own RIB. The static route (AD 1) beats OSPF (AD 110) for 10.70.0.0/16, so the RIB entry belongs to the static, and `redistribute ospf 1` skips it. Redistributing static routes, or removing the static, would fix it. **Why not the others:** A is false; OSPF internal routes, both intra- and inter-area, are redistributed by default. B is wrong because the seed metric doesn't depend on prefix length, and other prefixes work with the same metric. D describes a rule that doesn't exist.
+</details>
+
+**Q2.** Which two statements about redistribution are true? (Choose two.)
+
+- **A.** A router can redistribute only routes that are in its own RIB from the source being redistributed (plus that source's connected interfaces).
+- **B.** The original metric is copied unchanged into the receiving protocol.
+- **C.** BGP's AS_PATH is preserved when BGP routes are redistributed into OSPF.
+- **D.** The receiving protocol needs a seed metric, because the original metric means nothing to it.
+- **E.** Redistribution reads routes directly from the source protocol's database, whether or not they won the AD contest.
+
+<details><summary>Answer</summary>
+
+**Answer: A, D.** These are the two rules that hold whenever you redistribute. **Why not the others:** B is wrong because each protocol measures distance differently; only EIGRP-to-EIGRP carries the metric across. C is wrong because the AS_PATH disappears the moment a route enters an IGP. E contradicts A: a route that lost on AD is not redistributed.
+</details>
 
 ## 24.2 Seed Metrics and Defaults, Protocol by Protocol
 
@@ -11388,6 +19455,57 @@ By default a router redistributes only **eBGP**-learned routes into an IGP. **iB
 
 **Why the protection?** Two reasons. First, a full internet table is over a million prefixes, and pushing it into OSPF or EIGRP would overwhelm every router in the domain. Second, iBGP routes usually came *from* your IGP edge to begin with, so redistributing them back in is a classic loop. In practice you redistribute only a few filtered prefixes, or better, originate a default route instead. *BGP-to-IGP redistribution should always be filtered — the default only protects you from the worst mistake.*
 
+**📝 Exam-style questions — 24.2**
+
+**Q1.** R1 has `redistribute ospf 1` under `router eigrp 100`, with no `metric` keyword and no `default-metric`. What happens?
+
+- **A.** The OSPF routes are advertised into EIGRP with metric 20.
+- **B.** The OSPF routes are advertised with a metric copied from their OSPF cost.
+- **C.** The command is rejected until a metric is added.
+- **D.** The OSPF routes get an infinite metric and are not advertised to EIGRP neighbors.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The default seed metric into EIGRP is infinite, so the routes are treated as unreachable and never advertised. The command is accepted silently, which is why this is such a common ticket. Fix it with `redistribute ospf 1 metric 100000 100 255 1 1500` or a `default-metric` line. **Why not the others:** A is OSPF's default when redistributing *into* OSPF. B is wrong because EIGRP can't read an OSPF cost. C is wrong because IOS accepts the command without a metric.
+</details>
+
+**Q2.** A router running classic-mode EIGRP redistributes a RIP route into EIGRP with seed metric `100000 200 255 1 1500` (100 Mbps, delay 200 tens of microseconds). A neighbor reaches the router over one GigabitEthernet link, which adds 10 microseconds of delay. Assuming the default K values, what feasible distance does the neighbor calculate?
+
+- **A.** 51,456
+- **B.** 76,800
+- **C.** 77,056
+- **D.** 102,656
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Bandwidth term: 10⁷ / 100,000 = 100. Delay term: the seed's 200 tens of microseconds plus 1 for the GigabitEthernet hop gives 201. FD = 256 × (100 + 201) = 256 × 301 = 77,056. **Why not the others:** A is the result for a seed delay of 100 (256 × 201). B is 256 × (100 + 200), the advertising router's own distance, which forgets the extra hop's delay. D is 256 × (200 + 201), which puts the delay value where the bandwidth term (100) belongs.
+</details>
+
+**Q3.** Which two default seed metrics are correct on Cisco IOS? (Choose two.)
+
+- **A.** Into OSPF from EIGRP: cost 20, type E2
+- **B.** Into EIGRP from OSPF: infinite
+- **C.** Into RIP from OSPF: 1 hop
+- **D.** Into OSPF from BGP: cost 20
+- **E.** Into BGP from OSPF: MED 0
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** OSPF seeds most redistributed routes at cost 20 as E2, and EIGRP defaults to infinite. **Why not the others:** C is wrong because RIP also defaults to infinite (16) for routes from another protocol. D is wrong because routes from BGP into OSPF get cost 1. E is wrong because BGP copies the IGP metric into the MED.
+</details>
+
+**Q4.** R1 redistributes OSPF into BGP with `redistribute ospf 1` under the BGP IPv4 address family. Intra-area and inter-area OSPF routes appear in BGP, but OSPF E2 routes do not. Which command fixes this?
+
+- **A.** `redistribute ospf 1 subnets`
+- **B.** `redistribute ospf 1 include-connected`
+- **C.** `bgp redistribute-internal`
+- **D.** `redistribute ospf 1 match internal external 1 external 2`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** By default, OSPF into BGP takes only internal routes (intra- and inter-area). Adding `external 1 external 2` to the `match` clause brings in the E1 and E2 routes too. **Why not the others:** A is for redistributing into OSPF on older IOS, not from OSPF into BGP. C allows iBGP routes to be redistributed from BGP into an IGP, the opposite direction. B adds connected networks for IPv6 redistribution and doesn't change route-type matching.
+</details>
+
 ## 24.3 OSPF External Types — E1 vs E2
 
 **The problem it solves:** when a route enters OSPF from outside, OSPF has to decide whether the distance *inside* OSPF to the exit point matters. Sometimes it doesn't (one exit to the internet). Sometimes it matters a lot (two exits, one next door and one across the country). E2 and E1 are the two answers.
@@ -11441,6 +19559,67 @@ R5# show ip route 10.1.45.5
 *An external route is a signpost. If the town it points to isn't on your OSPF map, you can't follow it.*
 
 **Why would E2 ever be the default if it ignores internal distance?** Because the typical external route is "the internet, via our one firewall", where internal distance doesn't change the decision. E2 is also stable: the external metric doesn't change as internal links flap, so less churn. E1 earns its place when there's a real choice of exits. *E2 says "the cost is out there"; E1 says "the cost includes getting there."*
+
+**📝 Exam-style questions — 24.3**
+
+**Q1.** R5 learns 172.20.0.0/16 from two ASBRs. ASBR-A seeds it at 20, and ASBR-B seeds it at 30. R5's internal OSPF cost is 100 to ASBR-A and 5 to ASBR-B. Both ASBRs advertise the route as E1. Which path does R5 install, and with what metric?
+
+- **A.** Via ASBR-A, metric 20
+- **B.** Via ASBR-B, metric 35
+- **C.** Via ASBR-A, metric 120
+- **D.** Via ASBR-B, metric 30
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An E1 metric is the seed plus the internal cost to the ASBR: A = 20 + 100 = 120, B = 30 + 5 = 35. The lower total wins, so R5 uses ASBR-B with metric 35. **Why not the others:** A and D are E2-style metrics that ignore internal cost; as E2, R5 would actually pick A (20 < 30). C is A's E1 metric, but 120 loses to 35.
+</details>
+
+**Q2.** Two ASBRs advertise 172.20.0.0/16 as E2, both seeded at 20. R5's internal cost is 100 to ASBR-A and 5 to ASBR-B. Which path does R5 choose?
+
+- **A.** Both, load-sharing, because the E2 metrics are equal.
+- **B.** ASBR-A, because it has the lower router ID.
+- **C.** ASBR-B, because the forward metric (the internal cost to the ASBR) breaks the tie.
+- **D.** Neither, until one ASBR changes its seed metric.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** E2 ignores internal cost when the external metrics differ, but when they tie, the forward metric decides. ASBR-B's forward metric (5) beats ASBR-A's (100). **Why not the others:** A ignores the tie-breaker. B: router ID is not part of OSPF route selection. D is wrong because a tie doesn't stop installation.
+</details>
+
+**Q3.** Refer to the exhibit. R5 doesn't install 172.20.0.0/16, although the LSA is in its database. What is the cause?
+
+```
+R5# show ip ospf database external 172.20.0.0
+  Link State ID: 172.20.0.0 (External Network Number )
+  Advertising Router: 4.4.4.4
+        Metric Type: 2 (Larger than any link state path)
+        Metric: 20
+        Forward Address: 10.1.45.5
+R5# show ip route 10.1.45.5
+% Subnet not in table
+```
+
+- **A.** The forwarding address is not reachable through an OSPF intra-area or inter-area route, so the external can't be installed.
+- **B.** An E2 metric of 20 is higher than the maximum allowed.
+- **C.** R5 has no route to the advertising router 4.4.4.4.
+- **D.** The LSA is a Type 5, which R5 ignores in a normal area.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A non-zero forwarding address tells routers to send traffic to that address instead of to the ASBR. A router installs the external only if it can reach the forwarding address through an OSPF intra-area or inter-area route. 10.1.45.5 isn't in R5's table at all, so the route never appears. Typical cause: the subnet holding the forwarding address was filtered or summarized away, for example at an NSSA ABR. **Why not the others:** B: 20 is the normal default seed. C is irrelevant here, because with a non-zero forwarding address R5 forwards toward 10.1.45.5, not the ASBR. D is wrong because normal areas accept Type 5 LSAs.
+</details>
+
+**Q4.** R5 has two OSPF routes to the same prefix: an E1 with metric 200 and an E2 with metric 20. Which one is installed?
+
+- **A.** The E2, because its metric is lower.
+- **B.** Whichever was learned first.
+- **C.** Both, as equal-cost paths.
+- **D.** The E1, because OSPF always prefers E1 over E2 for the same prefix.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** OSPF prefers route types in a fixed order, and E1 beats E2 whatever the metrics. Metrics are only compared between routes of the same type. **Why not the others:** A compares metrics across types, which OSPF never does. C is wrong because different route types are never treated as equal-cost. B is wrong because the outcome is decided by the type rule, not by timing.
+</details>
 
 ## 24.4 Two-Point Mutual Redistribution — the Classic Loop
 
@@ -11536,6 +19715,80 @@ R2# show ip ospf database external 192.168.5.0
 
 `Advertising Router` is the ASBR that injected it, and `External Route Tag: 120` proves the tagging policy ran. If the tag is missing, the route map on that ASBR isn't being applied.
 
+**📝 Exam-style questions — 24.4**
+
+**Q1.** R1 and R2 both redistribute between RIP and OSPF in both directions. R2 is directly attached to the RIP router that owns 192.168.5.0/24, yet R2 sends traffic for that network across the OSPF domain to R1. `show ip route 192.168.5.0` on R2 shows `Known via "ospf 1", distance 110 ... type extern 2`. Which change makes R2 prefer its native RIP path?
+
+- **A.** On R2, `distance ospf external 125` under `router ospf 1`.
+- **B.** On R1, change the redistribution metric into OSPF to 200.
+- **C.** On R1, change the redistribution into OSPF to `metric-type 1`.
+- **D.** On R2, `default-metric 1` under `router rip`.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** R2 hears the prefix natively from RIP (AD 120) and as an OSPF E2 reflected from R1 (AD 110). AD 110 wins, so R2 takes the long path. Raising the OSPF external AD to 125 makes the native RIP route (120) win. Apply the same change on R1, and add tags to stop the loop. **Why not the others:** B changes the OSPF metric, but metrics never decide between OSPF and RIP; AD does. C makes the route E1 instead of E2, but it is still an OSPF route with AD 110, so it still beats RIP's 120. D changes the seed metric for routes going into RIP, which has nothing to do with R2's choice.
+</details>
+
+**Q2.** Refer to the exhibit. The same policy is applied on both boundary routers. What happens to a route that was born in RIP?
+
+```
+route-map RIP-TO-OSPF deny 10
+ match tag 110
+route-map RIP-TO-OSPF permit 20
+ set tag 120
+!
+route-map OSPF-TO-RIP deny 10
+ match tag 120
+route-map OSPF-TO-RIP permit 20
+ set tag 110
+```
+
+- **A.** It enters OSPF with tag 110 and can re-enter RIP at the other router.
+- **B.** It is denied by `RIP-TO-OSPF` and never reaches OSPF.
+- **C.** It enters OSPF with tag 120, and the other boundary router refuses to redistribute it back into RIP.
+- **D.** It enters OSPF untagged, because RIP routes can't carry tags.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A RIP-native route has tag 0, so it fails clause 10 of `RIP-TO-OSPF`, and clause 20 permits it with tag 120. OSPF carries the tag to the other boundary router, where `OSPF-TO-RIP` clause 10 matches tag 120 and denies it. The route crosses the boundary once and can never come back. **Why not the others:** A swaps the tags. B is wrong because only routes tagged 110 (born in OSPF) are denied going into OSPF. D is wrong because RIPv2 and OSPF externals both carry tags.
+</details>
+
+**Q3.** Refer to the exhibit. The design requires every RIP route redistributed into OSPF to carry tag 120. What does this output show?
+
+```
+R2# show ip ospf database external 192.168.5.0
+  Link State ID: 192.168.5.0 (External Network Number )
+  Advertising Router: 1.1.1.1
+  Network Mask: /24
+        Metric Type: 2 (Larger than any link state path)
+        Metric: 20
+        Forward Address: 0.0.0.0
+        External Route Tag: 0
+```
+
+- **A.** R2's outbound route map is removing the tag.
+- **B.** Tag 0 is how OSPF displays tag 120 in hexadecimal.
+- **C.** OSPF strips tags from Type 5 LSAs as they flood.
+- **D.** The tagging route map isn't being applied on the ASBR 1.1.1.1.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The tag is set where the route enters OSPF, on the ASBR named in `Advertising Router` (1.1.1.1). A tag of 0 proves its redistribution route map didn't run: it is missing from the `redistribute` line, or the route matched a clause that sets no tag. **Why not the others:** A is wrong because R2 doesn't change LSAs that another router originated. C is false, because OSPF carries tags unchanged. B is wrong because tag 120 in hex is 0x78, not 0.
+</details>
+
+**Q4.** In two-point mutual redistribution, an engineer adds route tags with matching deny clauses and also raises the OSPF external AD on both boundary routers. Which two problems do these changes solve? (Choose two.)
+
+- **A.** Tags stop routes re-entering the domain they came from, which prevents the loop.
+- **B.** Tags make OSPF prefer E1 over E2 routes.
+- **C.** Raising the AD makes the boundary routers prefer the native path over the reflected copy.
+- **D.** Raising the AD removes the need for a seed metric.
+- **E.** Tags speed up OSPF convergence.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** Tags supply the missing memory, so routes can't loop back home. AD tuning fixes the trust problem, so a boundary router doesn't prefer a reflected copy of a route it can reach natively. **Why not the others:** B: E1/E2 preference is built into OSPF and has nothing to do with tags. D: a seed metric is still needed wherever the target protocol requires one. E: tags don't affect convergence.
+</details>
+
 ## 24.5 Summarization — Fewer Routes, More Stability
 
 **Summarization** advertises one shorter prefix in place of many longer ones: 10.1.0.0/16 instead of 256 /24s. It shrinks routing tables, and it hides instability. When 10.1.37.0/24 flaps, routers outside the summary don't even notice, because the /16 stays up as long as *any* component exists.
@@ -11555,6 +19808,44 @@ R2# show ip ospf database external 192.168.5.0
 Try one that doesn't fit neatly: 10.1.5.0/24 to 10.1.8.0/24. In binary, 5 = 0000 0101 and 8 = 0000 1000 share only the first 4 bits, so the tightest summary is 10.1.0.0/20. That also covers 10.1.0.0 to 10.1.15.255, including twelve /24s you don't own. Either accept the wider claim (and its Null0 route), or advertise three exact routes instead: 10.1.5.0/24, 10.1.6.0/23 (which covers .6 and .7) and 10.1.8.0/24. Good addressing plans hand out blocks on power-of-two boundaries precisely so summaries come out clean.
 
 It has costs, which ENARSI tests directly — covered in 24.7.
+
+**📝 Exam-style questions — 24.5**
+
+**Q1.** Which single summary covers exactly 10.1.4.0/24, 10.1.5.0/24, 10.1.6.0/24 and 10.1.7.0/24, and nothing else?
+
+- **A.** 10.1.4.0/23
+- **B.** 10.1.0.0/21
+- **C.** 10.1.4.0/22
+- **D.** 10.1.4.0/24
+
+<details><summary>Answer</summary>
+
+**Answer: C.** In binary, the third octets 4 to 7 are 000001**00** to 000001**11**. The first 6 bits match, so 16 + 6 = 22 bits are common: 10.1.4.0/22 covers 10.1.4.0 to 10.1.7.255. **Why not the others:** A covers only .4 and .5. B covers 10.1.0.0 to 10.1.7.255, which includes four /24s you don't own. D covers only 10.1.4.0.
+</details>
+
+**Q2.** An engineer needs one summary for 10.1.5.0/24 through 10.1.8.0/24. What is the smallest single summary that covers all four?
+
+- **A.** 10.1.4.0/22
+- **B.** 10.1.0.0/20
+- **C.** 10.1.4.0/21
+- **D.** 10.1.0.0/16
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 5 = 0000 0101 and 8 = 0000 1000 share only the first 4 bits of the third octet, so the tightest single summary is /20: 10.1.0.0/20 (10.1.0.0 to 10.1.15.255). It also claims twelve /24s you don't own. The alternative is three exact routes: 10.1.5.0/24, 10.1.6.0/23 and 10.1.8.0/24. **Why not the others:** A ends at 10.1.7.255 and misses .8. C isn't a valid summary: a /21 must start on a multiple of 8 in the third octet, and the nearest one, 10.1.0.0/21, ends at 10.1.7.255 and misses .8. D works but is far larger than needed.
+</details>
+
+**Q3.** Why does summarizing at a distribution router make the rest of the network more stable?
+
+- **A.** The summary stays advertised while any component exists, so a flapping component never triggers queries or SPF runs outside the summary.
+- **B.** Summaries are flooded less often than specific routes.
+- **C.** Summaries automatically get a lower AD than specific routes.
+- **D.** A summary prevents its components from ever failing.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Every advertised change forces work elsewhere: EIGRP queries and OSPF SPF runs. While at least one component exists, the summary itself doesn't change, so a flapping /24 inside it stays a local problem. **Why not the others:** B is not the mechanism. C: only the local Null0 discard route has a special AD (5 in EIGRP); summaries don't get a better AD elsewhere. D is obviously false.
+</details>
 
 ## 24.6 Summarization in Each Protocol
 
@@ -11716,6 +20007,64 @@ The `s` marks the suppressed components: still best paths on R1, but not sent to
 
 **Why is `as-set` optional, if it preserves loop detection?** Because it makes the aggregate **unstable**. Every time a component from some AS appears or disappears, the AS_SET changes and the aggregate is re-advertised to the whole internet. Most operators skip `as-set` and accept the small loop risk, because their aggregates cover only their own address space. *Accuracy versus stability — BGP almost always picks stability.*
 
+**📝 Exam-style questions — 24.6**
+
+**Q1.** Before summarization, the core router has these EIGRP routes from R1: 10.1.4.0/24 [90/3072], 10.1.5.0/24 [90/3072], 10.1.6.0/24 [90/3072] and 10.1.7.0/24 [90/3328]. R1 then configures `ip summary-address eigrp 100 10.1.4.0 255.255.252.0` toward the core. What does the core now show?
+
+- **A.** `D 10.1.4.0/22 [90/3328]`
+- **B.** `D 10.1.4.0/22 [5/3072]`
+- **C.** `D 10.1.4.0/22 [90/3072]`
+- **D.** The four /24s plus `D 10.1.4.0/22 [90/3072]`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** An EIGRP summary carries the lowest metric of its components, which is 3072 here, and on the core it is an ordinary internal route with AD 90. The /24s are suppressed. **Why not the others:** A uses the highest component metric. B confuses the core's route with R1's local Null0 discard route, which has AD 5. D would need a leak map to advertise components alongside the summary.
+</details>
+
+**Q2.** An engineer configures `area 1 range 10.1.0.0 255.255.0.0` on an internal router in area 1 that has no interfaces in area 0. The summary never appears in other areas, and no error is shown. Why?
+
+- **A.** `area range` needs the `advertise` keyword.
+- **B.** The summary is too short for OSPF.
+- **C.** OSPF can summarize only external routes.
+- **D.** `area range` only works on an ABR, where Type 3 summaries are created.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** OSPF can summarize only where routes are created as summaries. Inter-area summaries (Type 3) are created by ABRs, so `area range` on a router that isn't an ABR for that area does nothing, silently. **Why not the others:** A: advertising is the default. C: `area range` summarizes intra-area routes, and `summary-address` handles externals on an ASBR. B: there is no such length limit.
+</details>
+
+**Q3.** Refer to the exhibit. R1 has `aggregate-address 10.0.0.0 255.0.0.0 summary-only`. Which statement is correct?
+
+```
+R1# show bgp ipv4 unicast | begin Network
+     Network          Next Hop            Metric LocPrf Weight Path
+ *>  10.0.0.0         0.0.0.0                            32768 i
+ s>  10.1.0.0/16      10.0.12.2                0             0 65002 i
+ s>  10.2.0.0/16      10.0.13.3                0             0 65003 i
+```
+
+- **A.** The /16s are suppressed: they are still best paths on R1 but aren't sent to neighbors.
+- **B.** The /16s have been removed from R1's BGP table.
+- **C.** The aggregate's AS_PATH contains 65002 and 65003.
+- **D.** The aggregate would stay advertised even if both /16s disappeared from the BGP table.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `s` marks suppressed components: they remain in the table as best paths (`>`), but `summary-only` stops them being advertised. **Why not the others:** B: they're clearly still in the table. C: without `as-set`, the aggregate has an empty AS_PATH and carries ATOMIC_AGGREGATE instead. D: an aggregate exists only while at least one component is in the BGP table.
+</details>
+
+**Q4.** Why does every summarizing router install a route for the summary pointing to Null0?
+
+- **A.** To make the summary appear in `show ip route` for monitoring.
+- **B.** To make neighbors prefer the summary over specific routes.
+- **C.** To give the summary a lower AD than its components.
+- **D.** To drop packets for subnets inside the summary that don't exist, instead of following a default route and looping.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Without it, a packet for a non-existent subnet inside the summary would reach the summarizer, match only its default route and go back upstream, which sends it back to the summarizer, until the TTL expires. The Null0 route is longer than the default, so the packet is dropped at once. **Why not the others:** A, C and B are not its purpose. Neighbors don't even see the Null0 route.
+</details>
+
 ## 24.7 What Summarization Breaks
 
 | Problem | How it happens | Mitigation |
@@ -11738,6 +20087,44 @@ The `s` marks the suppressed components: still best paths on R1, but not sent to
 - **Cause:** ABR2 still has three components, so it keeps advertising the /22. Backbone routers closer to ABR2 send 10.1.6.x traffic there, and ABR2 discards it.
 - **Fix:** restore the failed area 1 link, and harden the design: give the two ABRs a direct link inside area 1 so each can reach the other's components, or leak 10.1.6.0/24 outside the summary if it is critical.
 - **Verify:** `traceroute 10.1.6.10` from the failing source now completes through ABR2.
+
+**📝 Exam-style questions — 24.7**
+
+**Q1.** ABR1 and ABR2 both advertise `area 1 range 10.1.4.0 255.255.252.0`. After a link failure inside area 1, users on some backbone routers can reach 10.1.6.10 and users on others can't. From a failing source, `traceroute 10.1.6.10` stops at ABR2, and on ABR2, `show ip route 10.1.6.10` matches only `10.1.4.0/22 via Null0`. What is the cause?
+
+- **A.** ABR2 lost its OSPF adjacency to area 0.
+- **B.** ABR2 can no longer reach 10.1.6.0/24 but keeps advertising the summary because other components still exist, so it discards that traffic.
+- **C.** ABR1 is filtering the summary with `not-advertise`.
+- **D.** The summary metric is flapping because no fixed `cost` is set.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** This is the summarization black hole. ABR2 still has three of the four components, so it keeps advertising the /22, and routers closer to ABR2 send 10.1.6.x traffic there. ABR2 has no /24 for it, so the Null0 discard route drops it. Fix the failed link, and harden the design with a direct link between the ABRs inside area 1, or by leaking 10.1.6.0/24. **Why not the others:** A: traceroute reaches ABR2 through the backbone, so its area 0 adjacency is fine. C: then nobody would receive ABR1's summary, which doesn't match the symptom. D: metric churn causes instability, not a consistent per-source failure.
+</details>
+
+**Q2.** Subnets of 172.16.0.0 exist at two sites, connected across a 10.0.0.0 core. With auto-summary enabled, both edge routers advertise 172.16.0.0/16 and the core load-shares between them, so half the traffic goes to the wrong site. What is the fix?
+
+- **A.** `no auto-summary` on the edge routers.
+- **B.** `variance 2` on the core router.
+- **C.** A leak map on one edge router.
+- **D.** Raising the AD of EIGRP external routes on the core router.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** This is the discontiguous-network problem: auto-summary summarizes to the classful boundary, so both sites claim the whole 172.16.0.0/16. Turning it off (the default since IOS 15.0 for EIGRP) lets each site advertise its real subnets. **Why not the others:** B changes unequal-cost load sharing, which makes things worse here. C would only add specific routes from one site; the other site's subnets would still be hidden behind the bad summary. D doesn't apply, because these are internal routes.
+</details>
+
+**Q3.** An EIGRP summary's metric changes every time the best component route flaps, so neighbors keep receiving updates. Which command stops this?
+
+- **A.** `ip summary-address eigrp 100 10.1.0.0 255.255.0.0 250`
+- **B.** `area 1 range 10.1.0.0 255.255.0.0 not-advertise`
+- **C.** `no discard-route internal`
+- **D.** `summary-metric 10.1.0.0/16 100000 100 255 1 1500` under `topology base` (named mode)
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `summary-metric` pins the summary's metric to fixed values, so it no longer follows its best component. OSPF's equivalent is the `cost` option on `area range`. **Why not the others:** A sets the AD of the local discard route, not the advertised metric. C is an OSPF command that removes the loop-preventing Null0 route. B is OSPF syntax that hides the range completely.
+</details>
 
 ## 24.8 Originating a Default Route — Protocol by Protocol
 
@@ -11842,6 +20229,66 @@ Unlike OSPF, RIP's `default-information originate` advertises 0.0.0.0/0 to RIP n
 | EIGRP branch learns nothing but 0/0 | 0/0 summary suppresses specifics | `show ip protocols` lists the summary; `show ip route` on the branch |
 | Edge router blackholes upstream traffic after adding a 0/0 EIGRP summary | Local Null0 summary (AD 5) beats a dynamically learned default (eBGP 20, OSPF 110) or a floating static | `show ip route 0.0.0.0` shows `via Null0`, distance 5; fix with the summary's AD argument |
 | NSSA routers get no default | `default-information-originate` missing on the NSSA ABR/ASBR, or no default on a non-ABR ASBR | 27.5 |
+
+**📝 Exam-style questions — 24.8**
+
+**Q1.** An edge router has `default-information originate` under `router ospf 1`, but no other OSPF router learns a default route. `show ip ospf database external 0.0.0.0` is empty, and `show ip route 0.0.0.0` on the edge router shows nothing. What is the most likely cause?
+
+- **A.** The edge router is not an ABR.
+- **B.** OSPF needs `redistribute static` to originate a default.
+- **C.** The default route is filtered by the OSPF distribute list.
+- **D.** Without `always`, a default route must already be in the router's RIB, and there is none.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `default-information originate` without `always` advertises a default only while one exists in the router's own RIB, for example a static route to the ISP. With no default in the table, nothing is originated, and no error is shown. **Why not the others:** A: any router can originate a default; it becomes an ASBR. C: a distribute list `in` affects only the local RIB, and there is no LSA here at all. B: `redistribute static` never carries a default route into OSPF; that's what `default-information originate` is for.
+</details>
+
+**Q2.** Refer to the exhibit. The edge router R1 originates the default with `default-information originate metric 10 metric-type 1`. What is R3's internal OSPF cost to R1?
+
+```
+R3# show ip route 0.0.0.0
+Routing entry for 0.0.0.0/0, supernet
+  Known via "ospf 1", distance 110, metric 30, candidate default path
+  Tag 1, type extern 1
+  Routing Descriptor Blocks:
+  * 10.0.23.2, from 1.1.1.1, 00:04:10 ago, via GigabitEthernet0/0
+```
+
+- **A.** 10
+- **B.** 20
+- **C.** 30
+- **D.** 40
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The default is E1 ("type extern 1"), so its metric is the seed plus the internal cost to the ASBR: 30 = 10 + 20. **Why not the others:** A is the seed metric. C is the total. D doesn't follow from the numbers.
+</details>
+
+**Q3.** An edge router learns its default route from the ISP by eBGP. The engineer adds `ip summary-address eigrp 100 0.0.0.0 0.0.0.0` toward a stub branch. Immediately afterwards, the edge router stops forwarding traffic to the internet. Why?
+
+- **A.** The summary removed the eBGP session.
+- **B.** The summary's local Null0 discard route (AD 5) beats the eBGP default (AD 20), so the edge router drops the traffic.
+- **C.** The branch now advertises the default back to the edge router.
+- **D.** The summary suppressed the eBGP route from the BGP table.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Like every EIGRP summary, the 0.0.0.0/0 summary installs a local Null0 route at AD 5, and that beats any dynamically learned default (eBGP 20, OSPF 110). Fix it with the distance argument: `ip summary-address eigrp 100 0.0.0.0 0.0.0.0 250`. **Why not the others:** A: summaries don't affect BGP sessions. C: the stub branch receives only the default and has nothing to send back, and that wouldn't explain drops on the edge router anyway. D: EIGRP summaries don't touch the BGP table.
+</details>
+
+**Q4.** Which two methods advertise a default route even when the router has no default route in its RIB? (Choose two.)
+
+- **A.** `default-information originate` under `router ospf 1`, without `always`
+- **B.** `default-information originate` under `router rip`
+- **C.** `network 0.0.0.0` under the BGP IPv4 address family
+- **D.** `neighbor 10.0.0.2 default-originate` under BGP
+- **E.** `redistribute static metric 100000 100 255 1 1500` under `router eigrp 100`
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** RIP's `default-information originate` advertises 0.0.0.0/0 unconditionally, and BGP's `neighbor default-originate` generates a default for that neighbor without needing one in the RIB or BGP table. **Why not the others:** A needs a default in the RIB unless `always` is added. C advertises a default only if it exists in the RIB. E can only redistribute a static default that is actually configured.
+</details>
 
 ---
 
@@ -12000,6 +20447,76 @@ Each debug line names the **ingress interface**, the source and destination, and
 - **Verify:** the match counter climbs while a guest browses, and `traceroute` from a guest host shows 203.0.113.1 as the first hop after R1.
 
 **Why is asymmetry such a common PBR side effect?** Because PBR changes only **this router's** decision for **this direction**. The reply comes back through routers that know nothing about your policy, so it follows their routing tables. A firewall that saw only the outbound half of a TCP session will drop the reply. *Every PBR design needs an answer to "and how does the reply come home?"*
+
+**📝 Exam-style questions — 25.1**
+
+**Q1.** Refer to the exhibit. Guest web traffic arrives on Gi0/2.20 and should leave via the broadband router 203.0.113.1, but it still goes over MPLS through Gi0/0. The match counter stays at 0 while guests browse. What is the cause?
+
+```
+R1# show ip policy
+Interface      Route map
+Gi0/0          PBR-GUEST
+R1# show route-map PBR-GUEST
+route-map PBR-GUEST, permit, sequence 10
+  Match clauses:
+    ip address (access-lists): GUEST-WEB
+  Set clauses:
+    ip next-hop 203.0.113.1
+  Policy routing matches: 0 packets, 0 bytes
+```
+
+- **A.** The route map needs a final `permit` clause with no match.
+- **B.** The policy is on the outbound WAN interface, but PBR only examines packets arriving on the interface where it is applied.
+- **C.** 203.0.113.1 must be configured with `set ip default next-hop` instead.
+- **D.** PBR counters only increase for the router's own traffic.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** PBR runs before the routing lookup, so it can only see packets as they arrive. Guest packets arrive on Gi0/2.20 and leave on Gi0/0, so a policy on Gi0/0 never sees them, which is why the counter stays at 0. Move `ip policy route-map PBR-GUEST` to Gi0/2.20. **Why not the others:** A: a missing clause would only change what happens to unmatched packets, and those are routed normally anyway. C: the default form would make the policy weaker, and it still wouldn't run on the wrong interface. D: the PBR counters are real counters of policy-routed transit packets.
+</details>
+
+**Q2.** A branch router has `O 10.0.0.0/8 via 10.0.0.2` and a static default route `ip route 0.0.0.0 0.0.0.0 10.0.0.2`. Guest traffic hits a PBR clause with `set ip default next-hop 203.0.113.1`. Where do guest packets to 10.1.1.5 and to 93.184.216.34 go?
+
+- **A.** Both to 203.0.113.1
+- **B.** Both to 10.0.0.2
+- **C.** 10.1.1.5 to 203.0.113.1; 93.184.216.34 to 10.0.0.2
+- **D.** 10.1.1.5 to 10.0.0.2; 93.184.216.34 to 203.0.113.1
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `set ip default next-hop` applies only when the routing table has no explicit route for the destination. 10.1.1.5 matches the explicit route 10.0.0.0/8, so normal routing sends it to 10.0.0.2. 93.184.216.34 matches only the default route, and a default route doesn't count as explicit, so the policy sends it to 203.0.113.1. **Why not the others:** A is what plain `set ip next-hop` would do. B wrongly counts the default route as explicit. C reverses the logic.
+</details>
+
+**Q3.** The engineer runs `debug ip policy` and sees this line:
+
+```
+IP: s=10.20.9.9 (GigabitEthernet0/2.20), d=10.1.1.5, len 84, FIB policy rejected(no match)
+    - normal forwarding
+```
+
+What does it mean?
+
+- **A.** The packet was dropped because the route map denied it.
+- **B.** The packet matched a permit clause, but the next hop was down.
+- **C.** The packet matched no permit clause and was forwarded using the routing table.
+- **D.** PBR isn't applied to Gi0/2.20.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** "Policy rejected (no match)" means no permit clause matched, so the packet gets normal routing, as "normal forwarding" says. PBR never drops a packet just because it doesn't match. **Why not the others:** A: a deny or no match means "route normally", not "drop". B would show "policy match" without "policy routed". D: the debug line names Gi0/2.20 as the ingress interface, so PBR is evaluating packets there.
+</details>
+
+**Q4.** The engineer wants the router's own syslog messages to the collector to leave through the out-of-band management link instead of the normal path. What is needed?
+
+- **A.** `ip policy route-map PBR-MGMT` on the management interface
+- **B.** A static route for the collector with AD 250
+- **C.** `set ip default next-hop` in the existing guest policy
+- **D.** `ip local policy route-map PBR-MGMT` in global configuration
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Traffic the router generates itself never arrives on any interface, so `ip policy` can't see it. `ip local policy` applies a route map to locally originated packets. **Why not the others:** A only affects packets arriving on that interface. C changes a policy that only applies to guest packets arriving on the guest VLAN. B would put the static route in the RIB only if nothing better exists, and it would affect every packet to the collector, not just the router's own syslog.
+</details>
 
 ## 25.2 VRF-Lite — Several Routers Inside One
 
@@ -12191,6 +20708,80 @@ Remove the `import 65000:1` from SHARED and step 3 only works one way: RED can s
 | OSPF routes from an MPLS provider missing in VRF | DN-bit check | `capability vrf-lite` |
 | EIGRP in a VRF sends no hellos at all | Classic-mode `address-family ipv4 vrf BLUE` entered **without** `autonomous-system 20` (or a different AS than the neighbour) | `show ip eigrp vrf BLUE interfaces` is empty; `show run | section router eigrp` |
 
+**📝 Exam-style questions — 25.2**
+
+**Q1.** Refer to the exhibit. The server 10.1.1.5 is in VRF RED. What explains the result?
+
+```
+R1# ping 10.1.1.5
+.....
+Success rate is 0 percent (0/5)
+R1# show ip route vrf RED 10.1.1.5
+Routing entry for 10.1.1.0/24
+  Known via "connected", distance 0, metric 0 (connected, via interface)
+```
+
+- **A.** The server is down.
+- **B.** RED's interface lost its IP address when the VRF was assigned.
+- **C.** RED needs a route target before it can forward traffic.
+- **D.** The ping used the global routing table, which has no route to 10.1.1.5; `ping vrf RED 10.1.1.5` tests the right table.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A plain `ping` uses the global table. The route exists only in RED, so the test has to be `ping vrf RED 10.1.1.5`. **Why not the others:** A can't be concluded from a test in the wrong table. B is ruled out by the exhibit: RED has 10.1.1.0/24 as a connected route, so its interface does have an address. C is wrong because route targets are only for leaking routes between VRFs or carrying them through MPLS; a VRF forwards to its own connected networks without one.
+</details>
+
+**Q2.** Which two statements about VRF-Lite are correct? (Choose two.)
+
+- **A.** The ingress interface decides which VRF's table a packet is looked up in.
+- **B.** VRF-Lite needs MPLS labels to keep VRFs apart.
+- **C.** Two VRFs on the same router can use the same IP subnet.
+- **D.** Assigning `vrf forwarding` to an interface keeps its existing IP address.
+- **E.** Each packet carries a VRF identifier in its IP header.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** The router picks the table from the interface the packet arrived on, and because each VRF has its own table, overlapping addresses are legal. **Why not the others:** B: VRF-Lite is VRFs without MPLS, carried over separate interfaces or 802.1Q subinterfaces. D: assigning a VRF removes the interface's IP address, which must be re-entered. E: the packet carries no VRF marker; the interface decides.
+</details>
+
+**Q3.** Refer to the exhibit. BGP runs with an address family for each VRF. Hosts in RED can send traffic to SHARED's servers, but replies never come back. What is the cause?
+
+```
+vrf definition RED
+ rd 65000:1
+ address-family ipv4
+  route-target export 65000:1
+  route-target import 65000:1
+  route-target import 65000:100
+vrf definition SHARED
+ rd 65000:100
+ address-family ipv4
+  route-target export 65000:100
+  route-target import 65000:100
+```
+
+- **A.** RED and SHARED must use the same RD to exchange routes.
+- **B.** SHARED doesn't import 65000:1, so it has no route back to RED's subnets.
+- **C.** RED shouldn't import its own target, 65000:1.
+- **D.** Route targets only work with MPLS.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** RED imports SHARED's target (65000:100), so RED can reach SHARED. SHARED imports only its own target, so RED's routes never appear in SHARED's table and the replies have no route. Add `route-target import 65000:1` under SHARED. **Why not the others:** A: RDs only keep overlapping prefixes unique; each VRF has its own, and route targets (not RDs) decide what gets leaked. C: importing its own target is normal and harmless. D: route targets also leak routes between VRFs on a single router, as long as BGP runs.
+</details>
+
+**Q4.** A customer router runs `router ospf 10 vrf RED` and connects to an MPLS provider edge. OSPF neighbors are FULL, but routes from the provider never appear in RED's routing table. What fixes this?
+
+- **A.** `capability vrf-lite` under `router ospf 10 vrf RED`
+- **B.** `redistribute bgp` under `router ospf 10 vrf RED`
+- **C.** A route target import on RED
+- **D.** `area 0 range` on the customer router
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The PE sets the DN bit on the Type 3, 5 and 7 LSAs it sends. A router running OSPF in a VRF behaves like a PE and ignores LSAs with the DN bit, to prevent MPLS VPN loops. `capability vrf-lite` turns that check off on a router that isn't a PE. **Why not the others:** B: the customer router isn't running BGP with the provider here. C: route targets don't affect OSPF's DN-bit check. D: summarization doesn't make ignored LSAs usable.
+</details>
+
 ## 25.3 BFD — Detecting Failure in Milliseconds
 
 ![When a switch sits between routers, the link stays up after the far router dies — only hellos or BFD notice](images/c25_bfd.png)
@@ -12321,6 +20912,64 @@ Multihop BFD uses UDP **4784** and doesn't support echo mode. There's no single 
 
 **Exam framing:** ENARSI 1.8 says **describe**, not configure. Expect questions on *why* BFD exists, async vs echo, how detection time is calculated, and which protocols can use it. The configuration above is what you'll type in a lab and what turns those descriptions into something you can verify.
 
+**📝 Exam-style questions — 25.3**
+
+**Q1.** R1 has `bfd interval 50 min_rx 50 multiplier 3`, and R2 has `bfd interval 100 min_rx 200 multiplier 3`. Echo mode is disabled on both. How long does R1 take to detect that R2 has failed?
+
+- **A.** 150 ms
+- **B.** 300 ms
+- **C.** 450 ms
+- **D.** 600 ms
+
+<details><summary>Answer</summary>
+
+**Answer: B.** R2 wants to send every 100 ms, and R1 accepts packets as often as every 50 ms, so R2 sends every 100 ms. R1's detection time is R2's multiplier × R2's actual sending interval = 3 × 100 = 300 ms. **Why not the others:** A uses R1's own interval, but detection depends on what the remote side actually sends. C doesn't follow from the negotiation. D is R2's detection time for R1 failing: R1 must slow down to R2's `min_rx` of 200, so 3 × 200 = 600 ms.
+</details>
+
+**Q2.** Refer to the exhibit. BFD is up between R1 and R2, but when R2 fails, R1's OSPF adjacency stays up until the 40-second dead interval expires. What is the cause?
+
+```
+R1# show bfd neighbors details
+...
+Session state is UP and using echo function with 50 ms interval.
+Registered protocols: EIGRP CEF
+```
+
+- **A.** Echo mode delays detection for OSPF.
+- **B.** The BFD timers are too slow for OSPF.
+- **C.** OSPF is not registered as a BFD client; add `bfd all-interfaces` under OSPF or `ip ospf bfd` on the interface.
+- **D.** BFD can only notify EIGRP and BGP.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** BFD tells only the clients registered with it, and OSPF isn't in the "Registered protocols" list. Until OSPF registers, it keeps relying on its own dead timer. **Why not the others:** A: echo mode is what gives the 50 ms detection. B: 50 ms is far faster than OSPF's timers. D: OSPF, EIGRP, BGP, static routes and HSRP can all be BFD clients.
+</details>
+
+**Q3.** Why is BFD preferred over setting every routing protocol's hello timers to sub-second values? (Choose two.)
+
+- **A.** One BFD session can serve OSPF, EIGRP, BGP and static routes at the same time.
+- **B.** BFD recalculates the routing table itself when a session fails.
+- **C.** BFD is lightweight and can run in hardware, using less control-plane CPU than many fast hellos.
+- **D.** BFD works without configuring anything on the neighbor.
+- **E.** BFD replaces the routing protocols' need to exchange routes.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** BFD answers "is my neighbor alive?" once, cheaply, for every protocol that registers with it, often in hardware. **Why not the others:** B: BFD never changes routing; it tells its clients, and they reconverge. D: both neighbors must run BFD, or the session never comes up. E: BFD only detects liveness; the routing protocols still exchange routes.
+</details>
+
+**Q4.** Which statement describes BFD echo mode correctly?
+
+- **A.** Echo packets are addressed to the sender and looped back by the neighbor's forwarding plane, so they test the real data path without using the neighbor's CPU.
+- **B.** Echo mode is required for multihop BFD sessions.
+- **C.** Echo mode uses UDP port 4784.
+- **D.** Echo mode needs `ip redirects` enabled on the interface.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Each side sends echo packets with its own address as the destination, and the neighbor simply forwards them back. That tests the forwarding path itself, and the control packets can slow down. **Why not the others:** B: multihop BFD doesn't support echo mode. C: echo uses UDP 3785; 4784 is multihop control. D: it's the opposite; echo mode needs `no ip redirects`.
+</details>
+
 ---
 
 <a name="chapter-26"></a>
@@ -12423,6 +21072,59 @@ R1# show eigrp address-family ipv4 topology
 R1# show eigrp protocols                  ! K values, router-ID, stub status, AD
 ```
 
+**📝 Exam-style questions — 26.1**
+
+**Q1.** Refer to the exhibit. R1 forms an EIGRP adjacency with R2 on Gi0/1, but never with R3 on Gi0/2. Both links are up and addressed correctly. What is the cause?
+
+```
+router eigrp CORP
+ address-family ipv4 unicast autonomous-system 100
+  network 10.0.0.0 0.255.255.255
+  af-interface default
+   passive-interface
+  exit-af-interface
+  af-interface GigabitEthernet0/1
+   no passive-interface
+  exit-af-interface
+ exit-address-family
+```
+
+- **A.** The `network` statement does not match Gi0/2.
+- **B.** Gi0/2 inherits `passive-interface` from `af-interface default`.
+- **C.** A named-mode router cannot peer with R3 if R3 uses classic mode.
+- **D.** `variance` is missing under `topology base`, so only one neighbor is allowed.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** In named mode, `af-interface default` applies to every interface, and only Gi0/1 was given `no passive-interface`. Gi0/2 is still passive, so it sends and processes no hellos. **Why not the others:** A is wrong because 10.0.0.0/8 covers all of R1's 10.x links. C is wrong because classic and named mode run the same protocol on the wire and peer normally. D is wrong because `variance` controls unequal-cost load balancing, not how many neighbors you can have.
+</details>
+
+**Q2.** An engineer must enable unequal-cost load balancing on a named-mode EIGRP router. Under which sub-mode must `variance 2` be entered?
+
+- **A.** `address-family ipv4 unicast autonomous-system 100`
+- **B.** `af-interface default`
+- **C.** `af-interface GigabitEthernet0/1`
+- **D.** `topology base`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Anything that shapes the routing table (`variance`, `maximum-paths`, `redistribute`, `distance`, `distribute-list`) lives under `topology base`. **Why not the others:** A holds instance-wide settings such as `network`, `eigrp router-id` and `eigrp stub`. B and C hold per-interface settings such as timers, passive state and authentication.
+</details>
+
+**Q3.** Which two statements about classic-mode and named-mode EIGRP are true? (Choose two.)
+
+- **A.** A classic-mode router and a named-mode router in the same AS can become neighbors.
+- **B.** Two named-mode routers must use the same process name to become neighbors.
+- **C.** HMAC-SHA-256 authentication is available only in named mode.
+- **D.** Classic mode supports 64-bit wide metrics.
+- **E.** Named mode carries IPv6 in a separate `ipv6 router eigrp` process.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** Both modes send the same packets on the wire, so they peer as long as the AS, K values and authentication match. SHA-256 authentication (like wide metrics) exists only in named mode. **Why not the others:** B is wrong because the process name is local and never sent to neighbors. D is wrong because wide metrics are a named-mode feature. E describes classic mode; named mode adds an `address-family ipv6` inside the same process.
+</details>
+
+
 ---
 
 ## 26.2 EIGRP for IPv6
@@ -12496,6 +21198,56 @@ The neighbor is listed by its **FE80::** address, not by 2001:db8:12::2, and the
 4. **Cause:** with no IPv4 address to borrow, there's no router ID, so the process can't start.
 5. **Fix:** `eigrp router-id 7.7.7.7` under the process (and `no shutdown` on releases where the process starts shut). The neighbor comes up within a hello interval.
 
+**📝 Exam-style questions — 26.2**
+
+**Q1.** Refer to the exhibit. R7 has only IPv6 addresses. `show ipv6 eigrp interfaces` on R7 is empty and no neighbor forms. What is the most likely cause?
+
+```
+ipv6 unicast-routing
+!
+ipv6 router eigrp 100
+ no shutdown
+!
+interface GigabitEthernet0/1
+ ipv6 address 2001:db8:17::7/64
+ ipv6 eigrp 100
+```
+
+- **A.** Classic IPv6 EIGRP needs a `network` statement for 2001:db8:17::/64.
+- **B.** The neighbor's global prefix is in a different /64.
+- **C.** The process has no router ID, and R7 has no IPv4 address to take one from.
+- **D.** `ipv6 eigrp 100` must be entered under the routing process, not the interface.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** EIGRP for IPv6 still needs a 32-bit router ID. With no IPv4 address on the router, IOS can't pick one, so the process doesn't start, and no interface appears in `show ipv6 eigrp interfaces`. Fix it with `eigrp router-id 7.7.7.7`. The exhibit already has `no shutdown`, so a shut process isn't the cause. **Why not the others:** A is wrong because classic IPv6 EIGRP has no `network` command. B is wrong because IPv6 neighbors meet over link-local addresses, so global prefixes don't need to match. D is wrong because the interface command is exactly how an interface joins the classic IPv6 process.
+</details>
+
+**Q2.** R1 (Gi0/1 2001:db8:12::1/64) and R2 (Gi0/1 2001:db8:99::2/64) run EIGRP for IPv6 on the same link. Everything else matches. What happens?
+
+- **A.** No adjacency forms, with a "not on common subnet" message.
+- **B.** An adjacency forms only if a static `neighbor` is configured on both routers.
+- **C.** An adjacency forms, but routes point at the neighbor's global address, which is unreachable.
+- **D.** An adjacency forms, and routes use the neighbor's link-local address as the next hop.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** EIGRP for IPv6 sends hellos from the link-local address to FF02::A and uses link-local addresses as next hops. The global prefixes play no part in the adjacency. **Why not the others:** A is the IPv4 rule (a shared primary subnet), which doesn't apply to IPv6. B is wrong because multicast hellos work normally on this link. C is wrong because next hops are link-local (`FE80::…`), never the global address.
+</details>
+
+**Q3.** In named mode, R1's `address-family ipv6` must stop running EIGRP on Gi0/2 completely, while IPv6 keeps working on that interface. What should the engineer configure?
+
+- **A.** `af-interface GigabitEthernet0/2` followed by `shutdown`
+- **B.** `no ipv6 eigrp 100` on interface Gi0/2
+- **C.** `no ipv6 enable` on interface Gi0/2
+- **D.** `af-interface GigabitEthernet0/2` followed by `passive-interface`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** In named mode every IPv6-enabled interface joins the IPv6 address family automatically, and `shutdown` under its `af-interface` removes it from EIGRP. **Why not the others:** B is the classic-mode interface command and has no effect on named mode. C would remove IPv6 from the interface altogether. D stops hellos but still advertises the interface's prefix, so the interface isn't fully excluded.
+</details>
+
+
 ---
 
 ## 26.3 EIGRP Inside a VRF
@@ -12546,6 +21298,56 @@ R1# show ip route vrf CUST_A eigrp
 3. **Does the instance match?** R1 has `address-family ipv4 vrf CUST_A autonomous-system 200`. CE1 has `router eigrp 100` with the 172.16 network under it.
 4. **Cause:** AS 200 versus AS 100. EIGRP ignores hellos from a different AS without logging anything.
 5. **Fix:** make the numbers agree (change CE1 to `router eigrp 200`, or R1's address family to `autonomous-system 100`). The neighbor appears in `show ip eigrp vrf CUST_A neighbors`.
+
+**📝 Exam-style questions — 26.3**
+
+**Q1.** Refer to the exhibit. R1 and CE1 share 172.16.1.0/24 in VRF CUST_A, and `ping vrf CUST_A 172.16.1.2` succeeds. No EIGRP neighbor forms. What is the cause?
+
+```
+R1:
+router eigrp 1
+ address-family ipv4 vrf CUST_A autonomous-system 200
+  network 172.16.0.0 0.0.255.255
+!
+CE1:
+router eigrp 1
+ network 172.16.0.0 0.0.255.255
+```
+
+- **A.** CE1 is running AS 1, but R1's VRF instance runs AS 200.
+- **B.** CE1 must also be configured with `vrf CUST_A`.
+- **C.** R1's classic process number 1 must match CE1's, and it does, so the fault is elsewhere.
+- **D.** EIGRP cannot run inside a VRF in classic mode.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The VRF address family is a separate EIGRP instance. It sends hellos with its own AS number, 200. CE1 sends hellos for AS 1, and EIGRP silently ignores hellos from another AS. **Why not the others:** B is wrong because the CE doesn't need a VRF; only R1 separates the tables. C is the trap: the process number `router eigrp 1` only sets the global table's AS. D is wrong because classic mode supports `address-family ipv4 vrf … autonomous-system`.
+</details>
+
+**Q2.** R1's EIGRP neighbor in VRF CUST_A (172.16.1.2) is up, but `ping 172.16.1.2` from R1 fails. What explains it?
+
+- **A.** The neighbor is blocking ICMP but allowing EIGRP.
+- **B.** The ping looked up 172.16.1.2 in the global routing table, which doesn't contain the VRF's routes.
+- **C.** EIGRP inside a VRF uses link-local addressing, so the IPv4 address isn't reachable.
+- **D.** The VRF's interface lost its IP address when `vrf forwarding` was applied.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A plain `ping` uses the global table. To test inside the VRF, use `ping vrf CUST_A 172.16.1.2`. **Why not the others:** A is possible in theory but isn't what the facts point to, and it's the classic distractor for this trap. C is wrong because link-local addressing is an IPv6 detail. D is wrong because the neighbor is up, so the interface clearly has its address.
+</details>
+
+**Q3.** Which command shows the EIGRP neighbors that R1 has formed inside VRF CUST_A?
+
+- **A.** `show ip eigrp neighbors`
+- **B.** `show ip route vrf CUST_A eigrp`
+- **C.** `show ip eigrp vrf CUST_A neighbors`
+- **D.** `show ip vrf interfaces`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Add the `vrf` keyword to the normal EIGRP show command. **Why not the others:** A shows only the global instance's neighbors. B shows the routes EIGRP installed in the VRF, not the neighbors. D shows which interfaces are in which VRF, with no EIGRP information.
+</details>
+
 
 ---
 
@@ -12637,6 +21439,66 @@ H   Address        Interface   Hold Uptime    SRTT   RTO  Q  Seq
 
 *Method to remember: when an EIGRP neighbor is missing and nothing is logged, think AS number or passive interface first, because those two fail silently.*
 
+**📝 Exam-style questions — 26.4**
+
+**Q1.** Refer to the exhibit. The neighbor 10.1.13.3 keeps going down with `retry limit exceeded` and coming back. What is the most likely cause?
+
+```
+R1# show ip eigrp neighbors
+H   Address        Interface   Hold Uptime    SRTT   RTO  Q  Seq
+                               (sec)          (ms)       Cnt Num
+0   10.1.12.2      Gi0/1         13 02:41:07    4   100  0  37
+1   10.1.13.3      Gi0/2         11 00:00:42 1020  5000  4  12
+```
+
+- **A.** The K values differ between R1 and 10.1.13.3.
+- **B.** The AS numbers differ between R1 and 10.1.13.3.
+- **C.** The hello and hold timers differ between R1 and 10.1.13.3.
+- **D.** Multicast hellos get through, but unicast EIGRP packets are blocked in one direction.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The neighbor appears, so hellos (multicast) are working. A stuck Q Cnt of 4, a huge SRTT/RTO and `retry limit exceeded` mean reliable packets aren't being acknowledged. RTP retries 16 times and then tears the neighbor down. A one-way path or an ACL that blocks unicast EIGRP causes exactly this. **Why not the others:** A and B stop the neighbor from ever appearing (K values with a log message, AS silently). C is wrong because EIGRP timers don't have to match; each side uses the hold time the other advertises.
+</details>
+
+**Q2.** R1 uses hello 5 s / hold 15 s on a link. R2 uses hello 10 s / hold 30 s on the same link. All other parameters match. What is the result?
+
+- **A.** No adjacency forms, because the timers must match.
+- **B.** The adjacency forms and stays up; each router uses the hold time the other advertises.
+- **C.** The adjacency forms, then flaps, because R1 drops R2 after 15 s.
+- **D.** The adjacency forms only after both routers negotiate the lower hold time.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Each EIGRP hello carries the sender's own hold time. R1 waits up to 30 s for R2 (R2's promise), and R2 sends a hello every 10 s, so the promise holds. R2 waits 15 s for R1, and R1 sends every 5 s. **Why not the others:** A is OSPF's rule, not EIGRP's. C is wrong because R1 applies R2's 30 s hold time, not its own 15 s. D is wrong because EIGRP doesn't negotiate timers (BGP does).
+</details>
+
+**Q3.** Which two mismatches prevent an EIGRP adjacency from forming? (Choose two.)
+
+- **A.** AS number
+- **B.** Hello interval
+- **C.** K values
+- **D.** Router ID
+- **E.** Classic mode on one router, named mode on the other
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** The AS number and the K values must match (and authentication, the primary subnet, and a non-passive interface). **Why not the others:** B is wrong because each side uses the other's advertised hold time. D is wrong because router IDs only need to be unique (a duplicate causes problems with external routes, not with the adjacency). E is wrong because both modes send identical packets.
+</details>
+
+**Q4.** Gi0/1 on R1 has two working dynamic EIGRP neighbors, R2 (10.1.12.2) and R5 (10.1.12.5). An engineer adds `neighbor 10.1.12.2 GigabitEthernet0/1` under R1's EIGRP process and changes nothing else. What happens?
+
+- **A.** R1 loses both neighbors, because it stops sending and processing multicast hellos on Gi0/1.
+- **B.** R2 stays up as a static neighbor and R5 stays up as a dynamic neighbor.
+- **C.** R5 goes down, but R2 stays up.
+- **D.** Nothing changes until `clear ip eigrp neighbors` is run.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A static `neighbor` statement switches that interface to unicast hellos only. R1 now ignores multicast hellos on Gi0/1, so R5 is lost. R2 is lost too, because R2 has no matching statement: it keeps sending multicast hellos, which R1 ignores, and it ignores R1's unicast ones. **Why not the others:** B and C assume static and dynamic neighbors can share an interface, which they can't. D is wrong because the change takes effect immediately.
+</details>
+
+
 ---
 
 ## 26.5 Authentication — MD5 and HMAC-SHA-256
@@ -12713,6 +21575,54 @@ interface GigabitEthernet0/1
 In named mode the `af-interface` commands are identical under `address-family ipv6`.
 
 Verify: `show key chain`, `show ip eigrp interfaces detail` (shows the auth mode and key chain per interface), and `debug eigrp packets` (look for `invalid authentication` or `key 1 not found`).
+
+**📝 Exam-style questions — 26.5**
+
+**Q1.** Refer to the exhibit. Both routers use `ip authentication mode eigrp 100 md5` with key chain EIGRP_KEYS, and the neighbor won't form. What fixes it?
+
+```
+R1# show key chain
+Key-chain EIGRP_KEYS:
+    key 1 -- text "S3cr3t!"
+R2# show key chain
+Key-chain EIGRP_KEYS:
+    key 2 -- text "S3cr3t!"
+```
+
+- **A.** Add key 2 with the same string to R1's key chain only.
+- **B.** Change both routers to `authentication mode hmac-sha-256`.
+- **C.** Renumber R2's key to key 1, so both routers use the same key ID.
+- **D.** Remove the accept and send lifetimes, which are blocking the key.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** An EIGRP MD5 packet carries the key number that signed it, and the receiver checks it with its own key of that number. R1 signs with key 1, which R2 doesn't have, and R2 signs with key 2, which R1 doesn't have. **Why not the others:** A only fixes one direction: R1 could now verify R2's packets, but R1 still signs with key 1, which R2 can't verify. B is wrong because these are classic-mode commands, and SHA-256 is named mode only (and changing the algorithm doesn't fix the key ID mismatch). D is wrong because the exhibit doesn't show any lifetime problem.
+</details>
+
+**Q2.** Why does a key chain have separate `accept-lifetime` and `send-lifetime` values?
+
+- **A.** So that a new key is accepted on every router before any router starts sending with it, which avoids an outage during key rollover.
+- **B.** So that the accept lifetime can use NTP time while the send lifetime uses the local clock.
+- **C.** Because MD5 keys are only accepted in one direction on a link.
+- **D.** So that the router can send with several keys at the same time.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** For a rollover, you add key 2 everywhere with an accept lifetime that starts now and a send lifetime that starts later. During the overlap every router accepts both keys, so the switch-over never leaves a neighbor unable to verify a packet. **Why not the others:** B is wrong because both lifetimes use the same router clock (which is why NTP matters). C is wrong because authentication applies to both directions. D is wrong because a router signs each packet with one key, the lowest-numbered valid send key.
+</details>
+
+**Q3.** A classic-mode EIGRP router must authenticate with a neighbor using HMAC-SHA-256. What must the engineer do?
+
+- **A.** Configure `ip authentication mode eigrp 100 hmac-sha-256` on the interface.
+- **B.** Configure `cryptographic-algorithm hmac-sha-256` in the key chain and keep `md5` mode.
+- **C.** Convert the router's EIGRP configuration to named mode, then use `authentication mode hmac-sha-256` under the `af-interface`.
+- **D.** Configure `authentication mode hmac-sha-256` directly under `router eigrp 100`.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** HMAC-SHA-256 for EIGRP exists only in named mode, under `af-interface`. **Why not the others:** A and D are not valid classic-mode options; classic EIGRP supports MD5 only. B mixes in the OSPF key-chain method: in EIGRP the authentication mode sets the algorithm, and an `md5` mode still uses MD5.
+</details>
+
 
 ---
 
@@ -12792,6 +21702,71 @@ P 10.9.9.0/24, 1 successors, FD is 3000, serno 41
 
 *If you're asked "why isn't EIGRP using the backup path?", the answer is usually in the `all-links` output: compare the path's RD with the FD.*
 
+**📝 Exam-style questions — 26.6**
+
+**Q1.** Refer to the exhibit. Which neighbor or neighbors are feasible successors for 10.9.9.0/24?
+
+```
+R1# show ip eigrp topology all-links
+P 10.9.9.0/24, 1 successors, FD is 5120, serno 12
+        via 10.1.12.2 (5120/2560), GigabitEthernet0/1
+        via 10.1.13.3 (6400/3840), GigabitEthernet0/2
+        via 10.1.14.4 (7680/5376), GigabitEthernet0/3
+```
+
+- **A.** 10.1.13.3 and 10.1.14.4
+- **B.** 10.1.13.3 only
+- **C.** 10.1.14.4 only
+- **D.** None, because both totals are higher than the FD
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The FD is 5120 (the successor via 10.1.12.2). A path is a feasible successor if its reported distance, the second number, is below the FD. 10.1.13.3: RD 3840 < 5120, so it qualifies. 10.1.14.4: RD 5376 is not < 5120, so it doesn't. **Why not the others:** A includes 10.1.14.4, which fails the condition. C picks the wrong one. D is the classic mistake of comparing the *total* (the first number) with the FD; the feasibility condition compares the *RD*.
+</details>
+
+**Q2.** R1 has three paths to 10.5.5.0/24. Which statement is correct?
+
+| Neighbor | Neighbor's RD | R1's cost to the neighbor |
+|----------|---------------|---------------------------|
+| N1 | 2000 | 1000 |
+| N2 | 2800 | 500 |
+| N3 | 1500 | 3000 |
+
+- **A.** N1 is the successor; N2 and N3 are both feasible successors.
+- **B.** N1 is the successor; only N2 is a feasible successor, because its total is the second lowest.
+- **C.** N1 is the successor; only N3 is a feasible successor, because its RD is the lowest.
+- **D.** N2 is the successor, because R1's cost to it is the lowest.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Totals: N1 = 2000 + 1000 = 3000, N2 = 2800 + 500 = 3300, N3 = 1500 + 3000 = 4500. The lowest total is 3000, so FD = 3000 and N1 is the successor. Feasibility condition: N2's RD 2800 < 3000, yes. N3's RD 1500 < 3000, yes. Both are feasible successors. **Why not the others:** B and C each apply the right idea to only one path; the condition is checked for every path. D is wrong because the successor has the lowest *total*, not the cheapest first hop.
+</details>
+
+**Q3.** Why does the feasibility condition (RD < FD) guarantee that a feasible successor is loop-free?
+
+- **A.** Because EIGRP floods its topology, so every router can check the full path.
+- **B.** Because the RD includes this router's own cost, which would double if the path looped.
+- **C.** Because EIGRP marks looping paths with an infinite metric before they're advertised.
+- **D.** Because a neighbor with a lower RD is strictly closer to the destination than this router, so its path cannot run back through this router.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** If the neighbor's own best path went through this router, the neighbor's distance would be at least this router's FD. An RD below the FD proves that can't be the case. **Why not the others:** A describes a link-state protocol; EIGRP routers never see the full path. B is wrong because the RD is the neighbor's own distance and doesn't include this router's cost. C describes poison reverse, a different mechanism, which doesn't make backups provably safe.
+</details>
+
+**Q4.** R1's successor for 10.9.9.0/24 fails. R3 is a feasible successor for that prefix. What does R1 do?
+
+- **A.** Marks the route active and queries every neighbor before choosing R3.
+- **B.** Promotes R3 immediately; the route stays passive and no queries are sent.
+- **C.** Waits for the hold timer to expire, then installs R3.
+- **D.** Runs SPF on its topology table and installs the result.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** That is the point of a feasible successor: it is already proven loop-free, so R1 switches to it locally in well under a second. **Why not the others:** A is what happens when there is **no** feasible successor. C is wrong because once R1 knows the successor is gone, there is no extra timer before it uses the backup. D describes OSPF, not EIGRP.
+</details>
+
+
 ---
 
 ## 26.7 Queries and Stuck-in-Active
@@ -12846,6 +21821,55 @@ A 10.9.9.0/24, 1 successors, FD is Inaccessible
 
 `A` = active; `active 00:01:32` = how long the route has been waiting; the `Remaining replies` list is who it's waiting for (R2 here). Log into R2 and run the same command: R2 will show it's waiting on R5. Follow that trail hop by hop until you find the router that's overloaded, flapping or on a lossy link. **Fix the cause by bounding the query domain**, not by raising `timers active-time`. The two tools for that are **stubs** (next section) and **summarization** (Chapter 24). A router that receives a query for a prefix it only knows as part of a summary replies "unreachable" immediately, so the query stops there.
 
+**📝 Exam-style questions — 26.7**
+
+**Q1.** Refer to the exhibit. The route has been active for over a minute. What should the engineer do next?
+
+```
+R1# show ip eigrp topology active
+A 10.9.9.0/24, 1 successors, FD is Inaccessible
+    1 replies, active 00:01:32, query-origin: Local origin
+         via 10.1.13.3 (Infinity/Infinity), GigabitEthernet0/2
+    Remaining replies:
+         via 10.1.12.2, r, GigabitEthernet0/1
+```
+
+- **A.** Raise `timers active-time` on R1 so the query has longer to finish.
+- **B.** Clear the adjacency with 10.1.13.3, which replied with an infinite metric.
+- **C.** Log in to 10.1.12.2 and run the same command there, to see which neighbor it is waiting on.
+- **D.** Configure `variance 2` so that R1 can use a backup path immediately.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The `r` marks 10.1.12.2 as the neighbor that hasn't replied. That router is probably waiting on one of its own neighbors, so you follow the trail hop by hop until you find the router that is overloaded or on a lossy link. **Why not the others:** A hides the symptom without fixing the cause; the guide's advice is to bound the query domain instead. B is wrong because 10.1.13.3 already replied ("unreachable" is a valid reply). D is wrong because variance only applies to feasible successors, and there are none.
+</details>
+
+**Q2.** R1 has been waiting 90 seconds for R2's reply to a query. What happens next?
+
+- **A.** R1 resets the adjacency with R2 immediately.
+- **B.** R1 sends R2 an SIA-query; if R2 answers with an SIA-reply, R1 keeps waiting and the adjacency stays up.
+- **C.** R1 gives up on the query and installs the route from the topology table with the best total.
+- **D.** R1 sends a new query for the same prefix to every neighbor.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** At half the active timer (90 s), R1 asks R2 "are you still working on it?". An SIA-reply resets the wait, up to three times. Only a neighbor that doesn't answer at all within 180 s is declared SIA and reset. That puts the reset next to the real problem instead of on an innocent neighbor. **Why not the others:** A is the old behavior that SIA-query was introduced to avoid. C would break DUAL's loop-freedom, which depends on waiting for every reply. D is wrong because the original query is still outstanding.
+</details>
+
+**Q3.** A large hub-and-spoke EIGRP network keeps logging `%DUAL-3-SIA`. Which two changes reduce the size of the query domain? (Choose two.)
+
+- **A.** Configure `eigrp stub` on the spoke routers.
+- **B.** Summarize the spoke prefixes at the hub.
+- **C.** Increase `timers active-time` on every router.
+- **D.** Configure `variance 4` on the hub.
+- **E.** Increase the hello interval on the spoke links.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Stub spokes are never queried. A router that receives a query for a prefix it only knows as part of a summary replies "unreachable" at once, so the query stops there. **Why not the others:** C only gives the queries longer to time out. D affects load balancing, not queries. E makes failure detection slower and does nothing to queries.
+</details>
+
+
 ---
 
 ## 26.8 Stub Routing — Keeping Spokes Out of Queries
@@ -12894,6 +21918,54 @@ The keywords control **what the stub advertises** (it still receives everything)
 
 **Exam trap:** a stub **doesn't re-advertise routes it learned from one EIGRP neighbor to another**. Consider a spoke with two hubs, where Hub-1's LAN reaches Hub-2 only through the spoke. After `eigrp stub`, that path disappears, because transit through a stub is exactly what the stub feature forbids. That's what `leak-map` is for. In `show ip eigrp neighbors detail` on the hub, a stub neighbor shows `Stub Peer Advertising (CONNECTED SUMMARY) Routes` and `Suppressing queries`.
 
+**📝 Exam-style questions — 26.8**
+
+**Q1.** A spoke router is configured with `eigrp stub` and no keywords. Which routes does it advertise to the hub?
+
+- **A.** Connected and static routes
+- **B.** No routes; it only receives
+- **C.** All routes, but the hub stops sending it queries
+- **D.** Connected and summary routes
+
+<details><summary>Answer</summary>
+
+**Answer: D.** With no keyword, `eigrp stub` defaults to `connected summary`. **Why not the others:** A needs the `static` keyword (and the statics redistributed). B is the `receive-only` keyword. C is wrong because the stub keywords always restrict what is advertised.
+</details>
+
+**Q2.** A spoke is dual-homed to HUB1 and HUB2. HUB1's LAN reaches HUB2 only through the spoke. After `eigrp stub connected summary` is added on the spoke, HUB2 loses the route to HUB1's LAN. How can the engineer restore it and keep the spoke a stub?
+
+- **A.** Configure `eigrp stub receive-only` on the spoke.
+- **B.** Configure `no split-horizon` on the hub interfaces.
+- **C.** Configure `variance 2` on HUB2.
+- **D.** Configure `eigrp stub connected summary leak-map NAME` on the spoke, with a route map matching HUB1's LAN.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A stub never re-advertises routes learned from one EIGRP neighbor to another, because transit through a stub is exactly what the feature forbids. A `leak-map` makes a controlled exception for the routes its route map matches. **Why not the others:** A advertises even less. B addresses split horizon on a hub's multipoint interface, which isn't what's blocking the route here. C affects load balancing on HUB2 and can't create a route HUB2 never receives.
+</details>
+
+**Q3.** Refer to the exhibit. HUB1 loses 10.50.0.0/16 and has no feasible successor. What does HUB1 do with this neighbor?
+
+```
+HUB1# show ip eigrp neighbors detail
+...
+1   10.1.100.21    Tu0           12 3d01h       24   144  0  351
+   Version 23.0/2.0, Retrans: 0, Retries: 0, Prefixes: 3
+   Stub Peer Advertising (CONNECTED SUMMARY) Routes
+   Suppressing queries
+```
+
+- **A.** Does not send it a query for 10.50.0.0/16.
+- **B.** Sends it a query and waits up to 90 seconds for the reply.
+- **C.** Sends it a query, but doesn't wait for the reply.
+- **D.** Stops sending it updates until 10.50.0.0/16 is passive again.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `Suppressing queries` means HUB1 knows this neighbor is a stub, and a stub has no alternate paths to offer, so it isn't queried at all. **Why not the others:** B is the non-stub behavior. C is not how EIGRP works: every query sent must be answered. D is wrong because a stub still receives every update.
+</details>
+
+
 ---
 
 ## 26.9 Load Balancing — Equal and Unequal Cost
@@ -12937,6 +22009,60 @@ R1# show ip route 10.9.9.0
     10.1.13.3, from 10.1.13.3, via GigabitEthernet0/2
       Route metric is 4000, traffic share count is 3
 ```
+
+**📝 Exam-style questions — 26.9**
+
+**Q1.** R1 runs `variance 3`. Which paths to 10.7.7.0/24 does R1 install?
+
+| Via | Total metric | RD |
+|-----|--------------|----|
+| R2 | 2000 | 1000 |
+| R3 | 5000 | 1500 |
+| R4 | 3000 | 2500 |
+
+- **A.** R2 only
+- **B.** R2, R3 and R4
+- **C.** R2 and R4
+- **D.** R2 and R3
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The FD is 2000 (via R2), so the variance ceiling is 3 × 2000 = 6000. R3: RD 1500 < 2000, so it's a feasible successor, and 5000 < 6000, so it's installed. R4: RD 2500 is not < 2000, so it isn't a feasible successor and is never considered, even though its total (3000) is better than R3's. **Why not the others:** A ignores variance. B and C include R4, which fails the feasibility condition.
+</details>
+
+**Q2.** The FD to a prefix is 3000. A feasible successor has a total metric of 7000. What is the smallest `variance` value that installs it?
+
+- **A.** 2
+- **B.** 3
+- **C.** 4
+- **D.** 7
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Divide and round up: 7000 ÷ 3000 = 2.33, so the next whole number is 3. Check: 3 × 3000 = 9000, and 7000 < 9000. **Why not the others:** A gives a ceiling of 6000, below 7000. C and D also work but aren't the smallest. Variance must be a whole number from 1 to 128.
+</details>
+
+**Q3.** Refer to the exhibit. What does it show?
+
+```
+R1# show ip route 10.9.9.0
+  Routing Descriptor Blocks:
+  * 10.1.12.2, from 10.1.12.2, via GigabitEthernet0/1
+      Route metric is 3000, traffic share count is 4
+    10.1.13.3, from 10.1.13.3, via GigabitEthernet0/2
+      Route metric is 4000, traffic share count is 3
+```
+
+- **A.** Equal-cost load balancing, with traffic split evenly.
+- **B.** Unequal-cost load balancing; roughly 4 of every 7 flows use 10.1.12.2.
+- **C.** A successor and an idle feasible successor, kept for failover only.
+- **D.** Unequal-cost load balancing; roughly 4 of every 7 packets use 10.1.13.3.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Two different metrics are installed together, so `variance` is in use. Traffic is shared in inverse proportion to the metric: 3000 : 4000 gives shares of 4 : 3, so the better path carries about 4 of every 7 flows (CEF shares per destination by default). **Why not the others:** A is wrong because the metrics differ. C is wrong because both paths have traffic share counts and are installed; `traffic-share min across-interfaces` would be needed for failover-only. D reverses the shares and talks about packets rather than flows.
+</details>
+
 
 ---
 
@@ -13046,6 +22172,64 @@ If one router has been changed to `metric weights 0 1 1 1 0 0`, the neighbor dro
 
 **Fix:** `no metric weights` on the changed router puts it back to the defaults (K1 = K3 = 1, the others 0).
 
+**📝 Exam-style questions — 26.10**
+
+**Q1.** A path crosses two GigabitEthernet links (1,000,000 kbps, 10 µs each) and then one FastEthernet link (100,000 kbps, 100 µs). Using the default K values, what is the classic EIGRP metric?
+
+- **A.** 28,416
+- **B.** 3,328
+- **C.** 28,672
+- **D.** 33,792
+
+<details><summary>Answer</summary>
+
+**Answer: C.** BW term from the slowest link: 10⁷ ÷ 100,000 = 100. Delay: 10 + 10 + 100 = 120 µs, which is 12 tens of µs. Metric = 256 × (100 + 12) = 256 × 112 = **28,672**. **Why not the others:** A is the metric with only one Gi hop (256 × 111). B uses Gigabit bandwidth for the BW term, ignoring the slow link. D adds the BW term of every link (10 + 10 + 100 = 120, so 256 × 132) instead of using only the slowest link's.
+</details>
+
+**Q2.** Refer to the exhibit. A named-mode router shows two different metrics for the same route. Why?
+
+```
+R1# show eigrp address-family ipv4 topology 10.9.9.0/24
+  ...  Composite metric is (1310720/163840), route is Internal
+R1# show ip route 10.9.9.0
+  Known via "eigrp 100", distance 90, metric 10240, type internal
+```
+
+- **A.** The routing table holds only 32-bit metrics, so the wide metric is divided by `metric rib-scale` (default 128) before installation.
+- **B.** The routing table shows the reported distance, while the topology table shows the total.
+- **C.** The K values differ between the two tables.
+- **D.** The route is being load-balanced, and the routing table shows the average metric.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Wide metrics are 64-bit, and the RIB stores 32-bit values, so IOS divides by the rib-scale: 1,310,720 ÷ 128 = 10,240. **Why not the others:** B is wrong because 10,240 isn't the RD either (the RD is 163,840 in the topology table). C is wrong because K values are per process, not per table. D is wrong because nothing in the exhibit shows a second path.
+</details>
+
+**Q3.** An engineer wants EIGRP to prefer a different path, without changing anything that QoS percentages, OSPF cost or EIGRP's own packet pacing depend on. Which interface setting should they change?
+
+- **A.** `bandwidth`
+- **B.** `ip bandwidth-percent eigrp`
+- **C.** `delay`
+- **D.** `metric weights`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Delay is additive along the path, predictable, and read by nothing else. **Why not the others:** A changes the metric only if it changes the path's minimum bandwidth, and QoS, OSPF cost and EIGRP pacing all read it. B only limits how much bandwidth EIGRP's own packets may use; it doesn't change the metric. D changes the K values, which must match on every neighbor or adjacencies drop.
+</details>
+
+**Q4.** EIGRP runs over a GRE tunnel whose `bandwidth` was never configured. Convergence across it takes minutes, and SIA appears under load, although the underlying link is 100 Mbps. What is the most likely cause?
+
+- **A.** The tunnel's default bandwidth is very low, so EIGRP paces its packets to 50% of a tiny value.
+- **B.** GRE cannot carry EIGRP's multicast hellos.
+- **C.** The tunnel adds 24 bytes, which fragments EIGRP updates.
+- **D.** EIGRP defaults to the NBMA timers (hello 60 s) on tunnel interfaces.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** EIGRP limits itself to 50% of the interface's configured `bandwidth`. A tunnel's default bandwidth is very low (historically 100 kbps), so updates crawl. Fix it with a realistic `bandwidth` on the tunnel, and adjust `ip bandwidth-percent eigrp` (or `bandwidth-percent` in named mode) if needed. **Why not the others:** B is wrong because GRE does carry multicast, which is one of its main uses. C is wrong because 24 bytes of overhead doesn't explain minutes of convergence. D is wrong because the 60 s timers apply to slow NBMA interfaces, not to GRE tunnels by default.
+</details>
+
+
 ---
 
 ## 26.11 The EIGRP Troubleshooting Checklist
@@ -13085,6 +22269,53 @@ And the classic route-level causes:
 5. **Fix options:** lower R4's distance to the destination (remove the extra delay on R4's path, so its RD drops below 3000), or accept that R4 isn't a provable backup and let the query run. Making R4 a feasible successor turns a multi-second active computation into an instant local switchover.
 
 *If you can tell from `show ip eigrp topology all-links` alone why a path is or isn't used, you understand DUAL well enough for ENARSI.*
+
+**📝 Exam-style questions — 26.11**
+
+**Q1.** R9 redistributes 192.0.2.0/24 into EIGRP. Every router has the route except R5, and R5 is up with all its neighbors. On R3, `show ip eigrp topology 192.0.2.0/24` shows `Originating router is 5.5.5.5`. On R5, `show ip protocols` shows `Router-ID: 5.5.5.5`. What is the cause?
+
+- **A.** R5 has a `distribute-list in` that filters the prefix.
+- **B.** R9 and R5 share the same EIGRP router ID, so R5 treats the external route as its own and discards it.
+- **C.** R5 is configured as a stub, so it doesn't receive external routes.
+- **D.** The route's AD of 170 loses to a static route on R5.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** EIGRP tags external routes with the originating router's ID. R9, the ASBR, uses 5.5.5.5, and so does R5. R5 sees an external route "originated by itself" and drops it. Fix it with a unique `eigrp router-id`. **Why not the others:** A and D would leave evidence the question doesn't give (a filter in the config, or a static route winning in `show ip route`), and they don't explain the matching router IDs. C is wrong because stubs still receive every route.
+</details>
+
+**Q2.** R1 and R3 have no EIGRP adjacency. `show ip eigrp interfaces` lists the shared interface on both routers, `ping` between them works, and neither log has a K-value, authentication or subnet message. What is the most likely cause?
+
+- **A.** A K-value mismatch
+- **B.** A passive interface on R3
+- **C.** An AS number mismatch
+- **D.** A hello timer mismatch
+
+<details><summary>Answer</summary>
+
+**Answer: C.** An AS mismatch is silent: the hellos are ignored and nothing is logged. **Why not the others:** A always logs `K-value mismatch`. B is ruled out because passive interfaces don't appear in `show ip eigrp interfaces`. D doesn't stop an EIGRP adjacency.
+</details>
+
+**Q3.** Refer to the exhibit. Why is the EIGRP route not used?
+
+```
+R1# show ip eigrp topology 10.60.0.0/16
+  ... 1 Successor(s), FD is 28416
+  via 10.1.12.2 (28416/28160), GigabitEthernet0/1  ... route is External
+R1# show ip route 10.60.0.0
+  Known via "ospf 1", distance 110, metric 20, type extern 2
+```
+
+- **A.** The OSPF route has a lower metric (20) than the EIGRP route (28416).
+- **B.** The EIGRP route failed the feasibility condition.
+- **C.** OSPF external routes always beat EIGRP routes.
+- **D.** External EIGRP has AD 170, and OSPF's AD 110 is lower, so the OSPF route wins.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** When two protocols offer the same prefix, the router compares administrative distance, not metrics. External EIGRP is 170, and OSPF (any route type) is 110. **Why not the others:** A is wrong because metrics from different protocols are never compared. B is wrong because this path is the successor. C is wrong as a general rule: an *internal* EIGRP route (AD 90) would beat OSPF.
+</details>
+
 
 ---
 
@@ -13168,6 +22399,46 @@ R1# show ip route ospfv3                  ! IPv4 routes learned through OSPFv3
 3. **Cause:** OSPFv3 sends its packets over IPv6 from the link-local address. With no IPv6 on the interface, there's nothing to send them from.
 4. **Fix:** `ipv6 enable` on Gi0/3 (on both routers). That creates a link-local address, and the IPv4 AF adjacency comes up. No global IPv6 prefix is needed.
 
+**📝 Exam-style questions — 27.1**
+
+**Q1.** R1 and R2 run the OSPFv3 IPv6 address family. The engineer adds `ospfv3 1 ipv4 area 0` to Gi0/3 on both routers. Gi0/3 has only an IPv4 address, and no IPv4 adjacency forms. What is the minimum fix?
+
+- **A.** Configure `router ospf 1` with a `network` statement for Gi0/3.
+- **B.** Add `instance 64` to the `ospfv3 1 ipv4 area 0` command.
+- **C.** Configure `ipv6 enable` on Gi0/3 on both routers.
+- **D.** Add a global IPv6 address on both routers in the same /64.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** OSPFv3 always sends its packets over IPv6, from the interface's link-local address, even for the IPv4 address family. `ipv6 enable` creates a link-local address, which is all it needs. **Why not the others:** A starts OSPFv2, a different protocol, and doesn't fix OSPFv3. B is wrong because IOS already assigns the IPv4 AF an instance ID in the 64–95 range. D would also work, but it isn't the minimum: no global IPv6 prefix is required.
+</details>
+
+**Q2.** Why did OSPFv3 move prefixes out of the router and network LSAs (Types 1 and 2) into the Intra-Area-Prefix LSA (Type 9)?
+
+- **A.** So that adding or renumbering a prefix does not change the topology LSAs and trigger a full SPF run.
+- **B.** So that IPv4 and IPv6 prefixes can share one LSA.
+- **C.** Because IPv6 prefixes are too long to fit in a router LSA.
+- **D.** So that prefixes can be flooded with link-local scope only.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** In OSPFv3, Types 1 and 2 describe only the shape of the network, and Type 9 carries the addresses on it. A prefix change touches only a Type 9, so routers update routes without recomputing the SPF tree. **Why not the others:** B is wrong because each address family runs as a separate instance with its own LSDB. C is wrong; size was never the reason. D describes the Type 8 Link LSA, not Type 9.
+</details>
+
+**Q3.** Which two statements about the OSPFv3 IPv4 address family are true? (Choose two.)
+
+- **A.** Its hellos are sent from the interface's IPv6 link-local address.
+- **B.** Neighbors must share an IPv4 subnet, as in OSPFv2.
+- **C.** It runs as a separate OSPFv3 instance, with instance IDs 64–95.
+- **D.** It uses the same LSDB as the IPv6 address family.
+- **E.** Its authentication is carried in the OSPF header, as in OSPFv2.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** The IPv4 AF is its own OSPFv3 instance (IDs 64–95, versus 0–31 for IPv6), with its own adjacencies and LSDB, carried over IPv6 link-local transport. **Why not the others:** B is wrong because OSPFv3 neighbors meet over link-local addresses. D is wrong because each instance has its own LSDB. E is wrong because OSPFv3 uses IPsec (or a key-chain trailer on newer IOS XE), not the OSPFv2 header field.
+</details>
+
+
 ---
 
 ## 27.2 Neighbor Failures Beyond the CCNA List
@@ -13234,6 +22505,69 @@ OSPF-1 HELLO Gi0/0: Hello from 2.2.2.2 with mismatched Stub/Transit area option 
 
 The ABR (2.2.2.2) was changed to `area 1 stub`; R4 wasn't. **Fix:** add `area 1 stub` on R4 (and every router in Area 1), or remove it from the ABR.
 
+**📝 Exam-style questions — 27.2**
+
+**Q1.** Refer to the exhibit. The neighbor never reaches FULL. `show ip interface Gi0/1 | include MTU` shows 1500 bytes on R1 and 1400 bytes on R2. What is the recommended fix?
+
+```
+R1# show ip ospf neighbor
+Neighbor ID     Pri   State           Dead Time   Address         Interface
+2.2.2.2           1   EXSTART/DR      00:00:36    10.1.12.2       GigabitEthernet0/1
+```
+
+- **A.** Configure `ip ospf mtu-ignore` on both routers.
+- **B.** Configure the same IP MTU on both ends of the link.
+- **C.** Change the network type to point-to-point.
+- **D.** Raise R1's OSPF priority so it becomes the DR.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Each DBD packet carries the sender's interface MTU. R2 refuses DBDs advertising 1500 because R1 could send packets too big for R2 to receive, so the exchange never progresses. Matching the MTU fixes the actual fault. **Why not the others:** A brings the adjacency up, but it hides the mismatch and is a last resort. C and D don't touch the MTU check, so the neighbor stays stuck in EXSTART.
+</details>
+
+**Q2.** Refer to the exhibit. R4, an internal router in Area 1, has no OSPF neighbors after a change on the ABR. What is the cause?
+
+```
+R4# debug ip ospf hello
+OSPF-1 HELLO Gi0/0: Rcv hello from 2.2.2.2 area 1 10.1.24.2
+OSPF-1 HELLO Gi0/0: Hello from 2.2.2.2 with mismatched Stub/Transit area option bit
+```
+
+- **A.** The hello and dead intervals differ.
+- **B.** The ABR has `area 1 virtual-link` configured, which makes Area 1 a transit area.
+- **C.** R4 and the ABR use different authentication types.
+- **D.** The ABR has `area 1 stub` configured and R4 doesn't.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The area type is carried in every hello (the E/N option bits), and every router in an area must agree on it. One side says stub and the other doesn't, so the hello is rejected. Configure `area 1 stub` on every router in Area 1, or remove it from the ABR. **Why not the others:** A would log a hello-parameter mismatch, not an option-bit mismatch. B is the distractor built on the word "Transit" in the message: a virtual link doesn't change the stub bit. C would log an authentication mismatch.
+</details>
+
+**Q3.** `show ip ospf neighbor` on R1 shows R2 stuck in INIT. What is the most likely cause?
+
+- **A.** R2 is not receiving R1's hellos, for example because of an inbound ACL on R2 that blocks OSPF.
+- **B.** The two routers have different MTUs.
+- **C.** Both routers have priority 0.
+- **D.** The two routers are in different areas.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** INIT means R1 hears R2's hellos, but R1's router ID isn't listed in them, so R2 hasn't heard R1. That is one-way communication: R1's hellos aren't reaching R2 (an ACL dropping protocol 89 or 224.0.0.5, or a Layer 2 problem). **Why not the others:** B causes EXSTART/EXCHANGE. C causes 2-WAY with every neighbor. D stops the neighbor from appearing at all, with an area-mismatch message.
+</details>
+
+**Q4.** All adjacencies in Area 0 are FULL, but routes come and go, CPU is high, and `%OSPF-4-FLOOD_WAR` is logged. `show ip ospf database router 4.4.4.4` shows the sequence number climbing every few seconds. What is the cause, and the fix?
+
+- **A.** An MTU mismatch; set the same MTU on both ends.
+- **B.** Two non-adjacent routers share router ID 4.4.4.4; give one a unique ID and run `clear ip ospf process`.
+- **C.** A network type mismatch; set the same type on both ends.
+- **D.** An LSA too large to flood; enable `ip ospf mtu-ignore`.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Two routers with the same RID each see the other's router LSA as a newer copy of their own and flood a "correction", so the LSA flip-flops forever. The RID only changes when the process restarts, so the fix needs both the new `router-id` and `clear ip ospf process`. **Why not the others:** A and D leave a neighbor stuck before FULL rather than causing an LSA war. C leaves routes missing but doesn't make an LSA's sequence number race upward.
+</details>
+
+
 ---
 
 ## 27.3 Authentication
@@ -13292,6 +22626,52 @@ router ospfv3 1
 ```
 
 The **SPI and the key must match** on both ends. The SHA-1 key is 40 hex characters; the MD5 key is 32. A mismatch looks like an adjacency that never leaves DOWN. Check `show ospfv3 interface` (look for the `authentication` line) and `show crypto ipsec sa`.
+
+**📝 Exam-style questions — 27.3**
+
+**Q1.** Refer to the exhibit. R1 has `area 0 authentication message-digest` and an MD5 key on Gi0/1. R2 has the same key ID and key string on its interface. What must be added on R2?
+
+```
+R1# debug ip ospf adj
+OSPF-1 ADJ Gi0/1: Rcv pkt from 10.1.12.2 : Mismatch Authentication type.
+  Input packet specified type 0, we use type 2
+```
+
+- **A.** `ip ospf authentication message-digest` on R2's interface, or `area 0 authentication message-digest` under R2's process
+- **B.** `ip ospf message-digest-key 1 md5 S3cr3t!` on R2's interface
+- **C.** `ip ospf authentication null` on R1's interface
+- **D.** `area 0 authentication` under R2's process
+
+<details><summary>Answer</summary>
+
+**Answer: A.** R2 sends type 0 (null), so it has the key but was never told to use MD5. A key on its own does nothing. **Why not the others:** B adds a key R2 already has. C would switch R1's interface to no authentication, which removes the protection instead of fixing R2. D enables type 1 (plain text), which still mismatches R1's type 2.
+</details>
+
+**Q2.** Area 0 uses `area 0 authentication message-digest`. A new virtual link through Area 1 between R2 and R3 stays down, although the router IDs and transit area are correct. What is missing?
+
+- **A.** Authentication in Area 1, the transit area
+- **B.** A key on the virtual link, because the virtual link belongs to Area 0 and inherits its authentication
+- **C.** `ip ospf network point-to-point` on the transit interfaces
+- **D.** A static route to the far end's router ID
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A virtual link is an Area 0 interface, so Area 0's authentication applies to it. Supply the key on the `area 1 virtual-link` line, for example `area 1 virtual-link 3.3.3.3 message-digest-key 1 md5 S3cr3t!`. **Why not the others:** A is wrong because the virtual link's packets are Area 0 packets, whatever Area 1 does. C is unrelated to virtual links. D is wrong because the far end is found through Area 1's SPF, not through the routing table.
+</details>
+
+**Q3.** Two routers use OSPFv3 IPsec authentication on their shared interface, and the adjacency never leaves DOWN. Which two values must match on both ends? (Choose two.)
+
+- **A.** The security parameter index (SPI)
+- **B.** The key-chain name
+- **C.** The authentication key
+- **D.** The OSPFv2 authentication type number
+- **E.** The router ID
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** OSPFv3 authentication uses IPsec, and both ends must use the same SPI and the same key (40 hex characters for SHA-1, 32 for MD5). **Why not the others:** B is wrong because a key-chain name is local and never sent. D is an OSPFv2 concept. E must be unique, not matching.
+</details>
+
 
 ---
 
@@ -13368,6 +22748,65 @@ Neighbor ID     Pri   State           Dead Time   Address         Interface
 2. **Compare types:** `show ip ospf interface Gi0/1 | include Network Type` gives `Network Type POINT_TO_POINT` on R1 and `Network Type BROADCAST` on R2.
 3. **Why routes break:** R2, believing it's on a broadcast segment, runs a DR election and the link gets described as a transit network with a Type 2 network LSA. R1 describes the same link as a point-to-point link with no Type 2. SPF needs both ends to describe the link the same way before it will use it (the "two-way check" in the LSDB), so the link isn't used and nothing beyond it is reachable.
 4. **Fix:** same type on both ends: `ip ospf network point-to-point` on R2 (the usual choice for a two-router Ethernet link) or remove it from R1.
+
+**📝 Exam-style questions — 27.4**
+
+**Q1.** Refer to the exhibit. R2's LAN, 10.2.2.0/24, is missing from R1's routing table. R2's interface shows `Network Type BROADCAST`. What is the cause?
+
+```
+R1# show ip ospf neighbor
+Neighbor ID     Pri   State           Dead Time   Address         Interface
+2.2.2.2           0   FULL/  -        00:00:33    10.1.12.2       GigabitEthernet0/1
+R1# show ip ospf interface Gi0/1 | include Network Type
+  Process ID 1, Router ID 1.1.1.1, Network Type POINT_TO_POINT, Cost: 1
+```
+
+- **A.** R2 has priority 0, so it can't advertise its LAN.
+- **B.** The dead timer is about to expire.
+- **C.** The network types differ, so the two routers describe the link differently and SPF won't use it.
+- **D.** R1 needs a `neighbor` statement for R2.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Broadcast and point-to-point both use 10/40 timers, so the adjacency comes up FULL. R2 describes the link as a transit network with a Type 2 LSA, while R1 describes it as point-to-point. SPF requires both ends to agree before it uses a link, so nothing beyond it is reachable. Set the same type on both ends. **Why not the others:** A is wrong because the 0 is just how a point-to-point neighbor is displayed. B is wrong because 33 seconds is a normal countdown. D applies to non-broadcast networks.
+</details>
+
+**Q2.** A hub-and-spoke network uses OSPF network type non-broadcast over a partial-mesh WAN. Only the hub can reach every spoke. How should it be configured?
+
+- **A.** Priority 0 on the hub, and `neighbor` statements on every spoke
+- **B.** Default priorities everywhere, and `neighbor` statements on every router
+- **C.** Highest priority on any one spoke, and `neighbor` statements on the hub
+- **D.** A high priority on the hub, priority 0 on every spoke, and `neighbor` statements on the hub
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The DR must reach every router on the segment, and on a partial mesh only the hub can. Priority 0 keeps the spokes out of the election. The `neighbor` statements are needed only on routers that can become DR or BDR, which here means only the hub. **Why not the others:** A stops the hub from ever being DR. B lets a spoke win the election. C makes a spoke the DR, and that spoke can't flood to the other spokes.
+</details>
+
+**Q3.** Six routers share one Ethernet segment with the default network type. How many FULL adjacencies exist on that segment?
+
+- **A.** 15
+- **B.** 5
+- **C.** 9
+- **D.** 6
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The DR and BDR are each FULL with the other four routers (4 × 2 = 8), plus the DR–BDR adjacency itself: 8 + 1 = 9. The DROTHER pairs stay at 2-Way. **Why not the others:** A is the full-mesh count, 6 × 5 / 2. B and D don't correspond to any OSPF rule.
+</details>
+
+**Q4.** R5 joins an Ethernet segment where R1 is already the DR. R5 is configured with `ip ospf priority 255`; R1 has the default priority. What happens?
+
+- **A.** R5 becomes the DR immediately, because it has the highest priority.
+- **B.** R5 becomes the BDR immediately, and the DR role moves to it after the next hello.
+- **C.** R1 stays DR; R5 only wins at the next election, when the DR fails or the process is cleared.
+- **D.** R5 can't join until R1 is removed from the segment.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The DR election is not preemptive. A better router that joins later waits until the next election. **Why not the others:** A and B describe preemption, which OSPF DR elections don't do. D is wrong because R5 joins normally and forms adjacencies with the DR and BDR.
+</details>
+
 
 ---
 
@@ -13455,6 +22894,58 @@ router ospf 1
 - A stub or totally stubby area **can't contain an ASBR**. Redistributing there means the area has to be an NSSA.
 - `no-summary` only matters **on the ABR**. Internal routers just need `stub`/`nssa`, and that flag must still match everywhere (27.2).
 
+**📝 Exam-style questions — 27.5**
+
+**Q1.** Area 1 is configured as totally stubby. Area 0 has 172.16.0.0/24, and an ASBR in Area 0 redistributes 192.0.2.0/24. Which OSPF routes does an internal Area 1 router have?
+
+- **A.** Area 1's own subnets and an `O*IA 0.0.0.0/0` default only
+- **B.** Area 1's subnets, `O IA 172.16.0.0/24` and an `O*IA` default
+- **C.** Area 1's subnets, `O IA 172.16.0.0/24` and `O E2 192.0.2.0/24`
+- **D.** Area 1's subnets only, with no default route
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A totally stubby area blocks Types 4 and 5 and also the Type 3s, except the default route the ABR injects. **Why not the others:** B is a plain stub area (Type 3s still allowed). C is a normal area. D is wrong because both stub and totally stubby areas get an automatic Type 3 default.
+</details>
+
+**Q2.** Area 1 is configured as a plain NSSA on every router. Its internal routers have no default route and can't reach the internet. What is the fix on the ABR?
+
+- **A.** `default-information originate always`
+- **B.** `area 1 stub no-summary`
+- **C.** `area 1 nssa translate type7 suppress-fa`
+- **D.** `area 1 nssa default-information-originate`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A plain NSSA doesn't get an automatic default, because it may have its own way out through a local ASBR. On the ABR, `area 1 nssa default-information-originate` sends a Type 7 default into the NSSA unconditionally. **Why not the others:** A originates a Type 5 default, and Type 5s are blocked in an NSSA. B changes the area to totally stubby, which mismatches the NSSA routers. C changes the forwarding address on translated LSAs and has nothing to do with a default.
+</details>
+
+**Q3.** R6, in NSSA Area 1, redistributes 198.51.100.0/24. Inside Area 1 the route shows as `O N2`. In Area 0 it shows as `O E2`. Why?
+
+- **A.** Area 0 routers convert all externals to E2 when they install them.
+- **B.** The NSSA's ABR translates the Type 7 LSA into a Type 5 as it floods it into Area 0.
+- **C.** R6 originates two LSAs, a Type 7 for Area 1 and a Type 5 for Area 0.
+- **D.** It's a display difference only; both areas hold the same Type 7 LSA.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Type 7s exist only inside the NSSA. The ABR (the one with the highest router ID if there are several) translates them into Type 5s for the rest of the domain, so the same prefix is N2 inside and E2 outside. **Why not the others:** A is wrong because Area 0 just installs the Type 5 it receives. C is wrong because R6 is inside the NSSA and can only originate Type 7s. D is wrong because Type 7s never leave the NSSA.
+</details>
+
+**Q4.** Which two statements about OSPF area types are true? (Choose two.)
+
+- **A.** A virtual link can be built through an NSSA.
+- **B.** `no-summary` must be configured on every router in a totally stubby area.
+- **C.** Area 0 cannot be configured as a stub area.
+- **D.** A stub area blocks Type 3 LSAs.
+- **E.** A router that redistributes routes cannot be inside a stub area; the area must be an NSSA.
+
+<details><summary>Answer</summary>
+
+**Answer: C, E.** The backbone can't be stub or NSSA, and a stub area can't contain an ASBR, so redistributing there means making it an NSSA. **Why not the others:** A is wrong because a transit area must be normal. B is wrong because `no-summary` matters only on the ABR; internal routers just need `stub`. D is wrong because a plain stub area blocks Types 4 and 5; only totally stubby also blocks Type 3s.
+</details>
+
+
 ---
 
 ## 27.6 Virtual Links
@@ -13524,6 +23015,60 @@ The other causes to check, in order, when the RIDs are right: the **transit area
 
 *A virtual link is a repair, not a design. If your topology needs one long-term, renumber the areas.*
 
+**📝 Exam-style questions — 27.6**
+
+**Q1.** Refer to the exhibit. R2's router ID is 2.2.2.2, and the R2–R3 link in Area 1 uses 10.1.23.0/24. Why is the virtual link down?
+
+```
+R3# show ip ospf virtual-links
+Virtual Link OSPF_VL0 to router 10.1.23.2 is down
+  Transit area 1, via interface GigabitEthernet0/0
+```
+
+- **A.** The virtual link was configured with R2's interface address instead of R2's router ID.
+- **B.** Area 1 is the backbone, so it can't be a transit area.
+- **C.** The virtual link needs a static route to 10.1.23.2.
+- **D.** Virtual links must use the loopback address of the far end.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A virtual link is addressed by the far end's **router ID**. No router has RID 10.1.23.2, so R3 is looking for a router that doesn't exist. Replace it with `area 1 virtual-link 2.2.2.2`. **Why not the others:** B is wrong because Area 1 isn't the backbone. C is wrong because the far end is located through Area 1's SPF. D is wrong because the RID doesn't have to be a loopback address, or even routable.
+</details>
+
+**Q2.** Area 2 is attached only to Area 1, and Area 1 is an NSSA. The engineer tries to connect Area 2 to the backbone with a virtual link through Area 1. What happens?
+
+- **A.** The virtual link comes up, but only Type 7 LSAs cross it.
+- **B.** The virtual link comes up only if Area 1's ABR has `no-summary`.
+- **C.** The virtual link can't be built, because a transit area must be a normal area.
+- **D.** The virtual link comes up and converts Area 1 into a normal area.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A virtual link can't cross a stub or NSSA area; IOS won't accept it. Area 1 would have to become a normal area first. **Why not the others:** A and D describe behavior that doesn't exist. B makes it worse, since `no-summary` removes even more information.
+</details>
+
+**Q3.** Refer to the exhibit. What does it tell you about the virtual link?
+
+```
+R3# show ip ospf virtual-links
+Virtual Link OSPF_VL0 to router 2.2.2.2 is up
+  Run as demand circuit
+  DoNotAge LSA allowed.
+  Transit area 1, via interface GigabitEthernet0/0
+    Adjacency State FULL (Hello suppressed)
+```
+
+- **A.** It is up, but hellos are being dropped, so it will fail at the dead interval.
+- **B.** It is up, but it's configured as a demand circuit by mistake.
+- **C.** It is up and FULL; suppressed hellos and DoNotAge LSAs are normal for a virtual link.
+- **D.** It is up, but its LSAs will age out after 3600 seconds.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `is up` and `Adjacency State FULL` are the lines that matter. A virtual link runs as a demand circuit: once the adjacency is up it stops sending periodic hellos, and its LSAs don't age out. **Why not the others:** A misreads "Hello suppressed" as a fault. B is wrong because demand-circuit behavior is automatic on virtual links. D is wrong because `DoNotAge LSA allowed` means they don't age out.
+</details>
+
+
 ---
 
 ## 27.7 Path Preference
@@ -13563,6 +23108,57 @@ Routing entry for 192.0.2.0/24
 **Same metrics, tie case (E2):** if both ASBRs set 20, E2 sees a tie and falls back to the forwarding metric: R3 (10) beats R4 (30). That's the `forward metric` value in `show ip route`.
 
 One more rule: if R5 holds both an E1 and an E2 route for the same prefix, the **E1 wins regardless of the numbers**, because type 1 ranks above type 2 in the table.
+
+**📝 Exam-style questions — 27.7**
+
+**Q1.** R5 learns 192.0.2.0/24 as an E2 route from two ASBRs. R3 advertises it with external metric 20, and R5's internal cost to R3 is 10. R4 advertises it with external metric 10, and R5's internal cost to R4 is 30. Which ASBR does R5 use?
+
+- **A.** R3, because its total cost is lower (30 versus 40)
+- **B.** Both, with equal-cost load balancing
+- **C.** R3, because the forwarding metric breaks the tie
+- **D.** R4, because E2 compares only the external metric (10 versus 20)
+
+<details><summary>Answer</summary>
+
+**Answer: D.** E2 keeps the external metric constant across the domain and ignores the internal cost unless the external metrics tie. 10 beats 20, so R5 uses R4, even though R4 is farther away. **Why not the others:** A is the E1 calculation. B is wrong because the metrics differ. C would apply only if both ASBRs advertised the same external metric.
+</details>
+
+**Q2.** The same two ASBRs (R3 external metric 20, cost 10; R4 external metric 10, cost 30) now redistribute the prefix as E1. Which ASBR does R5 use?
+
+- **A.** R3, with a total metric of 30
+- **B.** R4, with a total metric of 10
+- **C.** R4, with a total metric of 40
+- **D.** Both, because E1 load-balances across ASBRs
+
+<details><summary>Answer</summary>
+
+**Answer: A.** E1 adds the internal cost: via R3, 20 + 10 = 30; via R4, 10 + 30 = 40. The lower total wins, so R5 uses R3, the exit that is closer overall. **Why not the others:** B is the E2 view of R4's metric. C has R4's correct total, but 40 loses to 30. D is wrong because the totals differ.
+</details>
+
+**Q3.** R1 knows 10.8.8.0/24 as an intra-area route with cost 500 and as an inter-area route with cost 10. Which route does R1 install?
+
+- **A.** The inter-area route, because its cost is lower
+- **B.** The intra-area route, because OSPF compares route type before cost
+- **C.** Both, with unequal-cost load balancing
+- **D.** Whichever route was learned first
+
+<details><summary>Answer</summary>
+
+**Answer: B.** OSPF ranks intra-area (`O`) above inter-area (`O IA`) above E1 above E2, and compares cost only within the same type. Intra-area routes come from the router's own full map, so they're trusted first. **Why not the others:** A ignores the type order. C is wrong because OSPF doesn't do unequal-cost load balancing. D isn't an OSPF rule.
+</details>
+
+**Q4.** R5 holds an E1 route to 203.0.113.0/24 with total metric 120 and an E2 route to the same prefix with metric 20. Which does it install?
+
+- **A.** The E2 route, because 20 is lower than 120
+- **B.** The E2 route, because E2 is the default type
+- **C.** The E1 route, because type 1 externals are preferred over type 2 regardless of metric
+- **D.** Both, because they're different route types
+
+<details><summary>Answer</summary>
+
+**Answer: C.** E1 ranks above E2 in OSPF's route-type order, so the E1 route wins whatever the numbers. **Why not the others:** A compares metrics across types, which OSPF never does. B is wrong because being the default type gives no preference. D is wrong because only one type is installed.
+</details>
+
 
 ---
 
@@ -13608,6 +23204,39 @@ How to read it:
 3. 3.3.3.3 is in another area, so R1 needs a **Type 4** (`show ip ospf database asbr-summary`) from an ABR to find it. There isn't one: typically the ASBR's area has lost its connection to Area 0 (a broken ABR link or a missing virtual link), so no ABR can describe 3.3.3.3 to R1's area.
 4. **Fix the reachability of the ASBR** (restore the backbone connection), and the external route installs without touching the external LSA itself.
 
+**📝 Exam-style questions — 27.8**
+
+**Q1.** R1 has 192.0.2.0 in its Type-5 AS External list, advertised by 3.3.3.3. `show ip route 192.0.2.0` says the network isn't in the table, and `show ip ospf border-routers` doesn't list 3.3.3.3. 3.3.3.3 is in another area. What is the most likely cause?
+
+- **A.** A `distribute-list in` on R1 is filtering the route.
+- **B.** R1 has no Type 4 LSA for 3.3.3.3, because the ASBR's area has lost its connection to Area 0.
+- **C.** The Type 5 LSA has reached MaxAge.
+- **D.** R1's area is stub, so the Type 5 is ignored.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** To use a Type 5, R1 must reach its advertising router. For an ASBR in another area, that needs a Type 4 from an ABR. With no Type 4, the ASBR is missing from `show ip ospf border-routers` and the external can't be installed. Restore the backbone connection. **Why not the others:** A wouldn't remove the ASBR from the border-routers list. C is wrong because the LSA is present and nothing suggests it's aged. D is wrong because a stub area wouldn't hold the Type 5 at all.
+</details>
+
+**Q2.** Refer to the exhibit. What does the Link ID 10.1.12.2 identify?
+
+```
+                Net Link States (Area 0)
+Link ID         ADV Router      Age   Seq#       Checksum
+10.1.12.2       2.2.2.2         398   0x80000002 0x00E5F6
+```
+
+- **A.** The router ID of the DR
+- **B.** The network address of the segment
+- **C.** The BDR's interface address
+- **D.** The DR's interface IP address on that segment
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A Type 2 (network) LSA is originated by the DR, and its Link ID is the DR's interface address on the segment. The ADV Router column shows the DR's router ID, 2.2.2.2. **Why not the others:** A is the ADV Router field. B is wrong because the Link ID is a host address, not the subnet. C is wrong because the BDR doesn't originate Type 2 LSAs.
+</details>
+
+
 ---
 
 ## 27.9 The OSPF Troubleshooting Checklist
@@ -13636,6 +23265,45 @@ Route-level causes to remember:
 | Loopback advertised as /32 instead of /24 | loopback network type — `ip ospf network point-to-point` |
 
 *Most OSPF faults come down to two routers disagreeing about something: an area, a type, a timer, a key, an RID or a reference bandwidth. Find the disagreement and you've found the fault.*
+
+**📝 Exam-style questions — 27.9**
+
+**Q1.** 10.40.0.0/24 is in R1's OSPF LSDB, but not in its routing table. No other routing source offers the prefix. What is the most likely cause?
+
+- **A.** An `area filter-list` on the ABR
+- **B.** A `distribute-list in` under R1's OSPF process
+- **C.** An `area range … not-advertise` on the ABR
+- **D.** A network type mismatch on R1's link
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A `distribute-list in` filters what OSPF installs in the routing table but leaves the LSDB untouched, which is exactly this symptom. **Why not the others:** A and C stop the Type 3 being created at the ABR, so the LSA wouldn't be in R1's database. D would leave LSAs present but make SPF unable to use a link, and that affects every prefix beyond the link, not one prefix.
+</details>
+
+**Q2.** Traffic takes a suboptimal path across the OSPF domain. The 10 Gbps core links all show cost 1. On some routers the 1 Gbps links also show cost 1, while on others they show cost 10. What is the most likely cause?
+
+- **A.** The routers use different hello timers.
+- **B.** `auto-cost reference-bandwidth` is not set the same on every router.
+- **C.** The externals are E2 instead of E1.
+- **D.** The core links use the point-to-point network type.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** With the default 100 Mbps reference bandwidth, every link of 100 Mbps or faster costs 1, so 1 Gbps and 10 Gbps look the same. If some routers have a higher reference bandwidth and others don't, they calculate inconsistent costs. Set the same value everywhere. **Why not the others:** A would break adjacencies, not costs. C affects only external routes. D doesn't change interface cost.
+</details>
+
+**Q3.** A router's Loopback1 is configured as 10.99.0.1/24, but other routers learn it as 10.99.0.1/32. Which change makes OSPF advertise the /24?
+
+- **A.** `ip ospf cost 1` on Loopback1
+- **B.** `area 0 range 10.99.0.0 255.255.255.0` on the router
+- **C.** `summary-address 10.99.0.0 255.255.255.0` on the router
+- **D.** `ip ospf network point-to-point` on Loopback1
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The loopback network type always advertises a /32. Changing it to point-to-point makes OSPF advertise the configured mask. **Why not the others:** A changes the cost, not the mask. B summarizes only at an ABR, for routes leaving the area. C summarizes only redistributed routes at an ASBR.
+</details>
+
 
 ## 27.10 Walk-Through: Tracing an ABR Filter
 
@@ -13681,6 +23349,40 @@ ip prefix-list NO-LAB: 2 entries
 `area 2 filter-list … in` filters Type 3s going **into** Area 2. Seq 5 was meant to block a lab /16 but uses `le 24`, so it also catches 10.1.50.0/24. Fix the prefix list (for example `deny 10.1.0.0/16` with no `le`, to block only the /16 itself, or a deny for the real lab range) and check `show ip prefix-list detail NO-LAB` hit counts afterwards.
 
 **What to remember from the method:** work outward from the router with the problem using **`show ip ospf database summary <prefix>`** in each area, and find the area boundary where the Type 3 stops existing. The ABR at that boundary is where the filter is. Remember the direction, too: `in` filters Type 3s entering the named area, `out` filters Type 3s generated *from* the named area's routes. And `distribute-list in` would have left the LSA in the database and removed only the route (Chapter 23). *LSA present but route missing points at a distribute list or AD. LSA absent points at an ABR filter or range.*
+
+**📝 Exam-style questions — 27.10**
+
+**Q1.** Refer to the exhibit. R5 is the ABR between Area 0 and Area 2. Routers in Area 2 can't reach 10.1.50.0/24, which lives in Area 1. Why?
+
+```
+router ospf 1
+ area 2 filter-list prefix NO-LAB in
+ip prefix-list NO-LAB seq 5 deny 10.1.0.0/16 le 24
+ip prefix-list NO-LAB seq 10 permit 0.0.0.0/0 le 32
+```
+
+- **A.** `in` filters routes leaving Area 2, so the list is applied in the wrong direction.
+- **B.** The final permit is missing, so everything is denied.
+- **C.** `area filter-list` also removes the route from Area 0.
+- **D.** Seq 5 matches every prefix from /16 to /24 inside 10.1.0.0/16, including 10.1.50.0/24.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `deny 10.1.0.0/16 le 24` matches any prefix inside 10.1.0.0/16 with a length from 16 to 24, so 10.1.50.0/24 is denied as it enters Area 2. To block only the /16 itself, remove `le 24`. **Why not the others:** A reverses the direction: `in` filters Type 3s entering the named area. B is wrong because seq 10 is a permit-all. C is wrong because the filter acts only on Type 3s going into Area 2.
+</details>
+
+**Q2.** Users in Area 2 can't reach a prefix in Area 1. `show ip ospf database summary <prefix>` finds the Type 3 in Area 0 but not in Area 2. Where should you look for the problem?
+
+- **A.** At the ABR between Area 0 and Area 2, for an `area 2 filter-list … in` or `area range … not-advertise`
+- **B.** At the ABR between Area 1 and Area 0, for a filter on Area 1's routes
+- **C.** At the router in Area 2, for a `distribute-list in`
+- **D.** At the ASBR that redistributes the prefix
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The Type 3 exists in Area 0 and vanishes at the next boundary, so the ABR at that boundary is filtering it. **Why not the others:** B is ruled out because the prefix reached Area 0. C is wrong because a `distribute-list in` leaves the LSA in the database; here the LSA itself is missing. D is wrong because the prefix is internal to Area 1, not redistributed.
+</details>
+
 
 ---
 
@@ -13759,6 +23461,46 @@ router bgp 65001
 2. An attacker five routers away also sends with TTL 255. Each of the five routers decrements it, so it arrives with **250**. 250 < 254: dropped before BGP ever looks at it.
 3. With plain eBGP (TTL 1 sent, no check on arrival), the attacker would simply send with TTL 6, so the packet arrives with TTL 1 and looks exactly like the real peer's.
 
+**📝 Exam-style questions — 28.1**
+
+**Q1.** AS 65001 has three routers. R1 peers with R2 over iBGP, and R2 peers with R3 over iBGP. There is no R1–R3 session and no route reflector. R1 learns 8.8.8.0/24 from its ISP over eBGP. R2 has the route, but R3 never receives it. Why?
+
+- **A.** R2's next hop for the route is unreachable.
+- **B.** R2 is following iBGP split horizon: a route learned from an iBGP peer is never sent to another iBGP peer.
+- **C.** iBGP sessions have a TTL of 1, so R3 is too far from R1.
+- **D.** R1's AS number appears in the AS_PATH, so R3 rejects it as a loop.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** iBGP has no loop detection of its own (the AS_PATH doesn't change inside the AS), so BGP forbids passing iBGP-learned routes to other iBGP peers. Every iBGP router must hear the route directly from R1 (a full mesh), or R2 must be a route reflector with R3 as a client. **Why not the others:** A would stop R2 using the route, but not stop it advertising it. C is wrong because iBGP uses TTL 255. D is wrong because the AS_PATH gains no entries inside the AS.
+</details>
+
+**Q2.** R1 and its ISP peer are directly connected, and both are configured with `neighbor … ttl-security hops 1`. Which received TTL is the lowest that R1 accepts for BGP packets from that peer?
+
+- **A.** 1
+- **B.** 255
+- **C.** 253
+- **D.** 254
+
+<details><summary>Answer</summary>
+
+**Answer: D.** With TTL security, packets are sent with TTL 255 and must arrive with at least 255 minus the configured hop count: 255 − 1 = 254. A packet from farther away arrives lower and is dropped. **Why not the others:** A is plain eBGP's sending TTL, which an attacker can fake by choosing the right starting value. B would allow no hops at all. C would allow a peer two hops away.
+</details>
+
+**Q3.** R1 and its eBGP neighbor peer between their loopbacks over one directly connected link. Each router has `update-source Loopback0` and a static route to the other's loopback, but the session never establishes. Which two commands each fix the problem on their own? (Choose two.)
+
+- **A.** `neighbor 192.0.2.2 next-hop-self`
+- **B.** `neighbor 192.0.2.2 ebgp-multihop 2`
+- **C.** `neighbor 192.0.2.2 soft-reconfiguration inbound`
+- **D.** `neighbor 192.0.2.2 disable-connected-check`
+- **E.** `neighbor 192.0.2.2 remove-private-as`
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** By default eBGP sends with TTL 1 and expects the peer address on a connected subnet; the loopback is neither. `ebgp-multihop 2` raises the TTL. `disable-connected-check` keeps TTL 1 but skips the connected-subnet check, which suits directly connected routers peering on loopbacks. **Why not the others:** A changes the next hop in advertised routes, not the session. C stores received routes for troubleshooting. E strips private AS numbers from outbound paths.
+</details>
+
+
 ---
 
 ## 28.2 Next Hop and `next-hop-self`
@@ -13810,6 +23552,61 @@ Paths: (1 available, best #1, table default)
 ```
 
 `(metric 2)` is R2's IGP cost to the next hop: the value best-path step 9 compares.
+
+**📝 Exam-style questions — 28.2**
+
+**Q1.** Refer to the exhibit. R1 is the border router (1.1.1.1) and learned 8.8.8.0/24 from the ISP at 203.0.113.1. R2 is its iBGP peer. What is the best fix?
+
+```
+R2# show ip bgp 8.8.8.0
+BGP routing table entry for 8.8.8.0/24, version 0
+Paths: (1 available, no best path)
+  65100
+    203.0.113.1 (inaccessible) from 1.1.1.1 (1.1.1.1)
+      Origin IGP, metric 0, localpref 100, valid, internal
+```
+
+- **A.** Configure `neighbor 1.1.1.1 next-hop-self` on R2.
+- **B.** Configure `neighbor 1.1.1.1 ebgp-multihop 2` on R2.
+- **C.** Configure `neighbor 2.2.2.2 next-hop-self` on R1.
+- **D.** Raise LOCAL_PREF for the route on R1.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** iBGP keeps the eBGP next hop, 203.0.113.1, and R2 has no route to it, so the path fails step 0 ("is the next hop reachable?"). `next-hop-self` on R1 toward R2 rewrites the next hop to 1.1.1.1, which R2 reaches through the IGP. The other fix is to advertise the ISP link into the IGP. **Why not the others:** A is on the wrong router: next-hop-self changes the next hop of routes R2 *sends*, not routes it receives. B is an eBGP session setting and R1–R2 is iBGP. D can't help, because an inaccessible path is rejected before LOCAL_PREF is compared.
+</details>
+
+**Q2.** Refer to the exhibit. What does `(metric 2)` mean?
+
+```
+R2# show ip bgp 8.8.8.0
+  65100
+    1.1.1.1 (metric 2) from 1.1.1.1 (1.1.1.1)
+      Origin IGP, metric 0, localpref 100, valid, internal, best
+```
+
+- **A.** The MED the ISP attached to the route
+- **B.** The number of AS hops to the destination
+- **C.** R2's IGP cost to reach the next hop, 1.1.1.1
+- **D.** The route's LOCAL_PREF divided by 50
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The value in brackets after the next hop is the IGP metric to that next hop, which best-path step 9 compares. **Why not the others:** A is the `metric 0` on the second line. B is wrong because the AS_PATH (`65100`) shows the AS hops. D isn't a BGP value; LOCAL_PREF appears as `localpref 100`.
+</details>
+
+**Q3.** Why does iBGP leave the next hop unchanged by default?
+
+- **A.** Because the original eBGP next hop is often the better forwarding answer, and rewriting it could detour traffic through the advertising router.
+- **B.** Because iBGP routers can't change any path attributes.
+- **C.** Because iBGP peers always share the eBGP peer's subnet.
+- **D.** Because the next hop is used for iBGP loop detection.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** BGP keeps the most specific forwarding information it has. Where other routers can reach the eBGP peer directly, sending traffic to it is better than sending it through R1. You choose `next-hop-self` when they can't. **Why not the others:** B is wrong because iBGP routers can set attributes such as LOCAL_PREF. C is wrong; usually they don't share it, which is why `next-hop-self` is so common. D is wrong because iBGP loop prevention is split horizon (and ORIGINATOR_ID/CLUSTER_LIST with route reflectors).
+</details>
+
 
 ---
 
@@ -13898,6 +23695,69 @@ router bgp 65001
 4. **Fix:** `neighbor 3.3.3.3 update-source Loopback0` on R1 and `neighbor 1.1.1.1 update-source Loopback0` on R3. Within seconds the summary shows a prefix count instead of `Active`.
 5. **If it's still Active** after that, the next suspect is an ACL on the path. BGP needs TCP port 179 in **both** directions: to port 179 from the side that opens the connection, and from port 179 for the replies. The safest entries are `permit tcp host 1.1.1.1 host 3.3.3.3 eq bgp` and `permit tcp host 1.1.1.1 eq bgp host 3.3.3.3` (plus the mirror pair on the other router's inbound ACL).
 
+**📝 Exam-style questions — 28.3**
+
+**Q1.** Refer to the exhibit. What is the state of the session with 10.1.13.3?
+
+```
+R1# show bgp ipv4 unicast summary
+Neighbor     V    AS  MsgRcvd MsgSent  TblVer InQ OutQ Up/Down  State/PfxRcd
+2.2.2.2      4 65001     1204    1199      88   0    0 18:22:41       14
+10.1.13.3    4 65200        0       0       1   0    0 never    Active
+```
+
+- **A.** Established, and actively exchanging routes
+- **B.** Established, but no prefixes have been received yet
+- **C.** Waiting for the peer's KEEPALIVE after the OPEN messages
+- **D.** Down: R1's TCP connection attempts to the peer are failing
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A word in State/PfxRcd means the session is down. "Active" sounds healthy, but it means the TCP attempt failed and R1 is retrying and listening. Typical causes are a wrong neighbor address, a missing `update-source` or `ebgp-multihop`, or an ACL blocking TCP 179. **Why not the others:** A and B would show a number (the prefix count) instead of a word. C is the OpenConfirm state.
+</details>
+
+**Q2.** Refer to the exhibit. What is wrong?
+
+```
+%BGP-3-NOTIFICATION: sent to neighbor 10.1.12.2 passive 2/2 (peer in wrong AS) 2 bytes FDE9
+%BGP-5-ADJCHANGE: neighbor 10.1.12.2 Down BGP Notification sent
+```
+
+- **A.** The `remote-as` configured for 10.1.12.2 doesn't match the AS it sent, which is 65001.
+- **B.** The MD5 password doesn't match.
+- **C.** The hold timers don't match.
+- **D.** 10.1.12.2 isn't reachable.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The session got far enough to exchange OPEN messages, and the OPEN check failed with error 2/2, bad peer AS. FDE9 is the AS the peer sent, in hex: 0xFDE9 = 65001. **Why not the others:** B fails at the TCP level with `%TCP-6-BADAUTH`, before any OPEN. C is wrong because hold timers are negotiated (the lower is used), so they never cause a mismatch. D would leave the session in Idle or Active, with no OPEN exchanged.
+</details>
+
+**Q3.** R1's BGP session to 10.1.12.2 is stuck in Active, and R1 logs `%TCP-6-BADAUTH: No MD5 digest from 10.1.12.2(179) to 10.1.12.1(34521)`. What is the cause?
+
+- **A.** The two routers have different MD5 passwords.
+- **B.** R1 has an MD5 password configured for the neighbor, but 10.1.12.2 has none.
+- **C.** An ACL is dropping TCP port 179.
+- **D.** 10.1.12.2 has a password configured, but R1 has none.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** R1 expects a digest and received a segment with none, so the other side has no password configured. **Why not the others:** A logs "Invalid MD5 digest". C produces no BADAUTH message, because no segments arrive. D is the reverse situation: R1 would then be receiving digests it doesn't expect, not missing ones.
+</details>
+
+**Q4.** R1 is configured with `neighbor 10.1.12.2 timers 10 30`. R2 uses the default timers. Which hold time do both routers use for the session?
+
+- **A.** 180 seconds
+- **B.** 90 seconds
+- **C.** 30 seconds
+- **D.** Each router uses its own configured hold time
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Each side proposes a hold time in its OPEN message, and both use the lower value: 30 versus 180, so 30. **Why not the others:** A is R2's configured value, which loses. B isn't a value either router proposed. D describes EIGRP; BGP negotiates.
+</details>
+
+
 ---
 
 ## 28.4 Address Families, MP-BGP and IPv6
@@ -13946,6 +23806,54 @@ neighbor 203.0.113.1 remove-private-as              ! strip if the path is ALL p
 neighbor 203.0.113.1 remove-private-as all          ! strip private ASNs wherever they appear
 neighbor 203.0.113.1 remove-private-as all replace-as   ! replace them with my own AS
 ```
+
+**📝 Exam-style questions — 28.4**
+
+**Q1.** Refer to the exhibit. The IPv6 session to 2001:DB8:12::2 is Established, but no IPv6 prefixes are exchanged. What is missing?
+
+```
+router bgp 65001
+ no bgp default ipv4-unicast
+ neighbor 2001:DB8:12::2 remote-as 65100
+ address-family ipv6 unicast
+  network 2001:DB8:100::/48
+ exit-address-family
+```
+
+- **A.** `neighbor 2001:DB8:12::2 activate` under `address-family ipv6 unicast`
+- **B.** `bgp default ipv4-unicast`, so the neighbor is activated automatically
+- **C.** `neighbor 2001:DB8:12::2 update-source Loopback0`
+- **D.** A route map that sets an IPv6 next hop
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With `no bgp default ipv4-unicast`, every neighbor must be explicitly activated in each address family. Without `activate` the session can come up, but nothing is exchanged for that family. **Why not the others:** B only auto-activates IPv4 unicast, which wouldn't help IPv6. C is a session-source setting, and the session is already up. D is needed only when IPv6 prefixes ride an IPv4 session.
+</details>
+
+**Q2.** What is the 4-byte AS number 131080 in asdot notation?
+
+- **A.** 1.65544
+- **B.** 13.1080
+- **C.** 2.8
+- **D.** 0.131080
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Divide by 65,536: 131,080 = 2 × 65,536 + 8, so the asdot form is 2.8. **Why not the others:** A would mean 1 × 65,536 + 65,544, but the part after the dot must be below 65,536. B just splits the digits. D isn't how asdot works for numbers above 65,535.
+</details>
+
+**Q3.** An engineer sees AS 23456 in the AS_PATH of several routes. What does this indicate?
+
+- **A.** The route passed through a private AS.
+- **B.** A router that understands only 2-byte AS numbers is in the path, and 23456 is standing in for a 4-byte AS.
+- **C.** The route was aggregated with `as-set`.
+- **D.** The route was prepended by a confederation.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** AS 23456 is AS_TRANS. Older 2-byte-only speakers see it in place of any 4-byte AS number, so its appearance means an old router is upstream. **Why not the others:** A is wrong because 23456 isn't in the private ranges (64512–65534 and 4200000000–4294967294). C would show an AS set in braces. D isn't what 23456 means.
+</details>
+
 
 ---
 
@@ -14009,6 +23917,52 @@ router bgp 65001
 ```
 
 **Why were peer groups originally about CPU, not convenience?** Because a peer group's members are guaranteed to share the **same outbound policy**, so BGP computes the update **once** and copies it to every member. On a route reflector with hundreds of clients, that saves a lot of CPU. Modern IOS builds **update groups** automatically from any neighbors with identical outbound policy, so the CPU benefit no longer depends on peer groups. Templates add flexibility: a neighbor can inherit a session template *and* a policy template, and templates can inherit from each other.
+
+**📝 Exam-style questions — 28.5**
+
+**Q1.** Refer to the exhibit. R1 has `soft-reconfiguration inbound` toward the ISP. What explains the output?
+
+```
+R1# show ip bgp neighbors 10.1.12.2 received-routes | include 198.18
+*  198.18.0.0/15    10.1.12.2                0             0 65100 i
+R1# show ip bgp neighbors 10.1.12.2 routes | include 198.18
+R1#
+```
+
+- **A.** The ISP never advertised 198.18.0.0/15.
+- **B.** The route is a RIB failure on R1.
+- **C.** R1 has not refreshed the session since the ISP sent it.
+- **D.** The ISP sent the prefix, but R1's inbound policy filtered it.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `received-routes` shows what the peer sent before inbound policy; `routes` shows what survived the policy. The prefix is in the first and missing from the second, so an inbound prefix list, filter list or route map on R1 dropped it. **Why not the others:** A is disproved by `received-routes`. B would still list the route under `routes`, flagged `r`. C is wrong because received routes are processed as they arrive; a refresh only matters after a policy change.
+</details>
+
+**Q2.** An engineer changes the inbound route map on a production eBGP neighbor, but the BGP table doesn't change. What is the right way to apply the new policy?
+
+- **A.** `clear ip bgp 10.1.12.2`
+- **B.** `clear ip bgp 10.1.12.2 soft out`
+- **C.** Remove and re-add the `neighbor` statement
+- **D.** `clear ip bgp 10.1.12.2 soft in`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** BGP doesn't re-evaluate routes it already holds. A soft inbound clear asks the peer to resend its routes using route refresh, so the new inbound policy is applied without dropping the session. **Why not the others:** A is a hard reset that drops the session. B re-sends *your* routes through your outbound policy, which doesn't apply an inbound change. C also tears the session down.
+</details>
+
+**Q3.** Route refresh lets BGP re-apply inbound policy without storing anything. Why would an engineer still configure `soft-reconfiguration inbound`?
+
+- **A.** To make `received-routes` available, showing what the peer sent before inbound policy, for troubleshooting.
+- **B.** Because route refresh drops the session.
+- **C.** To reduce the memory BGP uses.
+- **D.** Because it is required for outbound policy changes.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** It keeps an unfiltered copy of everything received, so you can compare `received-routes` with `routes` and prove whether the peer sent a route. **Why not the others:** B is wrong because route refresh is non-disruptive. C is the opposite: the stored copy costs memory. D is wrong because `soft out` and `advertised-routes` work without it.
+</details>
+
 
 
 ---
@@ -14104,6 +24058,63 @@ Paths: (2 available, best #1, table default)
 
 *To explain why a path won, compare the two entries in the table's order and stop at the first difference. Here it's localpref 200 vs 100, at step 2.*
 
+**📝 Exam-style questions — 28.6**
+
+**Q1.** R1 has three paths to 172.30.0.0/16. All have weight 0 and LOCAL_PREF 100, none is locally originated, and AIGP isn't used. Which path wins, and at which step?
+
+| Path | Type | AS_PATH | Origin | MED |
+|------|------|---------|--------|-----|
+| A | eBGP | 65100 65300 | i | 0 |
+| B | iBGP | 65200 | ? | 0 |
+| C | eBGP | 65400 | i | 0 |
+
+- **A.** Path A, at the eBGP-over-iBGP step
+- **B.** Path B, at the AS_PATH step
+- **C.** Path C, at the origin step
+- **D.** Path C, at the eBGP-over-iBGP step
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Weight, LOCAL_PREF and "locally originated" tie. AS_PATH (step 5): A has 2 ASes, B and C have 1, so A is out. Origin (step 6): B is incomplete (`?`) and C is IGP (`i`). IGP is preferred, so **C wins at step 6** and the eBGP-over-iBGP step is never reached. **Why not the others:** A was eliminated at AS_PATH length. B ties C on AS_PATH length and loses on origin. D names the right path but the wrong step: the first difference decides, and that is origin.
+</details>
+
+**Q2.** Path X has weight 200 and LOCAL_PREF 100. Path Y has weight 0 and LOCAL_PREF 300. Both are valid with reachable next hops. Which path does the router choose?
+
+- **A.** Path Y, because LOCAL_PREF applies to the whole AS
+- **B.** Path X, because weight is compared before LOCAL_PREF
+- **C.** Path Y, because 300 is higher than 200
+- **D.** Neither; the router compares AS_PATH length to break the conflict
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Weight is step 1 and LOCAL_PREF is step 2. The first difference decides, so weight 200 wins before LOCAL_PREF is looked at. **Why not the others:** A and C describe LOCAL_PREF correctly but ignore that weight comes first. C also compares two different attributes as if they were one number. D is wrong because the decision is already made at step 1.
+</details>
+
+**Q3.** A company is dual-homed to ISP-A and ISP-B. It wants traffic from the internet to its prefixes to arrive through ISP-A. What should it configure?
+
+- **A.** A higher LOCAL_PREF on routes received from ISP-A
+- **B.** A higher weight on routes received from ISP-A
+- **C.** `set as-path prepend` on its own prefixes, outbound toward ISP-B
+- **D.** A lower MED on routes received from ISP-B
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Inbound traffic is decided by *other* ASes, so you influence them with what you advertise. Prepending makes your prefixes look farther away through ISP-B, so other networks prefer the path through ISP-A. **Why not the others:** A and B choose the exit for *your own* outbound traffic. D is set on routes you receive, so it only influences your own outbound choice (and would favor ISP-B).
+</details>
+
+**Q4.** R1 has two paths to the same prefix. Path P came from AS 65100 with MED 10. Path Q came from AS 65200 with MED 50. All earlier attributes tie, `bgp always-compare-med` is not configured, and Q wins. Why?
+
+- **A.** MED is compared only between paths from the same neighbor AS, so it was skipped and a later step chose Q.
+- **B.** A higher MED is preferred.
+- **C.** MED is compared before AS_PATH length.
+- **D.** Q has a lower router ID, which is checked before MED.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Each neighbor AS sets MED on its own scale, so BGP compares MED only between paths from the same neighbor AS. Here the ASes differ, so the decision fell to a later step (for example eBGP over iBGP, or IGP metric). **Why not the others:** B is wrong because the lowest MED is preferred. C is wrong because MED is step 7, after AS_PATH. D is wrong because router ID is one of the last tie-breakers.
+</details>
+
+
 ---
 
 ## 28.7 Route Reflectors
@@ -14165,6 +24176,53 @@ Reading it: `from 2.2.2.2` says who **sent** the route (the RR); `1.1.1.1` befor
 - An RR **doesn't change the next hop** or any other attribute when it reflects. Clients still need a route to the original next hop, so `next-hop-self` belongs on the **border** router.
 - An RR only reflects its **best** path. Clients therefore see fewer alternatives than a full mesh would give them, which can make their path choice suboptimal.
 - Reflected paths show `Originator: … Cluster list: …` in `show ip bgp <prefix>`. Use that to confirm a route came through the RR.
+
+**📝 Exam-style questions — 28.7**
+
+**Q1.** A route reflector receives a route from a **non-client** iBGP peer. To which peers does it reflect the route?
+
+- **A.** To clients only
+- **B.** To all clients and all non-clients
+- **C.** To non-clients only
+- **D.** To no one; routes from non-clients are never reflected
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Non-clients are still fully meshed with each other, so the originating non-client has already told them. Clients depend on the RR, so they must receive it. **Why not the others:** B is the rule for routes from a *client* (or from eBGP). C reverses the rule. D is wrong because clients would then never learn the route.
+</details>
+
+**Q2.** Refer to the exhibit, taken on R3, a route-reflector client. Which statement is correct?
+
+```
+R3# show ip bgp 8.8.8.0
+  65100
+    1.1.1.1 (metric 3) from 2.2.2.2 (2.2.2.2)
+      Origin IGP, metric 0, localpref 100, valid, internal, best
+      Originator: 1.1.1.1, Cluster list: 2.2.2.2
+```
+
+- **A.** 2.2.2.2 is the next hop, and 1.1.1.1 is the route reflector.
+- **B.** 1.1.1.1 originated the route and is the next hop; 2.2.2.2 is the route reflector that sent it.
+- **C.** 1.1.1.1 is the route reflector, and 2.2.2.2 originated the route.
+- **D.** 2.2.2.2 changed the next hop to 1.1.1.1 when it reflected the route.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The address before `(metric 3)` is the next hop, `from 2.2.2.2` is the router that sent the route (the RR, whose ID is also in the cluster list), and `Originator: 1.1.1.1` is the router that put the route into the AS. **Why not the others:** A and C swap the roles. D is wrong because an RR never changes the next hop; R1 set it to 1.1.1.1 with `next-hop-self`.
+</details>
+
+**Q3.** An engineer is converting a full mesh to a route-reflector design. What must be configured on each **client**?
+
+- **A.** `neighbor <RR> route-reflector-client`
+- **B.** `bgp cluster-id` matching the RR's
+- **C.** Nothing special; the client peers with the RR as an ordinary iBGP neighbor.
+- **D.** `neighbor <RR> next-hop-self`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The only extra line is on the RR: `neighbor <client> route-reflector-client`. **Why not the others:** A goes on the RR, pointing at each client. B is an RR setting (by default the cluster ID is the RR's router ID). D is unrelated to reflection; `next-hop-self` belongs on the border router.
+</details>
+
 
 ---
 
@@ -14251,6 +24309,57 @@ Well-known communities have built-in meanings that every BGP speaker honors:
 
 **Exam trap — the forgotten `send-community`.** The route map sets the community correctly, `show ip bgp` on the local router shows it, but the neighbor never sees it, so its policy never matches. The tag is only sent with `send-community` on the **sending** router, under the right address family. Check with `show ip bgp <prefix>` on the receiver. If there's no `Community:` line, the sender didn't send it.
 
+**📝 Exam-style questions — 28.8**
+
+**Q1.** A route arrives with AS_PATH `65100 65300`. Which AS-path regex does **not** match it?
+
+- **A.** `^65100_`
+- **B.** `_65300$`
+- **C.** `_65300_`
+- **D.** `^65100$`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `^65100$` requires 65100 to be the only AS in the path. **Why not the others:** A matches because the path starts with 65100 followed by a space. B matches because the path ends with 65300. C matches because `_` matches the space before 65300 and the end of the string after it.
+</details>
+
+**Q2.** A dual-homed enterprise discovers that traffic between ISP-A and ISP-B is flowing through its network. Which configuration stops this?
+
+- **A.** `ip as-path access-list 1 permit ^$` applied with `neighbor <ISP> filter-list 1 out` toward each ISP
+- **B.** `ip as-path access-list 1 permit .*` applied with `neighbor <ISP> filter-list 1 in`
+- **C.** `neighbor <ISP> remove-private-as` toward each ISP
+- **D.** A higher LOCAL_PREF on routes from ISP-A
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `^$` matches an empty AS_PATH, which means routes the enterprise originated itself. Allowing only those outbound stops it re-advertising one ISP's routes to the other, so it can't become an accidental transit AS. **Why not the others:** B permits everything, inbound. C only strips private AS numbers. D changes the enterprise's own exit and still advertises ISP routes onward.
+</details>
+
+**Q3.** R2 applies a route map that sets community 65001:100 on its LAN prefixes and advertises them to the hub. R2's neighbor statements for the hub have no `send-community` option, and the platform does not add one automatically. `show ip bgp` on R2 shows the community, but the hub's policy that matches 65001:100 never fires, and the hub's `show ip bgp <prefix>` has no `Community:` line. What is the fix?
+
+- **A.** Configure `ip bgp-community new-format` on the hub.
+- **B.** Configure `neighbor <hub> send-community` on R2 under the right address family.
+- **C.** Add `additive` to the `set community` line on R2.
+- **D.** Configure `neighbor <R2> send-community` on the hub.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Standard communities aren't sent to neighbors unless the **sending** router is told to. The missing `Community:` line on the receiver proves the tag never arrived. **Why not the others:** A only changes how communities are displayed. C keeps existing communities rather than replacing them; it doesn't make them get sent. D is on the wrong router: the hub would be sending communities to R2.
+</details>
+
+**Q4.** Which well-known community stops a route being advertised to **any** peer, iBGP or eBGP?
+
+- **A.** no-export
+- **B.** local-AS
+- **C.** internet
+- **D.** no-advertise
+
+<details><summary>Answer</summary>
+
+**Answer: D.** no-advertise means "don't advertise to anyone". **Why not the others:** A still allows iBGP advertisement; it only stops the route leaving the AS (or confederation). B limits the route to the local sub-AS in a confederation. C means advertise normally.
+</details>
+
+
 ---
 
 ## 28.9 BGP in a VRF (VRF-Lite)
@@ -14283,6 +24392,33 @@ R1# show ip bgp vpnv4 vrf CUST_A summary
 R1# show ip bgp vpnv4 vrf CUST_A
 R1# show ip route vrf CUST_A bgp
 ```
+
+**📝 Exam-style questions — 28.9**
+
+**Q1.** An engineer enters `address-family ipv4 vrf CUST_A` under `router bgp 65001` on a VRF-Lite router with no MPLS. IOS refuses it with "VRF CUST_A does not have an RD configured". What is the fix?
+
+- **A.** Configure route targets under the VRF.
+- **B.** Enable MPLS on the VRF's interfaces.
+- **C.** Configure an `rd` (for example `rd 65001:1`) under `vrf definition CUST_A`.
+- **D.** Start a second BGP process for the VRF.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** BGP stores every VRF's routes in one shared table, so each VRF needs a route distinguisher, even without MPLS. **Why not the others:** A controls which VRFs import which routes; it isn't what the error asks for. B is wrong because VRF-Lite needs no MPLS. D is wrong because a router can run only one BGP process.
+</details>
+
+**Q2.** VRFs CUST_A and CUST_B both contain 10.1.1.0/24 and both run BGP on the same router. What keeps the two routes apart in BGP?
+
+- **A.** The route targets attached to each route
+- **B.** The route distinguisher prepended to each prefix, such as 65001:1:10.1.1.0/24 and 65001:2:10.1.1.0/24
+- **C.** The separate BGP process for each VRF
+- **D.** The next-hop address of each route
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The RD makes each prefix unique inside BGP's one shared table. **Why not the others:** A decides which VRFs import a route (who may read the file), not how identical prefixes are told apart. C is wrong because there's only one BGP process. D can be identical and isn't part of the prefix's identity.
+</details>
+
 
 ---
 
@@ -14329,6 +24465,45 @@ R1# show ip route vrf CUST_A bgp
 5. **Verify:** on R3, the path now shows next hop `1.1.1.1 (metric 3)` and `best`, and `show ip route 8.8.8.8` gives a `B` route via 1.1.1.1.
 
 *BGP troubleshooting is always two questions in order: is the session Established, and then is the route sent, received, accepted, and best? Each question has its own command, and the answers are always in the output.*
+
+**📝 Exam-style questions — 28.10**
+
+**Q1.** `show bgp ipv4 unicast summary` shows the ISP neighbor in state `Idle (PfxCt)`. It doesn't recover on its own. What happened, and how do you bring it back?
+
+- **A.** The neighbor was shut down administratively; use `no neighbor … shutdown`.
+- **B.** The neighbor exceeded its `maximum-prefix` limit; fix the cause, then run `clear ip bgp <neighbor>`.
+- **C.** There is no route to the neighbor; add one.
+- **D.** The MD5 password expired; reconfigure it.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** PfxCt (prefix count) means the neighbor sent more prefixes than `maximum-prefix` allows, so the session was torn down. Without the `restart` option it stays down until it is cleared. **Why not the others:** A shows `Idle (Admin)`. C shows plain `Idle`. D isn't a BGP state; a password problem shows Active with BADAUTH messages.
+</details>
+
+**Q2.** R1 has `network 10.10.0.0 mask 255.255.0.0` under BGP. Its routing table has 10.10.1.0/24 and 10.10.2.0/24 but no 10.10.0.0/16. Is the /16 advertised?
+
+- **A.** Yes, because the /24s fall within the /16.
+- **B.** Yes, but only to iBGP peers.
+- **C.** Yes, after `clear ip bgp * soft out`.
+- **D.** No, because `network` requires an exact match, prefix and mask, in the routing table.
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The BGP `network` command advertises a prefix only if that exact prefix and mask are in the RIB. Add a static `ip route 10.10.0.0 255.255.0.0 Null0`, or use `aggregate-address`. **Why not the others:** A confuses `network` with aggregation. B and C are wrong because nothing is originated at all.
+</details>
+
+**Q3.** A prefix is marked best in `show ip bgp`, but it is flagged `r` and isn't used for forwarding. Which command explains why?
+
+- **A.** `show ip bgp rib-failure`
+- **B.** `show ip bgp neighbors <peer> received-routes`
+- **C.** `show ip bgp summary`
+- **D.** `show ip bgp regexp ^$`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `r` means RIB failure: BGP picked a best path but couldn't install it, usually because a source with a lower AD (a static route or an IGP route) already owns the prefix. `show ip bgp rib-failure` lists those prefixes and the reason. **Why not the others:** B shows pre-policy received routes. C shows session states. D lists locally originated routes.
+</details>
+
 
 
 ---
@@ -14402,6 +24577,45 @@ By default BGP installs **one** best path. Multipath only combines paths that ti
 
 This skips step 5 of the best-path algorithm entirely, so paths are compared as if their AS_PATH lengths were equal. It's a hidden command on IOS — it works but isn't listed by `?` — and is rarely appropriate, because it throws away BGP's only distance measure. Recognise it if an exam config uses it to explain why a longer path won.
 
+**📝 Exam-style questions — 28.11**
+
+**Q1.** Two branch sites share private AS 65010 and connect through provider AS 64500. Site B never installs Site A's prefix, which arrives with AS_PATH `64500 65010`. The engineer can change only the customer router at Site B. What should they configure?
+
+- **A.** `neighbor <provider> as-override`
+- **B.** `neighbor <provider> remove-private-as`
+- **C.** `neighbor <provider> allowas-in`
+- **D.** `neighbor <provider> local-as 64500`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Site B drops the path because it contains its own AS. `allowas-in` on the customer router accepts paths that contain its own AS (up to 3 times by default). **Why not the others:** A solves the same problem, but it is configured on the **provider** router. B strips private AS numbers from what the customer sends, not from what it receives. D changes the AS the customer presents to the provider.
+</details>
+
+**Q2.** R1 has no default route in its routing table. It must send 0.0.0.0/0 to one BGP neighbor only. Which command does that?
+
+- **A.** `network 0.0.0.0` under BGP
+- **B.** `redistribute static` under BGP
+- **C.** `default-information originate` under BGP
+- **D.** `neighbor 198.51.100.2 default-originate`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `neighbor … default-originate` sends a default to that neighbor only, and doesn't require a default in the local RIB. **Why not the others:** A needs an exact 0.0.0.0/0 in the RIB, and advertises to every peer. B needs a static default to exist. C works together with redistribution of a default that exists in the RIB.
+</details>
+
+**Q3.** R1 has `maximum-paths 2`. It receives 203.0.113.0/24 from two eBGP neighbors, one in AS 65100 and one in AS 65200. Every attribute, including AS_PATH length, is equal, but only one path is installed. Why?
+
+- **A.** `maximum-paths` applies only to iBGP paths.
+- **B.** eBGP multipath requires the paths to come from the same neighboring AS with identical AS_PATH contents; `bgp bestpath as-path multipath-relax` relaxes that.
+- **C.** The paths have different MEDs.
+- **D.** Multipath needs `bgp always-compare-med`.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Multipath only combines paths that tie on everything up to the IGP-metric step, including AS_PATH **contents**, and for eBGP come from the same neighboring AS. These paths come from different ASes. `multipath-relax` allows paths from different ASes of equal length to be combined. **Why not the others:** A is backwards: `maximum-paths` without a keyword is for eBGP, and `maximum-paths ibgp` is for iBGP. C contradicts the question, which says every attribute is equal. D is unrelated to multipath.
+</details>
+
+
 ---
 
 <a name="chapter-29"></a>
@@ -14428,6 +24642,32 @@ The story usually told is "MPLS was invented because IP lookups were slow." That
 *Labels replace "where is this going?" with "which agreed path is this on?" — and that one change is the whole of MPLS.*
 
 **Story Time 📖:** Think of a courier company. You write a full street address on your parcel. At the first depot, a clerk reads that address once and sticks on a coloured routing sticker: "Route 18". From then on, the sorting depots in the middle never read the address again — they glance at the sticker, put the parcel on the right conveyor, and swap the sticker for the one *their* next depot uses ("Route 21"). Near the end, the last depot before your house peels the sticker off, and the local van reads the street address again to deliver it. The middle depots don't need a map of every street in the country; they only need their own sticker list. That is MPLS: the **first router (the edge)** reads the IP address once, the **middle routers** only swap labels, and the **last hops** remove the label. *Where the analogy breaks:* a real courier sticker usually means the same thing everywhere; an MPLS label only means something to the one router that handed it out — which is exactly why every hop swaps it (29.4, 29.5).
+
+**📝 Exam-style questions — 29.1**
+
+**Q1.** Modern routers perform IP lookups in hardware at line rate. Why do service providers still run MPLS?
+
+- **A.** Label lookups remain several times faster than CEF lookups on current hardware
+- **B.** MPLS removes the need for an IGP inside the provider core
+- **C.** Labels decouple forwarding from the destination address, which enables BGP-free cores, L3VPNs and traffic engineering
+- **D.** MPLS encrypts customer traffic as it crosses the shared core
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Today speed is not the reason: with CEF, IP lookups are as fast as label lookups. MPLS survived because a label can mean *anything the network agreed on* (a path to a PE, a customer prefix, an engineered tunnel), and that indirection is what makes a BGP-free core, overlapping VPN address space and traffic engineering possible. **Why not the others:** A was true in the 1990s, not now. B is wrong because LDP labels follow the IGP's best paths, so the core still needs an IGP. D is wrong because MPLS has no encryption at all; L3VPN separation comes from VRFs and labels, not cryptography.
+</details>
+
+**Q2.** A provider wants its P routers to hold no internet routes and no customer routes. What makes this possible?
+
+- **A.** P routers forward on the top label, which only has to identify the path to the egress PE
+- **B.** P routers act as BGP route reflectors, so they store only the best path for each prefix
+- **C.** P routers summarize every customer route into a single default route
+- **D.** P routers use the route distinguisher to choose the outgoing interface
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A P router asks only "what does this label mean?", and the transport label means "the path to PE2's loopback". It needs IGP routes to the PE loopbacks and nothing else, which is the BGP-free core. **Why not the others:** B is wrong because route reflectors still hold every route; and P routers don't run BGP at all in this design. C would black-hole traffic, because a default route can't tell customers apart. D is wrong because the RD exists only inside MP-BGP between PEs; P routers never see it.
+</details>
 
 ## 29.2 The Label Itself
 
@@ -14465,6 +24705,48 @@ The reserved labels you'll see in output:
 | **2** | IPv6 explicit null | Same for IPv6 |
 | **3** | **Implicit null** | Never appears in a packet. Advertised to say "**pop the label before sending to me**" — PHP (29.4) |
 
+**📝 Exam-style questions — 29.2**
+
+**Q1.** Refer to the exhibit. A packet capture shows this 4-byte MPLS shim header, in hex. What does it contain?
+
+```
+00 01 61 3F
+```
+
+- **A.** Label 353, S = 1, TTL 63
+- **B.** Label 22, S = 0, TTL 63
+- **C.** Label 22, S = 1, TTL 63
+- **D.** Label 22, S = 1, TTL 127
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Split the 32 bits as 20 + 3 + 1 + 8. The first five hex digits `00016` are the label: 0x16 = **22**. The sixth digit `1` is `0001`: the first three bits (TC) are 000 and the last bit (S) is **1**, so this is the bottom label. The last byte `3F` is the TTL: 0x3F = **63**. **Why not the others:** A reads too many hex digits as the label (0x00161 = 353); the label is only 20 bits, i.e. five hex digits. B misreads the S bit. D misreads 0x3F; 127 would be 0x7F.
+</details>
+
+**Q2.** Which label does an egress router advertise to ask its upstream neighbour to perform penultimate hop popping, and how often does that label appear in a packet?
+
+- **A.** Label 0 (IPv4 explicit null); it is carried all the way to the egress router
+- **B.** Label 2 (IPv6 explicit null); it appears only on IPv6 packets
+- **C.** Label 16, the first dynamic label; it appears on every packet to the egress router
+- **D.** Label 3 (implicit null); it never appears in a packet
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Implicit null (label 3) is a *signal*, not a label for the wire: it tells the neighbour "pop the label before sending to me". Because the neighbour pops, label 3 is never seen in a frame. **Why not the others:** A describes explicit null, which *is* carried to the last hop (to keep the TC bits) and so does not do PHP. B is the IPv6 version of explicit null. C is wrong because 16 is just the start of the dynamic range; nothing about it requests a pop.
+</details>
+
+**Q3.** Why does each MPLS label carry an S (bottom-of-stack) bit?
+
+- **A.** To tell the router reading a label whether another label follows or the IP header comes next
+- **B.** To mark a label that P routers are not allowed to swap
+- **C.** To show that the label was assigned by MP-BGP rather than by LDP
+- **D.** To request priority queuing for the packet in the core
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Packets can carry a stack of labels (an L3VPN packet has two). The S bit is 1 only on the last label before the IP header, so a router knows whether to expect another label or the payload. **Why not the others:** B is wrong because nothing stops a P router swapping any top label. C is wrong because the label header has no field for which protocol assigned it. D confuses S with the 3-bit TC field, which is the one used for QoS.
+</details>
+
 ## 29.3 The Cast: LSRs, LERs, PEs, Ps and CEs
 
 **Why name the roles at all?** Because each router in an MPLS network does a different *amount* of work, and exam questions describe a router by its role ("what does the P router know about customer routes?"). Learn the names once and every later section reads easily.
@@ -14489,6 +24771,32 @@ The topology used for every example in this chapter:
 | CE2 | Customer edge, site 2 | — | Customer A, LAN 10.2.2.0/24 |
 
 Traffic from site 1 to site 2 follows **CE1 → PE1 → P1 → P2 → PE2 → CE2**.
+
+**📝 Exam-style questions — 29.3**
+
+**Q1.** A P router in a BGP-free core receives a labeled packet carrying customer traffic. What does it use to forward the packet?
+
+- **A.** The customer's destination IP address, looked up in the customer's VRF
+- **B.** The inner VPN label, looked up in its VRF table
+- **C.** The top label, looked up in its LFIB
+- **D.** The route distinguisher in the packet header
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A P router (an LSR in the middle) only swaps the top label using its LFIB. It never reads the IP header and holds no VRFs. **Why not the others:** A and B both need a VRF, and P routers have none. B also forgets that only the egress PE reads the inner label. D is wrong because the RD lives only inside MP-BGP updates; it is never in a data packet.
+</details>
+
+**Q2.** Which statement about a label switched path (LSP) is correct?
+
+- **A.** It is bidirectional, so return traffic follows the same routers in reverse
+- **B.** It is built by MP-BGP between the two PEs
+- **C.** It only exists while customer traffic is flowing
+- **D.** It is one-directional, so return traffic uses a separately built LSP that may cross different routers
+
+<details><summary>Answer</summary>
+
+**Answer: D.** An LSP is the one-way sequence of labels from ingress LER to egress LER. Traffic in the other direction follows the LSP built toward the *other* PE's loopback, built separately by LDP from that PE's own advertisements. **Why not the others:** A is the exact misconception the question targets. B is wrong because transport LSPs are built by LDP following the IGP; MP-BGP carries VPN routes and VPN labels. C is wrong because LDP builds labels as soon as prefixes are in the routing table, before any traffic. Re-read: 29.5.
+</details>
 
 ## 29.4 Push, Swap, Pop — and Penultimate Hop Popping
 
@@ -14529,6 +24837,59 @@ Label      Label      or Tunnel Id     Switched      interface
 Read the last line as: "a packet arriving **with label 21** is destined for 4.4.4.4/32; **pop** the label and send it out Gi0/2 to 10.0.24.4." P2 is the penultimate hop toward PE2, so PE2 asked it (via label 3) to pop. Label 21 is the one P2 advertised to P1 for 4.4.4.4 — the same 21 you'll see in P1's bindings below and in the packet walk (29.11). The middle line is PHP again: P1 owns 3.3.3.3, so it advertised implicit-null and P2 pops. The first line is an ordinary **swap**: label 17 in, label 16 (P1's label for PE1's loopback) out. P2's directly connected subnets have no entries at all — for those, P2 itself is the egress and advertises implicit-null to its neighbours.
 
 > **Exam trap:** `Pop Label` and `No Label` are different. **Pop Label** = "remove the top label" (PHP — normal). **No Label** = "I have no outgoing label for this, so send it as plain IP" — and on a P router in a BGP-free core that's a **broken LSP**, because the next router may not have the IP route.
+
+**📝 Exam-style questions — 29.4**
+
+**Q1.** Refer to the exhibit. A packet arrives at P2 carrying label 21. What does P2 do with it?
+
+```
+P2# show mpls forwarding-table
+Local      Outgoing   Prefix           Bytes Label   Outgoing   Next Hop
+Label      Label      or Tunnel Id     Switched      interface
+17         16         1.1.1.1/32       1767110       Gi0/1      10.0.23.3
+21         Pop Label  4.4.4.4/32       1849302       Gi0/2      10.0.24.4
+```
+
+- **A.** Swaps label 21 for label 3 and sends it to PE2
+- **B.** Looks up 4.4.4.4 in its IP routing table, then pushes a new label
+- **C.** Removes the label and sends the packet out Gi0/2 to 10.0.24.4
+- **D.** Drops the packet, because there is no outgoing label
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `Pop Label` is penultimate hop popping: PE2 advertised implicit null for its own loopback, so P2 removes the top label and forwards out Gi0/2. **Why not the others:** A is wrong because label 3 is never put on a packet; it only means "pop". B is wrong because P2 forwards on the label; it doesn't need an IP lookup. D confuses `Pop Label` (normal PHP) with `No Label` (no outgoing label known).
+</details>
+
+**Q2.** Why does penultimate hop popping (PHP) reduce the total work done in the network?
+
+- **A.** The egress PE no longer needs LDP running on its core interface
+- **B.** The penultimate router is doing a label lookup anyway, so popping costs it nothing and spares the egress PE one lookup per packet
+- **C.** Removing the label early lets the egress PE skip its IGP lookup for the VPN prefix
+- **D.** The packet becomes 4 bytes smaller, so core links never need a larger MTU
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Without PHP, the egress PE would do a label lookup only to learn "this label is mine, pop it", then a second lookup on what is underneath. The penultimate router reads the label anyway, so it can pop instead of swap at no extra cost. **Why not the others:** A is wrong because the egress PE still needs LDP, to advertise implicit null and to be part of the LSP. C is wrong because the egress PE still has to look up the VPN label or IP header; PHP removes the *label* lookup, not that one. D is wrong because the label is removed only at the last core hop; every core link still carries it, so the MTU still matters.
+</details>
+
+**Q3.** Refer to the exhibit. P routers can ping 4.4.4.4, but VPN traffic toward PE2 is dropped in the core. The core OSPF was recently changed to summarize PE loopbacks as 4.4.0.0/16. What is the cause?
+
+```
+P1# show mpls forwarding-table 4.4.0.0 16
+Local      Outgoing   Prefix           Bytes Label   Outgoing   Next Hop
+Label      Label      or Tunnel Id     Switched      interface
+30         No Label   4.4.0.0/16       0             Gi0/2      10.0.23.2
+```
+
+- **A.** The summary changed the OSPF cost, so the LSP now uses a longer path
+- **B.** LDP binds labels to exact prefixes; with only 4.4.0.0/16 in the table there is no binding for 4.4.4.4/32, so the LSP is broken
+- **C.** The summary removed the BGP session between the PEs, so the VPN labels were withdrawn
+- **D.** OSPF summaries suppress LDP hello packets on the core links
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `No Label` on a core router for a PE loopback means the LSP is broken: packets leave unlabeled, and the next P router has no customer routes to forward them with. LDP allocates labels for the exact prefixes in the routing table, so summarizing the /32 loopbacks removes the bindings the LSP needs. Plain pings still work because they are ordinary IP. **Why not the others:** A would change the path, not remove the label. C is wrong because the VPNv4 session runs over plain IP between the PE loopbacks, which the summary still reaches; the fault is in the label path, as `No Label` shows. D is wrong because LDP hellos go to 224.0.0.2 on each link and don't depend on summaries. Re-read: 29.5.
+</details>
 
 ## 29.5 LDP — How Routers Agree on Labels
 
@@ -14641,6 +25002,75 @@ P1# show mpls ldp igp sync
 
 With synchronization on, OSPF advertises the link with its **maximum metric** until LDP is fully up on it, so traffic keeps using the old path until labels exist on the new one. *The IGP waits for LDP instead of racing ahead of it.* (IS-IS has the equivalent `mpls ldp sync` under its process.)
 
+**📝 Exam-style questions — 29.5**
+
+**Q1.** Refer to the exhibit. PE1 has no LDP neighbour toward P1. Which is the most likely cause?
+
+```
+PE1# show mpls ldp discovery detail
+ Local LDP Identifier:
+    1.1.1.1:0
+    Discovery Sources:
+    Interfaces:
+        GigabitEthernet0/1 (ldp): xmit/recv
+            LDP Id: 3.3.3.3:0; no route to transport addr
+```
+
+- **A.** `mpls ip` is missing on P1's interface toward PE1
+- **B.** UDP port 646 is blocked between PE1 and P1
+- **C.** The two routers use different label ranges
+- **D.** PE1 has no route to P1's transport address, 3.3.3.3
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `xmit/recv` proves hellos flow both ways, so `mpls ip` is enabled on both ends and UDP 646 gets through. The session itself is TCP 646 to the neighbour's transport address (its LDP router ID by default), and the output says PE1 has no route to it. The usual fix is to advertise P1's loopback into the IGP. **Why not the others:** A and B would stop discovery, but discovery works. C is not a reason for LDP to fail; each router allocates its own local labels.
+</details>
+
+**Q2.** Refer to the exhibit. On P1, the IGP's next hop toward 4.4.4.4 is P2 (2.2.2.2). Which outgoing label does P1's LFIB use for 4.4.4.4/32, and why does P1 keep label 19?
+
+```
+P1# show mpls ldp bindings 4.4.4.4 32
+  lib entry: 4.4.4.4/32, rev 14
+        local binding:  label: 18
+        remote binding: lsr: 1.1.1.1:0, label: 19
+        remote binding: lsr: 2.2.2.2:0, label: 21
+```
+
+- **A.** Outgoing 18; P1 keeps 19 in case PE1 becomes the egress router
+- **B.** Outgoing 21; P1 keeps 19 because of liberal label retention, so the label is ready if the IGP next hop changes
+- **C.** Outgoing 19; P1 uses the label from the neighbour with the lowest LDP ID
+- **D.** Pop; P1 keeps 19 and 21 as backup labels for load balancing
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The LFIB takes the remote label from the neighbour the IGP chose as next hop: P2, which advertised 21. Cisco LDP uses liberal retention, keeping every neighbour's binding in the LIB, so if the IGP reconverges the new label is already there. **Why not the others:** A is wrong because 18 is P1's *local* label, the one P1 advertises to others; it is the incoming label. C is wrong because LDP ID has nothing to do with label choice; the IGP decides. D is wrong because P1 is not the penultimate hop toward 4.4.4.4; P2 is.
+</details>
+
+**Q3.** Which two statements correctly describe how LDP neighbours are found and how the session is formed? (Choose two.)
+
+- **A.** Hellos are sent to TCP port 179 on the neighbour's loopback
+- **B.** Hellos are sent as UDP 646 packets to 224.0.0.2 on each `mpls ip` interface
+- **C.** The router with the lower LDP ID always opens the TCP session
+- **D.** The session runs over TCP 646 to the neighbour's transport address, which defaults to its LDP router ID
+- **E.** The session always uses the neighbour's directly connected interface address
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** Discovery uses UDP 646 hellos to the all-routers group 224.0.0.2; the session then uses TCP 646 to the transport address, which is the LDP router ID unless changed. That's why the router ID must be reachable. **Why not the others:** A is BGP's port. C is backwards: the *higher* LDP ID opens the session. E is wrong because the transport address defaults to the router ID (normally a loopback), not the link address.
+</details>
+
+**Q4.** When a core link comes up, OSPF starts using it a few seconds before LDP has exchanged labels on it, and VPN traffic is black-holed for that time. Which feature fixes this?
+
+- **A.** `mpls ldp sync` under the OSPF process
+- **B.** `mpls ldp router-id Loopback0 force`
+- **C.** `no mpls ip propagate-ttl forwarded`
+- **D.** `mpls ldp autoconfig area 0`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With LDP-IGP synchronization, OSPF advertises the link with its maximum metric until LDP is fully up on it, so traffic keeps using the old path until labels exist on the new one. **Why not the others:** B makes the LDP ID stable but doesn't stop the IGP racing ahead. C hides core hops from traceroute. D enables LDP on every area 0 interface but does nothing about timing.
+</details>
+
 ## 29.6 MPLS Layer 3 VPNs — The Problem
 
 A provider sells "private WAN" service to many customers over one shared core. Two problems:
@@ -14653,6 +25083,32 @@ MPLS L3VPN solves the first with **VRFs + route distinguishers**, the second wit
 **Story Time 📖:** Picture a courier that serves two companies, Acme and Globex. Both have a "Room 101" in their offices. If the courier's computer just stored "Room 101", it couldn't tell them apart. So it stores **"Acme–Room 101"** and **"Globex–Room 101"** — that prefix is the **route distinguisher**. Separately, each parcel carries a **distribution stamp** saying which mailrooms should receive copies: "Acme mailrooms" (or "Acme *and* the shared reception desk"). That stamp is the **route target**. The trucks on the motorway (P routers) carry sealed bags labelled only with the destination depot — they never see any room numbers at all. The rest of this chapter is that story with real names.
 
 ![MPLS L3VPN — routes travel by MP-BGP, packets travel by a two-label stack](images/c29_l3vpn_walk.png)
+
+**📝 Exam-style questions — 29.6**
+
+**Q1.** Customer A and Customer B both use 10.1.0.0/16 and connect to the same PE. Which L3VPN components keep their routes separate, on the PE and inside BGP?
+
+- **A.** Route targets on the PE and LDP labels inside BGP
+- **B.** Access lists on the PE and NAT inside BGP
+- **C.** The core IGP on the PE and transport labels inside BGP
+- **D.** VRFs on the PE and route distinguishers inside BGP
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A VRF gives each customer a separate routing table on the PE, and the RD is prepended to each prefix so the two 10.1.0.0/16 routes stay different VPNv4 prefixes inside MP-BGP. **Why not the others:** A mixes jobs: RTs control which VRFs import a route, they don't make it unique. B is wrong because ACLs filter rather than separate overlapping address space, and NAT isn't part of L3VPN. C is wrong because the core IGP carries only provider loopbacks and links.
+</details>
+
+**Q2.** Why do the P routers in an MPLS L3VPN never need any customer routes?
+
+- **A.** PEs translate customer addresses into provider addresses before the core
+- **B.** P routers forward on the transport label toward the egress PE; the customer prefix is only needed at the PEs
+- **C.** P routers receive a default route from each PE
+- **D.** Customer traffic is carried in GRE tunnels between the PEs
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The outer label says "get me to PE2's loopback", which P routers know from the IGP and LDP. The customer-specific decision happens at the PEs (ingress VRF lookup, egress VPN label). **Why not the others:** A is NAT, which L3VPN doesn't use. C couldn't separate customers with overlapping addresses. D describes a different overlay; L3VPN uses labels, not GRE.
+</details>
 
 ## 29.7 VRFs on the PE
 
@@ -14669,6 +25125,32 @@ Each PE holds a separate **VRF** (a separate routing table and CEF table — see
 | `show ip route 10.1.1.0` | `% Network not in table` — the global table holds only the provider's own routes |
 
 A packet arriving on Gi0/2 is looked up only in CUST_A's table; one arriving on Gi0/3 only in CUST_B's. The interface a packet arrives on decides which table is used.
+
+**📝 Exam-style questions — 29.7**
+
+**Q1.** PE1 has 10.1.1.0/24 in both VRF CUST_A and VRF CUST_B. Running `show ip route 10.1.1.0` on PE1 returns `% Network not in table`. What does this mean?
+
+- **A.** The customer routes exist only in the VRF tables; the global table holds only the provider's routes
+- **B.** Both VRFs have withdrawn the route because the prefixes overlap
+- **C.** The PE needs a route distinguisher on the global table
+- **D.** The command needs `| include vrf` to show VRF routes
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Each VRF is a separate routing table. Customer routes go into the customer's VRF; the global table holds only the provider's own routes. To see them, use `show ip route vrf CUST_A 10.1.1.0`. **Why not the others:** B is wrong because overlap is exactly what VRFs allow. C is wrong because RDs belong to VRFs and matter only in MP-BGP. D is wrong because no filter can show routes that aren't in the global table.
+</details>
+
+**Q2.** PE1's Gi0/3 is in VRF CUST_B. A packet to 10.1.1.5 arrives on Gi0/3, and both CUST_A and CUST_B hold 10.1.1.0/24. Which table does PE1 use to forward it?
+
+- **A.** The global routing table
+- **B.** CUST_A first, then CUST_B if there is no match
+- **C.** CUST_B only
+- **D.** Whichever VRF has the longest match
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The interface a packet arrives on decides the table: Gi0/3 is in CUST_B, so only CUST_B's table is searched. **Why not the others:** A is wrong because the interface belongs to a VRF, so the global table isn't consulted. B and D both imply PE1 searches across VRFs, which would break customer isolation.
+</details>
 
 ## 29.8 Route Distinguisher vs Route Target — Why Both Exist
 
@@ -14702,6 +25184,77 @@ This is the single most-asked L3VPN concept. They sound alike and do completely 
 Walk one route through: CUST_A's 10.1.1.0/24 leaves PE1 tagged RT 65000:100. CUST_A on other PEs imports it (match on 65000:100). SHARED imports it (match on 65000:100). CUST_B does **not** — none of its imports is 65000:100. So A reaches the services, the services can answer A, and A and B stay invisible to each other. The one design rule this exposes: the SHARED VRF now holds routes from *both* customers, so the customer subnets that meet there **must not overlap** — a VRF is still one routing table.
 
 > **Exam trap:** the RD and RT are often configured with the **same number** (e.g. both 65000:100). That's a convention, not a requirement — they're unrelated fields. A question showing matching RDs but mismatched RTs is testing whether you know that **only the RTs decide import**.
+
+**📝 Exam-style questions — 29.8**
+
+**Q1.** Which statement correctly contrasts the route distinguisher (RD) and the route target (RT)?
+
+- **A.** The RD controls which VRFs import a route; the RT makes overlapping prefixes unique
+- **B.** Both must match on every PE for a route to be imported
+- **C.** The RD makes overlapping prefixes unique inside BGP; RTs are extended communities that decide which VRFs import the route
+- **D.** A route can carry several RDs but only one RT
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The RD is prepended to the prefix to create a unique VPNv4 prefix and carries no policy. RTs are extended communities: the exporting PE attaches them and each VRF imports routes whose RTs match its import list. **Why not the others:** A swaps the two jobs. B is wrong because only RTs decide import; RDs don't have to match. D is backwards: exactly one RD, one or many RTs.
+</details>
+
+**Q2.** Refer to the exhibit. CUST_A's route 10.1.1.0/24 is exported with RT 65000:100. Into which VRFs is it imported?
+
+```
+VRF      Exports      Imports
+CUST_A   65000:100    65000:100, 65000:999
+CUST_B   65000:200    65000:200, 65000:999
+SHARED   65000:999    65000:100, 65000:200
+```
+
+- **A.** CUST_A only
+- **B.** CUST_A and SHARED
+- **C.** CUST_A, CUST_B and SHARED
+- **D.** SHARED only
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Import needs any one RT match. CUST_A imports 65000:100 and SHARED imports 65000:100, so both take the route. CUST_B imports only 65000:200 and 65000:999, so it doesn't. That's the extranet: A reaches the shared services, but A and B stay invisible to each other. **Why not the others:** A forgets SHARED's import of 65000:100. C would leak A's routes to B. D forgets that CUST_A on other PEs imports its own RT.
+</details>
+
+**Q3.** Refer to the exhibit. The VPNv4 session between PE1 and PE2 is up, but routes from Customer A's site 2 (behind PE2) never appear in VRF CUST_A on PE1. What is the cause?
+
+```
+PE1:  vrf definition CUST_A
+       rd 65000:100
+       address-family ipv4
+        route-target export 65000:100
+        route-target import 65000:100
+
+PE2:  vrf definition CUST_A
+       rd 65000:100
+       address-family ipv4
+        route-target export 65000:101
+        route-target import 65000:100
+```
+
+- **A.** The RDs must be different on every PE
+- **B.** PE2 is missing `mpls ldp router-id Loopback0 force`
+- **C.** The RD and RT values must not be the same number
+- **D.** PE2 exports RT 65000:101, but PE1's CUST_A imports only 65000:100
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Only RTs decide import. PE2 tags the routes 65000:101, nothing on PE1 imports 65000:101, so automatic route-target filtering discards them and they never enter the VRF. Fix the export RT on PE2. **Why not the others:** A is wrong because the RDs can match or differ; they don't control import. B affects LDP, not which VRF accepts a BGP route. C is a misconception: using the same number for the RD and RT is a common convention.
+</details>
+
+**Q4.** Why is the route distinguisher not enough on its own to decide which VPN a route belongs to?
+
+- **A.** A route carries exactly one RD, but designs like extranets and hub-and-spoke need one route to land in several VRFs, so a list of RTs is needed
+- **B.** The RD is removed by the first P router, so the remote PE never sees it
+- **C.** The RD is only 16 bits, too short to identify a VPN
+- **D.** RDs are not sent in MP-BGP updates
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Membership often has to be "this route belongs in VRF X *and* Y". One RD per route can't say that, but RTs are a list, so a route can carry several and each VRF picks what it wants. **Why not the others:** B is wrong because the RD never appears in data packets, so no P router touches it. C is wrong because the RD is 64 bits. D is wrong because the RD is part of every VPNv4 prefix in MP-BGP.
+</details>
 
 ## 29.9 MP-BGP Between PEs
 
@@ -14749,6 +25302,58 @@ Line by line: the entry name shows the **RD** glued to the prefix; `65102` is CE
 - **Cause:** PE2's CUST_A exports 65000:101 — a typo — while PE1's CUST_A imports 65000:100.
 - **Fix:** correct the export RT on PE2. PE2 sends a fresh update, PE1 imports it, and CE1 learns the route.
 
+**📝 Exam-style questions — 29.9**
+
+**Q1.** Refer to the exhibit. When PE1 sends a packet from CE1 toward 10.2.2.0/24, which inner (VPN) label does it push, and which router chose that label?
+
+```
+PE1# show bgp vpnv4 unicast vrf CUST_A 10.2.2.0/24
+BGP routing table entry for 65000:100:10.2.2.0/24, version 18
+Paths: (1 available, best #1, table CUST_A)
+  Advertised to update-groups:
+     1
+  65102
+    4.4.4.4 (metric 3) (via default) from 4.4.4.4 (4.4.4.4)
+      Origin IGP, metric 0, localpref 100, valid, internal, best
+      Extended Community: RT:65000:100
+      mpls labels in/out nolabel/24
+```
+
+- **A.** Label 24, chosen by PE2
+- **B.** Label 18, chosen by P1
+- **C.** Label 24, chosen by PE1
+- **D.** No inner label, because PE1 shows `nolabel`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `in/out nolabel/24` means PE1 has no local label of its own for this remote route (`nolabel` in) and must push **24** outbound. The VPN label is allocated by the egress PE (PE2) and carried in its MP-BGP update. **Why not the others:** B is the *transport* label toward 4.4.4.4, from LDP. C gets the label right but the owner wrong. D misreads `nolabel`, which is the inbound side.
+</details>
+
+**Q2.** Which two conditions must be met for PE1 to install and use a VPNv4 route that PE2 advertises? (Choose two.)
+
+- **A.** The P routers must run the VPNv4 address family
+- **B.** The RDs on PE1 and PE2 must be identical
+- **C.** The RT extended communities must arrive, which needs `send-community extended` on the VPNv4 session
+- **D.** The CE must run BGP to the PE
+- **E.** PE1 must have a route, and an LSP, to the next hop 4.4.4.4/32
+
+<details><summary>Answer</summary>
+
+**Answer: C, E.** Without the RTs, PE1 has nothing to match its import lists against; and without a route plus an LSP to the BGP next hop (PE2's /32 loopback), PE1 cannot forward. **Why not the others:** A is wrong because P routers stay BGP-free. B is wrong because RDs only need to keep prefixes unique and don't have to match. D is wrong because static, OSPF and EIGRP all work as CE-PE protocols. Re-read: 29.12.
+</details>
+
+**Q3.** CE2 runs OSPF to PE2. PE2's VRF CUST_A table shows 10.2.2.0/24 as an OSPF route, and the VPNv4 session between the PEs is up, but PE1 never receives the route. What is missing on PE2?
+
+- **A.** `mpls ip` on the interface toward CE2
+- **B.** `redistribute ospf` under `address-family ipv4 vrf CUST_A` in BGP
+- **C.** `route-target import 65000:100` in the VRF
+- **D.** A route distinguisher on the CE-facing interface
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Only routes in BGP can be sent as VPNv4. A route learned through OSPF in the VRF must be redistributed into BGP under that VRF's address family, and BGP needs to be redistributed back into OSPF for the other direction. **Why not the others:** A is wrong because the CE doesn't run MPLS; `mpls ip` belongs on core links. C controls what PE2 *receives*, not what it sends. D is wrong because RDs are set in the VRF definition, never on an interface.
+</details>
+
 ## 29.10 The Two-Label Stack
 
 Packets crossing the core carry **two** labels:
@@ -14769,6 +25374,44 @@ Packets crossing the core carry **two** labels:
 | Then | The customer's original IP packet, untouched | — | CE2 |
 
 Each label adds 4 bytes, so this packet is **8 bytes bigger** than the customer sent — the reason core links need an MTU above 1500 (29.5's MTU symptom).
+
+**📝 Exam-style questions — 29.10**
+
+**Q1.** The path is PE1 → P1 → P2 → PE2. For PE2's loopback 4.4.4.4, P1 advertised label 18 to PE1 and P2 advertised label 21 to P1. PE2 advertised VPN label 24 for 10.2.2.0/24 in VRF CUST_A. A packet from CE1 to 10.2.2.10 leaves PE1 toward P1. Which labels does it carry, top to bottom?
+
+- **A.** Label 24 (S = 0), then label 18 (S = 1)
+- **B.** Label 21 (S = 0), then label 24 (S = 1)
+- **C.** Label 18 (S = 1) only
+- **D.** Label 18 (S = 0), then label 24 (S = 1)
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The outer label is the transport label from P1's LDP binding for 4.4.4.4 (18). The inner label is the VPN label PE2 advertised in MP-BGP (24), and it is the bottom of the stack, so only it has S = 1. **Why not the others:** A puts the stack upside down. B shows the labels *after* P1 has swapped 18 for 21. C leaves out the VPN label, so PE2 couldn't tell which VRF the packet belongs to.
+</details>
+
+**Q2.** Customers send 1500-byte packets with the DF bit set. The core links have an MTU of 1500 bytes. What happens to that traffic in the L3VPN?
+
+- **A.** It works, because PHP removes both labels before the core
+- **B.** It fails, because the two labels make each packet 1508 bytes, which is too big for the core links
+- **C.** It works, because the labels are carried in the Ethernet header, not added to the packet
+- **D.** It fails only on the CE-PE link, because the CE adds the labels
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Each label adds 4 bytes, so a two-label VPN packet is 8 bytes bigger than what the customer sent. With DF set it can't be fragmented, so large packets fail while small pings work; the fix is a larger core MTU. **Why not the others:** A is wrong because PHP removes only the outer label, and only at the last core hop. C is wrong because the shim sits *between* the L2 and IP headers and adds bytes. D is wrong because CEs don't run MPLS; the PE pushes the labels. Re-read: 29.5.
+</details>
+
+**Q3.** Why does an L3VPN use two labels instead of one?
+
+- **A.** The outer label must be understood by every P router, so it identifies the egress PE; the inner label means something only to the egress PE, so it can identify the VRF and prefix
+- **B.** Two labels let the packet take two different paths for load balancing
+- **C.** The second label carries the encryption key for the customer's traffic
+- **D.** One label is for IPv4 and the other is for IPv6
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Different parts of the network answer different questions. P routers only need "how do I reach PE2?", which every P router knows from the IGP. Only PE2 can answer "which customer and prefix is this?", so that label is allocated by PE2 and ignored by the core. Keeping them separate means adding a customer changes nothing on the P routers. **Why not the others:** B is wrong because both labels follow one LSP. C is wrong because MPLS has no encryption. D invents a split that doesn't exist.
+</details>
 
 ## 29.11 End-to-End Packet Walk
 
@@ -14805,6 +25448,51 @@ Label      Label      or Tunnel Id     Switched      interface
 
 `[V]` marks a VPN (VRF) prefix. **`No Label` is correct here**: PE2 is handing the packet to CE2, which doesn't run MPLS, so it must leave as plain IP. Compare the exam trap in 29.4 — `No Label` is only a fault when it appears on a core router for a PE loopback.
 
+**📝 Exam-style questions — 29.11**
+
+**Q1.** The path is CE1 → PE1 → P1 → P2 → PE2 → CE2. For PE2's loopback 4.4.4.4, P1 advertised label 18 to PE1, P2 advertised label 21 to P1, and PE2 advertised implicit-null to P2. PE2 advertised VPN label 24 for 10.2.2.0/24. Which sequence correctly shows the labels on a packet from CE1 to 10.2.2.10 as it leaves each router?
+
+- **A.** PE1: 18, 24 → P1: 21, 24 → P2: 24 → PE2: plain IP
+- **B.** PE1: 24 → P1: 21, 24 → P2: 21 → PE2: plain IP
+- **C.** PE1: 18, 24 → P1: 18, 24 → P2: 21, 24 → PE2: 24
+- **D.** PE1: 18 → P1: 21 → P2: plain IP → PE2: plain IP
+
+<details><summary>Answer</summary>
+
+**Answer: A.** PE1 pushes VPN label 24 and transport label 18. P1 swaps the outer 18 for 21. P2 is the penultimate hop and pops the outer label (PHP), leaving only 24. PE2 uses 24 to find VRF CUST_A and sends plain IP to CE2. **Why not the others:** B forgets PE1's transport label, then keeps 21 at P2 instead of popping it. C has P1 not swapping and PE2 still sending a label to CE2, which doesn't run MPLS. D forgets the VPN label, so PE2 couldn't choose the VRF.
+</details>
+
+**Q2.** Refer to the exhibit. An engineer worries that PE2 shows `No Label` for label 24. What does the entry mean?
+
+```
+PE2# show mpls forwarding-table labels 24
+Local      Outgoing   Prefix           Bytes Label   Outgoing   Next Hop
+Label      Label      or Tunnel Id     Switched      interface
+24         No Label   10.2.2.0/24[V]   48210         Gi0/2      192.168.2.2
+```
+
+- **A.** The LSP to CE2 is broken and VPN traffic is being dropped
+- **B.** PE2 has not yet received a label from CE2
+- **C.** It is normal: PE2 maps VPN label 24 to VRF CUST_A and sends the packet to CE2 as plain IP
+- **D.** PE2 is the penultimate hop, so it should show `Pop Label` instead
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `[V]` marks a VRF prefix. PE2 owns label 24 and hands the packet to CE2, which doesn't run MPLS, so it must leave unlabeled. `No Label` is only a fault on a core router for a PE loopback. **Why not the others:** A and B assume CE2 should send or receive labels, but CEs run plain IP. D is wrong because PE2 is the *egress* router for this prefix, not the penultimate hop.
+</details>
+
+**Q3.** Which provider routers need a route to the customer prefix 10.2.2.0/24?
+
+- **A.** Every router in the provider network
+- **B.** P1 and P2 only
+- **C.** PE2 only
+- **D.** PE1 and PE2 only, each inside VRF CUST_A
+
+<details><summary>Answer</summary>
+
+**Answer: D.** PE1 needs it in CUST_A to find the next hop and labels; PE2 needs it to deliver to CE2. P1 and P2 only switch the outer label, so they need routes to the PE loopbacks, not customer prefixes. **Why not the others:** A and B ignore the BGP-free core. C forgets that the ingress PE must look the prefix up to choose the labels.
+</details>
+
 ## 29.12 CE–PE Routing Options
 
 **The problem it solves:** the customer's router has to tell the PE which networks live at its site, and learn the other sites' networks back. Any routing method works between CE and PE — the choice depends on what the customer already runs and how much control they want.
@@ -14817,6 +25505,32 @@ Label      Label      or Tunnel Id     Switched      interface
 | **EIGRP** | Customer runs EIGRP | Multi-homed sites need **Site of Origin (SoO)** to stop routes looping back in |
 
 **Worked example — why `as-override` is needed.** Suppose Customer A used private AS 65101 at *both* sites (instead of 65101 and 65102 as elsewhere in this chapter). Site 1 advertises 10.1.1.0/24; by the time it reaches CE2 the AS path is `65000 65101`. CE2 sees its **own** AS (65101) in the path and drops the route as a loop — eBGP's standard loop check. With `neighbor <CE2> as-override` on PE2, PE2 replaces 65101 with its own AS before sending, so CE2 receives `65000 65000`, finds no 65101, and accepts it. (`allowas-in` on CE2 is the alternative: CE2 accepts its own AS in the path.)
+
+**📝 Exam-style questions — 29.12**
+
+**Q1.** Customer A uses private AS 65101 at both sites and runs eBGP to the provider (AS 65000). Site 2's CE never installs site 1's routes. Which command on the PE facing site 2 fixes this?
+
+- **A.** `neighbor <CE2> allowas-in`
+- **B.** `neighbor <CE2> remove-private-as`
+- **C.** `neighbor <CE2> next-hop-self`
+- **D.** `neighbor <CE2> as-override`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** CE2 sees its own AS 65101 in the path and drops the route as a loop. `as-override` on the PE replaces 65101 with the provider's AS before sending, so CE2 receives `65000 65000` and accepts it. **Why not the others:** A is the right idea on the wrong router: `allowas-in` belongs on the CE, which then accepts its own AS. B would strip private ASNs on the way to the internet, not fix a VPN path. C changes the next hop, not the AS path.
+</details>
+
+**Q2.** A customer site is dual-homed to two PEs and runs EIGRP to both. Which mechanism stops routes learned from the site being sent back into the same site through the other PE?
+
+- **A.** Split horizon on the CE
+- **B.** Site of Origin (SoO)
+- **C.** An identical RD on both PEs
+- **D.** OSPF sham-links
+
+<details><summary>Answer</summary>
+
+**Answer: B.** SoO tags routes with the site they came from, and a PE won't send a route back into a site with the same SoO. That's what stops the loop for multi-homed EIGRP sites. **Why not the others:** A works per interface on one router; it can't see the route returning through the other PE. C doesn't control routing at all. D is an OSPF tool for backdoor links.
+</details>
 
 ## 29.13 Reading a PE Configuration
 
@@ -14882,6 +25596,44 @@ The verification set you should recognise:
 
 > 🔬 **Depth: why traceroute through a provider often shows nothing in the middle.** By default the ingress PE copies the IP TTL into the label TTL, so the core hops answer traceroute. Providers commonly configure `no mpls ip propagate-ttl forwarded`, which sets the label TTL to 255 — the core becomes invisible and the customer sees the whole MPLS cloud as a single hop.
 
+**📝 Exam-style questions — 29.13**
+
+**Q1.** An engineer adds `vrf forwarding CUST_A` to a PE's existing interface Gi0/2 toward CE1. CE1 can no longer ping the PE, and `show ip interface brief` shows Gi0/2 as `unassigned`. What happened?
+
+- **A.** `vrf forwarding` removed the interface's IP address; it must be configured again
+- **B.** The VRF has no route distinguisher, so the interface is disabled
+- **C.** `mpls ip` must be enabled on the interface first
+- **D.** The CE must also be configured with `vrf forwarding CUST_A`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Putting an interface into a VRF wipes its IP address; you re-enter it afterwards. That's why the config always shows `vrf forwarding` *before* `ip address`. **Why not the others:** B is wrong because the interface would still keep the address. C is wrong because `mpls ip` belongs on core links. D is wrong because the CE runs plain routing and doesn't need a VRF.
+</details>
+
+**Q2.** Which command tests reachability from PE1 to a host at customer site 2 (10.2.2.10)?
+
+- **A.** `ping 10.2.2.10 source Gi0/2`
+- **B.** `ping vrf CUST_A 10.2.2.10 source Gi0/2`
+- **C.** `ping mpls ipv4 10.2.2.0/24`
+- **D.** `traceroute 10.2.2.10`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Customer prefixes exist only in the VRF, so the ping must run inside it. Sourcing from the CE-facing interface tests the real customer path. **Why not the others:** A and D run in the global table, which has no 10.2.2.0/24. C tests an LSP to a prefix in the global table, and a customer prefix isn't there.
+</details>
+
+**Q3.** A customer runs traceroute across the provider and sees the whole MPLS cloud as a single hop. Which provider configuration explains this?
+
+- **A.** `mpls ldp sync` on the core links
+- **B.** `no bgp default ipv4-unicast`
+- **C.** `no mpls ip propagate-ttl forwarded` on the PEs
+- **D.** `mpls label protocol ldp`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** By default the ingress PE copies the IP TTL into the label TTL, so core hops answer traceroute. With `no mpls ip propagate-ttl forwarded` the label TTL starts at 255, the core never expires the packet, and the customer sees one hop. **Why not the others:** A delays the IGP until LDP is ready. B stops BGP neighbors activating for IPv4 by default. D only sets LDP as the label protocol.
+</details>
+
 ---
 
 <a name="chapter-30"></a>
@@ -14917,6 +25669,32 @@ Quick definitions you'll need all chapter: **GRE** (Generic Routing Encapsulatio
 
 ![DMVPN — one mGRE interface per router, NHRP maps tunnel IPs to internet IPs](images/c30_dmvpn_topology.png)
 
+**📝 Exam-style questions — 30.1**
+
+**Q1.** A company with one hub and 50 branches wants branch-to-branch traffic to go direct, and wants to add branch 51 without touching the hub. Why does DMVPN meet both goals when point-to-point GRE does not?
+
+- **A.** DMVPN replaces GRE with IPsec tunnel mode, which needs no tunnel interfaces
+- **B.** One mGRE interface serves every branch, branches register themselves through NHRP, and spoke-to-spoke tunnels are built on demand
+- **C.** DMVPN builds a full mesh of 1,225 static tunnels automatically at boot
+- **D.** The hub runs BGP dynamic neighbors, which removes the need for tunnels between branches
+
+<details><summary>Answer</summary>
+
+**Answer: B.** mGRE means one tunnel interface per router; NHRP registration means the hub learns new branches without config changes; and NHRP resolution lets branches find each other and tunnel directly when traffic needs it. **Why not the others:** A is wrong because DMVPN still uses GRE (mGRE), with IPsec protecting it. C is wrong because DMVPN tunnels between spokes are built on demand, not as a permanent full mesh. D only removes per-spoke BGP config; it builds no data path.
+</details>
+
+**Q2.** Which statement correctly matches each DMVPN component to the question it answers?
+
+- **A.** mGRE: "how does one tunnel interface reach many destinations?"; NHRP: "what is the real internet address behind this tunnel address?"; IPsec: "how do I keep it private?"
+- **B.** mGRE: "what is the real internet address?"; NHRP: "how do I keep it private?"; IPsec: "how does one interface reach many destinations?"
+- **C.** mGRE: "which LANs are behind each spoke?"; NHRP: "how does one interface reach many destinations?"; IPsec: "what is the real internet address?"
+- **D.** mGRE and NHRP together encrypt traffic; IPsec carries the routing protocol
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Each piece does one job: mGRE gives a multipoint tunnel interface, NHRP maps tunnel (overlay) addresses to NBMA (underlay) addresses, and IPsec encrypts. A routing protocol on top says which LANs are where. **Why not the others:** B and C shuffle the jobs. D is wrong because neither mGRE nor NHRP encrypts anything, and the routing protocol rides inside GRE, not IPsec on its own.
+</details>
+
 ## 30.2 mGRE — One Interface, Many Destinations
 
 **The problem it solves:** with point-to-point GRE, every new branch means a new tunnel interface on the hub. mGRE lets one tunnel interface talk to any number of routers, so the hub's configuration stops growing with the number of branches.
@@ -14943,6 +25721,32 @@ Two addresses per router, and you must keep them straight:
 Spoke 1 knew to put **198.51.100.1** on the outside because it has a static NHRP mapping for the hub (10.0.0.1 → 198.51.100.1). For any *other* tunnel address, it has to ask — that's 30.3.
 
 **Story Time 📖:** A point-to-point GRE tunnel is a **dedicated phone line** to one friend: pick it up and you're connected to them and only them. An mGRE tunnel is **one phone with a contacts list**: one handset, any number of people — but you need to look up the number before you can dial. NHRP is the contacts list.
+
+**📝 Exam-style questions — 30.2**
+
+**Q1.** A host behind Spoke 1 (10.11.0.5) sends to the hub's LAN (10.10.0.9). Spoke 1's tunnel address is 10.0.0.11 and its internet address is 203.0.113.11; the hub's are 10.0.0.1 and 198.51.100.1. What are the source and destination of the OUTER IP header?
+
+- **A.** 10.11.0.5 to 10.10.0.9
+- **B.** 10.0.0.11 to 10.0.0.1
+- **C.** 203.0.113.11 to 198.51.100.1
+- **D.** 203.0.113.11 to 10.0.0.1
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The outer header must be deliverable across the internet, so it uses the NBMA (underlay) addresses. The original packet (10.11.0.5 to 10.10.0.9) rides inside, untouched, after the GRE header. **Why not the others:** A is the inner header. B uses overlay tunnel addresses, which the internet can't route. D mixes an underlay source with an overlay destination.
+</details>
+
+**Q2.** What is the key difference between a point-to-point GRE tunnel and an mGRE tunnel?
+
+- **A.** mGRE uses UDP while point-to-point GRE uses TCP
+- **B.** mGRE requires IPsec, while point-to-point GRE cannot use it
+- **C.** mGRE allows only one neighbour on the tunnel, like a serial link
+- **D.** mGRE has no `tunnel destination`; it acts like a shared segment, so the router needs NHRP to find each far end's NBMA address
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A p2p GRE tunnel has exactly one far end, typed in as `tunnel destination`. An mGRE tunnel (`tunnel mode gre multipoint`) has none: all routers sit in one tunnel subnet, and NHRP plays the role ARP plays on Ethernet. **Why not the others:** A is wrong because GRE is IP protocol 47, not UDP or TCP. B is wrong because both can be protected by IPsec. C describes point-to-point GRE, the opposite of mGRE.
+</details>
 
 ## 30.3 NHRP — ARP for the Internet
 
@@ -14993,6 +25797,52 @@ Read it as: "tunnel address 10.0.0.11 lives at internet address 203.0.113.11; th
 
 **Why does the hub need `ip nhrp map multicast dynamic`?** Because mGRE has no destination, so the router has no idea where to send a multicast packet like an EIGRP hello (224.0.0.10) or OSPF hello (224.0.0.5). This command says "send a copy of every multicast to each spoke that has registered". Without it the hub's hellos go nowhere, and **routing adjacencies never form even though `show dmvpn` looks perfect**. That mismatch — NHRP up, routing down — is the classic DMVPN troubleshooting question.
 
+**📝 Exam-style questions — 30.3**
+
+**Q1.** Refer to the exhibit. What does the hub's entry for 10.0.0.11 tell you?
+
+```
+Hub# show ip nhrp
+10.0.0.11/32 via 10.0.0.11
+   Tunnel0 created 00:14:03, expire 00:04:12
+   Type: dynamic, Flags: registered used nhop
+   NBMA address: 203.0.113.11
+```
+
+- **A.** The spoke at NBMA 203.0.113.11 registered tunnel address 10.0.0.11, and the entry expires in about 4 minutes unless the spoke refreshes it
+- **B.** The hub has a static mapping for 10.0.0.11 typed in by an engineer
+- **C.** Spoke 1 is the NHS for the DMVPN cloud
+- **D.** The tunnel to 10.0.0.11 is down and will be removed in about 4 minutes
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `Type: dynamic` and `Flags: registered` mean the spoke registered itself. The NBMA address is the spoke's internet address, and `expire 00:04:12` counts down to the holdtime; the spoke refreshes it at one-third of the holdtime. **Why not the others:** B would show `Type: static`. C is backwards: the hub is the NHS and spokes are clients. D misreads the expiry as a failure; it is normal ageing that registration keeps resetting.
+</details>
+
+**Q2.** Spokes register with the hub and `show dmvpn` shows them all UP, but no EIGRP adjacencies form between the hub and the spokes. Which hub command is most likely missing?
+
+- **A.** `ip nhrp redirect`
+- **B.** `ip nhrp network-id 1`
+- **C.** `ip nhrp map multicast dynamic`
+- **D.** `ip nhrp shortcut`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** mGRE has no destination, so the hub doesn't know where to send multicast such as EIGRP hellos to 224.0.0.10. `ip nhrp map multicast dynamic` sends a copy to every registered spoke. Without it NHRP is up but routing is down, which is the classic DMVPN fault. **Why not the others:** A and D are the Phase 3 redirect and shortcut commands; they don't affect hellos. B enables NHRP itself, and without it no spoke could register.
+</details>
+
+**Q3.** Spoke 1 is configured with `ip nhrp authentication NHRPKEY`, but the hub uses `ip nhrp authentication NHRPKEX`. IPsec comes up. What happens?
+
+- **A.** The spoke registers, but resolution requests are rejected
+- **B.** The hub drops the NHRP packets, so the spoke's registration never completes
+- **C.** The authentication string is only locally significant, so nothing breaks
+- **D.** The tunnel key mismatch causes GRE packets to be discarded
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The NHRP authentication string must match; NHRP packets with the wrong string are dropped, so registration fails even though IPsec is up. `show dmvpn` would stay at the `NHRP` state. **Why not the others:** A is wrong because registration is the first NHRP exchange, so it fails first. C confuses the authentication string with `ip nhrp network-id`, which *is* locally significant. D is a different command, `tunnel key`. Re-read: 30.9.
+</details>
+
 ## 30.4 The Three Phases
 
 "Phase" describes how spoke-to-spoke traffic is handled. ENARSI expects you to compare them and know the routing implications. **Why three phases?** Each one fixed the previous one's weakness: Phase 1 was simple but sent everything through the hub; Phase 2 allowed direct spoke-to-spoke tunnels but forced every spoke to know every route; Phase 3 kept the direct tunnels and let the hub summarize again.
@@ -15027,6 +25877,44 @@ Read it as: "tunnel address 10.0.0.11 lives at internet address 203.0.113.11; th
 5. Spoke 1 caches 10.0.0.12 → 203.0.113.12. New packets are GRE-encapsulated with outer destination **203.0.113.12** — direct.
 6. Spoke 2 does the same in reverse for its return traffic, and the entries age out with the holdtime when the traffic stops.
 
+**📝 Exam-style questions — 30.4**
+
+**Q1.** In which DMVPN phase can the hub advertise only a summary or default route to the spokes and still have spoke-to-spoke tunnels form?
+
+- **A.** Phase 1
+- **B.** Phase 2
+- **C.** Phase 3
+- **D.** None of the phases with direct spoke-to-spoke tunnels
+
+<details><summary>Answer</summary>
+
+**Answer: C.** In Phase 3, NHRP Redirect and shortcut routes create the direct path, so the routing table can be just "default via hub". **Why not the others:** A allows summarizing, but Phase 1 never builds spoke-to-spoke tunnels. B needs every specific route with the original next hop intact, because the routing table triggers resolution. D is wrong because Phase 3 does exactly this.
+</details>
+
+**Q2.** A Phase 2 DMVPN works with direct spoke-to-spoke tunnels. An engineer adds a summary on the hub so each spoke receives only 10.0.0.0/8 via 10.0.0.1. Spoke-to-spoke traffic now always goes through the hub. Why?
+
+- **A.** The summary removed the NHRP registrations on the hub
+- **B.** IPsec cannot protect summarized routes
+- **C.** The spokes' tunnel interfaces are now point-to-point
+- **D.** Phase 2 triggers resolution from the routing table's next hop; with the summary the next hop is the hub, so no spoke resolves another spoke
+
+<details><summary>Answer</summary>
+
+**Answer: D.** In Phase 2 a spoke builds a direct tunnel only when its route points at the other spoke's tunnel address (for example via 10.0.0.12). A summary from the hub points everything at 10.0.0.1, so traffic hairpins forever. Converting to Phase 3 (`ip nhrp redirect` on the hub, `ip nhrp shortcut` on spokes) fixes it. **Why not the others:** A is wrong because routing changes don't touch NHRP registration. B is wrong because IPsec protects packets, not routes. C is wrong because the tunnel mode is unchanged.
+</details>
+
+**Q3.** In Phase 2, Spoke 1 needs the NBMA address for 10.0.0.12 and has no NHRP entry. Which sequence describes what happens?
+
+- **A.** Spoke 1 sends a Resolution Request to the hub; the hub forwards it to Spoke 2; Spoke 2 replies directly to Spoke 1; meanwhile packets go via the hub
+- **B.** Spoke 1 broadcasts an ARP request across the internet; Spoke 2 answers with its MAC address
+- **C.** Spoke 1 drops packets until the hub sends a Redirect, then installs an H route
+- **D.** The hub replies itself from its cache, and Spoke 2 is never contacted
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Phase 2 resolution goes through the NHS (the hub), which forwards the request to Spoke 2; Spoke 2 replies straight to Spoke 1 (bringing IPsec up first). Traffic flows via the hub while this happens, so users see no outage. **Why not the others:** B is impossible, because there is no broadcast across the internet. C describes Phase 3's Redirect, and packets aren't dropped. D is the hotel analogy's point where it breaks: in DMVPN the target spoke answers.
+</details>
+
 ## 30.5 Spoke-to-Spoke in Phase 3, Step by Step
 
 ![Phase 3 — the hub redirects, the spokes resolve each other, traffic goes direct](images/c30_phase3_seq.png)
@@ -15045,6 +25933,37 @@ H     10.12.0.0/24 [250/1] via 10.0.0.12, 00:01:12, Tunnel0
 ```
 
 Shortcuts age out with the NHRP holdtime when traffic stops — the direct tunnel is genuinely **on demand**.
+
+**📝 Exam-style questions — 30.5**
+
+**Q1.** Refer to the exhibit. What does this entry on Spoke 1 mean?
+
+```
+Spoke1# show ip route nhrp
+H     10.12.0.0/24 [250/1] via 10.0.0.12, 00:01:12, Tunnel0
+```
+
+- **A.** A static route to Spoke 2's LAN configured by an engineer
+- **B.** An EIGRP route learned from the hub
+- **C.** An NHRP shortcut installed after a Phase 3 redirect; traffic to 10.12.0.0/24 now goes directly to Spoke 2
+- **D.** A route that will stay until the tunnel interface is reset
+
+<details><summary>Answer</summary>
+
+**Answer: C.** `H` is the NHRP route code. In Phase 3, after the hub's Redirect and a resolution, Spoke 1 installs a shortcut for 10.12.0.0/24 via Spoke 2's tunnel address, overriding the hub's summary. **Why not the others:** A would show code `S`. B would show code `D` via 10.0.0.1. D is wrong because shortcuts age out with the NHRP holdtime when traffic stops.
+</details>
+
+**Q2.** In Phase 3, what makes the hub send an NHRP Redirect to Spoke 1?
+
+- **A.** A packet from Spoke 1 enters and leaves the hub through the same DMVPN tunnel interface
+- **B.** Spoke 1's registration expires
+- **C.** Spoke 2's EIGRP adjacency comes up
+- **D.** Spoke 1 sends a Resolution Request for the hub's tunnel address
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The hub watches for a hairpin: traffic arriving on Tunnel0 and being forwarded back out Tunnel0 means two spokes could talk directly, so the hub tells the source spoke with a Redirect. **Why not the others:** B and C are not traffic events and don't trigger redirects. D is wrong because the spoke already knows the hub statically; and resolution follows the Redirect, it doesn't cause it.
+</details>
 
 ## 30.6 Securing It: IPsec Profiles
 
@@ -15085,6 +26004,55 @@ For a spoke-to-spoke tunnel the same five steps happen between 203.0.113.11 and 
 **Spokes behind NAT.** When a spoke sits behind a NAT device, IKE detects it and switches to **NAT-T** (ESP inside UDP 4500). Add `crypto isakmp nat keepalive 20` (IKEv1; IKEv2 has `crypto ikev2 nat keepalive`) so the NAT device's translation for that UDP flow never times out between bursts of traffic. If the underlay interface lives in its own VRF — common when the internet link must be kept out of the global table — that's **front-door VRF (FVRF)**, covered in Chapter 12; on DMVPN it's `tunnel vrf <name>` on the tunnel plus a VRF-aware keyring.
 
 **Why a wildcard pre-shared key?** Because the hub can't list spokes it hasn't met. A wildcard PSK means every spoke shares one secret — acceptable in a lab, and the reason production DMVPN usually uses **IKEv2 with certificates (PKI)** so each router proves its own identity.
+
+**📝 Exam-style questions — 30.6**
+
+**Q1.** Why does a DMVPN IPsec profile normally use transport mode rather than tunnel mode?
+
+- **A.** Tunnel mode cannot encrypt GRE packets
+- **B.** GRE already adds an outer IP header with the NBMA addresses, so tunnel mode would add a second, identical 20-byte header
+- **C.** Transport mode is the only mode supported with pre-shared keys
+- **D.** Transport mode allows NAT-T, and tunnel mode does not
+
+<details><summary>Answer</summary>
+
+**Answer: B.** GRE wraps the packet with an outer header between the NBMA addresses. Transport mode encrypts that GRE packet and keeps its outer header; tunnel mode would add another IP header carrying the same addresses, wasting 20 bytes. Tunnel mode still works, just less efficiently. **Why not the others:** A is wrong because tunnel mode works. C is wrong because both modes work with PSKs. D is wrong because NAT-T is independent of the mode.
+</details>
+
+**Q2.** Refer to the exhibit. `show dmvpn` on Spoke 1 shows the hub stuck in state IKE. Which is the most likely cause?
+
+```
+Spoke1# show dmvpn
+ # Ent  Peer NBMA Addr Peer Tunnel Add State  UpDn Tm Attrb
+ ----- --------------- --------------- ----- -------- -----
+     1 198.51.100.1           10.0.0.1   IKE 00:02:10     S
+
+Spoke1# show crypto isakmp sa
+dst             src             state          conn-id status
+198.51.100.1    203.0.113.11    MM_NO_STATE          0 ACTIVE
+```
+
+- **A.** The NHRP authentication string differs between the spoke and the hub
+- **B.** The hub is missing `ip nhrp map multicast dynamic`
+- **C.** The transform set differs between the spoke and the hub
+- **D.** The ISAKMP policy differs, or UDP 500/4500 is blocked
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The DMVPN states run IKE → IPsec → NHRP → UP. Stuck at IKE means phase 1 never finished. `MM_NO_STATE` means it failed at the very first exchange, which points to no matching ISAKMP policy or to UDP 500/4500 not getting through. (A pre-shared key mismatch gets further, failing at the key-exchange stage.) **Why not the others:** A would leave the peer stuck at NHRP. B allows the tunnel to reach UP but breaks routing. C is a phase 2 problem, which would show state IPsec.
+</details>
+
+**Q3.** A spoke behind a NAT device registers correctly but drops off the DMVPN after periods with no traffic. What should be added?
+
+- **A.** `crypto isakmp nat keepalive 20`
+- **B.** `ip nhrp redirect` on the spoke
+- **C.** `mode tunnel` in the transform set
+- **D.** `tunnel key 100` on the hub
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Behind NAT, IKE switches to NAT-T (ESP inside UDP 4500). If nothing is sent for a while, the NAT device times out that UDP translation and the tunnel breaks. NAT keepalives keep the translation alive. **Why not the others:** B is a hub Phase 3 command. C only changes the IPsec mode. D has nothing to do with NAT, and a key mismatch would break all traffic, not just idle periods.
+</details>
 
 ## 30.7 Complete Working Configuration (Phase 3, EIGRP)
 
@@ -15143,6 +26111,58 @@ ip route 0.0.0.0 0.0.0.0 203.0.113.1  ! underlay default to the ISP
 ```
 
 **Why `ip summary-address` here and not on a spoke?** The 10.0.0.0/8 summary from the hub is what lets each spoke carry one route instead of fifty; that's the scaling win of Phase 3. One thing to check whenever you summarize over a tunnel: the summary must never cover the **NBMA** (underlay) addresses. If the internet-facing addresses also fell inside 10.0.0.0/8, spokes would learn the route to the hub's NBMA address *through the tunnel itself*. That's recursive routing, and the tunnel shuts itself down (30.10).
+
+**📝 Exam-style questions — 30.7**
+
+**Q1.** Refer to the exhibit. On a Phase 3 hub, which configuration line is missing?
+
+```
+interface Tunnel0
+ ip address 10.0.0.1 255.255.255.0
+ ip nhrp authentication NHRPKEY
+ ip nhrp network-id 1
+ ip nhrp map multicast dynamic
+ no ip split-horizon eigrp 100
+ ip summary-address eigrp 100 10.0.0.0 255.0.0.0
+ tunnel source GigabitEthernet0/0
+ tunnel mode gre multipoint
+ tunnel key 100
+ tunnel protection ipsec profile DMVPN-PROF
+```
+
+- **A.** `tunnel destination 203.0.113.11`
+- **B.** `ip nhrp redirect`
+- **C.** `ip nhrp shortcut`
+- **D.** `ip nhrp nhs 10.0.0.1`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A Phase 3 hub sends Redirects when traffic hairpins, which needs `ip nhrp redirect`. Spokes need `ip nhrp shortcut`. **Why not the others:** A would turn the hub into a point-to-point tunnel to one spoke. C belongs on spokes. D belongs on spokes too: the hub *is* the NHS.
+</details>
+
+**Q2.** A DMVPN design sets `ip mtu 1400` on every tunnel. Which value of `ip tcp adjust-mss` matches it, and why?
+
+- **A.** 1500, because MSS should equal the physical interface MTU
+- **B.** 1440, because only the IP header must be subtracted
+- **C.** 1360, because 1400 minus 20 bytes of IP header and 20 bytes of TCP header leaves 1360 bytes of data
+- **D.** 1380, because GRE adds 20 bytes
+
+<details><summary>Answer</summary>
+
+**Answer: C.** MSS is the TCP *data* size. A 1400-byte IP packet holds a 20-byte IP header and a 20-byte TCP header, so the data can be at most 1360. **Why not the others:** A ignores the tunnel overhead entirely. B forgets the TCP header. D subtracts the wrong thing; GRE overhead is already accounted for by choosing 1400.
+</details>
+
+**Q3.** The hub sends the spokes a 10.0.0.0/8 summary. All NBMA addresses, the hub's included, are in 10.200.0.0/16 from a private underlay, and the spokes reach them through a default route. What problem will this cause?
+
+- **A.** The spokes learn the route to the hub's NBMA address through the tunnel, so the tunnel goes down with recursive routing
+- **B.** Spoke-to-spoke tunnels form faster because the summary covers everything
+- **C.** NHRP registration is refused because the addresses overlap
+- **D.** Nothing, because summaries never affect the underlay
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The /8 summary covers the underlay addresses and is more specific than the default route, so a spoke's route to the hub's NBMA address now points into Tunnel0. Sending a GRE packet through the tunnel then needs the tunnel itself; the router detects the loop and logs `%TUN-5-RECURDOWN`. The rule: the summary must never cover the NBMA addresses. **Why not the others:** B is wrong because the summary breaks the underlay. C is wrong because NHRP has no such check. D is exactly the mistake the question tests. Re-read: 30.10.
+</details>
 
 ## 30.8 Routing Protocols Over DMVPN
 
@@ -15210,6 +26230,56 @@ Neighbor        V    AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
 
 **Why route-reflector-client?** iBGP's split-horizon rule says a route learned from one iBGP peer isn't passed to another (Chapter 28). The hub must be a route reflector for spokes to learn each other's LANs. A route reflector **doesn't change the next hop**, which suits Phase 2; for Phase 3 you can instead send spokes only a default or summary (`neighbor SPOKES default-originate` plus outbound filtering). With **eBGP** spokes in different ASes, a dynamic peer-group still needs to know which ASes to accept: give the first with `neighbor SPOKES remote-as 65001` and list the rest with `neighbor SPOKES alternate-as 65002 65003`.
 
+**📝 Exam-style questions — 30.8**
+
+**Q1.** A Phase 3 DMVPN runs EIGRP. Spoke 2 does not learn Spoke 1's LAN at all, but the hub has it. The hub does not send only a summary. Which hub command fixes this?
+
+- **A.** `no ip next-hop-self eigrp 100`
+- **B.** `ip nhrp shortcut`
+- **C.** `no ip split-horizon eigrp 100`
+- **D.** `ip ospf network point-to-multipoint`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The hub learns Spoke 1's LAN on Tunnel0 and must advertise it to Spoke 2, also on Tunnel0. Split horizon blocks that, so turn it off on the hub's tunnel. **Why not the others:** A changes the next hop and is for Phase 2 only; it doesn't make the route appear. B is a spoke command for shortcut routes. D is OSPF, not EIGRP.
+</details>
+
+**Q2.** In a Phase 2 DMVPN running EIGRP, spokes learn each other's routes, but `show ip route` on Spoke 2 shows Spoke 1's LAN via 10.0.0.1 and traffic always hairpins. What is missing on the hub?
+
+- **A.** `no ip next-hop-self eigrp 100`
+- **B.** `ip nhrp map multicast dynamic`
+- **C.** `no ip split-horizon eigrp 100`
+- **D.** `ip nhrp redirect`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Phase 2 needs the original next hop (Spoke 1's tunnel address, 10.0.0.11), because the next hop is what triggers resolution. EIGRP sets itself as next hop by default, so the hub must turn that off. **Why not the others:** B is clearly present, since routes are learned. C is present, since Spoke 2 learns the route. D is a Phase 3 command and wouldn't help a Phase 2 design.
+</details>
+
+**Q3.** A DMVPN hub runs OSPF with `ip ospf network point-to-multipoint`. A new spoke is configured with `ip ospf network broadcast`. What happens?
+
+- **A.** They become neighbours, and the spoke becomes the DR
+- **B.** They never become neighbours, because the hello/dead timers differ (30/120 vs 10/40)
+- **C.** They become neighbours, but only IPv6 routes are exchanged
+- **D.** The hub changes its network type to match automatically
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Network types set default timers: point-to-multipoint uses 30/120, broadcast uses 10/40. Hello and dead intervals must match, so no adjacency forms. Pick one network type for the whole cloud. **Why not the others:** A is impossible without an adjacency. C is invented. D is wrong because OSPF never changes the network type itself.
+</details>
+
+**Q4.** Which BGP configuration lets a DMVPN hub accept sessions from any spoke in the tunnel subnet without one `neighbor` statement per spoke?
+
+- **A.** `neighbor 10.0.0.0 remote-as 65000`
+- **B.** `bgp dynamic-neighbors 10.0.0.0/24`
+- **C.** `neighbor SPOKES ebgp-multihop 255`
+- **D.** `bgp listen range 10.0.0.0/24 peer-group SPOKES`, after creating peer group SPOKES
+
+<details><summary>Answer</summary>
+
+**Answer: D.** BGP dynamic neighbors use `bgp listen range` tied to an existing peer group; spokes initiate and the hub accepts any source inside the range. The peer group must exist first. **Why not the others:** A is a single neighbor at a network address, which won't work. B is not a valid command. C only changes the TTL for eBGP sessions.
+</details>
+
 ## 30.9 Verification
 
 **Why these commands?** DMVPN is four layers stacked on each other — underlay, IPsec, NHRP, routing — and each has its own `show` command. Verification means checking each layer is up, bottom first.
@@ -15261,6 +26331,40 @@ How to read them: on the **hub**, every spoke is **D** (dynamic — learned by r
 | `show crypto ipsec sa` | IPsec SAs per peer — `#pkts encaps/decaps` should both rise |
 | `show ip route nhrp` | Phase 3 shortcut routes (code `H`) |
 | `debug nhrp packet` | Registration, resolution and redirect messages as they happen |
+
+**📝 Exam-style questions — 30.9**
+
+**Q1.** Refer to the exhibit. What does the second entry on Spoke 1 show?
+
+```
+Spoke1# show dmvpn
+ # Ent  Peer NBMA Addr Peer Tunnel Add State  UpDn Tm Attrb
+ ----- --------------- --------------- ----- -------- -----
+     1 198.51.100.1           10.0.0.1    UP 00:14:05     S
+     2 203.0.113.12          10.0.0.12    UP 00:00:41   DT1
+```
+
+- **A.** Spoke 2 is the NHS for Spoke 1
+- **B.** A live spoke-to-spoke tunnel to Spoke 2, learned dynamically, with an NHRP shortcut route installed
+- **C.** Spoke 2 is stuck in the NHRP state
+- **D.** A static mapping that an engineer configured for Spoke 2
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `D` means dynamic (learned through resolution) and `T1` means a route was installed (an NHRP shortcut). State `UP` means crypto and NHRP are both complete. The hub entry is `S` because it is configured statically with `nhs`. **Why not the others:** A is wrong because the NHS is the hub. C contradicts state `UP`. D would show `S`.
+</details>
+
+**Q2.** A peer in `show dmvpn` is stuck in state NHRP. Which layer is broken, and what should you check?
+
+- **A.** IKE phase 1; check the ISAKMP policy and the pre-shared key
+- **B.** The underlay; check the route to the NBMA address
+- **C.** Routing; check the EIGRP neighbours
+- **D.** NHRP; crypto is up, so check the NHRP authentication string and the NHS/NBMA mapping
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The states run IKE → IPsec → NHRP → UP, so the stuck state names the broken layer. At NHRP, IKE and IPsec have finished; `show ip nhrp nhs detail` and `debug nhrp packet` will show requests going unanswered. **Why not the others:** A would leave the peer at IKE. B would stop it even earlier (IKE). C comes after UP, because routing runs over a working tunnel.
+</details>
 
 ## 30.10 Troubleshooting DMVPN
 
@@ -15319,6 +26423,45 @@ Tunnel0    203.0.113.12       Flags: dynamic          (Enabled)
 - **Fix:** stop advertising underlay prefixes into the overlay routing protocol (filter them on the hub, or with a distribute-list inbound on the spoke). The rule: **never let the tunnel learn the route to its own tunnel destination.**
 
 **Why is `ip tcp adjust-mss` needed if `ip mtu` is already set?** `ip mtu 1400` makes the *router* fragment (or drop, if DF is set) anything bigger than 1400 entering the tunnel. Many hosts set DF and rely on Path MTU Discovery — which breaks when an ICMP "fragmentation needed" message is filtered somewhere. `adjust-mss` rewrites the MSS in TCP SYNs passing through, so the two hosts agree on segments small enough to fit **before** the first big packet is ever sent. *`ip mtu` handles the packet that's too big; `adjust-mss` stops TCP from ever making one.* (The TCP mechanics are in CCNA guide 2.7.)
+
+**📝 Exam-style questions — 30.10**
+
+**Q1.** Spoke 1 logs `%TUN-5-RECURDOWN: Tunnel0 temporarily disabled due to recursive routing` every minute or so. Which command best confirms the cause?
+
+- **A.** `show ip route 198.51.100.1`, to see if the route to the hub's NBMA address points into Tunnel0
+- **B.** `show ip nhrp`, to see if the hub has registered
+- **C.** `show crypto ipsec sa`, to compare encaps and decaps
+- **D.** `show ip eigrp neighbors`, to count neighbours
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Recursive routing means the route to the tunnel destination is learned through the tunnel itself. `show ip route` for the hub's NBMA address will show it via Tunnel0 instead of the physical interface. **Why not the others:** B, C and D look at layers above the underlay, and they would just show the symptom (flapping), not the cause.
+</details>
+
+**Q2.** Pings across a DMVPN tunnel succeed, but web pages and file copies hang. Which two measures address this? (Choose two.)
+
+- **A.** Remove `tunnel protection` from every tunnel
+- **B.** Set `ip mtu 1400` on the tunnel interfaces
+- **C.** Set `ip tcp adjust-mss 1360` on the tunnel interfaces
+- **D.** Disable split horizon on the hub
+- **E.** Change the tunnel key
+
+<details><summary>Answer</summary>
+
+**Answer: B, C.** GRE plus IPsec overhead pushes full-size packets past 1500 bytes; with DF set they can't be fragmented, and if ICMP is filtered, PMTUD fails. `ip mtu 1400` sizes the tunnel, and `adjust-mss 1360` makes TCP agree on segments small enough before the first big packet is sent. **Why not the others:** A removes encryption, which is not a fix. D affects routing, but routes already work (pings succeed). E would break the tunnel completely.
+</details>
+
+**Q3.** GRE packet counters rise on Spoke 1's tunnel, but nothing at all arrives on the hub's tunnel, even though the underlay ping between the NBMA addresses works. What is the most likely cause?
+
+- **A.** The NHRP holdtime is too long
+- **B.** `ip nhrp shortcut` is missing on the spoke
+- **C.** `tunnel key` values don't match, so the hub discards the GRE packets
+- **D.** The hub's tunnel IP mtu is 1400
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A GRE packet with the wrong key is silently discarded, so counters rise on one side only. Compare the `tunnel key` in `show interface Tunnel0` on both routers. **Why not the others:** A only changes how long entries live. B affects Phase 3 shortcuts, not basic hub reachability. D would affect only large packets.
+</details>
 
 ---
 
@@ -15489,6 +26632,75 @@ Tacacs+ Server -  public  :
 - **Cause:** R1's Loopback0 wasn't advertised into the IGP when the router was installed.
 - **Fix:** advertise the loopback. `test aaa` now returns `User successfully authenticated`, and logins are instant again. (Had the server been reachable but answering FAIL, local would never have been tried — the opposite symptom.)
 
+**📝 Exam-style questions — 31.1**
+
+**Q1.** Refer to the exhibit. A user's correct local password works on the console but is rejected over SSH. The TACACS+ server is up. What explains this?
+
+```
+aaa authentication login default local
+aaa authentication login VTY-AUTH group TACACS-GRP local
+!
+line vty 0 15
+ login authentication VTY-AUTH
+ transport input ssh
+```
+
+- **A.** The server answered FAIL for this user, so IOS stops and never tries the local database
+- **B.** The server timed out, so IOS fell back to local, but local authentication is disabled on the VTYs
+- **C.** `aaa new-model` disables the local database on VTY lines
+- **D.** TACACS+ only works with Telnet, not SSH
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A FAIL (the server rejecting the user) ends the method list; only an ERROR (no answer, timeout) moves on to the next method. The console uses the `default` list, which is local-only, so the local password works there. **Why not the others:** B describes an ERROR, which *would* fall back to local, and local is in the list. C is wrong because `local` is right there in VTY-AUTH. D is wrong because TACACS+ is independent of the access protocol.
+</details>
+
+**Q2.** Refer to the exhibit. Every SSH login to R1 pauses for a long time and then only the local emergency account works. What does the output show?
+
+```
+R1# show tacacs
+               Server name: ISE-1
+            Server address: 10.10.10.5
+               Server port: 49
+              Socket opens:         12
+           Socket Timeouts:         12
+   Failed Connect Attempts:         12
+```
+
+- **A.** The server rejects every user, so IOS falls back to local
+- **B.** R1 is getting no TCP answer from the server at all, which counts as ERROR, so IOS falls back to local after waiting
+- **C.** The shared key is wrong, so the server returns FAIL
+- **D.** The server is using RADIUS instead of TACACS+
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Twelve connection attempts, twelve timeouts: R1 never reaches TCP 49 on the server. No answer is an ERROR, so after waiting IOS tries the next method, `local`. The next checks are routing to the server and the source of the requests (for example `ip tacacs source-interface`, whose subnet must be routable back). **Why not the others:** A would be FAIL, which never falls back to local. C would still open the TCP connection; the server would then reject or drop the request. D is not something this output can show.
+</details>
+
+**Q3.** A TACACS+ user logs in successfully but lands at `R1>` instead of `R1#`. The server's profile for the user returns priv-lvl 15. What is most likely missing on R1?
+
+- **A.** `aaa authentication enable default group TACACS-GRP enable`
+- **B.** `aaa accounting exec default start-stop group TACACS-GRP`
+- **C.** `aaa authorization exec` applied to the VTY lines
+- **D.** `ip tacacs source-interface Loopback0`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Exec authorization is what asks the server for the user's privilege level. Without it, IOS never asks, so the user gets the default level 1. **Why not the others:** A authenticates the `enable` command, which is a separate step after login. B only records sessions. D affects reaching the server, but the login already worked.
+</details>
+
+**Q4.** Which statement about TACACS+ and RADIUS is correct?
+
+- **A.** RADIUS uses TCP 49 and encrypts the whole payload
+- **B.** TACACS+ combines authentication and authorization in one reply, so it can't authorize individual commands
+- **C.** Both protocols encrypt only the password
+- **D.** TACACS+ uses TCP 49, encrypts the whole payload and separates authentication, authorization and accounting, which allows per-command authorization
+
+<details><summary>Answer</summary>
+
+**Answer: D.** TACACS+ runs over TCP 49, encrypts everything after its header, and handles each A separately, so each command can be authorized. RADIUS (UDP 1812/1813) hides only the password and returns authorization attributes in the Access-Accept. **Why not the others:** A swaps the protocols. B describes RADIUS, not TACACS+. C is true only of RADIUS.
+</details>
+
 ## 31.2 IPv4 ACLs — Standard, Extended and Time-Based
 
 You've built ACLs since CCNA (CCNA guide Ch 19) and Chapter 17 reviewed them. ENARSI asks you to troubleshoot them. **Why do ACLs cause so many faults?** Because an ACL does exactly what it says, not what you meant, and it fails silently — a dropped packet doesn't log anything unless you ask it to.
@@ -15575,6 +26787,79 @@ Extended IP access list GUEST-IN
 - **Cause:** the NTP server line was removed during a clean-up, so the router never set its clock after the reboot.
 - **Fix:** restore `ntp server 10.1.1.1`. Once synchronised, `show time-range` reports BUSINESS-HOURS `(active)` and line 10 starts counting matches.
 
+**📝 Exam-style questions — 31.2**
+
+**Q1.** Refer to the exhibit. Host 10.1.1.5 cannot reach 172.16.1.10 on TCP 443, and line 20 shows 0 matches. What is the fix?
+
+```
+R1# show access-lists LAN-IN
+Extended IP access list LAN-IN
+    10 deny   ip 10.1.0.0 0.0.255.255 172.16.0.0 0.0.255.255 (412 matches)
+    20 permit tcp host 10.1.1.5 host 172.16.1.10 eq 443
+    30 permit ip any any (90311 matches)
+```
+
+- **A.** Change line 20 to use `eq 443` on the source port
+- **B.** Insert `5 permit tcp host 10.1.1.5 host 172.16.1.10 eq 443` so the permit sits above the broad deny
+- **C.** Apply the ACL outbound instead of inbound
+- **D.** Remove line 30, which overrides line 20
+
+<details><summary>Answer</summary>
+
+**Answer: B.** ACLs are read top down and the first match wins. Line 10 denies all of 10.1.0.0/16 to 172.16.0.0/16, so the packet never reaches line 20; its zero counter is the giveaway. Sequence number 5 puts the specific permit first. **Why not the others:** A breaks the match, because 443 is the destination port of the client's request. C changes the interface direction, not the order problem. D is wrong because line 30 is never reached for this packet either.
+</details>
+
+**Q2.** Refer to the exhibit. About 40 seconds after this ACL was applied inbound on R1's WAN interface, the OSPF adjacency on that link went down. What is the cause?
+
+```
+R1# show access-lists WAN-IN
+Extended IP access list WAN-IN
+    10 permit tcp any 10.1.0.0 0.0.255.255 eq 443 (5212 matches)
+    20 permit udp any 10.1.0.0 0.0.255.255 eq domain (310 matches)
+```
+
+- **A.** The ACL denies UDP 89, which OSPF uses
+- **B.** OSPF hellos are router-originated, so the inbound ACL cannot affect them
+- **C.** The implicit deny drops the neighbour's OSPF hellos (IP protocol 89), so the dead timer expires
+- **D.** Line 20 matches OSPF because it uses the domain port
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Nothing permits OSPF, so incoming hellos hit the implicit `deny ip any any`. After the 40-second dead interval the adjacency drops. Fix with `5 permit ospf any any`. **Why not the others:** A is wrong because OSPF is IP protocol 89, not UDP. B is backwards: an inbound ACL filters the *neighbour's* hellos arriving. D is wrong because OSPF has no ports.
+</details>
+
+**Q3.** Refer to the exhibit. It is 10 a.m. on a Tuesday, but guests cannot browse, and line 10 shows `(inactive)`. What should you check first?
+
+```
+R1# show access-lists GUEST-IN
+Extended IP access list GUEST-IN
+    10 permit tcp 10.50.0.0 0.0.0.255 any eq 443 time-range BUSINESS-HOURS (inactive)
+    20 permit udp 10.50.0.0 0.0.0.255 any eq domain
+    30 deny   ip 10.50.0.0 0.0.0.255 any log
+```
+
+- **A.** The router's clock and NTP status
+- **B.** The ACL direction on the guest interface
+- **C.** Whether line 20 should be moved above line 10
+- **D.** Whether the time range uses 24-hour time
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A time range is judged against the router's own clock. If the router rebooted without NTP, it may believe it's 1993, so a weekday 8:00-18:00 window is wrong. `show clock` (an asterisk means not authoritative) and `show ntp associations` prove it. **Why not the others:** B and C wouldn't make a time range show inactive. D is wrong because `8:00 to 18:00` is already 24-hour time.
+</details>
+
+**Q4.** An outbound ACL on R1's Gi0/1 denies all ICMP to 10.9.9.0/24. An engineer pings 10.9.9.9 from R1 itself and it succeeds. Why?
+
+- **A.** Outbound ACLs only filter TCP and UDP
+- **B.** Outbound ACLs do not filter traffic the router originates
+- **C.** The ping used the loopback as its source, which ACLs ignore
+- **D.** Outbound ACLs are applied only after NAT
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Traffic generated by the router itself is not checked by its own outbound ACLs, so a ping from the router proves nothing. Test from a host behind the router instead. **Why not the others:** A is wrong because extended ACLs filter ICMP fine. C is not a rule; source address doesn't exempt traffic. D is about NAT order, which doesn't create this behaviour.
+</details>
+
 ## 31.3 IPv6 Traffic Filters
 
 **The problem it solves:** IPv6 traffic needs filtering just like IPv4 — an IPv4 ACL never even looks at an IPv6 packet, so a router with only IPv4 ACLs is wide open over IPv6. IPv6 ACLs are always **named**, use **prefix lengths** instead of wildcards, and are applied with **`ipv6 traffic-filter`** rather than `ip access-group`:
@@ -15631,6 +26916,51 @@ Note what the implicit lines **don't** include: router solicitations/advertiseme
 | OSPFv3 / EIGRP for IPv6 neighbour down | Link-local multicast routing traffic denied (OSPFv3 = IP proto 89 to FF02::5/6) | `show ipv6 access-list` counters |
 | ACL applied but nothing filtered | Applied with `ip access-group` (wrong family) or wrong direction | `show ipv6 interface Gi0/0 | include access list` |
 
+**📝 Exam-style questions — 31.3**
+
+**Q1.** Refer to the exhibit. A few minutes after this IPv6 ACL is applied inbound, IPv6 traffic through the interface stops, and `show ipv6 neighbors` shows the next hop as INCMP. What is the cause?
+
+```
+ipv6 access-list V6-EDGE-IN
+ permit tcp any host 2001:DB8:10::80 eq 443
+ permit icmp any any echo-request
+ deny ipv6 any any log
+```
+
+- **A.** The ACL is applied with `ipv6 traffic-filter` instead of `ip access-group`
+- **B.** The explicit final deny matches Neighbor Advertisements before the implicit ND permits are reached
+- **C.** IPv6 ACLs require wildcards instead of prefix lengths
+- **D.** The ACL blocks ICMPv6 echo replies
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Every IPv6 ACL ends with implicit permits for NS and NA, then an implicit deny. An *explicit* `deny ipv6 any any` sits above those, so Neighbor Advertisements are dropped. Existing neighbour entries keep working until they're re-checked, which is why the outage is delayed. Add `permit icmp any any nd-na` and `nd-ns` above the deny. **Why not the others:** A is wrong because `ipv6 traffic-filter` is the correct command. C is backwards. D wouldn't stop forwarding or cause INCMP.
+</details>
+
+**Q2.** Which implicit entries end every IPv6 ACL on IOS XE?
+
+- **A.** `permit icmp any any router-advertisement`, then `deny ipv6 any any`
+- **B.** Only `deny ipv6 any any`, the same as IPv4
+- **C.** `permit icmp any any nd-na`, `permit icmp any any nd-ns`, then `deny ipv6 any any`
+- **D.** `permit ipv6 any any`, so IPv6 ACLs are permit by default
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Neighbor Discovery is ICMPv6, so a plain implicit deny would break address resolution; IOS adds implicit NA and NS permits before the final deny. RAs are *not* included. **Why not the others:** A lists RA, which you must permit yourself if needed. B ignores the ND permits. D is wrong because IPv6 ACLs still end in deny.
+</details>
+
+**Q3.** An engineer applies an IPv6 ACL to an interface with `ip access-group V6-EDGE-IN in`, and nothing is filtered. Why?
+
+- **A.** IPv6 ACLs must be applied with `ipv6 traffic-filter`
+- **B.** IPv6 ACLs only work outbound
+- **C.** The ACL must be numbered, not named
+- **D.** CEF must be disabled for IPv6 ACLs to work
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `ip access-group` applies IPv4 ACLs. IPv6 ACLs are always named and applied with `ipv6 traffic-filter NAME in|out`. **Why not the others:** B is wrong because both directions work. C is backwards: IPv6 ACLs are always named. D is invented.
+</details>
+
 ## 31.4 Unicast Reverse Path Forwarding (uRPF)
 
 **The problem it solves:** attackers **spoof** (fake) source addresses so their traffic can't be traced, and so replies (in reflection attacks) hit a victim. Writing ACLs that list every legitimate source on every interface doesn't scale. **uRPF** (Unicast Reverse Path Forwarding) uses the routing table you already have to drop packets whose **source** address doesn't make sense, by checking the source against the FIB. It needs **CEF** (on by default).
@@ -15674,6 +27004,50 @@ R1# show ip traffic | include RPF
 | Loose mode drops nothing — even spoofed bogons | `allow-default` configured with a default route present | `show run interface` |
 | Everything from a branch dropped after a routing change | Route to the branch's subnet moved to a different interface (strict) | `show ip cef <source>` |
 | uRPF command accepted but no drops ever | CEF disabled | `show ip cef summary` |
+
+**📝 Exam-style questions — 31.4**
+
+**Q1.** A site is dual-homed to two ISPs. After strict uRPF (`reachable-via rx`) is enabled on both internet interfaces, some legitimate traffic arriving on ISP-B's link is dropped. Why?
+
+- **A.** The return route to those sources points out ISP-A's link, so strict mode rejects packets arriving on ISP-B
+- **B.** Strict mode drops any packet that matches the default route
+- **C.** Strict uRPF requires CEF to be disabled
+- **D.** uRPF only works on single-homed links when NAT is configured
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Strict mode passes a packet only if the best route back to its source points out the interface it arrived on. With asymmetric routing, the best path to some sources is via ISP-A, so their packets arriving on ISP-B fail. Use loose mode on multihomed edges. **Why not the others:** B describes loose mode without `allow-default`. C is backwards: uRPF needs CEF. D is invented.
+</details>
+
+**Q2.** Loose uRPF is configured with `allow-default` on an internet edge router that has a default route. Spoofed packets from unused address space are not dropped. Why?
+
+- **A.** Loose mode only checks the destination address
+- **B.** Loose mode drops only packets matching Null0
+- **C.** Loose mode needs `allow-self-ping` to drop spoofed packets
+- **D.** With `allow-default`, the default route satisfies the check for every source, so loose mode passes nearly everything
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Loose mode asks only "is there any route to the source?". Normally a default route doesn't count; `allow-default` makes it count, so every source passes. **Why not the others:** A is wrong because uRPF always checks the *source*. B is wrong because a route via Null0 *fails* the check, but that's not why spoofs pass here. C only lets the router ping itself.
+</details>
+
+**Q3.** Refer to the exhibit. A packet arrives on Gi0/1 with source 8.8.8.8. R1's only route to 8.8.8.8 is its default route via Gi0/0. Strict uRPF is on Gi0/1 without `allow-default`. What happens?
+
+```
+R1# show ip interface Gi0/1 | include verify|drops
+  IP verify source reachable-via RX
+   173 verification drops
+```
+
+- **A.** The packet is forwarded, because a route to the source exists
+- **B.** The packet is forwarded, because strict mode checks only the destination
+- **C.** The packet is dropped, and the verification drops counter increases
+- **D.** The packet is sent to the CPU for logging and then forwarded
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Strict mode needs the best route back to the source to point out the arrival interface. The only route is the default via Gi0/0, which is the wrong interface (and doesn't count anyway without `allow-default`), so the packet is dropped and counted. **Why not the others:** A ignores both the interface check and the default-route rule. B is wrong because uRPF checks the source. D would need an ACL with `log` at the end of the uRPF command.
+</details>
 
 ## 31.5 Control Plane Policing (CoPP) — Troubleshooting
 
@@ -15779,6 +27153,74 @@ R1# show policy-map control-plane
 
 > On **Catalyst 9000** switches CoPP isn't user-built in the same way: they ship with a fixed system policy (`system-cpp-policy`) whose class rates you tune. `show policy-map control-plane` still shows the counters.
 
+**📝 Exam-style questions — 31.5**
+
+**Q1.** Refer to the exhibit. eBGP sessions on R1 come up only sometimes after a reset, apparently at random. The CoPP class for routing uses this ACL with `exceed-action drop` and a low rate. What is wrong?
+
+```
+ip access-list extended COPP-ROUTING
+ permit ospf any any
+ permit eigrp any any
+ permit tcp any any eq bgp
+```
+
+- **A.** BGP should be matched as UDP 179
+- **B.** The ACL matches only packets destined to port 179; packets from a session R1 opened arrive with source port 179 and fall into class-default
+- **C.** BGP must be matched with `permit bgp any any`
+- **D.** OSPF and EIGRP must be listed after BGP
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A BGP session is one TCP connection. If the neighbour opened it, its packets arrive *to* 179; if R1 opened it, they arrive *from* 179. Matching only one direction leaves half the sessions in class-default, so it depends on who connected first. Add `permit tcp any eq bgp any`. **Why not the others:** A is wrong because BGP is TCP. C is wrong because BGP is not its own IP protocol. D is wrong because order within one ACL doesn't fix a missing line.
+</details>
+
+**Q2.** In a CoPP classification ACL, what does a `deny` entry do to a matching packet?
+
+- **A.** It drops the packet before it reaches the CPU
+- **B.** It sends the packet to class-default immediately
+- **C.** It means the packet does not belong to this class; IOS goes on to check the next class
+- **D.** It logs the packet and then forwards it
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Classification ACLs only decide membership. A `deny` (or no match) means "not this class", and the packet moves on; only a policer's `exceed-action drop` actually drops. **Why not the others:** A is the common misconception the question targets. B is only true if no later class matches. D describes the `log` keyword, which isn't involved here.
+</details>
+
+**Q3.** Refer to the exhibit. SSH to R1 from the helpdesk subnet 10.50.0.0/24 freezes at busy times, while SSH from 10.99.0.0/24 is always fine. CM-MGMT matches SSH only from 10.99.0.0/24. What is happening?
+
+```
+R1# show policy-map control-plane
+    Class-map: CM-MGMT (match-all)
+        conformed 2380 packets, 301922 bytes; actions: transmit
+        exceeded 0 packets, 0 bytes; actions: drop
+    Class-map: class-default (match-any)
+      5 minute offered rate 9000 bps, drop rate 2000 bps
+        exceeded 1408 packets, 129536 bytes; actions: drop
+```
+
+- **A.** The helpdesk's SSH falls into class-default, whose policer is shared with all unclassified traffic and drops packets when bursts exceed it
+- **B.** The CM-MGMT policer is dropping the helpdesk's SSH
+- **C.** The helpdesk's SSH matches the routing class
+- **D.** CoPP is not attached, so the CPU is overloaded
+
+<details><summary>Answer</summary>
+
+**Answer: A.** CM-MGMT matches the COPP-MGMT ACL, which doesn't include the helpdesk subnet, so its SSH lands in class-default, where the `exceeded` counter shows drops. The 5-minute offered rate is an average that hides bursts: at busy times, unclassified traffic bursts above the class-default policer's rate and SSH packets are dropped with everything else. Add the helpdesk subnet to COPP-MGMT if it should manage the router. **Why not the others:** B is wrong because CM-MGMT shows no drops. C is wrong because SSH isn't OSPF, EIGRP or BGP. D is wrong because counters prove the policy is attached.
+</details>
+
+**Q4.** Which two lines correctly classify SNMP polls and OSPF packets destined to the router in a CoPP ACL? (Choose two.)
+
+- **A.** `permit tcp 10.99.0.0 0.0.0.255 any eq snmp`
+- **B.** `permit udp 10.99.0.0 0.0.0.255 any eq snmp`
+- **C.** `permit udp any any eq 89`
+- **D.** `permit ospf any any`
+- **E.** `permit udp 10.99.0.0 0.0.0.255 any eq snmptrap`
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** SNMP polls arrive on UDP 161, and OSPF is IP protocol 89, matched with the `ospf` keyword. **Why not the others:** A uses TCP, which SNMP doesn't use. C treats OSPF's protocol number as a UDP port. E is UDP 162, used by traps the router *sends*, not polls it receives.
+</details>
+
 ## 31.6 IPv6 First-Hop Security
 
 **The problem it solves:** IPv6 hosts trust what they hear on the local link: whoever sends a **Router Advertisement** (RA) becomes a default gateway; whoever answers a **Neighbor Solicitation** (NS) with a **Neighbor Advertisement** (NA) owns that address. Nothing in **NDP** (Neighbor Discovery Protocol) itself checks that the sender is telling the truth. **First-hop security** is a set of features on the access switch — the "first hop" a host's packets cross — that checks for it. ENARSI only asks you to **describe** the protections, so focus on matching each feature to the attack it stops.
@@ -15854,6 +27296,56 @@ Newer SISF-based IOS XE releases fold ND inspection into the device-tracking pol
 **Why does almost every feature depend on the binding table?** Because "is this message lying?" can only be answered if the switch already knows the truth. RA Guard and DHCPv6 Guard are simple port-role rules; but deciding that an NA for 2001:db8::5 is forged, or that a data packet's source is spoofed, requires a record of which port actually owns 2001:db8::5. *First build the truth (binding table), then police against it (ND inspection, source guard).*
 
 > **Exam trap:** RA Guard has a known weakness — an attacker can hide the RA behind **IPv6 extension headers** or fragments so a simple inspection never sees it. Modern implementations drop such packets; know that the evasion exists.
+
+**📝 Exam-style questions — 31.6**
+
+**Q1.** A host on an access port starts sending Router Advertisements, and other hosts adopt it as their default gateway. Which feature stops this?
+
+- **A.** DHCPv6 Guard
+- **B.** IPv6 Source Guard
+- **C.** RA Guard
+- **D.** uRPF
+
+<details><summary>Answer</summary>
+
+**Answer: C.** RA Guard drops RAs (and ICMPv6 redirects) from ports with the host role; only ports facing real routers may send them. **Why not the others:** A blocks rogue DHCPv6 server messages, not RAs. B drops data with spoofed sources. D runs on router interfaces and checks source addresses, not RAs.
+</details>
+
+**Q2.** Why do ND inspection and IPv6 Source Guard depend on the binding table, while RA Guard does not?
+
+- **A.** They only work on router ports, which have no port roles
+- **B.** Deciding that an NA or a source address is forged needs a record of which port and MAC really own each address; RA Guard only needs to know the port's role
+- **C.** The binding table stores the RA Guard policy
+- **D.** They need DHCPv6 to be disabled
+
+<details><summary>Answer</summary>
+
+**Answer: B.** RA Guard and DHCPv6 Guard are simple role rules: hosts may not send RAs or DHCPv6 server messages. ND inspection and Source Guard must decide whether a claim ("I am 2001:db8:10::5") is true, which needs the binding table built by snooping ND and DHCPv6. **Why not the others:** A is wrong because they run on host-facing switch ports. C is wrong because policies are configured separately. D is invented.
+</details>
+
+**Q3.** An attacker on Gi1/0/9 sends a Neighbor Advertisement claiming that 2001:db8:10::5 is at its own MAC address. The binding table shows 2001:db8:10::5 bound to a different MAC on Gi1/0/5. Which feature drops the NA?
+
+- **A.** RA Guard
+- **B.** DHCPv6 Guard
+- **C.** IPv6 Source Guard
+- **D.** ND inspection
+
+<details><summary>Answer</summary>
+
+**Answer: D.** ND inspection checks NS and NA messages against the binding table and drops ones that claim an address owned by someone else, which is IPv6's version of stopping ARP poisoning. **Why not the others:** A and B look only at RAs and DHCPv6 server messages. C checks the source address of *data* packets, not the address claimed inside an NA.
+</details>
+
+**Q4.** Which statement about RA Guard's known weakness is correct?
+
+- **A.** RA Guard cannot run on Catalyst switches
+- **B.** RA Guard only works when DHCPv6 is disabled
+- **C.** RA Guard blocks all RAs, including those from the real router
+- **D.** An attacker can hide the RA behind IPv6 extension headers or fragments so simple inspection misses it
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Simple RA Guard implementations inspect only the first header, so an RA buried behind extension headers or split into fragments can slip through. Modern implementations drop such packets. **Why not the others:** A is wrong; access switches are where it runs. B is invented. C is wrong because router-role ports may still send RAs.
+</details>
 
 ---
 
@@ -15980,6 +27472,64 @@ ip scp server enable
 
 **Why does `ip tftp source-interface` fix "timed out" so often?** A router with several interfaces sources the transfer from whichever interface faces the server. If the server only allows (or has a firewall rule for) the management loopback, or there's no return route to the egress interface's subnet, the request leaves but the reply never arrives. Pinning the source makes the device's identity predictable — the same reason we pin TACACS+, SNMP and syslog sources.
 
+**📝 Exam-style questions — 32.1**
+
+**Q1.** Refer to the exhibit. SSH to a new branch router is refused, but console access works. What is the root cause?
+
+```
+Router# show ip ssh
+SSH Disabled - version 1.99
+%Please create RSA keys to enable SSH (and of atleast 768 bits for SSH v2).
+Router# show run | include hostname|domain
+hostname Router
+```
+
+- **A.** The VTY lines are missing `transport input ssh`
+- **B.** The VTY `access-class` denies the engineer's PC
+- **C.** SSH version 1.99 is not supported by modern clients
+- **D.** The router still has the default hostname `Router` and no domain name, so no RSA key was generated and SSH never started
+
+<details><summary>Answer</summary>
+
+**Answer: D.** SSH needs an RSA key, and IOS names the key after the router's hostname and domain. With `hostname Router` and no `ip domain name`, the key was never generated, so SSH is disabled. Fix: set a hostname and domain, `crypto key generate rsa modulus 2048`, `ip ssh version 2`. **Why not the others:** A would refuse SSH even with keys, but the output says SSH itself is disabled. C misreads 1.99, which just means v1 and v2 compatible; SSH is disabled anyway. B would only refuse some hosts and wouldn't disable SSH.
+</details>
+
+**Q2.** A Telnet session to R1 returns `% Connection refused by remote host`, while SSH from the same PC works. What is the most likely cause?
+
+- **A.** `transport input ssh` on the VTY lines
+- **B.** The VTY `exec-timeout` is too short
+- **C.** `login` is configured with no password on the VTY lines
+- **D.** All VTY lines are in use
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `transport input` lists which protocols may connect to the lines. With only SSH allowed, Telnet is refused while SSH works. **Why not the others:** B disconnects idle sessions; it doesn't refuse new ones. C connects and then closes with "Password required, but none set". D would refuse SSH as well.
+</details>
+
+**Q3.** SSH logins to R1 work, but copying a file to R1 with SCP fails with "Privilege denied". R1 has `ip scp server enable`. What is missing?
+
+- **A.** `ip ssh version 2`
+- **B.** `crypto key generate rsa modulus 2048`
+- **C.** `ip tftp source-interface Loopback0`
+- **D.** `aaa authorization exec`, so the session starts at privilege 15
+
+<details><summary>Answer</summary>
+
+**Answer: D.** An SCP transfer can't type `enable`, so the session must *start* at privilege 15. That only happens when exec authorization assigns the level from the user's account. **Why not the others:** A and B are already working, because SSH logins succeed. C affects TFTP, not SCP.
+</details>
+
+**Q4.** A router backs up its config to a TFTP server with `copy running-config tftp://10.1.1.50/R1-confg`, and the transfer times out. The server only accepts requests from the router's management loopback. Which command fixes this?
+
+- **A.** `ip tftp source-interface Loopback0`
+- **B.** `ip ftp username backup`
+- **C.** `ip http secure-server`
+- **D.** `ip scp server enable`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Without it, the router sources TFTP from whichever interface faces the server, an address the server doesn't trust. Pinning the source to Loopback0 makes the router's identity predictable. **Why not the others:** B sets the FTP username, which TFTP doesn't use. C enables HTTPS. D lets other devices push files to the router with SCP.
+</details>
+
 ## 32.2 SNMP v2c and v3
 
 Chapter 15 covered SNMP's model (manager, agent, MIB, OIDs; polls on **UDP 161**, traps/informs to **UDP 162**). A quick reminder of the words: **SNMP** is the Simple Network Management Protocol; the **NMS** (network management system) is the manager software; the **agent** runs on the router; the **MIB** (Management Information Base) is the catalogue of everything the agent can report; and each item has an **OID** (object identifier), a dotted number like 1.3.6.1.2.1.2.2.1.10.
@@ -16071,6 +27621,64 @@ snmp-server enable traps
 ```
 
 Configure the remote engine ID **before** the remote user (the keys are computed from it when the user is created). `show snmp engineID` lists both the local and the remote engine IDs; `show snmp user` shows the remote user against that engine. Traps don't need any of this — for a trap the router itself is authoritative, which is why v3 traps work with only the local user.
+
+**📝 Exam-style questions — 32.2**
+
+**Q1.** Refer to the exhibit. The NMS reports R1 as unreachable, but R1 answers pings from the NMS. What is the cause?
+
+```
+R1# show snmp
+412 SNMP packets input
+    0 Bad SNMP version errors
+    412 Unknown community name
+    0 Illegal operation for community name supplied
+```
+
+- **A.** UDP 161 is blocked between the NMS and R1
+- **B.** The NMS is using a community string R1 doesn't know, so R1 silently ignores the requests
+- **C.** R1's ACL 20 does not permit the NMS
+- **D.** SNMP is disabled on R1
+
+<details><summary>Answer</summary>
+
+**Answer: B.** All 412 packets that arrived used an unknown community. The requests *are* reaching R1, so routing and UDP 161 are fine. R1 drops them silently without replying, which the NMS sees as a timeout. **Why not the others:** A would leave `SNMP packets input` at 0. C would drop packets with a *correct* community; you'd confirm it with `show access-lists 20`. D would give no SNMP counters at all.
+</details>
+
+**Q2.** An engineer reviews `show running-config` on R1 and cannot find any `snmp-server user` lines, although SNMPv3 polling works. Why?
+
+- **A.** SNMPv3 users are stored only on the NMS
+- **B.** The running config hides all SNMP commands from users below privilege 15
+- **C.** SNMPv3 users are stored as localized keys, not as config lines; use `show snmp user`
+- **D.** The users were configured with `noauth`, which isn't saved
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The passwords are hashed with the router's SNMP engine ID into localized keys, and only those are stored, so the user lines don't appear in the running config. **Why not the others:** A is wrong because the router must know the user to check requests. B is not how SNMP config is shown. D is wrong because every security level behaves the same way.
+</details>
+
+**Q3.** SNMPv3 polling from the NMS stopped working right after an engineer ran `snmp-server engineID local 0000000901000000AABBCC`. What must be done?
+
+- **A.** Nothing; the change takes effect after the next poll
+- **B.** Change the community string on the NMS
+- **C.** Re-create the SNMPv3 users, because their localized keys depend on the old engine ID
+- **D.** Reload the router to restore the old engine ID
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Each user's keys are computed from the engine ID, so changing it invalidates every user. Re-create them (and update the NMS if it learned the engine ID). **Why not the others:** A ignores the key dependency. B applies to v2c, not v3. D doesn't restore anything: the configured engine ID is still there after a reload.
+</details>
+
+**Q4.** A site on a lossy WAN link sometimes fails to report interface-down events to the NMS. Which change makes delivery reliable?
+
+- **A.** Use SNMP informs instead of traps
+- **B.** Use SNMPv2c instead of SNMPv3
+- **C.** Poll the router more often with GetRequests
+- **D.** Send traps to UDP 161 instead of 162
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A trap is fire-and-forget; if it's lost, nobody knows. An inform is acknowledged by the NMS and retransmitted if no acknowledgement arrives. (SNMPv3 informs also need the NMS's engine ID and a remote user on the router.) **Why not the others:** B changes security, not reliability. C may catch the state later but isn't event delivery. D sends notifications to the wrong port.
+</details>
 
 ## 32.3 Logging
 
@@ -16164,6 +27772,69 @@ Only the two hosts' ICMP packets are reported, into the buffer, with millisecond
 | Debug output missing | Buffer level < 7, or no `terminal monitor` | `show logging` (levels per destination) |
 | Router sluggish after debugging | Console logging of a high-volume debug | `no logging console`; `undebug all` |
 
+**📝 Exam-style questions — 32.3**
+
+**Q1.** Refer to the exhibit. An engineer runs a debug while connected through SSH and sees no output, although the event is definitely happening. The debug is enabled. What is missing?
+
+```
+R1# show logging
+Syslog logging: enabled
+    Console logging: disabled
+    Monitor logging: level debugging, 0 messages logged
+    Buffer logging:  level informational, 1830 messages logged
+```
+
+- **A.** `logging console debugging`
+- **B.** `terminal monitor` in the SSH session
+- **C.** `service timestamps debug datetime msec`
+- **D.** `logging host 10.1.1.70`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `logging monitor` is already at level 7, but monitor logging is shown only in sessions that ran `terminal monitor`. **Why not the others:** A sends output to the console port, not to an SSH session. C only formats timestamps. D sends logs to a syslog server, which isn't where the engineer is looking.
+</details>
+
+**Q2.** With `logging buffered 64000 informational`, an engineer runs `debug ip packet 120` and then `show logging`, but no debug output is in the buffer. Why?
+
+- **A.** ACL 120 must be applied to an interface first
+- **B.** `debug ip packet` sends output only to the console
+- **C.** The buffer is too small for debug output
+- **D.** Debug output is severity 7 (debugging), which is less severe than the buffer's informational (6) level, so it is discarded
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Setting a level means "this level and more severe". Debug messages are level 7, so a buffer at level 6 drops them. Use `logging buffered 64000 debugging`. **Why not the others:** A is wrong because the ACL only filters which packets the debug reports; it isn't applied to an interface. C would still keep the newest messages. B is wrong because debug output goes to every destination whose level allows it.
+</details>
+
+**Q3.** Refer to the exhibit. What does the asterisk before the timestamp mean?
+
+```
+*Mar  1 00:41:12.003: %LINEPROTO-5-UPDOWN: Line protocol on Interface
+GigabitEthernet0/1, changed state to down
+```
+
+- **A.** The message was received from another device
+- **B.** The message is a debug message
+- **C.** The router's clock is not authoritative, so the time shouldn't be trusted when correlating with other devices
+- **D.** The message was logged during boot
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A leading `*` means the clock was never set or synchronised (for example, no NTP after a reboot). A leading `.` means it was authoritative earlier but is not currently synchronised. **Why not the others:** A, B and D describe other things the marker doesn't encode; the severity (here 5) is in the message itself.
+</details>
+
+**Q4.** An engineer runs `debug condition interface Gi0/1`, debugs, and then `undebug all`. The next day another engineer enables a debug and sees far less output than expected. Why?
+
+- **A.** `undebug all` disables logging to the buffer
+- **B.** Debugs are automatically limited after the first use
+- **C.** Conditions survive `undebug all`, so the old interface condition is still filtering output
+- **D.** The router needs a reload after any conditional debug
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Conditions are separate from the debugs themselves. `undebug all` turns off debugs but leaves the condition in place; `show debug condition` reveals it and `no debug condition all` clears it. **Why not the others:** A, B and D describe behaviour that doesn't exist.
+</details>
+
 ## 32.4 DHCP for IPv4
 
 **The problem it solves:** DHCP (Dynamic Host Configuration Protocol) gives every client its IP address, mask, gateway and DNS server automatically. Its weak point is that a new client has no address yet, so it can only **broadcast** — and routers don't forward broadcasts. A **relay agent** (configured with `ip helper-address`) carries those broadcasts to a central server on another subnet.
@@ -16249,6 +27920,63 @@ A DHCP-learned default route is installed with **AD 254**, so any static or dyna
 | Phones/APs don't find TFTP/WLC | Option 150/43 missing or malformed | `show run | section dhcp pool` |
 | Nothing works at all | **`no service dhcp`** — disables the server *and* relay | `show run | include service dhcp` |
 
+**📝 Exam-style questions — 32.4**
+
+**Q1.** Clients in VLAN 20 get 169.254.x.x addresses. The router has `ip helper-address 10.1.1.10` configured on its uplink toward the DHCP server, not on interface Vlan20. What is wrong?
+
+- **A.** The helper address belongs on the client-facing interface (Vlan20), where the broadcast arrives
+- **B.** The DHCP server must be on the same subnet as the clients
+- **C.** `ip helper-address` only forwards DNS by default
+- **D.** The router needs `service dhcp` disabled to relay
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The relay must hear the client's broadcast, which arrives on the client's SVI. Configured on the uplink, nothing is relayed. **Why not the others:** B is the problem a relay exists to solve. C is wrong because DHCP is among the forwarded protocols. D is backwards: `no service dhcp` disables both the server and the relay.
+</details>
+
+**Q2.** A relay forwards DHCP Discovers from VLAN 20 (SVI 10.1.20.1) to a central server, but the server never sends an Offer. The server has pools only for 10.1.10.0/24 and 10.1.30.0/24. Why?
+
+- **A.** The relay must send the Discover as a broadcast
+- **B.** The server chooses the pool from giaddr (10.1.20.1), and no pool contains that address
+- **C.** The server needs `ip helper-address` too
+- **D.** Option 150 is missing from the pools
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The relay writes its client-side interface address into giaddr, and the server picks the pool whose network contains giaddr. With no 10.1.20.0/24 pool, there's nothing to offer. **Why not the others:** A is wrong because the relay unicasts to the server. C is wrong because the server receives unicasts and needs no relay. D only gives phones their TFTP server and wouldn't stop the Offer.
+</details>
+
+**Q3.** Refer to the exhibit. An access switch runs DHCP snooping and the router above it is the relay. Clients get no address. Which two fixes would work? (Choose two.)
+
+```
+R1# debug ip dhcp server packet
+DHCPD: inconsistent relay information.
+DHCPD: relay information option exists, but giaddr is zero.
+```
+
+- **A.** Configure `ip dhcp relay information trusted` on the router's client-facing SVI
+- **B.** Configure `no service dhcp` on the router
+- **C.** Configure `no ip dhcp snooping information option` on the access switch
+- **D.** Move `ip helper-address` to the router's uplink
+- **E.** Set the DHCP lease to 1 day
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** The switch inserts option 82 but, as a Layer 2 switch, leaves giaddr at 0. The router treats that as inconsistent and drops it on an untrusted interface. Either trust option 82 on the router's interface or stop the switch inserting it. **Why not the others:** B disables the relay entirely. D breaks relaying. E has nothing to do with the dropped Discovers.
+</details>
+
+**Q4.** A router uses `ip address dhcp` on its internet link and also has a static default route via a different ISP. Which default route does it use, and why?
+
+- **A.** The DHCP-learned default, because DHCP routes are always preferred
+- **B.** Both equally, because they're both default routes
+- **C.** The DHCP-learned default, because it was learned last
+- **D.** The static default, because a DHCP-learned default route is installed with AD 254
+
+<details><summary>Answer</summary>
+
+**Answer: D.** IOS installs the DHCP-learned default with administrative distance 254, so any static (AD 1) or dynamic default wins. **Why not the others:** A and C ignore AD. B would need equal AD, and 1 is not 254.
+</details>
+
 ## 32.5 DHCP for IPv6
 
 **The problem it solves:** IPv6 hosts can build their own addresses (**SLAAC**, Stateless Address Autoconfiguration), so DHCP is optional in IPv6 — but organisations often still want to control and record addresses, or hand out DNS servers. IPv6 splits address assignment between **Router Advertisements** and **DHCPv6**, controlled by flags in the RA: the **M** (Managed) flag and the **O** (Other configuration) flag.
@@ -16301,6 +28029,44 @@ DHCPv6 runs on **UDP 546 (client) / 547 (server/relay)**; clients solicit to the
 | DHCPv6 address but no off-link connectivity | RAs suppressed (`ipv6 nd ra suppress`) or filtered — no default route | `show ipv6 routers` on a client router; check RA Guard (31.6) |
 | Relayed clients get nothing | Missing `ipv6 dhcp relay destination`, or server has no route back to the relay's link | `debug ipv6 dhcp`, `show ipv6 dhcp interface` |
 | Stateless clients have no DNS | O flag not set or pool has no `dns-server` | `show ipv6 dhcp pool` |
+
+**📝 Exam-style questions — 32.5**
+
+**Q1.** Hosts in VLAN 10 receive DHCPv6 addresses but cannot reach anything off the local link. Which is the most likely cause?
+
+- **A.** The DHCPv6 pool has no default-router option
+- **B.** Router Advertisements are suppressed or filtered, so hosts never learn a default gateway
+- **C.** The M flag is not set
+- **D.** DHCPv6 needs UDP 67 and 68 to be permitted
+
+<details><summary>Answer</summary>
+
+**Answer: B.** DHCPv6 never provides a default gateway; hosts learn it only from RAs. With RAs suppressed (`ipv6 nd ra suppress`) or filtered (for example by RA Guard on the wrong port role), hosts have an address but no way off the link. **Why not the others:** A is wrong because DHCPv6 has no such option. C is wrong because hosts already got DHCPv6 addresses. D lists the DHCPv4 ports; DHCPv6 uses 546 and 547.
+</details>
+
+**Q2.** Hosts end up with two global IPv6 addresses each, one from SLAAC and one from DHCPv6. The interface has `ipv6 nd managed-config-flag`. What fixes this?
+
+- **A.** Remove `ipv6 nd managed-config-flag`
+- **B.** Add `ipv6 nd other-config-flag`
+- **C.** Add `no-autoconfig` to the `ipv6 nd prefix` line, so the prefix no longer has the autonomous flag
+- **D.** Configure `ipv6 address autoconfig` on the interface
+
+<details><summary>Answer</summary>
+
+**Answer: C.** M=1 tells hosts to use DHCPv6 for addresses, but if the advertised prefix still has the A (autonomous) flag, hosts also build a SLAAC address. `no-autoconfig` clears it. **Why not the others:** A would stop DHCPv6 addressing instead. B is about other information such as DNS. D configures the *router's* own address.
+</details>
+
+**Q3.** Which statement about a relayed DHCPv6 exchange is correct?
+
+- **A.** The client broadcasts a Discover to 255.255.255.255
+- **B.** The messages are Discover, Offer, Request and Ack
+- **C.** The server's reply goes straight to the client, bypassing the relay
+- **D.** The relay writes its own address on the client's link into the link-address field of a Relay-Forward message, much like giaddr in DHCPv4
+
+<details><summary>Answer</summary>
+
+**Answer: D.** The client sends a Solicit to FF02::1:2; the relay wraps it in a Relay-Forward with the link-address (the IPv6 equivalent of giaddr) and unicasts it to the server, which answers in a Relay-Reply through the relay. **Why not the others:** A describes DHCPv4; IPv6 has no broadcast. C is wrong because the reply comes back through the relay. B lists the DHCPv4 messages; DHCPv6 uses Solicit, Advertise, Request and Reply.
+</details>
 
 ## 32.6 IP SLA and Object Tracking
 
@@ -16422,6 +28188,66 @@ Voice Score Values:
 | Failover too slow | `frequency`/`timeout` too long, or track `delay down` too long | `show ip sla configuration`, `show track` |
 | One-way delay values nonsensical | Clocks not NTP-synced | `show ntp status` both ends |
 
+**📝 Exam-style questions — 32.6**
+
+**Q1.** Refer to the exhibit. ISP-A's upstream fails, but the primary default route stays in the routing table. Gi0/0 to ISP-A is still up. What is the cause?
+
+```
+ip sla 10
+ icmp-echo 203.0.113.1 source-interface GigabitEthernet0/0
+ frequency 5
+ip sla schedule 10 life forever start-time now
+track 1 ip sla 10 reachability
+ip route 0.0.0.0 0.0.0.0 203.0.113.1 track 1
+ip route 0.0.0.0 0.0.0.0 198.51.100.1 10
+```
+
+- **A.** The track needs `delay down 0`
+- **B.** The probe targets ISP-A's next hop, which still answers while the local link is up
+- **C.** The floating static route has a lower AD than the primary
+- **D.** `ip sla schedule` is missing
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 203.0.113.1 is the ISP's directly connected router, which keeps answering even when the ISP's upstream is down. Probe something beyond the ISP (for example 8.8.8.8, pinned to ISP-A) instead. **Why not the others:** A only changes timing; the probe never fails here. C is wrong because AD 10 is higher than the primary's default of 1, so it floats correctly. D is wrong because the schedule is in the config.
+</details>
+
+**Q2.** After ISP-A fails, R1's default route flaps between ISP-A and ISP-B every few seconds. The probe targets 8.8.8.8 and there is no host route for 8.8.8.8. Why?
+
+- **A.** After failover the probe follows the backup default through ISP-B, succeeds, and brings the primary route back, which then fails the probe again
+- **B.** The `delay up 30` timer is too long
+- **C.** ISP-B is filtering ICMP
+- **D.** The track uses `state` instead of `reachability`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Without a route pinning 8.8.8.8 to ISP-A, the probe tests whichever path is in use. Once the backup is installed, the probe succeeds through ISP-B, the track comes up and the cycle repeats. Fix: pin the probe to ISP-A (`ip route 8.8.8.8 255.255.255.255 Gi0/0 203.0.113.1`, plus a floating Null0 route). **Why not the others:** B slows recovery but wouldn't cause flapping. C would make the probe fail through ISP-B, which would stop the flap. D only changes whether over-threshold counts as up.
+</details>
+
+**Q3.** A udp-jitter operation toward a branch router returns "No connection", while an icmp-echo probe to the same address succeeds. What is missing?
+
+- **A.** `ip sla schedule` on the measuring router
+- **B.** `tos 184` in the operation
+- **C.** NTP on both routers
+- **D.** `ip sla responder` on the branch router
+
+<details><summary>Answer</summary>
+
+**Answer: D.** udp-jitter needs the far end to timestamp and reply to its packets, which only an IP SLA responder does. **Why not the others:** A would mean the operation never runs at all, rather than reporting "No connection". B only sets the DSCP marking. C matters only for one-way delay values, not for whether the probe connects.
+</details>
+
+**Q4.** Track 1 uses `ip sla 10 reachability`. The probe's latest return code is "Over threshold". What is the track's state?
+
+- **A.** Down, because over threshold counts as failure
+- **B.** Up, because reachability treats OK and Over threshold both as up
+- **C.** Unknown until the next probe
+- **D.** Down, unless `delay up` is configured
+
+<details><summary>Answer</summary>
+
+**Answer: B.** With `reachability`, the track is up when the return code is OK *or* Over threshold. The `state` keyword is stricter: only OK counts as up, so slow means down. **Why not the others:** A describes `state`. C and D invent rules that don't exist.
+</details>
+
 ## 32.7 NetFlow — v5, v9 and Flexible NetFlow
 
 NetFlow answers "**who** is talking to **whom**, using **what**, and how much?" — the question SNMP interface counters can't. A **flow** is a set of packets sharing the same **key fields**; the router keeps a counter per flow in its **cache** and exports expired flows to a **collector**. Chapter 15 configured Flexible NetFlow; here we compare versions and troubleshoot.
@@ -16509,6 +28335,44 @@ interface GigabitEthernet0/1
 | Long transfers appear late or as one giant spike | Active timeout too long (FNF default **1800 s**) | `show flow monitor FM-BASIC` — lower `cache timeout active` |
 | Collector shows no IPv6 | Exporting **v5** (IPv4-only) or record only matches IPv4 | `show flow exporter`, record definition |
 
+**📝 Exam-style questions — 32.7**
+
+**Q1.** A collector receives NetFlow v9 packets from R1 but cannot decode any of them. The collector was restarted an hour ago. What is the most likely cause?
+
+- **A.** The collector has not received a template since it restarted
+- **B.** v9 cannot carry IPv4 flows
+- **C.** The exporter has no source interface
+- **D.** The flow record has no `collect` fields
+
+<details><summary>Answer</summary>
+
+**Answer: A.** v9 data records can only be decoded with the template that describes them. If the collector restarted after the template was sent, it must wait for the next one. A lower `template data timeout` makes the exporter resend templates more often. **Why not the others:** B is wrong because v9 carries IPv4 and IPv6. C would make the router appear under an unexpected IP, but the packets would decode. D would leave out counters, not break decoding.
+</details>
+
+**Q2.** A host opens two browser tabs to the same server on TCP 443 (source ports 51514 and 51515) and pings the server once. With a flow record matching source and destination address, protocol, source and destination port and input interface, how many flows does the router create?
+
+- **A.** One, because the hosts are the same
+- **B.** Two, one for TCP and one for ICMP
+- **C.** Three, because the two tabs differ in source port and the ping differs in protocol
+- **D.** Four, because each tab creates a flow in each direction
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A flow is defined by its key fields; any difference creates a new flow. The two tabs differ in source port, and the ping differs in protocol. **Why not the others:** A and B ignore key fields that differ. D is wrong because replies arrive on another interface and are counted only if that interface is monitored in the right direction.
+</details>
+
+**Q3.** Long file transfers appear on the collector as one huge spike when they finish, instead of steady traffic. Flexible NetFlow uses default timers. What should you change?
+
+- **A.** Lower the inactive timeout below 15 seconds
+- **B.** Lower `cache timeout active` in the flow monitor
+- **C.** Switch the exporter to NetFlow v5
+- **D.** Apply the monitor in the output direction too
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The FNF active timeout defaults to 1800 s, so a long flow isn't exported until it ends or 30 minutes pass. A shorter active timeout (for example 60 s) reports long flows in regular slices. **Why not the others:** A affects idle flows, not active ones. C removes flexibility and IPv6 support without fixing timing. D adds the other direction but doesn't change when flows are exported.
+</details>
+
 ## 32.8 Catalyst Center (formerly DNA Center) Assurance
 
 Chapter 16 introduced Catalyst Center. **Assurance** is its troubleshooting half: it ingests telemetry from every device and client — streaming telemetry, SNMP, syslog, NetFlow, ISE and DHCP/DNS data, wireless data — and turns it into **health scores** and **issues**. ENARSI asks you to use it for four things named in the blueprint: **network health, device health, connectivity, and monitoring**.
@@ -16546,6 +28410,44 @@ A troubleshooting workflow that matches how the exam frames it:
 The value: without Assurance you'd have had 40 separate "can't connect" calls and a switch config change, and connected them yourself. Assurance tied them together in one issue.
 
 > **Exam trap:** health scores come from data Catalyst Center **receives**. A device that's unmanaged, unreachable, or not sending telemetry/syslog/SNMP to Catalyst Center can look "unknown" or stay stale — that's a monitoring gap, not a healthy device. When one device's data looks wrong, check its reachability and telemetry configuration from Catalyst Center (inventory: **Managed** vs **Unreachable** / sync errors) before trusting its score.
+
+**📝 Exam-style questions — 32.8**
+
+**Q1.** Users on one floor cannot connect. In Catalyst Center Assurance, Client 360 for an affected user shows association and authentication succeeded but the DHCP step failed. What is the most efficient next step?
+
+- **A.** Check Network Health for the whole site again
+- **B.** Reboot the access switch
+- **C.** Use Path Trace between the client and the internet
+- **D.** Open the Issues view for the DHCP issue's root cause and suggested actions, then check the relay on that floor's SVI
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Client 360 has already narrowed it to DHCP. The Issues view correlates the failure with affected devices and suggests checks (for example a missing `ip helper-address`), and Device 360 can show a recent config change. **Why not the others:** A goes back to a step already done. C tests forwarding and ACLs, not address assignment. B is guesswork that may hide the cause.
+</details>
+
+**Q2.** Which Assurance feature shows the network's health at a past moment, such as 9:40 when users reported a problem that has since cleared?
+
+- **A.** Path Trace
+- **B.** Device 360
+- **C.** Time travel
+- **D.** Network Health
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Time travel replays health data for an earlier time, which is the right tool for intermittent problems. **Why not the others:** A shows the current hop-by-hop path and ACLs. B and D show health, but the question needs a view of a past moment.
+</details>
+
+**Q3.** A device's Device 360 health score has not changed for two days, even though the device has had problems. What should you check first?
+
+- **A.** Whether the device is reachable and sending telemetry to Catalyst Center, using its inventory status (Managed vs Unreachable)
+- **B.** Whether its health score threshold is set too high
+- **C.** Whether the device is in the correct site in Network Health
+- **D.** Whether the device's CPU is above 90%
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Health scores come from data Catalyst Center receives. An unreachable or unsynced device keeps a stale or unknown score, which is a monitoring gap, not a healthy device. **Why not the others:** B and C wouldn't freeze the score. D assumes the data is arriving, which is exactly what's in doubt.
+</details>
 
 ---
 
