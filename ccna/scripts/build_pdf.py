@@ -122,7 +122,14 @@ emoji_pattern = re.compile(
     "\U0001F1E6-\U0001F1FF]+", # flags
     flags=re.UNICODE,
 )
-text = emoji_pattern.sub("", text)
+# Take the emoji's own spacing with it: "**📝 Title**" must not become
+# "** Title**" (markdown then prints the asterisks), and "Story Time 📖:"
+# must not become "Story Time :". Keep one space only between two words.
+text = re.sub(
+    r"( ?)(?:" + emoji_pattern.pattern + r")( ?)",
+    lambda m: " " if m.group(1) and m.group(2) else "",
+    text,
+)
 
 # Convert GitHub-style <details>/<summary> answer blocks into styled boxes.
 # Using md_in_html so markdown (tables, lists, bold) inside still renders.
