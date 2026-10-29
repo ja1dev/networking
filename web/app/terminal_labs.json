@@ -4338,6 +4338,1227 @@
   }
  },
  {
+  "id": "bgp-ebgp",
+  "title": "eBGP: peering between autonomous systems",
+  "topic": "BGP",
+  "minutes": 25,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Bring up eBGP sessions between three autonomous systems, announce networks with exact-match network statements and follow the AS_PATH.",
+  "intro": "BGP connects **autonomous systems** (ASes). Unlike an IGP it doesn't discover neighbours: you name each peer with `neighbor <ip> remote-as <asn>`, and the session is a TCP connection to port 179. A peer in a **different** AS is **eBGP**; by default eBGP expects the peer to be directly connected (TTL 1).\n\nThe `network` command doesn't enable BGP on interfaces the way OSPF's does. It **announces a prefix that already exists in the routing table with exactly that mask**. `network 172.16.1.0` on its own means the classful /16, which isn't in the table, so nothing is sent; you need `network 172.16.1.0 mask 255.255.255.0`.\n\nR2 (AS 65002) is the transit provider and is already configured. You run R1 (AS 65001) and R3 (AS 65003).\n\n| Link | Subnet |\n|---|---|\n| R1 Gi0/0 - R2 Gi0/0 | 10.0.12.0/30 (.1 R1, .2 R2) |\n| R2 Gi0/1 - R3 Gi0/0 | 10.0.23.0/30 (.1 R2, .2 R3) |\n| PC1 LAN (R1 Gi0/2) | 172.16.1.0/24 |\n| PC3 LAN (R3 Gi0/2) | 172.16.3.0/24 |\n\nUseful: `show ip bgp summary` (the last column is the state, or the number of prefixes once Established), `show ip bgp`, `show ip route bgp`.",
+  "height": 430,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 160,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 400,
+    "y": 150
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 640,
+    "y": 150
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 160,
+    "y": 340
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 640,
+    "y": 340
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/2",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 10.0.12.1 255.255.255.252",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 172.16.1.1 255.255.255.0",
+    " no shutdown",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.0.12.2 255.255.255.252",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.23.1 255.255.255.252",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 2.2.2.2 255.255.255.255",
+    "router bgp 65002",
+    " neighbor 10.0.12.1 remote-as 65001",
+    " neighbor 10.0.23.2 remote-as 65003",
+    " network 2.2.2.2 mask 255.255.255.255",
+    "end"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    " ip address 10.0.23.2 255.255.255.252",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 172.16.3.1 255.255.255.0",
+    " no shutdown",
+    "end"
+   ],
+   "PC1": [
+    "ip 172.16.1.10/24 172.16.1.1"
+   ],
+   "PC3": [
+    "ip 172.16.3.10/24 172.16.3.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Peer R1 with R2",
+    "text": "Start BGP on R1 in AS **65001** and peer with R2 (`10.0.12.2`, AS 65002).",
+    "hint": "`router bgp 65001` then `neighbor 10.0.12.2 remote-as 65002`. Watch for `%BGP-5-ADJCHANGE: neighbor 10.0.12.2 Up`.",
+    "checks": [
+     {
+      "type": "bgp-nbr",
+      "device": "R1",
+      "neighbor": "10.0.12.2"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^router bgp 65001$"
+     }
+    ]
+   },
+   {
+    "title": "Peer R3 with R2",
+    "text": "Start BGP on R3 in AS **65003** and peer with R2 (`10.0.23.1`).",
+    "hint": "R2 already points at `10.0.23.2` in AS 65003, so `neighbor 10.0.23.1 remote-as 65002` under `router bgp 65003` is all R3 needs.",
+    "checks": [
+     {
+      "type": "bgp-nbr",
+      "device": "R3",
+      "neighbor": "10.0.23.1"
+     }
+    ]
+   },
+   {
+    "title": "Announce the LANs",
+    "text": "Announce 172.16.1.0/24 from R1 and 172.16.3.0/24 from R3. R1 should see R3's LAN with the AS_PATH `65002 65003`.",
+    "hint": "`network 172.16.1.0 mask 255.255.255.0`. Without `mask`, BGP looks for the classful 172.16.0.0/16, which isn't in the routing table, so nothing is announced.",
+    "checks": [
+     {
+      "type": "bgp-route",
+      "device": "R1",
+      "prefix": "172.16.3.0/24",
+      "path": "65002 65003"
+     },
+     {
+      "type": "bgp-route",
+      "device": "R3",
+      "prefix": "172.16.1.0/24",
+      "path": "65002 65001"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "172.16.3.0/24",
+      "code": "B"
+     }
+    ]
+   },
+   {
+    "title": "End to end",
+    "text": "PC1 should reach PC3 and R2's loopback `2.2.2.2`.",
+    "hint": "Both directions need a route: check `show ip route bgp` on R1 and R3. eBGP routes have administrative distance 20.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "172.16.3.10"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "2.2.2.2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "router bgp 65001",
+    "neighbor 10.0.12.2 remote-as 65002",
+    "network 172.16.1.0 mask 255.255.255.0",
+    "end"
+   ],
+   "R3": [
+    "router bgp 65003",
+    "neighbor 10.0.23.1 remote-as 65002",
+    "network 172.16.3.0 mask 255.255.255.0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "bgp-ibgp",
+  "title": "iBGP: loopbacks, update-source and next-hop-self",
+  "topic": "BGP",
+  "minutes": 30,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Peer iBGP between loopbacks over OSPF, fix the unreachable next hop with next-hop-self, and carry a LAN out to the ISP.",
+  "intro": "Inside one AS, BGP routers peer with **iBGP** (same AS number on both ends). iBGP peers usually use **loopbacks**: a loopback stays up as long as *any* path to it does. The IGP (OSPF here) carries the loopbacks; BGP rides on top.\n\nTwo things catch everyone out:\n\n1. **update-source**: by default a router sources the TCP session from the interface it routes out of. Peering *to* a loopback but *from* a physical address means the other side sees a stranger. Set `neighbor X update-source Loopback0`.\n2. **The next hop**: an eBGP route keeps the ISP's address as its next hop when it's passed on over iBGP. If the IGP doesn't know that ISP subnet, the route is in the table but marked inaccessible and never used. `neighbor X next-hop-self` on the border router fixes it.\n\nOSPF already runs between R1 and R2 (both loopbacks included). The ISP (AS 65100) is configured and announces 8.8.8.8/32. Your AS is **65000**.\n\n| Device | Address |\n|---|---|\n| ISP Gi0/0 | 203.0.113.1/30 |\n| R1 Gi0/0 / Gi0/1 / Lo0 | 203.0.113.2/30 / 10.0.12.1/24 / 1.1.1.1/32 |\n| R2 Gi0/0 / Gi0/1 / Lo0 | 10.0.12.2/24 / 192.168.2.1/24 / 2.2.2.2/32 |\n| PC2 | 192.168.2.10/24 |",
+  "height": 430,
+  "devices": [
+   {
+    "name": "ISP",
+    "type": "router",
+    "x": 120,
+    "y": 150
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 360,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 600,
+    "y": 150
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 600,
+    "y": 340
+   }
+  ],
+  "links": [
+   [
+    "ISP",
+    "GigabitEthernet0/0",
+    "R1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "ISP": [
+    "hostname ISP",
+    "interface g0/0",
+    " ip address 203.0.113.1 255.255.255.252",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 8.8.8.8 255.255.255.255",
+    "router bgp 65100",
+    " neighbor 203.0.113.2 remote-as 65000",
+    " network 8.8.8.8 mask 255.255.255.255",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 203.0.113.2 255.255.255.252",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.12.1 255.255.255.0",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 1.1.1.1 255.255.255.255",
+    "router ospf 1",
+    " network 10.0.12.0 0.0.0.255 area 0",
+    " network 1.1.1.1 0.0.0.0 area 0",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.0.12.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 192.168.2.1 255.255.255.0",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 2.2.2.2 255.255.255.255",
+    "router ospf 1",
+    " network 10.0.12.0 0.0.0.255 area 0",
+    " network 2.2.2.2 0.0.0.0 area 0",
+    "end"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "eBGP to the ISP",
+    "text": "On R1, start BGP AS 65000 and peer with the ISP at `203.0.113.1` (AS 65100). R1 should learn 8.8.8.8/32.",
+    "hint": "`router bgp 65000`, `neighbor 203.0.113.1 remote-as 65100`.",
+    "checks": [
+     {
+      "type": "bgp-nbr",
+      "device": "R1",
+      "neighbor": "203.0.113.1"
+     },
+     {
+      "type": "bgp-route",
+      "device": "R1",
+      "prefix": "8.8.8.8/32",
+      "path": "65100"
+     }
+    ]
+   },
+   {
+    "title": "iBGP between loopbacks",
+    "text": "Peer R1 and R2 over iBGP using their loopbacks (`1.1.1.1` and `2.2.2.2`), sourcing the session from Loopback0 on **both** routers.",
+    "hint": "`neighbor 2.2.2.2 remote-as 65000` and `neighbor 2.2.2.2 update-source Loopback0` on R1; the mirror image on R2. Same AS on both ends makes it iBGP.",
+    "checks": [
+     {
+      "type": "bgp-nbr",
+      "device": "R1",
+      "neighbor": "2.2.2.2"
+     },
+     {
+      "type": "bgp-nbr",
+      "device": "R2",
+      "neighbor": "1.1.1.1"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ neighbor 2\\.2\\.2\\.2 update-source Loopback0$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ neighbor 1\\.1\\.1\\.1 update-source Loopback0$"
+     }
+    ]
+   },
+   {
+    "title": "Fix the next hop",
+    "text": "R2 receives 8.8.8.8/32 but can't use it. Make it R2's best path, with R1 (`1.1.1.1`) as the next hop.",
+    "hint": "On R2, `show ip bgp` shows the path without `*>`: its next hop 203.0.113.1 isn't in OSPF. On R1: `neighbor 2.2.2.2 next-hop-self`.",
+    "checks": [
+     {
+      "type": "bgp-route",
+      "device": "R2",
+      "prefix": "8.8.8.8/32",
+      "via": "1.1.1.1"
+     },
+     {
+      "type": "route",
+      "device": "R2",
+      "prefix": "8.8.8.8/32",
+      "code": "B"
+     }
+    ]
+   },
+   {
+    "title": "Out to the Internet",
+    "text": "Announce the 192.168.2.0/24 LAN from R2 so the ISP learns it, and check PC2 can reach 8.8.8.8.",
+    "hint": "`network 192.168.2.0` on R2 (it's a classful /24, so no mask is needed). R1 passes iBGP-learned routes on to its eBGP peer.",
+    "checks": [
+     {
+      "type": "bgp-route",
+      "device": "ISP",
+      "prefix": "192.168.2.0/24",
+      "path": "65000"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "8.8.8.8"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "router bgp 65000",
+    "neighbor 203.0.113.1 remote-as 65100",
+    "neighbor 2.2.2.2 remote-as 65000",
+    "neighbor 2.2.2.2 update-source Loopback0",
+    "neighbor 2.2.2.2 next-hop-self",
+    "end"
+   ],
+   "R2": [
+    "router bgp 65000",
+    "neighbor 1.1.1.1 remote-as 65000",
+    "neighbor 1.1.1.1 update-source Loopback0",
+    "network 192.168.2.0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "bgp-path-selection",
+  "title": "BGP path selection: local preference and AS-path prepending",
+  "topic": "BGP",
+  "minutes": 30,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "A dual-homed customer steers outbound traffic with local preference and inbound traffic with AS-path prepending, then refreshes policy with a soft clear.",
+  "intro": "When BGP has several paths to a prefix it walks the **best-path algorithm**, stopping at the first difference: highest **weight** (Cisco, local to the router), highest **local preference** (shared across your AS), locally originated, shortest **AS_PATH**, lowest origin, lowest **MED**, eBGP over iBGP, lowest IGP metric to the next hop, then oldest path / lowest router ID.\n\nYou control **outbound** traffic (how you leave your AS) with weight or local preference on routes you *receive*. You influence **inbound** traffic (how others reach you) with what you *send*, for example by **prepending** your AS a few extra times so one path looks longer.\n\nR1 (AS 65001) is dual-homed to ISP-A (65002) and ISP-B (65003); both reach R4 (65004), which hosts 10.4.4.0/24. All sessions are up and announcing. Right now every tie falls through to the lowest router ID, so everything goes via ISP-A.\n\nPolicy changes don't apply to routes BGP has already processed: after editing a route-map, refresh with `clear ip bgp * soft` (or `soft in` / `soft out`).\n\n| Link | Subnet |\n|---|---|\n| R1 - ISP-A | 10.0.12.0/30 (.1 R1) |\n| R1 - ISP-B | 10.0.13.0/30 (.1 R1) |\n| ISP-A - R4 | 10.0.24.0/30 (.2 R4) |\n| ISP-B - R4 | 10.0.34.0/30 (.2 R4) |\n| PC1 LAN | 172.16.1.0/24 |\n| PC4 LAN | 10.4.4.0/24 |",
+  "height": 470,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 130,
+    "y": 210
+   },
+   {
+    "name": "ISP-A",
+    "type": "router",
+    "x": 400,
+    "y": 90
+   },
+   {
+    "name": "ISP-B",
+    "type": "router",
+    "x": 400,
+    "y": 330
+   },
+   {
+    "name": "R4",
+    "type": "router",
+    "x": 670,
+    "y": 210
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 130,
+    "y": 400
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 670,
+    "y": 400
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "ISP-A",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "ISP-B",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "ISP-A",
+    "GigabitEthernet0/1",
+    "R4",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "ISP-B",
+    "GigabitEthernet0/1",
+    "R4",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R4",
+    "GigabitEthernet0/2",
+    "PC4",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 10.0.12.1 255.255.255.252",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.13.1 255.255.255.252",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 172.16.1.1 255.255.255.0",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 1.1.1.1 255.255.255.255",
+    "router bgp 65001",
+    " neighbor 10.0.12.2 remote-as 65002",
+    " neighbor 10.0.13.2 remote-as 65003",
+    " network 172.16.1.0 mask 255.255.255.0",
+    "end"
+   ],
+   "ISP-A": [
+    "hostname ISP-A",
+    "interface g0/0",
+    " ip address 10.0.12.2 255.255.255.252",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.24.1 255.255.255.252",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 2.2.2.2 255.255.255.255",
+    "router bgp 65002",
+    " neighbor 10.0.12.1 remote-as 65001",
+    " neighbor 10.0.24.2 remote-as 65004",
+    "end"
+   ],
+   "ISP-B": [
+    "hostname ISP-B",
+    "interface g0/0",
+    " ip address 10.0.13.2 255.255.255.252",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.34.1 255.255.255.252",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 3.3.3.3 255.255.255.255",
+    "router bgp 65003",
+    " neighbor 10.0.13.1 remote-as 65001",
+    " neighbor 10.0.34.2 remote-as 65004",
+    "end"
+   ],
+   "R4": [
+    "hostname R4",
+    "interface g0/0",
+    " ip address 10.0.24.2 255.255.255.252",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.34.2 255.255.255.252",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 10.4.4.1 255.255.255.0",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 4.4.4.4 255.255.255.255",
+    "router bgp 65004",
+    " neighbor 10.0.24.1 remote-as 65002",
+    " neighbor 10.0.34.1 remote-as 65003",
+    " network 10.4.4.0 mask 255.255.255.0",
+    "end"
+   ],
+   "PC1": [
+    "ip 172.16.1.10/24 172.16.1.1"
+   ],
+   "PC4": [
+    "ip 10.4.4.10/24 10.4.4.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Leave through ISP-B",
+    "text": "On R1, give routes learned from ISP-B (`10.0.13.2`) a local preference of **200** with a route-map called `PREFER-B`, so R1's best path to 10.4.4.0/24 goes via ISP-B.",
+    "hint": "`route-map PREFER-B permit 10`, `set local-preference 200`, then `neighbor 10.0.13.2 route-map PREFER-B in` under `router bgp 65001`. Nothing changes until `do clear ip bgp * soft in`.",
+    "checks": [
+     {
+      "type": "bgp-route",
+      "device": "R1",
+      "prefix": "10.4.4.0/24",
+      "via": "10.0.13.2",
+      "lp": 200
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ neighbor 10\\.0\\.13\\.2 route-map PREFER-B in$"
+     }
+    ]
+   },
+   {
+    "title": "Come back through ISP-B too",
+    "text": "Make R4 prefer the path through ISP-B to reach 172.16.1.0/24 by prepending AS 65001 twice on everything R1 sends to ISP-A. Use a route-map called `PREPEND`.",
+    "hint": "`route-map PREPEND permit 10`, `set as-path prepend 65001 65001`, `neighbor 10.0.12.2 route-map PREPEND out`, then `do clear ip bgp * soft out`. On R4, `show ip bgp` should show the ISP-A path as `65002 65001 65001 65001`.",
+    "checks": [
+     {
+      "type": "bgp-route",
+      "device": "R4",
+      "prefix": "172.16.1.0/24",
+      "via": "10.0.34.1",
+      "path": "65003 65001"
+     },
+     {
+      "type": "bgp-route",
+      "device": "R4",
+      "prefix": "172.16.1.0/24",
+      "best": false,
+      "path": "65002 65001 65001 65001"
+     }
+    ]
+   },
+   {
+    "title": "End to end",
+    "text": "PC1 should reach PC4, with both directions now using ISP-B.",
+    "hint": "`traceroute 10.4.4.10 source g0/2` on R1 should go through 10.0.13.2.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.4.4.10"
+     },
+     {
+      "type": "bgp-route",
+      "device": "R4",
+      "prefix": "172.16.1.0/24",
+      "via": "10.0.34.1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "route-map PREFER-B permit 10",
+    "set local-preference 200",
+    "route-map PREPEND permit 10",
+    "set as-path prepend 65001 65001",
+    "router bgp 65001",
+    "neighbor 10.0.13.2 route-map PREFER-B in",
+    "neighbor 10.0.12.2 route-map PREPEND out",
+    "do clear ip bgp * soft",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "bgp-route-reflector",
+  "title": "iBGP route reflectors",
+  "topic": "BGP",
+  "minutes": 25,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "See iBGP split horizon hide routes in a hub-and-spoke AS, then fix it by making the hub a route reflector with its own cluster ID.",
+  "intro": "iBGP has a loop-prevention rule: a route learned from one iBGP peer is **never passed to another iBGP peer**. That's why iBGP normally needs a **full mesh** of sessions, which grows as n(n-1)/2.\n\nA **route reflector** (RR) relaxes the rule: routes from a *client* are reflected to everyone, and routes from a non-client are reflected to clients. To stop loops the RR adds an **ORIGINATOR_ID** (the router that first injected the route) and a **CLUSTER_LIST** (the RRs it passed through). The next hop isn't changed.\n\nAS 65000 is hub-and-spoke: R2 and R3 only peer with R1. OSPF carries the loopbacks; each spoke announces its LAN. Right now R2 and R3 never hear about each other's LAN.\n\n| Device | Loopback0 | LAN |\n|---|---|---|\n| R1 (hub) | 1.1.1.1 | - |\n| R2 | 2.2.2.2 | 192.168.2.0/24 |\n| R3 | 3.3.3.3 | 192.168.3.0/24 |",
+  "height": 460,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 400,
+    "y": 110
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 200,
+    "y": 280
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 600,
+    "y": 280
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 200,
+    "y": 420
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 600,
+    "y": 420
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 10.0.12.1 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.13.1 255.255.255.0",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 1.1.1.1 255.255.255.255",
+    "router ospf 1",
+    " network 10.0.0.0 0.255.255.255 area 0",
+    " network 1.1.1.1 0.0.0.0 area 0",
+    "router bgp 65000",
+    " neighbor 2.2.2.2 remote-as 65000",
+    " neighbor 2.2.2.2 update-source Loopback0",
+    " neighbor 3.3.3.3 remote-as 65000",
+    " neighbor 3.3.3.3 update-source Loopback0",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.0.12.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 192.168.2.1 255.255.255.0",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 2.2.2.2 255.255.255.255",
+    "router ospf 1",
+    " network 10.0.12.2 0.0.0.0 area 0",
+    " network 2.2.2.2 0.0.0.0 area 0",
+    "router bgp 65000",
+    " neighbor 1.1.1.1 remote-as 65000",
+    " neighbor 1.1.1.1 update-source Loopback0",
+    " network 192.168.2.0",
+    "end"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    " ip address 10.0.13.3 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 192.168.3.1 255.255.255.0",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 3.3.3.3 255.255.255.255",
+    "router ospf 1",
+    " network 10.0.13.3 0.0.0.0 area 0",
+    " network 3.3.3.3 0.0.0.0 area 0",
+    "router bgp 65000",
+    " neighbor 1.1.1.1 remote-as 65000",
+    " neighbor 1.1.1.1 update-source Loopback0",
+    " network 192.168.3.0",
+    "end"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ],
+   "PC3": [
+    "ip 192.168.3.10/24 192.168.3.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Reflect the routes",
+    "text": "Make R2 and R3 route-reflector clients of R1, so each spoke learns the other's LAN (next hop unchanged: the other spoke's loopback).",
+    "hint": "Under `router bgp 65000` on R1: `neighbor 2.2.2.2 route-reflector-client` and the same for 3.3.3.3. `show ip bgp 192.168.3.0` on R2 then shows `Originator:` and `Cluster list:`.",
+    "checks": [
+     {
+      "type": "bgp-route",
+      "device": "R2",
+      "prefix": "192.168.3.0/24",
+      "via": "3.3.3.3"
+     },
+     {
+      "type": "bgp-route",
+      "device": "R3",
+      "prefix": "192.168.2.0/24",
+      "via": "2.2.2.2"
+     }
+    ]
+   },
+   {
+    "title": "Name the cluster",
+    "text": "Give R1 the cluster ID `10.10.10.10` (it defaults to the router ID). R2's path to 192.168.3.0/24 should carry cluster list 10.10.10.10 and originator 3.3.3.3.",
+    "hint": "`bgp cluster-id 10.10.10.10` under `router bgp 65000`.",
+    "checks": [
+     {
+      "type": "bgp-route",
+      "device": "R2",
+      "prefix": "192.168.3.0/24",
+      "cluster": "10.10.10.10",
+      "originator": "3.3.3.3"
+     }
+    ]
+   },
+   {
+    "title": "End to end",
+    "text": "PC2 should reach PC3.",
+    "hint": "R1 has both LANs in its own BGP table, so traffic between the spokes passes through it.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "192.168.3.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "router bgp 65000",
+    "bgp cluster-id 10.10.10.10",
+    "neighbor 2.2.2.2 route-reflector-client",
+    "neighbor 3.3.3.3 route-reflector-client",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "bgp-ipv6",
+  "title": "MP-BGP: IPv6 unicast",
+  "topic": "BGP",
+  "minutes": 25,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Peer two IPv6-only routers over an IPv6 session, set router IDs by hand, activate the IPv6 address family and announce /64 LANs.",
+  "intro": "Multiprotocol BGP (MP-BGP) carries more than IPv4 by splitting configuration into **address families**. Session settings (`neighbor X remote-as`, `update-source`) live under `router bgp`; what you exchange lives under `address-family ipv6`, where each neighbor must be **activated** and networks are announced as prefixes (`network 2001:DB8:1::/64`).\n\nTwo gotchas on IPv6-only routers:\n\n1. BGP's router ID is a 32-bit dotted number, taken from an IPv4 address. With no IPv4 anywhere, BGP can't start until you set `bgp router-id`.\n2. By default every neighbor is activated for **IPv4** unicast. Many people add `no bgp default ipv4-unicast` so neighbors only exchange what you explicitly activate.\n\nIPv6 routing and addresses are already configured; the PCs take SLAAC addresses from their router's LAN.\n\n| Device | Addresses |\n|---|---|\n| R1 Gi0/0 / Gi0/1 | 2001:DB8:12::1/64 / 2001:DB8:1::1/64 |\n| R2 Gi0/0 / Gi0/1 | 2001:DB8:12::2/64 / 2001:DB8:2::1/64 |\n| R1 AS / router ID | 65001 / 1.1.1.1 |\n| R2 AS / router ID | 65002 / 2.2.2.2 |",
+  "height": 430,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 250,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 550,
+    "y": 150
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 250,
+    "y": 340
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 550,
+    "y": 340
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    " ipv6 address 2001:DB8:12::1/64",
+    " no shutdown",
+    "interface g0/1",
+    " ipv6 address 2001:DB8:1::1/64",
+    " no shutdown",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    " ipv6 address 2001:DB8:12::2/64",
+    " no shutdown",
+    "interface g0/1",
+    " ipv6 address 2001:DB8:2::1/64",
+    " no shutdown",
+    "end"
+   ],
+   "PC1": [
+    "ip auto"
+   ],
+   "PC2": [
+    "ip auto"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Router IDs",
+    "text": "Start BGP on R1 (AS 65001) and R2 (AS 65002) with router IDs `1.1.1.1` and `2.2.2.2`.",
+    "hint": "`router bgp 65001`, `bgp router-id 1.1.1.1`. Without it the router logs `%BGP-4-NORTRID` and BGP stays down.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ bgp router-id 1\\.1\\.1\\.1$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ bgp router-id 2\\.2\\.2\\.2$"
+     }
+    ]
+   },
+   {
+    "title": "Peer over IPv6",
+    "text": "Peer R1 and R2 using their Gi0/0 IPv6 addresses and activate the neighbor in the IPv6 unicast address family on both routers.",
+    "hint": "`neighbor 2001:DB8:12::2 remote-as 65002`, then `address-family ipv6 unicast` and `neighbor 2001:DB8:12::2 activate`. Check with `show bgp ipv6 unicast summary`.",
+    "checks": [
+     {
+      "type": "bgp-nbr",
+      "device": "R1",
+      "neighbor": "2001:DB8:12::2"
+     },
+     {
+      "type": "bgp-nbr",
+      "device": "R2",
+      "neighbor": "2001:DB8:12::1"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^  neighbor 2001:DB8:12::2 activate$"
+     }
+    ]
+   },
+   {
+    "title": "Announce the LANs",
+    "text": "Announce each router's LAN in the IPv6 address family. R2 should install 2001:DB8:1::/64 as a BGP route.",
+    "hint": "Inside `address-family ipv6`: `network 2001:DB8:1::/64` on R1 and `network 2001:DB8:2::/64` on R2.",
+    "checks": [
+     {
+      "type": "bgp-route",
+      "device": "R2",
+      "prefix": "2001:DB8:1::/64",
+      "path": "65001"
+     },
+     {
+      "type": "route6",
+      "device": "R2",
+      "prefix": "2001:DB8:1::/64",
+      "code": "B"
+     },
+     {
+      "type": "route6",
+      "device": "R1",
+      "prefix": "2001:DB8:2::/64",
+      "code": "B"
+     }
+    ]
+   },
+   {
+    "title": "End to end",
+    "text": "PC1 should reach PC2's SLAAC address `2001:DB8:2:0:250:79FF:FE66:6803`.",
+    "hint": "`show ipv6` on PC2 shows its address; `show ipv6 route bgp` on each router should list the other LAN.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "2001:DB8:2:0:250:79FF:FE66:6803"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "router bgp 65001",
+    "bgp router-id 1.1.1.1",
+    "neighbor 2001:DB8:12::2 remote-as 65002",
+    "address-family ipv6 unicast",
+    "neighbor 2001:DB8:12::2 activate",
+    "network 2001:DB8:1::/64",
+    "end"
+   ],
+   "R2": [
+    "router bgp 65002",
+    "bgp router-id 2.2.2.2",
+    "neighbor 2001:DB8:12::1 remote-as 65001",
+    "address-family ipv6 unicast",
+    "neighbor 2001:DB8:12::1 activate",
+    "network 2001:DB8:2::/64",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "bgp-troubleshooting",
+  "title": "BGP trouble ticket",
+  "topic": "BGP",
+  "minutes": 35,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "An ENARSI-style ticket: users behind R2 can't reach the Internet. Four separate BGP faults stand between them and 8.8.8.8.",
+  "intro": "**Ticket #4471:** *Since the weekend change window, users on 192.168.2.0/24 can't reach anything on the Internet. Test host: 8.8.8.8.*\n\nAS 65000 is R1 (border) and R2 (the users' router), with OSPF carrying the 10.0.12.0/24 link and both loopbacks. R1 should peer eBGP with the ISP (AS 65100) and iBGP with R2 between loopbacks. The ISP is outside your control and is configured correctly.\n\nWork methodically from the bottom up: is the session up (`show ip bgp summary`), is the route in the table (`show ip bgp`), is it valid and best (`*>`), is it in the routing table (`show ip route bgp`), and does the return path exist?\n\n| Device | Address |\n|---|---|\n| ISP Gi0/0 | 203.0.113.1/30, AS 65100 |\n| R1 Gi0/0 / Gi0/1 / Lo0 | 203.0.113.2/30 / 10.0.12.1/24 / 1.1.1.1 |\n| R2 Gi0/0 / Gi0/1 / Lo0 | 10.0.12.2/24 / 192.168.2.1/24 / 2.2.2.2 |",
+  "height": 430,
+  "devices": [
+   {
+    "name": "ISP",
+    "type": "router",
+    "x": 120,
+    "y": 150
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 360,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 600,
+    "y": 150
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 600,
+    "y": 340
+   }
+  ],
+  "links": [
+   [
+    "ISP",
+    "GigabitEthernet0/0",
+    "R1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "ISP": [
+    "hostname ISP",
+    "interface g0/0",
+    " ip address 203.0.113.1 255.255.255.252",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 8.8.8.8 255.255.255.255",
+    "router bgp 65100",
+    " neighbor 203.0.113.2 remote-as 65000",
+    " network 8.8.8.8 mask 255.255.255.255",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 203.0.113.2 255.255.255.252",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.12.1 255.255.255.0",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 1.1.1.1 255.255.255.255",
+    "router ospf 1",
+    " network 10.0.12.0 0.0.0.255 area 0",
+    " network 1.1.1.1 0.0.0.0 area 0",
+    "router bgp 65000",
+    " neighbor 203.0.113.1 remote-as 65001",
+    " neighbor 2.2.2.2 remote-as 65000",
+    " neighbor 2.2.2.2 update-source Loopback0",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.0.12.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 192.168.2.1 255.255.255.0",
+    " no shutdown",
+    "interface Loopback0",
+    " ip address 2.2.2.2 255.255.255.255",
+    "router ospf 1",
+    " network 10.0.12.0 0.0.0.255 area 0",
+    " network 2.2.2.2 0.0.0.0 area 0",
+    "router bgp 65000",
+    " neighbor 10.0.12.1 remote-as 65000",
+    " network 192.168.2.0 mask 255.255.0.0",
+    "end"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "The ISP session",
+    "text": "R1's session to the ISP must be Established and R1 must learn 8.8.8.8/32.",
+    "hint": "`show ip bgp summary` on R1 shows the session stuck in Active, and the log shows a NOTIFICATION about the AS. Compare R1's `remote-as` with the ISP's real AS.",
+    "checks": [
+     {
+      "type": "bgp-nbr",
+      "device": "R1",
+      "neighbor": "203.0.113.1"
+     },
+     {
+      "type": "bgp-route",
+      "device": "R1",
+      "prefix": "8.8.8.8/32"
+     }
+    ]
+   },
+   {
+    "title": "The iBGP session",
+    "text": "R1 and R2 must peer iBGP between their loopbacks (R2's neighbor is `1.1.1.1`).",
+    "hint": "R1 connects from 1.1.1.1 to 2.2.2.2, but R2 only knows a neighbor 10.0.12.1, and R2's own attempts go to 10.0.12.1, which R1 doesn't know. Replace R2's neighbor with 1.1.1.1 and source it from Loopback0.",
+    "checks": [
+     {
+      "type": "bgp-nbr",
+      "device": "R2",
+      "neighbor": "1.1.1.1"
+     }
+    ]
+   },
+   {
+    "title": "A usable next hop",
+    "text": "R2 must install 8.8.8.8/32 as a BGP route.",
+    "hint": "`show ip bgp` on R2: the path's next hop is the ISP's address, which OSPF doesn't carry. Fix it on R1.",
+    "checks": [
+     {
+      "type": "bgp-route",
+      "device": "R2",
+      "prefix": "8.8.8.8/32",
+      "via": "1.1.1.1"
+     },
+     {
+      "type": "route",
+      "device": "R2",
+      "prefix": "8.8.8.8/32",
+      "code": "B"
+     }
+    ]
+   },
+   {
+    "title": "The return path",
+    "text": "The ISP must learn 192.168.2.0/24 from AS 65000.",
+    "hint": "A `network` statement only announces a prefix that is in the routing table with exactly that mask. Look closely at R2's.",
+    "checks": [
+     {
+      "type": "bgp-route",
+      "device": "ISP",
+      "prefix": "192.168.2.0/24",
+      "path": "65000"
+     }
+    ]
+   },
+   {
+    "title": "Close the ticket",
+    "text": "PC2 can reach 8.8.8.8.",
+    "hint": "If everything above passes, this does too. If not, check both directions with `show ip route` on every hop.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "8.8.8.8"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "router bgp 65000",
+    "no neighbor 203.0.113.1",
+    "neighbor 203.0.113.1 remote-as 65100",
+    "neighbor 2.2.2.2 next-hop-self",
+    "end"
+   ],
+   "R2": [
+    "router bgp 65000",
+    "no neighbor 10.0.12.1",
+    "neighbor 1.1.1.1 remote-as 65000",
+    "neighbor 1.1.1.1 update-source Loopback0",
+    "no network 192.168.2.0 mask 255.255.0.0",
+    "network 192.168.2.0",
+    "end"
+   ]
+  }
+ },
+ {
   "id": "sandbox",
   "title": "Sandbox",
   "topic": "Free play",

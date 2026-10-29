@@ -1024,4 +1024,232 @@ test("help text fits the command it appears in", () => {
   assert.match(w.help("switchport access "), /vlan +Set VLAN when interface is in access mode/);
 });
 
+// ---------------------------------------------------------------- BGP
+// Three routers in a row: A (AS 65001) - B (65002) - C (65003), each with a LAN on Loopback1.
+function bgpChain() {
+  const net = new Network({ devices: [R("A"), R("B"), R("C")], links: [["A", G(0), "B", G(0)], ["B", G(1), "C", G(0)]] });
+  applyConfig(net, "A", ["int g0/0", "ip add 10.0.12.1 255.255.255.252", "no shut", "int lo1", "ip add 172.16.1.1 255.255.255.0"]);
+  applyConfig(net, "B", ["int g0/0", "ip add 10.0.12.2 255.255.255.252", "no shut", "int g0/1", "ip add 10.0.23.1 255.255.255.252", "no shut",
+    "int lo0", "ip add 2.2.2.2 255.255.255.255"]);
+  applyConfig(net, "C", ["int g0/0", "ip add 10.0.23.2 255.255.255.252", "no shut", "int lo1", "ip add 172.16.3.1 255.255.255.0"]);
+  return net;
+}
+const bgpBest = (net, dn, pfx) => (net.bgp()[dn].tables[pfx.includes(":") ? "ipv6" : "ipv4"][pfx] || []).find((p) => p.best);
+
+test("BGP: eBGP sessions, exact-match network statements, AS_PATH and forwarding", () => {
+  const net = bgpChain();
+  applyConfig(net, "A", ["router bgp 65001", "neighbor 10.0.12.2 remote-as 65002", "network 172.16.1.0"]);
+  const out = console_(net, "B", "en", "conf t", "router bgp 65002", "neighbor 10.0.12.1 remote-as 65001", "neighbor 10.0.23.2 remote-as 65003");
+  assert.match(out, /%BGP-5-ADJCHANGE: neighbor 10\.0\.12\.1 Up/);
+  applyConfig(net, "C", ["router bgp 65003", "neighbor 10.0.23.1 remote-as 65002", "network 172.16.3.0 mask 255.255.255.0"]);
+  assert.ok(net.check({ type: "bgp-nbr", device: "B", neighbor: "10.0.23.2" }));
+  // `network 172.16.1.0` means the classful /16, which isn't in A's table: nothing is announced.
+  assert.ok(net.check({ type: "bgp-noroute", device: "C", prefix: "172.16.1.0/24" }));
+  applyConfig(net, "A", ["router bgp 65001", "no network 172.16.1.0", "network 172.16.1.0 mask 255.255.255.0"]);
+  assert.ok(net.check({ type: "bgp-route", device: "C", prefix: "172.16.1.0/24", path: "65002 65001", via: "10.0.23.1" }));
+  const r = net.routes("A").find((x) => x.code === "B" && x.len === 24 && x.net === ip2n("172.16.3.0"));
+  assert.ok(r && r.ad === 20, "eBGP routes have distance 20");
+  assert.ok(net.ping("A", "172.16.3.1", { source: ip2n("172.16.1.1") }).ok);
+  const s = new Session(net, "A");
+  s.input("en");
+  const table = s.input("show ip bgp");
+  assert.match(table, /^ \*>  172\.16\.1\.0\/24    0\.0\.0\.0                  0         32768 i$/m);
+  assert.match(table, /^ \*>  172\.16\.3\.0\/24    10\.0\.12\.2 {30}0 65002 65003 i$/m);
+  assert.match(s.input("show ip bgp summary"), /^10\.0\.12\.2\s+4\s+65002\s+.*\s1$/m);
+  assert.match(s.input("show ip route bgp"), /^B        172\.16\.3\.0 \[20\/0\] via 10\.0\.12\.2, 00:00:12$/m);
+  assert.match(s.input("show ip bgp 172.16.3.0"), /65002 65003\n    10\.0\.12\.2 from 10\.0\.12\.2 \(2\.2\.2\.2\)\n      Origin IGP, localpref 100, valid, external, best/);
+});
+
+test("BGP: what keeps a session down", () => {
+  const net = bgpChain();
+  applyConfig(net, "A", ["router bgp 65001", "neighbor 10.0.12.2 remote-as 65002"]);
+  let out = console_(net, "B", "en", "conf t", "router bgp 65002", "neighbor 10.0.12.1 remote-as 65009");
+  assert.ok(net.check({ type: "bgp-nbr", device: "A", neighbor: "10.0.12.2", state: "Active" }), "wrong AS: TCP works, OPEN is refused");
+  assert.match(out, /%BGP-3-NOTIFICATION: sent to neighbor 10\.0\.12\.1 passive 2\/2 \(peer in wrong AS\)/);
+  applyConfig(net, "B", ["router bgp 65002", "neighbor 10.0.12.1 remote-as 65001", "neighbor 10.0.12.1 password Cisc0"]);
+  assert.ok(net.check({ type: "bgp-nbr", device: "A", neighbor: "10.0.12.2", state: "Active" }), "MD5 password on one side only");
+  applyConfig(net, "A", ["router bgp 65001", "neighbor 10.0.12.2 password Cisc0"]);
+  assert.ok(net.check({ type: "bgp-nbr", device: "A", neighbor: "10.0.12.2" }));
+  applyConfig(net, "A", ["router bgp 65001", "neighbor 10.0.12.2 shutdown"]);
+  assert.ok(net.check({ type: "bgp-nbr", device: "A", neighbor: "10.0.12.2", state: "Idle (Admin)" }));
+  assert.match(console_(net, "A", "en", "show ip bgp neighbors 10.0.12.2"), /BGP state = Idle\n  Administratively shut down/);
+  // eBGP between loopbacks: the connected check keeps it Idle until both ends allow multihop.
+  const m = bgpChain();
+  applyConfig(m, "A", ["int lo0", "ip add 1.1.1.1 255.255.255.255", "ip route 2.2.2.2 255.255.255.255 10.0.12.2",
+    "router bgp 65001", "neighbor 2.2.2.2 remote-as 65002", "neighbor 2.2.2.2 update-source lo0"]);
+  applyConfig(m, "B", ["ip route 1.1.1.1 255.255.255.255 10.0.12.1", "router bgp 65002", "neighbor 1.1.1.1 remote-as 65001", "neighbor 1.1.1.1 update-source lo0"]);
+  assert.ok(m.check({ type: "bgp-nbr", device: "A", neighbor: "2.2.2.2", state: "Idle" }));
+  applyConfig(m, "A", ["router bgp 65001", "neighbor 2.2.2.2 ebgp-multihop 2"]);
+  assert.ok(m.check({ type: "bgp-nbr", device: "A", neighbor: "2.2.2.2", state: "Active" }), "the other end still insists on a directly connected peer");
+  applyConfig(m, "B", ["router bgp 65002", "neighbor 1.1.1.1 ebgp-multihop 2"]);
+  assert.ok(m.check({ type: "bgp-nbr", device: "A", neighbor: "2.2.2.2" }));
+  // No route to the neighbor at all: Idle.
+  const n = bgpChain();
+  applyConfig(n, "A", ["router bgp 65001", "neighbor 9.9.9.9 remote-as 65009"]);
+  assert.ok(n.check({ type: "bgp-nbr", device: "A", neighbor: "9.9.9.9", state: "Idle" }));
+});
+
+// ISP (65100) - R1 - R2 - R3 in AS 65000 with OSPF inside.
+function bgpIbgp() {
+  const net = new Network({ devices: [R("ISP"), R("R1"), R("R2"), R("R3")],
+    links: [["ISP", G(0), "R1", G(0)], ["R1", G(1), "R2", G(0)], ["R1", G(2), "R3", G(0)]] });
+  applyConfig(net, "ISP", ["int g0/0", "ip add 203.0.113.1 255.255.255.252", "no shut", "int lo0", "ip add 8.8.8.8 255.255.255.255",
+    "router bgp 65100", "neighbor 203.0.113.2 remote-as 65000", "network 8.8.8.8 mask 255.255.255.255"]);
+  applyConfig(net, "R1", ["int g0/0", "ip add 203.0.113.2 255.255.255.252", "no shut", "int g0/1", "ip add 10.0.12.1 255.255.255.0", "no shut",
+    "int g0/2", "ip add 10.0.13.1 255.255.255.0", "no shut", "int lo0", "ip add 1.1.1.1 255.255.255.255",
+    "router ospf 1", "network 10.0.0.0 0.255.255.255 area 0", "network 1.1.1.1 0.0.0.0 area 0",
+    "router bgp 65000", "neighbor 203.0.113.1 remote-as 65100", "neighbor 2.2.2.2 remote-as 65000", "neighbor 2.2.2.2 update-source lo0",
+    "neighbor 3.3.3.3 remote-as 65000", "neighbor 3.3.3.3 update-source lo0"]);
+  for (const [d, n] of [["R2", 2], ["R3", 3]]) {
+    applyConfig(net, d, ["int g0/0", `ip add 10.0.1${n}.${n} 255.255.255.0`, "no shut", "int lo0", `ip add ${n}.${n}.${n}.${n} 255.255.255.255`,
+      "int lo1", `ip add 192.168.${n}.1 255.255.255.0`, "router ospf 1", "network 10.0.0.0 0.255.255.255 area 0", `network ${n}.${n}.${n}.${n} 0.0.0.0 area 0`,
+      "router bgp 65000", "neighbor 1.1.1.1 remote-as 65000", "neighbor 1.1.1.1 update-source lo0", `network 192.168.${n}.0`]);
+  }
+  return net;
+}
+
+test("BGP: iBGP next hops, split horizon and route reflection", () => {
+  const net = bgpIbgp();
+  const p = (net.bgp().R2.tables.ipv4["8.8.8.8/32"] || [])[0];
+  assert.ok(p && !p.valid && p.nh === "203.0.113.1", "the eBGP next hop isn't in OSPF, so the iBGP path is unusable");
+  assert.match(console_(net, "R2", "en", "show ip bgp"), /^   i 8\.8\.8\.8\/32       203\.0\.113\.1              0    100      0 65100 i$/m);
+  applyConfig(net, "R1", ["router bgp 65000", "neighbor 2.2.2.2 next-hop-self", "neighbor 3.3.3.3 next-hop-self"]);
+  assert.ok(net.check({ type: "bgp-route", device: "R2", prefix: "8.8.8.8/32", via: "1.1.1.1" }));
+  assert.equal(net.routes("R2").find((r) => r.code === "B").ad, 200, "iBGP routes have distance 200");
+  // iBGP split horizon: R1 doesn't pass R3's LAN on to R2 ...
+  assert.ok(net.check({ type: "bgp-noroute", device: "R2", prefix: "192.168.3.0/24" }));
+  // ... but the ISP gets both LANs (iBGP-learned routes do go to eBGP peers).
+  assert.ok(net.check({ type: "bgp-route", device: "ISP", prefix: "192.168.3.0/24", path: "65000" }));
+  applyConfig(net, "R1", ["router bgp 65000", "bgp cluster-id 10.10.10.10", "neighbor 2.2.2.2 route-reflector-client", "neighbor 3.3.3.3 route-reflector-client"]);
+  assert.ok(net.check({ type: "bgp-route", device: "R2", prefix: "192.168.3.0/24", via: "3.3.3.3", originator: "192.168.3.1", cluster: "10.10.10.10" }));
+  assert.match(console_(net, "R2", "en", "show ip bgp 192.168.3.0"), /Originator: 192\.168\.3\.1, Cluster list: 10\.10\.10\.10/);
+  assert.ok(net.ping("R2", "192.168.3.1", { source: ip2n("192.168.2.1") }).ok);
+});
+
+test("BGP: best-path order, MED, and policy that waits for a soft clear", () => {
+  // A (65001) dual-homed to B (65002) and C (65003), which both reach D (65004).
+  const net = new Network({ devices: [R("A"), R("B"), R("C"), R("D")],
+    links: [["A", G(0), "B", G(0)], ["A", G(1), "C", G(0)], ["B", G(1), "D", G(0)], ["C", G(1), "D", G(1)]] });
+  applyConfig(net, "A", ["int g0/0", "ip add 10.0.12.1 255.255.255.252", "no shut", "int g0/1", "ip add 10.0.13.1 255.255.255.252", "no shut",
+    "router bgp 65001", "neighbor 10.0.12.2 remote-as 65002", "neighbor 10.0.13.2 remote-as 65003"]);
+  for (const [d, asn, a, b, rid] of [["B", 65002, "10.0.12.2", "10.0.24.1", "2.2.2.2"], ["C", 65003, "10.0.13.2", "10.0.34.1", "3.3.3.3"]]) {
+    applyConfig(net, d, ["int g0/0", `ip add ${a} 255.255.255.252`, "no shut", "int g0/1", `ip add ${b} 255.255.255.252`, "no shut",
+      "int lo0", `ip add ${rid} 255.255.255.255`, `router bgp ${asn}`, `neighbor ${a.replace(/\.2$/, ".1")} remote-as 65001`,
+      `neighbor ${b.replace(/\.1$/, ".2")} remote-as 65004`]);
+  }
+  applyConfig(net, "D", ["int g0/0", "ip add 10.0.24.2 255.255.255.252", "no shut", "int g0/1", "ip add 10.0.34.2 255.255.255.252", "no shut",
+    "int lo1", "ip add 10.4.4.1 255.255.255.0", "router bgp 65004", "neighbor 10.0.24.1 remote-as 65002", "neighbor 10.0.34.1 remote-as 65003",
+    "network 10.4.4.0 mask 255.255.255.0"]);
+  assert.equal(bgpBest(net, "A", "10.4.4.0/24").from, "10.0.12.2", "a full tie falls through to the lowest router ID");
+  applyConfig(net, "A", ["route-map LP permit 10", "set local-preference 200", "router bgp 65001", "neighbor 10.0.13.2 route-map LP in"]);
+  assert.equal(bgpBest(net, "A", "10.4.4.0/24").from, "10.0.12.2", "policy added to an established session waits for a refresh");
+  // The policy a session runs with survives a save/restore round trip with sorted keys.
+  const copy = new Network(net.spec, sortKeys(JSON.parse(JSON.stringify(net.toJSON()))));
+  assert.equal(bgpBest(copy, "A", "10.4.4.0/24").from, "10.0.12.2");
+  console_(net, "A", "en", "clear ip bgp * soft in");
+  assert.ok(net.check({ type: "bgp-route", device: "A", prefix: "10.4.4.0/24", via: "10.0.13.2", lp: 200 }));
+  applyConfig(net, "A", ["route-map LP permit 10", "set local-preference 50"]);
+  assert.equal(bgpBest(net, "A", "10.4.4.0/24").lp, 200, "editing the route-map changes nothing until a soft clear");
+  console_(net, "A", "en", "clear ip bgp 10.0.13.2 soft in");
+  assert.equal(bgpBest(net, "A", "10.4.4.0/24").from, "10.0.12.2", "local preference 50 loses to the default 100");
+  // A hard reset re-establishes the session and logs it.
+  assert.match(console_(net, "A", "en", "clear ip bgp 10.0.13.2"), /%BGP-5-ADJCHANGE: neighbor 10\.0\.13\.2 Down User reset[\s\S]*neighbor 10\.0\.13\.2 Up/);
+  // Weight beats local preference, and stays on this router.
+  applyConfig(net, "A", ["router bgp 65001", "neighbor 10.0.13.2 weight 100", "do clear ip bgp 10.0.13.2 soft in"]);
+  assert.ok(net.check({ type: "bgp-route", device: "A", prefix: "10.4.4.0/24", via: "10.0.13.2", weight: 100, lp: 50 }));
+  // Inbound engineering: prepend towards B, so D prefers C for A's network.
+  applyConfig(net, "A", ["int lo1", "ip add 172.16.1.1 255.255.255.0", "router bgp 65001", "network 172.16.1.0 mask 255.255.255.0",
+    "route-map PRE permit 10", "set as-path prepend 65001 65001", "router bgp 65001", "neighbor 10.0.12.2 route-map PRE out", "do clear ip bgp * soft out"]);
+  assert.ok(net.check({ type: "bgp-route", device: "D", prefix: "172.16.1.0/24", via: "10.0.34.1", path: "65003 65001" }));
+  // B still has the prepended path from A, but it ties with the path via D on length and loses on router ID.
+  assert.ok(net.check({ type: "bgp-route", device: "B", prefix: "172.16.1.0/24", best: false, path: "65001 65001 65001" }));
+  // MED: only compared between paths from the same neighbouring AS, unless always-compare-med.
+  applyConfig(net, "A", ["no route-map PRE", "route-map MED-HI permit 10", "set metric 50", "route-map MED-LO permit 10", "set metric 10",
+    "router bgp 65001", "no neighbor 10.0.12.2 route-map PRE out", "neighbor 10.0.12.2 route-map MED-LO out", "neighbor 10.0.13.2 route-map MED-HI out",
+    "do clear ip bgp * soft out"]);
+  // D hears the prefix from B and C (different ASes): MED is ignored, the tie goes to the lower router ID.
+  assert.equal(bgpBest(net, "D", "172.16.1.0/24").med, null, "MED isn't passed on to a third AS");
+});
+
+test("BGP: aggregation, suppression and Null0", () => {
+  const net = bgpChain();
+  applyConfig(net, "A", ["int lo2", "ip add 172.16.2.1 255.255.255.0", "router bgp 65001", "neighbor 10.0.12.2 remote-as 65002",
+    "network 172.16.1.0 mask 255.255.255.0", "network 172.16.2.0 mask 255.255.255.0", "aggregate-address 172.16.0.0 255.255.0.0 summary-only"]);
+  applyConfig(net, "B", ["router bgp 65002", "neighbor 10.0.12.1 remote-as 65001"]);
+  assert.ok(net.check({ type: "bgp-suppressed", device: "A", prefix: "172.16.1.0/24" }));
+  assert.ok(net.check({ type: "bgp-route", device: "B", prefix: "172.16.0.0/16", path: "65001" }));
+  assert.ok(net.check({ type: "bgp-noroute", device: "B", prefix: "172.16.1.0/24" }));
+  const sum = net.routes("A").find((r) => r.code === "B" && r.len === 16);
+  assert.equal(sum.paths[0].ifn, "Null0");
+  assert.match(console_(net, "A", "en", "show ip bgp"), /^ s>  172\.16\.1\.0\/24/m);
+  assert.match(console_(net, "A", "en", "show ip route bgp"), /^B     172\.16\.0\.0\/16 \[200\/0\] via 0\.0\.0\.0, 00:00:12, Null0$/m);
+  assert.ok(!net.ping("A", "172.16.9.9").ok, "traffic for an unused part of the aggregate is dropped at Null0");
+});
+
+test("BGP: MP-BGP for IPv6", () => {
+  const net = new Network({ devices: [R("R1"), R("R2")], links: [["R1", G(0), "R2", G(0)]] });
+  applyConfig(net, "R1", ["ipv6 unicast-routing", "int g0/0", "ipv6 address 2001:db8:12::1/64", "no shut", "int lo1", "ipv6 address 2001:db8:1::1/64"]);
+  const said = console_(net, "R1", "en", "conf t", "router bgp 65001", "neighbor 2001:db8:12::2 remote-as 65002");
+  assert.match(said, /%BGP-4-NORTRID: BGP could not pick a router-id\. Please configure manually\./);
+  assert.ok(net.check({ type: "bgp-nbr", device: "R1", neighbor: "2001:db8:12::2", state: "Idle" }), "no IPv4 anywhere: no router ID");
+  applyConfig(net, "R1", ["router bgp 65001", "bgp router-id 1.1.1.1", "address-family ipv6", "neighbor 2001:db8:12::2 activate", "network 2001:db8:1::/64"]);
+  applyConfig(net, "R2", ["ipv6 unicast-routing", "int g0/0", "ipv6 address 2001:db8:12::2/64", "no shut", "int lo1", "ipv6 address 2001:db8:2::1/64",
+    "router bgp 65002", "bgp router-id 2.2.2.2", "neighbor 2001:db8:12::1 remote-as 65001",
+    "address-family ipv6 unicast", "neighbor 2001:db8:12::1 activate", "network 2001:db8:2::/64"]);
+  assert.ok(net.check({ type: "bgp-nbr", device: "R1", neighbor: "2001:DB8:12::2" }));
+  assert.ok(net.check({ type: "bgp-route", device: "R1", prefix: "2001:db8:2::/64", path: "65002", via: "2001:DB8:12::2" }));
+  assert.ok(net.check({ type: "route6", device: "R1", prefix: "2001:DB8:2::/64", code: "B" }));
+  assert.ok(net.ping("R1", "2001:DB8:2::1").ok);
+  const s = new Session(net, "R1");
+  s.input("en");
+  assert.match(s.input("show bgp ipv6 unicast"), /^ \*>  2001:DB8:2::\/64  2001:DB8:12::2           0             0 65002 i$/m);
+  assert.match(s.input("show bgp ipv6 unicast summary"), /^2001:DB8:12::2  4        65002/m);
+  const run = s.input("show running-config");
+  assert.match(run, /^ address-family ipv6\n  network 2001:DB8:1::\/64\n  neighbor 2001:DB8:12::2 activate\n exit-address-family$/m);
+  // With `bgp default ipv4-unicast` (the default) every neighbor is also active for IPv4.
+  assert.match(run, /^ address-family ipv4\n  neighbor 2001:DB8:12::2 activate\n exit-address-family$/m);
+  // IPv6 prefixes over an IPv4 session get an IPv4-mapped next hop that goes nowhere.
+  const v4 = new Network({ devices: [R("R1"), R("R2")], links: [["R1", G(0), "R2", G(0)]] });
+  for (const [d, me, them, asn, peer, lan] of [["R1", 1, 2, 65001, 65002, "1"], ["R2", 2, 1, 65002, 65001, "2"]]) {
+    applyConfig(v4, d, ["ipv6 unicast-routing", "int g0/0", `ip add 10.0.12.${me} 255.255.255.0`, `ipv6 address 2001:db8:12::${me}/64`, "no shut",
+      "int lo1", `ipv6 address 2001:db8:${lan}::1/64`, `router bgp ${asn}`, `neighbor 10.0.12.${them} remote-as ${peer}`,
+      "address-family ipv6", `neighbor 10.0.12.${them} activate`, `network 2001:db8:${lan}::/64`]);
+  }
+  const path = (v4.bgp().R1.tables.ipv6["2001:DB8:2::/64"] || [])[0];
+  assert.ok(path && path.nh === "::FFFF:A00:C02" && !path.valid);
+});
+
+test("BGP: prefix-lists, as-path lists, help text and a config that replays", () => {
+  const net = bgpChain();
+  applyConfig(net, "A", ["int lo2", "ip add 172.16.2.1 255.255.255.128", "int lo3", "ip add 10.9.0.1 255.255.0.0",
+    "ip prefix-list LANS seq 5 permit 172.16.0.0/16 le 24", "ip as-path access-list 1 permit ^$",
+    "route-map OUT permit 10", "match ip address prefix-list LANS", "match as-path 1", "set community 65001:100 no-export",
+    "router bgp 65001", "neighbor 10.0.12.2 remote-as 65002", "neighbor 10.0.12.2 send-community", "neighbor 10.0.12.2 route-map OUT out",
+    "network 172.16.1.0 mask 255.255.255.0", "network 172.16.2.0 mask 255.255.255.128", "network 10.9.0.0 mask 255.255.0.0"]);
+  applyConfig(net, "B", ["router bgp 65002", "neighbor 10.0.12.1 remote-as 65001", "neighbor 10.0.23.2 remote-as 65003"]);
+  applyConfig(net, "C", ["router bgp 65003", "neighbor 10.0.23.1 remote-as 65002"]);
+  assert.ok(net.check({ type: "bgp-route", device: "B", prefix: "172.16.1.0/24" }));
+  assert.ok(net.check({ type: "bgp-noroute", device: "B", prefix: "172.16.2.0/25" }), "le 24 stops a /25");
+  assert.ok(net.check({ type: "bgp-noroute", device: "B", prefix: "10.9.0.0/16" }), "not in the prefix-list");
+  assert.deepEqual(bgpBest(net, "B", "172.16.1.0/24").comm, ["65001:100", "no-export"]);
+  assert.ok(net.check({ type: "bgp-noroute", device: "C", prefix: "172.16.1.0/24" }), "no-export stops at the AS boundary");
+  // Context-sensitive help.
+  const s = new Session(net, "A");
+  for (const l of ["en", "conf t", "router bgp 65001"]) s.input(l);
+  assert.match(s.help(""), /neighbor +Specify a neighbor router[\s\S]*network +Specify a network to announce via BGP/);
+  assert.match(s.help("neighbor 10.0.12.2 "), /remote-as +Specify a BGP neighbor[\s\S]*update-source +Source of routing updates/);
+  assert.match(s.help("neighbor 10.0.12.2 route-map OUT "), /in +Apply map to incoming routes\n +out +Apply map to outbound routes/);
+  assert.match(s.help("neighbor 10.0.12.2 next-hop-self "), /<cr>/);
+  // Everything above prints and pastes back into an identical config.
+  const text = runningConfig(net, "A");
+  assert.match(text, /^router bgp 65001\n bgp log-neighbor-changes\n network 10\.9\.0\.0 mask 255\.255\.0\.0\n network 172\.16\.1\.0 mask 255\.255\.255\.0\n network 172\.16\.2\.0 mask 255\.255\.255\.128\n neighbor 10\.0\.12\.2 remote-as 65002\n neighbor 10\.0\.12\.2 send-community\n neighbor 10\.0\.12\.2 route-map OUT out$/m);
+  assert.match(text, /^ip as-path access-list 1 permit \^\$$/m);
+  assert.match(text, /^ip prefix-list LANS seq 5 permit 172\.16\.0\.0\/16 le 24$/m);
+  assert.match(text, /^route-map OUT permit 10\n match ip address prefix-list LANS\n match as-path 1\n set community 65001:100 no-export$/m);
+  const fresh = bgpChain();
+  const keep = (l) => !/^(Building configuration|Current configuration|!|version |end$|no aaa new-model)/.test(l) && l.trim();
+  applyConfig(fresh, "A", text.split("\n").filter(keep).flatMap((l) => (l.startsWith("interface ") ? [l, " no shutdown"] : [l])));
+  assert.equal(runningConfig(fresh, "A"), text);
+});
+
 console.log(`ios: ${passed} tests passed`);
