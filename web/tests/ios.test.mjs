@@ -2468,4 +2468,55 @@ test("every lab check returns a real boolean at every step of typing the solutio
   }
 });
 
+// R1 g0/0 -- SW1 g0/1 (routed port);  SW1 g0/2 (access VLAN 20, SVI) -- R2 g0/0
+function l3Switch() {
+  const net = new Network({ devices: [R("R1"), S("SW1"), R("R2")], links: [["R1", G(0), "SW1", G(1)], ["SW1", G(2), "R2", G(0)]] });
+  applyConfig(net, "R1", [...ip4("g0/0", "10.1.1.1"), "interface loopback0", " ip address 1.1.1.1 255.255.255.255",
+    "router ospf 1", " network 10.1.1.0 0.0.0.255 area 0", " network 1.1.1.1 0.0.0.0 area 0"]);
+  applyConfig(net, "R2", [...ip4("g0/0", "10.2.2.2"), "interface loopback0", " ip address 2.2.2.2 255.255.255.255"]);
+  return net;
+}
+
+test("multilayer switch: OSPF, EIGRP and RIP on routed ports and SVIs once ip routing is on", () => {
+  const net = l3Switch();
+  // Without ip routing a Catalyst refuses the routing process.
+  assert.match(console_(net, "SW1", "enable", "configure terminal", "router ospf 1"), /% IP routing not enabled/);
+  applyConfig(net, "SW1", ["ip routing", "vlan 20", "interface g0/1", " no switchport", " ip address 10.1.1.2 255.255.255.0",
+    " ip ospf cost 7", "interface g0/2", " switchport mode access", " switchport access vlan 20",
+    "interface vlan 20", " ip address 10.2.2.1 255.255.255.0", " no shutdown",
+    "router ospf 1", " router-id 9.9.9.9", " network 10.0.0.0 0.255.255.255 area 0"]);
+  assert.match(console_(net, "R1", "enable", "show ip ospf neighbor"), /9\.9\.9\.9 +1 +FULL\/(DR|BDR) .*GigabitEthernet0\/0/);
+  assert.match(console_(net, "SW1", "enable", "show ip ospf neighbor"), /\d+\.\d+\.\d+\.\d+ +1 +FULL\/(DR|BDR) .*GigabitEthernet0\/1/);
+  assert.equal(route(net, "SW1", "1.1.1.1/32").code, "O");
+  assert.equal(route(net, "R1", "10.2.2.0/24").code, "O", "the SVI's subnet is advertised");
+  assert.equal(route(net, "R1", "10.2.2.0/24").metric, 2);
+  // Layer-2 ports don't take routing interface commands; the routed port's settings show in its config.
+  assert.match(console_(net, "SW1", "enable", "configure terminal", "interface g0/3", "ip ospf cost 5"), /% Invalid input/);
+  const run = console_(net, "SW1", "enable", "show running-config");
+  assert.match(run, /interface GigabitEthernet0\/1\n no switchport\n ip address 10\.1\.1\.2 255\.255\.255\.0\n ip ospf cost 7/);
+  assert.match(run, /router ospf 1\n router-id 9\.9\.9\.9\n network 10\.0\.0\.0 0\.255\.255\.255 area 0/);
+
+  // EIGRP to R2 across the SVI, redistributed into OSPF through a route-map on the switch.
+  applyConfig(net, "R2", ["router eigrp 20", " network 10.2.2.0 0.0.0.255", " network 2.2.2.2 0.0.0.0"]);
+  applyConfig(net, "SW1", ["ip prefix-list R2LO seq 5 permit 2.2.2.2/32", "route-map E2O permit 10", " match ip address prefix-list R2LO",
+    " set tag 20", "router eigrp 20", " network 10.2.2.0 0.0.0.255", "router ospf 1", " redistribute eigrp 20 subnets route-map E2O"]);
+  assert.match(console_(net, "SW1", "enable", "show ip eigrp neighbors"), /10\.2\.2\.2 +Vl20/);
+  assert.equal(route(net, "SW1", "2.2.2.2/32").code, "D");
+  const e2 = route(net, "R1", "2.2.2.2/32");
+  assert.equal(e2.code, "O E2");
+  assert.equal(e2.tag, 20);
+  assert.equal(net.ping("R1", "2.2.2.2", { source: ip2n("1.1.1.1") }).ok, false, "R2 has no route back yet");
+  applyConfig(net, "R2", ["ip route 0.0.0.0 0.0.0.0 10.2.2.1"]);
+  assert.ok(net.ping("R1", "2.2.2.2", { source: ip2n("1.1.1.1") }).ok, "routed through the switch");
+
+  // RIP runs there too; turning ip routing off takes the switch out of every protocol.
+  applyConfig(net, "SW1", ["router rip", " version 2", " network 10.0.0.0"]);
+  assert.match(console_(net, "SW1", "enable", "show ip protocols"), /Routing Protocol is "rip"/);
+  applyConfig(net, "SW1", ["no ip routing"]);
+  assert.ok(!route(net, "R1", "10.2.2.0/24"));
+  const nb = console_(net, "R1", "enable", "show ip ospf neighbor");
+  assert.match(nb, /Nbr 9\.9\.9\.9 on GigabitEthernet0\/0 from FULL to DOWN, Neighbor Down: Dead timer expired/);
+  assert.doesNotMatch(nb.slice(nb.indexOf("Neighbor ID")), /9\.9\.9\.9/);
+});
+
 console.log(`ios: ${passed} tests passed`);

@@ -3365,7 +3365,10 @@ Object.assign(Network.prototype, {
     const ifUp = this.ifUp(dn, n.local) && this.ifUp(n.dev, n.ifn);
     if (!ifUp) return "Interface down or detached";
     const why = (this.cp().ospfDiag || []).find((x) => x.dn === dn && x.ifn === n.local);
-    return why && ["hello", "mask", "area", "auth", "ntype", "stub"].includes(why.kind) ? "Dead timer expired" : "Interface down or detached";
+    if (why && ["hello", "mask", "area", "auth", "ntype", "stub"].includes(why.kind)) return "Dead timer expired";
+    // Our interface still runs OSPF, so the neighbour simply stopped sending hellos (its process or routing went away).
+    return this.isL3(this.devs[dn]) && this.ospfIfOwners(dn)[n.local] && !(n.dev && this.ospfIfOwners(n.dev)[n.ifn] && this.isL3(this.devs[n.dev]))
+      ? "Dead timer expired" : "Interface down or detached";
   },
 
   // Why an EIGRP neighbour went away: "metric changed" on the router whose K values changed, "K-value
@@ -3828,6 +3831,7 @@ export function runningConfig(net, dn, onlyIf) {
   if (d.type === "router" && c.bgp) L.push(...bgpConfig(c), "!");
   L.push(...routingTailLines(c));
   if (d.type === "switch" && c.gateway !== null) L.push("ip default-gateway " + n2ip(c.gateway));
+  if (d.type === "switch") L.push(...aclConfigLines(c), ...bgpPolicyConfig(c));
   if (d.type === "router") {
     for (const p of Object.values(c.nat.pools)) L.push(`ip nat pool ${p.name} ${n2ip(p.start)} ${n2ip(p.end)} netmask ${n2ip(p.mask)}`);
     for (const r of c.nat.dyn) {
@@ -3839,22 +3843,7 @@ export function runningConfig(net, dn, onlyIf) {
         .filter((x) => x !== null && x !== undefined).join(" ") + staticSuffix(r));
     }
     L.push(...vpnRoutingLines(c));
-    const names = Object.keys(c.acls);
-    const numbered = names.filter((n) => /^\d+$/.test(n)).sort((a, b) => a - b);
-    const named = names.filter((n) => !/^\d+$/.test(n)).sort();
-    if (numbered.length || named.length) L.push("!");
-    for (const n of named) {
-      const a = c.acls[n];
-      L.push(`ip access-list ${a.type} ${n}`);
-      for (const e of a.entries) L.push(e.remark !== undefined ? " remark " + e.remark : ` ${e.action} ${aceStr(a.type, e)}`);
-    }
-    for (const n of numbered) {
-      const a = c.acls[n];
-      for (const e of a.entries) {
-        L.push(e.remark !== undefined ? `access-list ${n} remark ${e.remark}` : `access-list ${n} ${actionStr(a.type, e.action)} ${aceStr(a.type, e)}`);
-      }
-    }
-    L.push(...bgpPolicyConfig(c));
+    L.push(...aclConfigLines(c), ...bgpPolicyConfig(c));
     for (const r of c.routes6) L.push(["ipv6 route", `${r.net}/${r.len}`, r.ifn, r.nh, r.ad !== 1 ? r.ad : null].filter((x) => x !== null && x !== undefined).join(" "));
     if (c.ospf6) {
       const o = c.ospf6;
@@ -4723,6 +4712,25 @@ function eigrpConfig(e) {
 }
 
 // Interface lines for the CCNP routing features (after the CCNA ones).
+function aclConfigLines(c) {
+  const L = [], names = Object.keys(c.acls || {});
+  const numbered = names.filter((n) => /^\d+$/.test(n)).sort((a, b) => a - b);
+  const named = names.filter((n) => !/^\d+$/.test(n)).sort();
+  if (numbered.length || named.length) L.push("!");
+  for (const n of named) {
+    const a = c.acls[n];
+    L.push(`ip access-list ${a.type} ${n}`);
+    for (const e of a.entries) L.push(e.remark !== undefined ? " remark " + e.remark : ` ${e.action} ${aceStr(a.type, e)}`);
+  }
+  for (const n of numbered) {
+    const a = c.acls[n];
+    for (const e of a.entries) {
+      L.push(e.remark !== undefined ? `access-list ${n} remark ${e.remark}` : `access-list ${n} ${actionStr(a.type, e.action)} ${aceStr(a.type, e)}`);
+    }
+  }
+  return L;
+}
+
 function ospfIfLines(n, i) {
   const o = i.ospf || {}, L = [];
   if (o.ptp) L.push(" ip ospf network point-to-point");
@@ -16192,3 +16200,71 @@ const SVC_CHECKS = {
   "lldp-nbr": (net, c, d) => net.svcLldp(d.name).some((x) => x.dev.cfg.hostname === c.neighbor && (!c.intf || x.local === canonIf(d, c.intf))),
   "eem-ran": (net, c, d) => d.rt.svc.eem.some((h) => h.name === c.applet),
 };
+
+// ======== CCNP routing on multilayer switches ========
+// A Catalyst switch with "ip routing" runs OSPF, EIGRP and RIP on its SVIs and routed ports, with the
+// same route-maps, prefix-lists and ACLs a router uses for redistribution and filtering. The router's
+// command trees for those features are grafted onto the switch's. Router-only features (IPv6 routing,
+// PBR, IP SLA, NAT, VPNs) stay off the switch.
+const L3SW_MODES = ["ospf", "eigrp", "eigrpn", "eigrpaf", "afif", "aftop", "rip", "kchain", "kckey", "rmap", "stdacl", "extacl"];
+const L3SW_PATHS = {
+  config: [["router", "ospf"], ["router", "eigrp"], ["router", "rip"], ["no", "router", "ospf"], ["no", "router", "eigrp"],
+    ["no", "router", "rip"], ["key", "chain"], ["no", "key", "chain"], ["route-map"], ["no", "route-map"], ["ip", "prefix-list"],
+    ["no", "ip", "prefix-list"], ["access-list"], ["no", "access-list"], ["ip", "access-list"], ["no", "ip", "access-list"]],
+  if: [["ip", "ospf"], ["no", "ip", "ospf"], ["ip", "mtu"], ["no", "ip", "mtu"], ["ip", "summary-address"], ["no", "ip", "summary-address"],
+    ["ip", "authentication"], ["no", "ip", "authentication"], ["ip", "split-horizon"], ["no", "ip", "split-horizon"], ["ip", "rip"],
+    ["no", "ip", "rip"], ["delay"], ["no", "delay"]],
+  show: [["show", "ip", "ospf"], ["show", "ip", "protocols"], ["show", "ip", "eigrp"], ["show", "ip", "rip"], ["show", "ip", "prefix-list"],
+    ["show", "ip", "route", "eigrp"], ["show", "ip", "route", "rip"], ["show", "route-map"], ["show", "key"], ["show", "access-lists"],
+    ["show", "ip", "access-lists"]],
+  priv: [["debug", "ip", "ospf"], ["debug", "ip", "routing"], ["debug", "ip", "rip"], ["debug", "eigrp"], ["clear", "ip", "ospf"], ["clear", "ip", "eigrp"]],
+};
+{
+  const kidOf = (node, k) => node.kids.find((x) => (k.kw ? x.kw === k.kw : x.key === k.key));
+  // Copy a router subtree into the switch tree; commands the switch already has keep the switch's handler.
+  const merge = (dst, src, wrap) => {
+    if (src.run && !dst.run) dst.run = wrap(src.run);
+    for (const k of src.kids) {
+      let d = kidOf(dst, k);
+      if (!d) { d = { ...k, kids: [], run: null }; dst.kids.push(d); }
+      merge(d, k, wrap);
+    }
+  };
+  const graft = (mode, path, wrap) => {
+    let src = TREES.router[mode], dst = TREES.switch[mode] = TREES.switch[mode] || newNode();
+    for (const w of path) {
+      src = src && src.kids.find((x) => x.kw === w);
+      if (!src) throw new Error(`l3 switch graft: no "${path.join(" ")}" in router/${mode}`);
+      let d = dst.kids.find((x) => x.kw === w);
+      if (!d) { d = { ...src, kids: [], run: null }; dst.kids.push(d); }
+      dst = d;
+    }
+    merge(dst, src, wrap);
+  };
+  const same = (fn) => fn;
+  // Routing processes need "ip routing"; interface commands need a layer-3 interface.
+  const needRouting = (fn) => (c, args) => {
+    if (c.d.type === "switch" && !c.cfg.ipRouting) { c.print("% IP routing not enabled"); return; }
+    return fn(c, args);
+  };
+  const policy = (fn) => (c, args) => { if (!c.cfg.acls) c.cfg.acls = {}; return fn(c, args); };
+  const l3if = (fn) => (c, args) => {
+    if (c.d.type === "switch") {
+      for (const n of c.target) {
+        const i = c.cfg.intfs[n];
+        if (!n.startsWith("Vlan") && !n.startsWith("Loopback") && !i.routed) { c.invalid(0); return; }
+      }
+      for (const n of c.target) if (!c.cfg.intfs[n].ospf) c.cfg.intfs[n].ospf = {};
+    }
+    return fn(c, args);
+  };
+  for (const m of L3SW_MODES) merge(TREES.switch[m] = TREES.switch[m] || newNode(), TREES.router[m], policy);
+  for (const p of L3SW_PATHS.config) graft("config", p, p[0] === "router" || p[1] === "router" ? (fn) => needRouting(policy(fn)) : policy);
+  for (const m of IF_MODES) if (TREES.router[m] && TREES.switch[m]) for (const p of L3SW_PATHS.if) if (TREES.router[m].kids.some((k) => k.kw === p[0])) graft(m, p, l3if);
+  for (const m of ["user", "priv"]) for (const p of L3SW_PATHS.show) {
+    let n = TREES.router[m];
+    for (const w of p) n = n && n.kids.find((x) => x.kw === w);
+    if (n) graft(m, p, same);
+  }
+  for (const p of L3SW_PATHS.priv) graft("priv", p, same);
+}
