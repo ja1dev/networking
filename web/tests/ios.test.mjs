@@ -2077,4 +2077,28 @@ test("a switch with every CCNP feature replays its running-config", () => {
   }
 });
 
+test("every lab check returns a real boolean at every step of typing the solution", () => {
+  // Half-built config is where a check is most likely to trip over a missing field.
+  for (const lab of labs.filter((l) => l.tasks.length)) {
+    const net = buildLab(lab, null);
+    const all = lab.tasks.flatMap((t) => t.checks);
+    const verify = (when) => {
+      for (const c of all) {
+        let v;
+        try { v = net.check(c); } catch (e) { throw new Error(`${lab.id}: ${c.type} threw ${e.message} ${when}`); }
+        assert.equal(typeof v, "boolean", `${lab.id}: ${c.type} gave ${v} ${when}`);
+      }
+    };
+    verify("before the solution");
+    const types = Object.fromEntries(lab.devices.map((d) => [d.name, d.type]));
+    for (const [dev, lines] of Object.entries(lab.solution)) {
+      const s = new Session(net, dev);
+      for (const l of types[dev] === "pc" ? lines : ["enable", "configure terminal", ...lines]) {
+        s.input(l);
+        verify(`after ${dev}: ${l}`);
+      }
+    }
+  }
+});
+
 console.log(`ios: ${passed} tests passed`);

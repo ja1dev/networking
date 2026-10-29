@@ -2078,18 +2078,23 @@ export class Network {
         return !!t && t.fs.some((x) => x.ip === ip2n(c.via));
       }
       default: {
-        const sw = this.switchingCheck(c, d, intf);
-        if (sw !== undefined) return sw;
-        if (SVC_CHECKS[c.type]) return SVC_CHECKS[c.type](this, c, d, intf);
-        const b = this.bgpCheck(d, c);
-        if (b !== undefined) return b;
-        const r = this.vpnCheck(c, d, intf);
-        if (r !== undefined) return r;
+        // Each feature family names the checks it owns, so a check that merely evaluates to
+        // undefined (say a SPAN session without a destination yet) still counts as false.
+        if (SWITCHING_CHECKS.has(c.type)) return Boolean(this.switchingCheck(c, d, intf));
+        if (SVC_CHECKS[c.type]) return Boolean(SVC_CHECKS[c.type](this, c, d, intf));
+        if (BGP_CHECKS.has(c.type)) return Boolean(this.bgpCheck(d, c));
+        if (VPN_CHECKS.has(c.type)) return Boolean(this.vpnCheck(c, d, intf));
         throw new Error("unknown check type " + c.type);
       }
     }
   }
 }
+
+const SWITCHING_CHECKS = new Set(["mst-root", "mst-port", "mst-region", "stp-inconsistent", "errdisable-recovery",
+  "vtp", "vtp-vlan", "fhrp", "glbp-forwarding", "rspan-vlan", "glbp-hosts", "span", "span-copies", "snoop-binding",
+  "dai-drops", "ip-routing", "routed-port", "pvlan-port", "voice-vlan"]);
+const BGP_CHECKS = new Set(["bgp-nbr", "bgp-nbrs", "bgp-route", "bgp-noroute", "bgp-suppressed"]);
+const VPN_CHECKS = new Set(["vrf", "vrf-if", "tunnel", "ipsec-sa", "nhrp-peer", "trace-avoids", "nhrp-shortcut"]);
 
 // Port-channel members must match the bundle's layer-2 settings or they are suspended.
 const L2_KEYS = ["mode", "accessVlan", "native", "allowed", "noneg"];
