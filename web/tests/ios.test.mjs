@@ -2675,4 +2675,181 @@ test("the Linux workstation: ip, ping and traceroute behave like Ubuntu", () => 
   assert.equal(ws.input("ping -c 1 10.0.0.1"), "PING 10.0.0.1 (10.0.0.1) 56(84) bytes of data.\nping: connect: Network is unreachable");
 });
 
+// ---- MPLS & L3VPN ----------------------------------------------------------------------------
+// PE1 - P - PE2 core with loopbacks in OSPF; each PE has two customer-facing ports (Gi0/1, Gi0/2).
+function mplsCore(extraDevs = [], extraLinks = []) {
+  const net = new Network({ devices: [R("PE1"), R("P"), R("PE2"), ...extraDevs],
+    links: [["PE1", G(0), "P", G(0)], ["P", G(1), "PE2", G(0)], ...extraLinks] });
+  const core = (lo, ip, nets) => ["int lo0", `ip add ${lo} 255.255.255.255`, "int g0/0", `ip add ${ip} 255.255.255.0`, "no shut",
+    "router ospf 1", `network ${lo} 0.0.0.0 area 0`, ...nets.map((n) => `network ${n} 0.0.0.255 area 0`), "exit"];
+  applyConfig(net, "PE1", core("1.1.1.1", "10.0.12.1", ["10.0.12.0"]));
+  applyConfig(net, "PE2", core("3.3.3.3", "10.0.23.3", ["10.0.23.0"]));
+  applyConfig(net, "P", ["int lo0", "ip add 2.2.2.2 255.255.255.255", "int g0/0", "ip add 10.0.12.2 255.255.255.0", "no shut",
+    "int g0/1", "ip add 10.0.23.2 255.255.255.0", "no shut", "router ospf 1", "network 2.2.2.2 0.0.0.0 area 0",
+    "network 10.0.12.0 0.0.0.255 area 0", "network 10.0.23.0 0.0.0.255 area 0", "exit"]);
+  return net;
+}
+
+test("LDP: sessions to reachable router IDs, implicit-null for connected prefixes, LFIB and labelled traceroute", () => {
+  const net = mplsCore();
+  assert.ok(!net.check({ type: "ldp-nbr", device: "PE1", neighbor: "2.2.2.2" }), "no LDP before MPLS is enabled");
+  applyConfig(net, "PE1", ["int g0/0", "mpls ip"]);
+  applyConfig(net, "P", ["router ospf 1", "mpls ldp autoconfig", "exit"]);
+  applyConfig(net, "PE2", ["int g0/0", "mpls ip"]);
+  assert.ok(net.check({ type: "ldp-nbr", device: "PE1", neighbor: "2.2.2.2" }));
+  assert.ok(net.check({ type: "ldp-nbr", device: "P", neighbor: "3.3.3.3" }));
+  assert.ok(net.check({ type: "mpls-if", device: "P", intf: "Gi0/1" }), "autoconfig covers the OSPF interfaces");
+  // The P router pops the label for PE2's loopback (PHP); PE1 swaps to P's label.
+  assert.ok(net.check({ type: "mpls-label", device: "P", prefix: "3.3.3.3/32", out: "pop" }));
+  assert.ok(net.check({ type: "mpls-label", device: "PE1", prefix: "3.3.3.3/32", out: "label" }));
+  assert.ok(net.check({ type: "mpls-trace", from: "PE1", to: "3.3.3.3" }));
+  const s = new Session(net, "PE1");
+  s.input("en");
+  const fib = s.input("show mpls forwarding-table");
+  assert.match(fib, /^Local {6}Outgoing {3}Prefix {11}Bytes Label {3}Outgoing {3}Next Hop/m);
+  assert.match(fib, /^16 {9}Pop Label  2\.2\.2\.2\/32 {7}0 {13}Gi0\/0 {6}10\.0\.12\.2$/m);
+  assert.match(fib, /^17 {9}\d+ {9}3\.3\.3\.3\/32/m);
+  assert.match(s.input("show mpls ldp neighbor"), /Peer LDP Ident: 2\.2\.2\.2:0; Local LDP Ident 1\.1\.1\.1:0[\s\S]*State: Oper[\s\S]*GigabitEthernet0\/0, Src IP addr: 10\.0\.12\.2/);
+  assert.match(s.input("show mpls ldp bindings"), /lib entry: 1\.1\.1\.1\/32, rev \d+\n {8}local binding:  label: imp-null/);
+  assert.match(s.input("traceroute 3.3.3.3"), /1 10\.0\.12\.2 \[MPLS: Label \d+ Exp 0\][\s\S]*2 3\.3\.3\.3 \d/);
+  assert.match(s.input("show running-config | section interface GigabitEthernet0/0"), /mpls ip/);
+  // An LDP router ID nobody can reach keeps the session down, though the link is fine.
+  applyConfig(net, "PE2", ["int lo1", "ip add 9.9.9.9 255.255.255.255", "exit", "mpls ldp router-id Loopback1 force"]);
+  assert.ok(!net.check({ type: "ldp-nbr", device: "P", neighbor: "9.9.9.9" }), "9.9.9.9 isn't in OSPF");
+  assert.match(new Session(net, "P").input("show mpls ldp discovery"), /GigabitEthernet0\/1 \(ldp\): xmit\/recv\n +LDP Id: 9\.9\.9\.9:0; no route/);
+  applyConfig(net, "PE2", ["router ospf 1", "network 9.9.9.9 0.0.0.0 area 0", "exit"]);
+  assert.ok(net.check({ type: "ldp-nbr", device: "P", neighbor: "9.9.9.9" }));
+});
+
+test("BGP-free core: MPLS carries BGP routes across a P router that has none", () => {
+  const net = mplsCore([P("PC1"), P("PC2")], [["PE1", G(1), "PC1", "eth0"], ["PE2", G(1), "PC2", "eth0"]]);
+  const bgp = (lan, peer) => ["router bgp 65000", `neighbor ${peer} remote-as 65000`, `neighbor ${peer} update-source lo0`, `neighbor ${peer} next-hop-self`, `network ${lan}`, "exit"];
+  applyConfig(net, "PE1", ["int g0/1", "ip add 192.168.1.1 255.255.255.0", "no shut", "exit", ...bgp("192.168.1.0", "3.3.3.3")]);
+  applyConfig(net, "PE2", ["int g0/1", "ip add 192.168.2.1 255.255.255.0", "no shut", "exit", ...bgp("192.168.2.0", "1.1.1.1")]);
+  applyConfig(net, "PC1", ["ip 192.168.1.10/24 192.168.1.1"]);
+  applyConfig(net, "PC2", ["ip 192.168.2.10/24 192.168.2.1"]);
+  assert.ok(net.check({ type: "bgp-route", device: "PE1", prefix: "192.168.2.0/24" }));
+  assert.ok(!net.ping("PC1", "192.168.2.10").ok, "P has no route to 192.168.2.0/24");
+  for (const d of ["PE1", "P", "PE2"]) applyConfig(net, d, ["router ospf 1", "mpls ldp autoconfig", "exit"]);
+  assert.ok(net.ping("PC1", "192.168.2.10").ok, "the packet is label-switched to PE2's loopback");
+  assert.ok(net.check({ type: "mpls-trace", from: "PC1", to: "192.168.2.10" }));
+});
+
+// Two customers with the same addresses: A has a CE router running eBGP at site 2, B is directly attached.
+function l3vpn() {
+  const net = mplsCore([R("CEA2"), P("PCA1"), P("PCB1"), P("PCA2"), P("PCB2")],
+    [["PE1", G(1), "PCA1", "eth0"], ["PE1", G(2), "PCB1", "eth0"], ["PE2", G(1), "CEA2", G(0)], ["CEA2", G(1), "PCA2", "eth0"], ["PE2", G(2), "PCB2", "eth0"]]);
+  const vrfs = ["vrf definition A", "rd 65000:1", "route-target both 65000:1", "address-family ipv4", "exit-address-family", "exit",
+    "vrf definition B", "rd 65000:2", "route-target both 65000:2", "address-family ipv4", "exit-address-family", "exit"];
+  const vpn = (peer) => ["router bgp 65000", `neighbor ${peer} remote-as 65000`, `neighbor ${peer} update-source lo0`, "address-family vpnv4",
+    `neighbor ${peer} activate`, `neighbor ${peer} send-community extended`, "exit-address-family"];
+  for (const d of ["PE1", "P", "PE2"]) applyConfig(net, d, ["router ospf 1", "mpls ldp autoconfig", "exit"]);
+  applyConfig(net, "PE1", [...vrfs, "int g0/1", "vrf forwarding A", "ip add 192.168.1.1 255.255.255.0", "no shut", "int g0/2", "vrf forwarding B",
+    "ip add 192.168.1.1 255.255.255.0", "no shut", "exit", ...vpn("3.3.3.3"), "address-family ipv4 vrf A", "redistribute connected", "exit-address-family",
+    "address-family ipv4 vrf B", "redistribute connected", "exit-address-family", "exit"]);
+  applyConfig(net, "PE2", [...vrfs, "int g0/1", "vrf forwarding A", "ip add 10.255.0.1 255.255.255.252", "no shut", "int g0/2", "vrf forwarding B",
+    "ip add 172.16.2.1 255.255.255.0", "no shut", "exit", ...vpn("1.1.1.1"), "address-family ipv4 vrf A", "redistribute connected",
+    "neighbor 10.255.0.2 remote-as 65001", "neighbor 10.255.0.2 activate", "exit-address-family", "address-family ipv4 vrf B", "redistribute connected", "exit-address-family", "exit"]);
+  applyConfig(net, "CEA2", ["int g0/0", "ip add 10.255.0.2 255.255.255.252", "no shut", "int g0/1", "ip add 172.16.2.1 255.255.255.0", "no shut", "exit",
+    "router bgp 65001", "neighbor 10.255.0.1 remote-as 65000", "network 172.16.2.0 mask 255.255.255.0", "exit"]);
+  for (const [pc, ip, gw] of [["PCA1", "192.168.1.10", "192.168.1.1"], ["PCB1", "192.168.1.10", "192.168.1.1"], ["PCA2", "172.16.2.10", "172.16.2.1"], ["PCB2", "172.16.2.10", "172.16.2.1"]]) {
+    applyConfig(net, pc, [`ip ${ip}/24 ${gw}`]);
+  }
+  return net;
+}
+
+test("L3VPN: VPNv4 between PEs, route targets, overlapping customers, PE-CE eBGP, two-label forwarding", () => {
+  const net = l3vpn();
+  assert.ok(net.check({ type: "vpnv4-nbr", device: "PE1", neighbor: "3.3.3.3" }));
+  assert.ok(net.check({ type: "bgp-vrf-nbr", device: "PE2", vrf: "A", neighbor: "10.255.0.2" }));
+  assert.ok(net.check({ type: "bgp-nbr", device: "CEA2", neighbor: "10.255.0.1" }), "the CE sees an ordinary eBGP session");
+  assert.ok(net.check({ type: "route", device: "PE1", vrf: "A", prefix: "172.16.2.0/24", code: "B", via: "3.3.3.3" }));
+  assert.ok(net.check({ type: "route", device: "PE1", vrf: "B", prefix: "172.16.2.0/24", code: "B" }));
+  assert.ok(!net.check({ type: "route", device: "PE1", vrf: "B", prefix: "10.255.0.0/30" }), "A's PE-CE link stays in A");
+  assert.ok(net.check({ type: "bgp-route", device: "CEA2", prefix: "192.168.1.0/24", path: "65000" }));
+  assert.equal(net.routes("P").filter((r) => r.net === ip2n("172.16.2.0")).length, 0, "P carries no customer routes");
+  assert.ok(net.ping("PCA1", "172.16.2.10").ok && net.ping("PCB1", "172.16.2.10").ok);
+  assert.ok(!net.ping("PCB1", "10.255.0.2").ok, "customer B can't reach customer A");
+  const hops = net.trace("PCA1", ip2n("172.16.2.10"), 10);
+  assert.deepEqual(hops.map((h) => (h.labels || []).length), [0, 2, 1, 0, 0], "transport + VPN label, then the VPN label after PHP");
+  const s = new Session(net, "PE1");
+  s.input("en");
+  assert.match(s.input("traceroute vrf A 172.16.2.10"), /1 10\.0\.12\.2 \[MPLS: Labels \d+\/\d+ Exp 0\][\s\S]*2 10\.0\.23\.3 \[MPLS: Label \d+ Exp 0\]/);
+  assert.match(s.input("ping vrf A 172.16.2.10"), /Success rate is [1-9]/);
+  assert.match(s.input("show bgp vpnv4 unicast all"), /Route Distinguisher: 65000:1 \(default for vrf A\)[\s\S]*\*>i 172\.16\.2\.0\/24 +3\.3\.3\.3 +0 +100 +0 65001 i/);
+  assert.match(s.input("show bgp vpnv4 unicast all summary"), /^3\.3\.3\.3 +4 +65000 /m);
+  assert.match(s.input("show mpls forwarding-table vrf A"), /192\.168\.1\.0\/24\[V\] +\\\n +0 +aggregate\/A/);
+  assert.match(s.input("show ip route vrf A"), /B +172\.16\.2\.0 \[200\/0\] via 3\.3\.3\.3/);
+  const pe2 = new Session(net, "PE2");
+  pe2.input("en");
+  assert.match(pe2.input("show running-config"),
+    /address-family vpnv4\n  neighbor 1\.1\.1\.1 activate\n  neighbor 1\.1\.1\.1 send-community extended\n exit-address-family\n !\n address-family ipv4 vrf A\n  redistribute connected\n  neighbor 10\.255\.0\.2 remote-as 65001\n  neighbor 10\.255\.0\.2 activate/);
+});
+
+test("L3VPN faults: no extended communities, route-target mismatch, a broken LSP", () => {
+  const net = l3vpn();
+  // Without send-community extended the route targets don't travel, so nothing is imported.
+  applyConfig(net, "PE2", ["router bgp 65000", "address-family vpnv4", "no neighbor 1.1.1.1 send-community extended", "exit-address-family", "exit"]);
+  assert.ok(net.check({ type: "vpnv4-nbr", device: "PE1", neighbor: "3.3.3.3" }), "the session itself stays up");
+  assert.ok(!net.check({ type: "vpn-route", device: "PE1", vrf: "A", prefix: "172.16.2.0/24" }));
+  applyConfig(net, "PE2", ["router bgp 65000", "address-family vpnv4", "neighbor 1.1.1.1 send-community extended", "exit-address-family", "exit"]);
+  assert.ok(net.check({ type: "vpn-route", device: "PE1", vrf: "A", prefix: "172.16.2.0/24", imported: true }));
+  // A VRF that doesn't import the far end's target sees nothing from it.
+  applyConfig(net, "PE1", ["vrf definition B", "no route-target import 65000:2", "route-target import 65000:99", "exit"]);
+  assert.ok(!net.check({ type: "route", device: "PE1", vrf: "B", prefix: "172.16.2.0/24" }));
+  assert.ok(!net.ping("PCB1", "172.16.2.10").ok);
+  applyConfig(net, "PE1", ["vrf definition B", "route-target import 65000:2", "exit"]);
+  assert.ok(net.ping("PCB1", "172.16.2.10").ok);
+  // Without LDP on P's link to PE2 there is no transport label: BGP is fine, VPN traffic isn't.
+  applyConfig(net, "P", ["int g0/1", "no mpls ldp igp autoconfig", "exit"]);
+  assert.ok(net.check({ type: "route", device: "PE1", vrf: "A", prefix: "172.16.2.0/24", code: "B" }));
+  assert.ok(net.ping("PE1", "3.3.3.3").ok, "plain IP still works");
+  assert.ok(!net.ping("PCA1", "172.16.2.10").ok);
+  assert.ok(net.check({ type: "mpls-label", device: "P", prefix: "3.3.3.3/32", out: "none" }));
+  applyConfig(net, "P", ["int g0/1", "mpls ldp igp autoconfig", "exit"]);
+  assert.ok(net.ping("PCA1", "172.16.2.10").ok);
+});
+
+test("L3VPN PE-CE options: static and VRF OSPF with redistribution, as-override for a reused customer AS", () => {
+  const net = mplsCore([R("CE1"), R("CE2")], [["PE1", G(1), "CE1", G(0)], ["PE2", G(1), "CE2", G(0)]]);
+  for (const d of ["PE1", "P", "PE2"]) applyConfig(net, d, ["router ospf 1", "mpls ldp autoconfig", "exit"]);
+  const vrf = ["vrf definition A", "rd 65000:1", "route-target both 65000:1", "address-family ipv4", "exit-address-family", "exit"];
+  const vpn = (peer) => ["router bgp 65000", `neighbor ${peer} remote-as 65000`, `neighbor ${peer} update-source lo0`, "address-family vpnv4",
+    `neighbor ${peer} activate`, `neighbor ${peer} send-community extended`, "exit-address-family"];
+  applyConfig(net, "PE1", [...vrf, "int g0/1", "vrf forwarding A", "ip add 10.1.1.1 255.255.255.252", "no shut", "exit",
+    "ip route vrf A 192.168.1.0 255.255.255.0 10.1.1.2", ...vpn("3.3.3.3"), "address-family ipv4 vrf A", "redistribute static", "redistribute connected", "exit-address-family", "exit"]);
+  applyConfig(net, "CE1", ["int g0/0", "ip add 10.1.1.2 255.255.255.252", "no shut", "int lo0", "ip add 192.168.1.1 255.255.255.0", "exit", "ip route 0.0.0.0 0.0.0.0 10.1.1.1"]);
+  applyConfig(net, "PE2", [...vrf, "int g0/1", "vrf forwarding A", "ip add 10.2.2.1 255.255.255.252", "no shut", "exit",
+    "router ospf 10 vrf A", "network 10.2.2.0 0.0.0.3 area 0", "redistribute bgp 65000 subnets", "exit",
+    ...vpn("1.1.1.1"), "address-family ipv4 vrf A", "redistribute ospf 10", "exit-address-family", "exit"]);
+  applyConfig(net, "CE2", ["vrf definition A", "address-family ipv4", "exit-address-family", "exit", "int g0/0", "vrf forwarding A", "ip add 10.2.2.2 255.255.255.252", "no shut",
+    "int lo0", "vrf forwarding A", "ip add 192.168.2.1 255.255.255.0", "exit", "router ospf 10 vrf A", "network 10.2.2.0 0.0.0.3 area 0", "network 192.168.2.0 0.0.0.255 area 0", "exit"]);
+  // OSPF advertises CE2's loopback as a host route.
+  assert.ok(net.check({ type: "route", device: "PE1", vrf: "A", prefix: "192.168.2.1/32", code: "B" }), "CE2's OSPF route went into BGP");
+  assert.ok(net.check({ type: "route", device: "CE2", vrf: "A", prefix: "192.168.1.0/24", code: "O E2" }), "and PE2 hands remote routes to OSPF");
+  assert.ok(net.check({ type: "route", device: "CE2", vrf: "A", prefix: "10.1.1.0/30", code: "O E2" }));
+  const s = new Session(net, "CE1");
+  s.input("en");
+  assert.match(s.input("ping 192.168.2.1 source 192.168.1.1"), /Success rate is [1-9]/);
+  // Two sites in the same customer AS: each CE drops the other's routes (its own AS is in the path)
+  // until the PEs override the AS on the way out.
+  const net2 = mplsCore([R("S1"), R("S2")], [["PE1", G(1), "S1", G(0)], ["PE2", G(1), "S2", G(0)]]);
+  for (const d of ["PE1", "P", "PE2"]) applyConfig(net2, d, ["router ospf 1", "mpls ldp autoconfig", "exit"]);
+  for (const [pe, peer, ce, n] of [["PE1", "3.3.3.3", "S1", 1], ["PE2", "1.1.1.1", "S2", 2]]) {
+    applyConfig(net2, pe, [...vrf, "int g0/1", "vrf forwarding A", `ip add 10.9.${n}.1 255.255.255.252`, "no shut", "exit", ...vpn(peer),
+      "address-family ipv4 vrf A", `neighbor 10.9.${n}.2 remote-as 65001`, "exit-address-family", "exit"]);
+    applyConfig(net2, ce, ["int g0/0", `ip add 10.9.${n}.2 255.255.255.252`, "no shut", "int lo0", `ip add 172.16.${n}.1 255.255.255.0`, "exit",
+      "router bgp 65001", `neighbor 10.9.${n}.1 remote-as 65000`, `network 172.16.${n}.0 mask 255.255.255.0`, "exit"]);
+  }
+  assert.ok(net2.check({ type: "vpn-route", device: "PE2", vrf: "A", prefix: "172.16.1.0/24", imported: true }));
+  assert.ok(!net2.check({ type: "bgp-route", device: "S2", prefix: "172.16.1.0/24", best: false }), "S2 sees 65001 in the path and drops it");
+  for (const [pe, n] of [["PE1", 1], ["PE2", 2]]) {
+    applyConfig(net2, pe, ["router bgp 65000", "address-family ipv4 vrf A", `neighbor 10.9.${n}.2 as-override`, "exit-address-family", "exit"]);
+  }
+  assert.ok(net2.check({ type: "bgp-route", device: "S2", prefix: "172.16.1.0/24", path: "65000 65000" }));
+  const s2 = new Session(net2, "S2");
+  s2.input("en");
+  assert.match(s2.input("ping 172.16.1.1 source 172.16.2.1"), /Success rate is [1-9]/);
+});
+
 console.log(`ios: ${passed} tests passed`);

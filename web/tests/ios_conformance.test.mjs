@@ -1494,6 +1494,78 @@ section("NETCONF");
   }
 }
 
+section("CCNP MPLS and L3VPN");
+{
+  const probe = router("config");
+  if (!supports(probe, "R1", "mpls ")) skip("MPLS", "no mpls yet");
+  else {
+    // R1 - R2 - R3 in a line, OSPF with loopbacks, LDP on every link.
+    const chain = (extra = {}) => {
+      const t = lab([R("R1"), R("R2"), R("R3")], [["R1", G(0), "R2", G(0)], ["R2", G(1), "R3", G(0)]]);
+      const base = (n, links) => [`hostname R${n}`, "interface loopback0", `ip address ${n}.${n}.${n}.${n} 255.255.255.255`,
+        ...links.flatMap(([ifn, ip]) => [`interface ${ifn}`, `ip address ${ip} 255.255.255.0`, "no shutdown", "mpls ip"]),
+        "router ospf 1", "network 0.0.0.0 255.255.255.255 area 0", "exit", ...(extra[n] || [])];
+      t.conf("R1", ...base(1, [["g0/0", "10.12.0.1"]]));
+      t.conf("R2", ...base(2, [["g0/0", "10.12.0.2"], ["g0/1", "10.23.0.2"]]));
+      t.conf("R3", ...base(3, [["g0/0", "10.23.0.3"]]));
+      return t;
+    };
+    check("LDP neighbor log", () => {
+      const t = lab([R("R1"), R("R2")], [["R1", G(0), "R2", G(0)]]);
+      t.conf("R1", "interface loopback0", "ip address 1.1.1.1 255.255.255.255", "interface g0/0", "ip address 10.12.0.1 255.255.255.0", "no shutdown", "mpls ip",
+        "router ospf 1", "network 0.0.0.0 255.255.255.255 area 0");
+      const out = t.conf("R2", "interface loopback0", "ip address 2.2.2.2 255.255.255.255", "interface g0/0", "ip address 10.12.0.2 255.255.255.0", "no shutdown",
+        "mpls ip", "router ospf 1", "network 0.0.0.0 255.255.255.255 area 0");
+      has(out, /%LDP-5-NBRCHG: LDP Neighbor 1\.1\.1\.1:0 \(1\) is UP/);
+    });
+    check("show mpls ldp neighbor", () => {
+      const out = chain().run("R1", "show mpls ldp neighbor");
+      has(out, /^ {4}Peer LDP Ident: 2\.2\.2\.2:0; Local LDP Ident 1\.1\.1\.1:0$/m);
+      has(out, /^ {8}TCP connection: 2\.2\.2\.2\.\d+ - 1\.1\.1\.1\.\d+$/m);
+      has(out, /^ {8}State: Oper; Msgs sent\/rcvd: \d+\/\d+; Downstream$/m);
+      has(out, /^ {8}LDP discovery sources:\n {10}GigabitEthernet0\/0, Src IP addr: 10\.12\.0\.2$/m);
+      has(out, /^ {8}Addresses bound to peer LDP Ident:$/m);
+    });
+    check("one end of the LDP TCP connection is port 646", () => has(chain().run("R1", "show mpls ldp neighbor"), /TCP connection: (2\.2\.2\.2\.646 - 1\.1\.1\.1\.\d+|2\.2\.2\.2\.\d+ - 1\.1\.1\.1\.646)/));
+    check("show mpls forwarding-table", () => {
+      const out = chain().run("R1", "show mpls forwarding-table");
+      has(out, /^Local {6}Outgoing {3}Prefix {11}Bytes Label {3}Outgoing {3}Next Hop/m);
+      has(out, /^Label {6}Label {6}or Tunnel Id {5}Switched {6}interface/m);
+      has(out, /^\d+ +Pop Label +2\.2\.2\.2\/32 +0 +Gi0\/0 +10\.12\.0\.2$/m);
+      has(out, /^\d+ +\d+ +3\.3\.3\.3\/32 +0 +Gi0\/0 +10\.12\.0\.2$/m);
+    });
+    check("show mpls interfaces", () => {
+      const out = chain().run("R1", "show mpls interfaces");
+      has(out, /^Interface {14}IP {12}Tunnel {3}BGP Static Operational$/m);
+      has(out, /^GigabitEthernet0\/0 {5}Yes \(ldp\) {5}No {7}No  No {5}Yes$/m);
+    });
+    check("traceroute shows the label stack", () => {
+      const out = chain().run("R1", "traceroute 3.3.3.3");
+      has(out, /^  1 10\.12\.0\.2 \[MPLS: Label \d+ Exp 0\] \d+ msec/m);
+      has(out, /^  2 3\.3\.3\.3 \d+ msec/m); // the last hop gets a plain IP packet (penultimate hop popping)
+    });
+    check("local bindings: implicit-null for connected prefixes", () => {
+      has(chain().run("R1", "show mpls ldp bindings"), /lib entry: 1\.1\.1\.1\/32, rev \d+\n {8}local binding:  label: imp-null/);
+    });
+    check("VPNv4 table groups routes by route distinguisher", () => {
+      const vrf = ["vrf definition A", "rd 65000:1", "route-target both 65000:1", "address-family ipv4", "exit-address-family", "exit",
+        "interface loopback1", "vrf forwarding A"];
+      const t = chain({
+        1: [...vrf, "ip address 192.168.1.1 255.255.255.0", "exit", "router bgp 65000", "neighbor 3.3.3.3 remote-as 65000", "neighbor 3.3.3.3 update-source loopback0",
+          "address-family vpnv4", "neighbor 3.3.3.3 activate", "neighbor 3.3.3.3 send-community extended", "exit-address-family",
+          "address-family ipv4 vrf A", "redistribute connected"],
+        3: [...vrf, "ip address 192.168.3.1 255.255.255.0", "exit", "router bgp 65000", "neighbor 1.1.1.1 remote-as 65000", "neighbor 1.1.1.1 update-source loopback0",
+          "address-family vpnv4", "neighbor 1.1.1.1 activate", "neighbor 1.1.1.1 send-community extended", "exit-address-family",
+          "address-family ipv4 vrf A", "redistribute connected"],
+      });
+      const out = t.run("R1", "show bgp vpnv4 unicast all");
+      has(out, /^Route Distinguisher: 65000:1 \(default for vrf A\)$/m);
+      has(out, /^ \*>i 192\.168\.3\.0\/24 +3\.3\.3\.3 +0 +100 +0 \?$/m);
+      has(t.run("R1", "show ip route vrf A"), /^B +192\.168\.3\.0\/24 \[200\/0\] via 3\.3\.3\.3/m);
+    });
+  }
+}
+
 // ---------------------------------------------------------------- report
 for (const [name, why] of failures) console.error("FAIL: " + name + "\n  " + why.split("\n").join("\n  "));
 if (process.env.VERBOSE) {

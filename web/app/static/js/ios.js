@@ -789,8 +789,10 @@ export class Network {
     let cur = src, originated = true, ttl = pkt.ttl ?? 255, inIf = null, prev = null;
     // The routing table a packet is looked up in: the VRF of the interface it arrived on.
     let vrf = opts.vrf ?? null;
+    const mp = { lsp: null, labels: null }; // MPLS: the LSP a labelled packet rides (see the MPLS & L3VPN section)
     for (let n = 0; n < 40; n++) {
       const d = this.devs[cur];
+      if (mp.lsp && this.mplsEgressAt(cur, mp.lsp)) { vrf = mp.lsp.vrf; mp.lsp = null; }
       res.vrf = vrf;
       // NAT outside-to-inside happens before routing.
       if (!originated && d.type === "router" && d.cfg.intfs[inIf].nat === "outside") this.natInbound(cur, pkt, opts);
@@ -800,7 +802,7 @@ export class Network {
         if (opts.record) { const v = d.rt.urpf || (d.rt.urpf = {}); v[inIf] = (v[inIf] || 0) + 1; }
         return { ...res, fail: "urpf", failAt: cur };
       }
-      if (this.ownsIpIn(cur, pkt.dst, vrf)) {
+      if (!mp.lsp && this.ownsIpIn(cur, pkt.dst, vrf)) {
         res.ok = true;
         res.at = cur;
         if (opts.record && pkt.proto === "icmp" && d.rt.debug && d.rt.debug.icmp) {
@@ -811,11 +813,13 @@ export class Network {
       }
       if (!originated) {
         if (!this.isL3(d)) return { ...res, fail: "drop", failAt: cur };
-        if (--ttl <= 0) return { ...res, fail: "ttl", failAt: cur };
+        if (--ttl <= 0) return { ...res, fail: "ttl", failAt: cur, lsp: mp.lsp };
       }
       // Policy-based routing overrides the routing table for matching packets (global table only).
       const pol = d.type === "router" && !vrf ? (originated ? d.cfg.localPolicy : d.cfg.intfs[inIf].policy) : null;
-      const eg = (pol && this.pbrEgress(cur, pol, pkt, originated ? null : inIf, opts))
+      const mpls = d.type === "router" ? this.mplsForward(cur, pkt, vrf, mp) : null;
+      if (mpls && mpls.fail) return { ...res, fail: mpls.fail, failAt: cur };
+      const eg = mpls || (pol && this.pbrEgress(cur, pol, pkt, originated ? null : inIf, opts))
         || (this.isL3(d) ? this.routerEgress(cur, pkt.dst, 0, vrf) : this.hostEgress(cur, pkt.dst));
       if (eg.fail) return { ...res, fail: eg.fail, failAt: cur };
       // NAT inside-to-outside happens after routing, before the outbound ACL.
@@ -881,6 +885,9 @@ export class Network {
       vrf = this.vrfOf(cur, inIf);
       const td = this.devs[cur];
       res.hops.push({ dev: cur, ip: this.ifAddr(cur, tgt.ifn).ip, ifn: tgt.ifn });
+      const labels = eg.labels || mp.labels;
+      if (labels && labels.length) res.hops[res.hops.length - 1].labels = labels;
+      mp.labels = null;
       if (td.type === "router") {
         const acl = td.cfg.intfs[tgt.ifn].aclIn;
         if (acl && !this.aclPermits(cur, acl, pkt, opts.record)) return { ...res, fail: "acl", failAt: cur };
@@ -1113,8 +1120,11 @@ export class Network {
       }
       if (r.fail === "ttl") {
         const h = r.hops.filter((x) => x.dev === r.failAt).pop();
-        const back = this.deliver(r.failAt, { src: h.ip, dst: r.pkt.src, proto: "icmp", icmp: "time-exceeded", id: r.pkt.id }, { ...o, vrf: r.vrf });
-        out.push({ ip: home(back) ? h.ip : null });
+        // A router in the middle of an LSP sends its time-exceeded on along the LSP; the far end routes it back.
+        const via = r.lsp ? this.mplsTtlReturn(r.lsp) : null;
+        const back = this.deliver(via ? via.dev : r.failAt, { src: h.ip, dst: r.pkt.src, proto: "icmp", icmp: "time-exceeded", id: r.pkt.id },
+          { ...o, vrf: via ? via.vrf : r.vrf });
+        out.push({ ip: home(back) ? h.ip : null, labels: h.labels });
         continue;
       }
       const by = this.ifFacing(r);
@@ -1286,6 +1296,7 @@ export class Network {
       if (this.routingSettle(log)) changed = true;
       if (this.switchingSettle(log)) { changed = true; this.touch(); }
       if (this.bgpSettle(log)) { changed = true; this.touch(); }
+      if (this.mplsSettle(log)) changed = true;
       if (!changed) break;
     }
     return logs;
@@ -1849,6 +1860,7 @@ export class Network {
         if (VPN_CHECKS.has(c.type)) return Boolean(this.vpnCheck(c, d, intf));
         if (ROUTING_CHECKS.has(c.type)) return Boolean(this.checkRouting(c));
         if (AUTO_CHECKS.has(c.type)) return Boolean(this.autoCheck(c, d, intf));
+        if (MPLS_CHECKS.has(c.type)) return Boolean(this.mplsCheck(c, d, intf));
         throw new Error("unknown check type " + c.type);
       }
     }
@@ -3766,7 +3778,7 @@ export function runningConfig(net, dn, onlyIf) {
       for (const [v, k] of Object.entries(s.vcost).sort((a, b) => a[0] - b[0])) L.push(` spanning-tree vlan ${v} cost ${k}`);
       L.push(...swPortLines(i));
     }
-    if (d.type === "router") L.push(...vpnIntfLines(c, n, i));
+    if (d.type === "router") L.push(...vpnIntfLines(c, n, i), ...mplsIntfLines(i));
     if (i.duplex) L.push(" duplex " + i.duplex);
     if (i.speed) L.push(" speed " + i.speed);
     if (!i.cdp) L.push(" no cdp enable");
@@ -3829,12 +3841,13 @@ export function runningConfig(net, dn, onlyIf) {
     L.push("!");
   }
   L.push(...svcConfig(d, "objects"));
-  if (d.type === "router") L.push(...vpnGlobalLines(c));
+  if (d.type === "router") L.push(...mplsHeadLines(c), ...vpnGlobalLines(c));
   for (const n of Object.keys(c.intfs).sort(ifSort)) L.push(...intfBlock(n), "!");
   if (c.eigrp) L.push(...eigrpConfig(c.eigrp), "!");
   for (const o of ospfProcs(c)) L.push(...ospfConfig(o), "!");
   if (d.type === "router" && c.bgp) L.push(...bgpConfig(c), "!");
   L.push(...routingTailLines(c));
+  if (d.type === "router") L.push(...mplsTailLines(c));
   if (d.type === "switch" && c.gateway !== null) L.push("ip default-gateway " + n2ip(c.gateway));
   if (d.type === "switch") L.push(...aclConfigLines(c), ...bgpPolicyConfig(c));
   if (d.type === "router") {
@@ -4597,6 +4610,7 @@ function showVersion(net, dn) {
 // ======== CCNP routing: running-config sections ========
 function ospfConfig(o) {
   const L = ["router ospf " + o.pid];
+  if (o.ldpAuto) L.push(" mpls ldp autoconfig" + (o.ldpAuto.area !== null ? " area " + areaStr(o.ldpAuto.area) : ""));
   if (o.rid !== null && o.rid !== undefined) L.push(" router-id " + n2ip(o.rid));
   if (o.refBw !== 100) L.push(" auto-cost reference-bandwidth " + o.refBw);
   const areas = Object.entries(o.areas || {}).map(([a, ac]) => [+a, ac]).sort((x, y) => x[0] - y[0]);
@@ -10230,6 +10244,7 @@ Object.assign(Network.prototype, {
         s.afs = BGP_AFS.filter((af) => b.nbrs[s.key].af[af].active && pb.nbrs[s.peerKey].af[af].active);
       }
     }
+    this.vpnSessions(out); // PE-CE sessions in VRFs (MPLS & L3VPN section)
     for (const af of BGP_AFS) this.bgpExchange(out, af);
     return out;
   },
@@ -10413,11 +10428,12 @@ Object.assign(Network.prototype, {
           if (!s.up) continue;
           const sent = s.afs.includes(af) ? this.bgpAdvertise(out, dn, s, af) : [];
           s.sent[af] = sent.length;
-          const t = out[s.peer].nbrs[s.peerKey];
+          const t = s.vrfPeer || out[s.peer].nbrs[s.peerKey]; // a CE's session lives in its PE's VRF
           if (JSON.stringify(t.raw[af]) !== JSON.stringify(sent)) { t.raw[af] = sent; changed = true; }
           t.rcvd[af] = sent.length;
         }
       }
+      if (af === "ipv4" && this.vpnRound(out)) changed = true;
       if (!changed) break;
     }
   },
@@ -10909,7 +10925,7 @@ function bgpConfig(c) {
     if (a.rmOut) out.push(`${ind}neighbor ${k} route-map ${a.rmOut} out`);
     return out;
   };
-  const blocks = !!b.af.ipv6 || !b.v4default;
+  const blocks = !!b.af.ipv6 || !b.v4default || hasVpnBgp(b);
   if (!blocks) L.push(...afHead("ipv4", " "));
   for (const [k, n] of nbrs) {
     L.push(` neighbor ${k} remote-as ${n.remoteAs}`);
@@ -10929,6 +10945,7 @@ function bgpConfig(c) {
       L.push(" exit-address-family");
     }
   }
+  L.push(...mplsBgpLines(b));
   return L;
 }
 
@@ -12109,7 +12126,7 @@ export class Session {
       const n = lpad(i + 1, 3);
       if (h.ip === null) this.print(`${n}  *  *  * `);
       else if (h.code) this.print(`${n} ${n2ip(h.ip)} !${h.code}  *  !${h.code} `);
-      else this.print(`${n} ${n2ip(h.ip)} ${i + 1} msec ${i} msec ${i + 1} msec`);
+      else this.print(`${n} ${n2ip(h.ip)} ${h.labels && h.labels.length ? `[MPLS: ${labelsStr(h.labels)} Exp 0] ` : ""}${i + 1} msec ${i} msec ${i + 1} msec`);
     });
     const r = net.ping(dn, dst);
     this.anim = { from: dn, links: r.links, ok: r.ok, failAt: r.failAt };
@@ -13271,6 +13288,7 @@ function vpnRoutingLines(c) {
     } else for (const n of o.passive) L.push(" passive-interface " + n);
     for (const n of o.networks) L.push(` network ${n2ip(n.addr)} ${n2ip(n.wild)} area ${n.area}`);
     if (o.defaultOriginate) L.push(" default-information originate" + (o.defaultAlways ? " always" : ""));
+    if (o.redistBgp) L.push(` redistribute bgp ${o.redistBgp.asn}${o.redistBgp.subnets ? " subnets" : ""}`);
     L.push("!");
   }
   return L;
@@ -14015,7 +14033,7 @@ Object.assign(Session.prototype, {
       const n = lpad(i + 1, 3);
       if (h.ip === null) this.print(`${n}  *  *  * `);
       else if (h.code) this.print(`${n} ${n2ip(h.ip)} !${h.code}  *  !${h.code} `);
-      else this.print(`${n} ${n2ip(h.ip)} ${i + 1} msec ${i} msec ${i + 1} msec`);
+      else this.print(`${n} ${n2ip(h.ip)} ${h.labels && h.labels.length ? `[MPLS: ${labelsStr(h.labels)} Exp 0] ` : ""}${i + 1} msec ${i} msec ${i + 1} msec`);
     });
     const r = net.ping(dn, dst, { vrf });
     this.anim = { from: dn, links: r.links, ok: r.ok, failAt: r.failAt };
@@ -17450,3 +17468,948 @@ Object.assign(Session.prototype, {
     }
   },
 });
+// ======== MPLS & L3VPN ========
+// MPLS with LDP: an interface runs LDP when it has `mpls ip` (or OSPF's `mpls ldp autoconfig` covers
+// it). Routers discover each other over such links and open a session to each other's LDP router ID
+// (TCP 646), which only works when that address is reachable. Every LDP router binds a local label to
+// each IGP prefix in its table (implicit-null for its connected networks, so the last hop is popped
+// one router early) and keeps every peer's bindings; the LFIB pairs each local label with the label
+// the next hop advertised. Plain IP traffic follows the IGP either way, but traceroute shows the
+// labels, and a BGP route whose next hop has a label is label-switched across a core that has no BGP.
+//
+// L3VPN: on a PE, `address-family ipv4 vrf X` under router bgp turns a VRF's routes (redistributed,
+// network statements, or learned from a CE over eBGP) into VPNv4 routes: the VRF's RD, its export
+// route targets and a VPN label. PEs exchange them over iBGP sessions that have `address-family vpnv4`
+// active on both ends; extended communities (the route targets) only travel with `send-community
+// extended`. A PE imports a VPNv4 route into every VRF whose import targets it carries. Traffic for
+// such a route is sent with two labels, the transport label for the remote PE's address and the VPN
+// label, so the P routers in between need no customer routes; it fails if any hop on the way has no
+// label binding for the remote PE. Customers can reuse the same addresses in different VRFs.
+//
+// The shared code reaches in through: Network#ldp/mplsIfs (control plane), mplsForward (one hop of the
+// data plane, called from deliver()), vpnSessions and vpnRound (called from the BGP engine), the
+// vrfRoutes and sourceIp overrides below, mplsSettle (logs), mplsCheck (lab checks) and the
+// mpls...Lines functions (running-config).
+
+const mplsOf = (c) => c.mpls || {};
+const vpnBgpOf = (b) => (b && b.vpnv4) || { nbrs: {} };
+const vrfBgpOf = (b) => (b && b.vrfAf) || {};
+const IMP_NULL = 3;
+const LDP_PORT = 646;
+const newVpnNbr = () => ({ active: true, ext: false, std: false, nhs: false });
+const newVrfBgp = () => ({ networks: [], redist: {}, nbrs: {} });
+const newVrfNbr = (remoteAs) => ({ remoteAs, active: true, asOverride: false, allowas: false, shutdown: false });
+const hasVpnBgp = (b) => !!b && (Object.keys(vpnBgpOf(b).nbrs).length > 0 || Object.keys(vrfBgpOf(b)).length > 0);
+const ldpIdent = (ip) => n2ip(ip) + ":0";
+const labelsStr = (l) => (l.length > 1 ? "Labels " + l.join("/") : "Label " + l[0]);
+
+const vrfRoutesWithoutBgp = Network.prototype.vrfRoutes;
+const sourceIpWithoutVpn = Network.prototype.sourceIp;
+
+Object.assign(Network.prototype, {
+  // -- LDP: the control plane --------------------------------------------------------------------
+  // Interfaces LDP runs on: up, in the global table, with `mpls ip` or covered by OSPF autoconfig.
+  mplsIfsConfigured(dn) {
+    const d = this.devs[dn];
+    if (!d || d.type !== "router" || mplsOf(d.cfg).off) return [];
+    let owners = null;
+    const out = [];
+    for (const n of Object.keys(d.cfg.intfs).sort(ifSort)) {
+      const i = d.cfg.intfs[n];
+      if (n.startsWith("Loopback") || isTun(n) || i.vrf) continue;
+      if (i.mpls) { out.push(n); continue; }
+      if (i.ldpIgp === false || i.ip === null) continue;
+      if (!ospfProcs(d.cfg).some((o) => o.ldpAuto)) continue;
+      owners = owners || this.ospfIfOwners(dn);
+      const w = owners[n], o = w && ospfProcs(d.cfg).find((x) => x.pid === w.pid);
+      if (o && o.ldpAuto && (o.ldpAuto.area === null || o.ldpAuto.area === w.area)) out.push(n);
+    }
+    return out;
+  },
+
+  mplsIfs(dn) {
+    const all = this.c.mplsIfs || (this.c.mplsIfs = {});
+    if (!all[dn]) all[dn] = this.mplsIfsConfigured(dn).filter((n) => this.ifUp(dn, n) && this.ifAddr(dn, n));
+    return all[dn];
+  },
+
+  // The LDP router ID: the configured interface's address, else the highest loopback, else the highest address.
+  ldpId(dn) {
+    const m = mplsOf(this.devs[dn].cfg);
+    if (m.ridIf && this.ifUp(dn, m.ridIf) && this.ifAddr(dn, m.ridIf)) return this.ifAddr(dn, m.ridIf).ip;
+    const ips = (lo) => this.upIfs(dn).filter((n) => !this.vrfOf(dn, n) && lo === n.startsWith("Loopback")).map((n) => this.ifAddr(dn, n).ip);
+    const lo = ips(true), all = ips(false);
+    return lo.length ? Math.max(...lo) : all.length ? Math.max(...all) : null;
+  },
+
+  // Local label bindings: one per IGP prefix in the global table. They only depend on the table, so
+  // the BGP engine can use them (for VPN label numbers) while it computes.
+  ldpBindings(dn) {
+    this.c.ldpBind = this.c.ldpBind || {};
+    if (this.c.ldpBind[dn]) return this.c.ldpBind[dn];
+    const out = {};
+    if (this.mplsIfs(dn).length) {
+      let next = 16;
+      const igp = this.routes(dn).filter((r) => r.code !== "L" && r.code !== "B" && !r.bgp);
+      for (const r of [...igp].sort((a, b) => a.net - b.net || a.len - b.len)) {
+        out[pk(r.net, r.len)] = r.code === "C" ? IMP_NULL : next++;
+      }
+    }
+    if (!this.c.bgpBusy) this.c.ldpBind[dn] = out;
+    return out;
+  },
+
+  // Discovery and sessions for every LDP router: {dev: {id, ifs, adj: [{ifn, peer, src}], sessions: {peer: {...}}}}.
+  ldp() {
+    if (this.c.ldp) return this.c.ldp;
+    this.c.ldpBusy = true;
+    try {
+      const per = {};
+      for (const d of Object.values(this.devs)) {
+        const ifs = this.mplsIfs(d.name);
+        if (ifs.length) per[d.name] = { dev: d.name, id: this.ldpId(d.name), ifs, adj: [], sessions: {} };
+      }
+      for (const me of Object.values(per)) {
+        for (const ifn of me.ifs) {
+          for (const e of this.flood(me.dev, ifn)) {
+            const them = per[e.dev];
+            if (!them || e.dev === me.dev || !them.ifs.includes(e.ifn)) continue;
+            me.adj.push({ ifn, peer: e.dev, peerIf: e.ifn, src: this.ifAddr(e.dev, e.ifn).ip });
+          }
+        }
+      }
+      for (const me of Object.values(per)) {
+        for (const a of me.adj) {
+          if (me.sessions[a.peer]) { me.sessions[a.peer].adj.push(a); continue; }
+          const them = per[a.peer];
+          const up = me.id !== null && them.id !== null && me.id !== them.id
+            && this.ldpTcp(me.dev, me.id, them.id, them.dev) && this.ldpTcp(them.dev, them.id, me.id, me.dev);
+          me.sessions[a.peer] = { peer: a.peer, peerId: them.id, up, adj: [a] };
+        }
+      }
+      this.c.ldp = per;
+      return per;
+    } finally { this.c.ldpBusy = false; }
+  },
+
+  // One LDP TCP connection attempt between two transport addresses.
+  ldpTcp(from, src, dst, expect) {
+    const r = this.deliver(from, { src, dst, proto: "tcp", port: LDP_PORT, ttl: 255, id: LDP_PORT }, { natTmp: {} });
+    return r.ok && r.at === expect;
+  },
+
+  ldpUp(a, b) {
+    const s = this.ldp()[a];
+    return !!s && !!s.sessions[b] && s.sessions[b].up;
+  },
+
+  // The router on the far side of a next hop (global table).
+  nhRouter(dn, ifn, nh) {
+    const e = this.flood(dn, ifn).find((x) => this.devs[x.dev].type === "router" && this.ifAddrs(x.dev, x.ifn).some((a) => a.ip === nh));
+    return e ? e.dev : null;
+  },
+
+  // The label a router gets from its next hop for prefix key k: a number, IMP_NULL, or null (no label).
+  mplsOutLabel(dn, ifn, nh, k) {
+    const r = this.nhRouter(dn, ifn, nh);
+    if (!r || !this.mplsIfs(dn).includes(ifn) || !this.ldpUp(dn, r)) return null;
+    const b = this.ldpBindings(r)[k];
+    return b === undefined ? null : b;
+  },
+
+  // Label forwarding table rows: {local, out, prefix, ifn, nh, vrf?}.
+  lfib(dn) {
+    const local = this.ldpBindings(dn), rows = [];
+    for (const r of this.routes(dn)) {
+      const k = pk(r.net, r.len), lab = local[k];
+      if (lab === undefined || lab === IMP_NULL) continue;
+      for (const p of (r.paths || []).slice(0, 1)) {
+        const e = p.ifn ? { ifn: p.ifn, nh: p.ip } : this.routerEgress(dn, p.ip);
+        if (!e || e.fail) continue;
+        const out = this.mplsOutLabel(dn, e.ifn, e.nh, k);
+        rows.push({ local: lab, out: out === null ? "No Label" : out === IMP_NULL ? "Pop Label" : String(out), prefix: pfx4(r.net, r.len), ifn: e.ifn, nh: e.nh });
+      }
+    }
+    // VPN labels: one per VRF prefix this PE originates.
+    const v = this.bgp()[dn];
+    for (const [vrf, t] of Object.entries((v && v.vpn) || {})) {
+      for (const [k, p] of Object.entries(t.best)) {
+        if (p.imported || p.label === undefined) continue;
+        const [a, len] = splitPfx(k);
+        const r = lpm(this.vrfRoutes(dn, vrf), ip2n(a));
+        // A connected VRF prefix is looked up again after the label is popped ("aggregate").
+        const conn = r && r.code === "C" && r.len === len;
+        const e = conn ? null : this.routerEgress(dn, p.ce ? ip2n(p.nh) : ip2n(a), 0, vrf);
+        rows.push({ local: p.label, out: "No Label", prefix: k + "[V]", ifn: conn ? "aggregate/" + vrf : e && !e.fail ? e.ifn : "",
+          nh: conn || !e || e.fail ? null : e.nh, vrf });
+      }
+    }
+    return rows.sort((a, b) => a.local - b.local);
+  },
+
+  // -- the data plane: one hop of a label-switched packet --------------------------------------------
+  // Called by deliver() on every router. Returns null for ordinary IP forwarding (setting mp.labels
+  // when the hop is labelled anyway), an egress {ifn, nh, labels} when the packet rides an LSP, or {fail}.
+  mplsForward(cur, pkt, vrf, mp) {
+    if (this.c.ldpBusy || !this.devs[cur].cfg.mpls && !this.mplsIfs(cur).length && !mp.lsp && !vrf) return null;
+    if (mp.lsp) return this.mplsLspHop(cur, mp.lsp);
+    const r = vrf ? lpm(this.vrfRoutes(cur, vrf), pkt.dst) : this.lookup(cur, pkt.dst);
+    if (!r) return null;
+    const p = r.paths && r.paths[0];
+    if (vrf && p && p.vpn) {
+      // A VPN route: push the VPN label and the transport label for the PE that originated it.
+      const lsp = { to: p.ip, vrf: p.vpn.vrf, vpnLabel: p.vpn.label };
+      const h = this.mplsLspHop(cur, lsp);
+      if (!h.fail) mp.lsp = lsp;
+      return h;
+    }
+    if (!vrf && r.code === "B" && p && !p.ifn && p.ip !== null && this.mplsIfs(cur).length) {
+      // BGP-free core: a BGP route whose next hop has a label rides the LSP to that next hop.
+      const lsp = { to: p.ip, vrf: null, vpnLabel: null };
+      const h = this.mplsLspHop(cur, lsp);
+      if (h.fail) return null; // no label: forwarded as plain IP, and the next router decides
+      mp.lsp = lsp;
+      return h;
+    }
+    if (!vrf && r.code !== "C" && r.code !== "L" && this.mplsIfs(cur).length) {
+      const e = this.routerEgress(cur, pkt.dst);
+      if (!e.fail) {
+        const lab = this.mplsOutLabel(cur, e.ifn, e.nh, pk(r.net, r.len));
+        mp.labels = lab !== null && lab !== IMP_NULL ? [lab] : null;
+      }
+    }
+    return null;
+  },
+
+  // Forward one hop along the LSP to lsp.to: the next hop must have bound a label for that address.
+  mplsLspHop(cur, lsp) {
+    const eg = this.routerEgress(cur, lsp.to);
+    if (eg.fail) return { fail: eg.fail };
+    const fec = this.lookup(cur, lsp.to), k = pk(fec.net, fec.len);
+    const lab = this.mplsOutLabel(cur, eg.ifn, eg.nh, k);
+    if (lab === null) return { fail: "mpls" };
+    const labels = [...(lab === IMP_NULL ? [] : [lab]), ...(lsp.vpnLabel !== null && lsp.vpnLabel !== undefined ? [lsp.vpnLabel] : [])];
+    return { ifn: eg.ifn, nh: eg.nh, labels };
+  },
+
+  mplsEgressAt(cur, lsp) { return this.ownsIpIn(cur, lsp.to, null); },
+
+  // Where a router on an LSP sends a TTL-expired message: to the end of the LSP, which routes it back.
+  mplsTtlReturn(lsp) {
+    const pe = Object.keys(this.devs).find((dn) => this.devs[dn].type === "router" && this.ownsIpIn(dn, lsp.to, null));
+    return pe ? { dev: pe, vrf: lsp.vrf } : null;
+  },
+
+  // -- L3VPN: the BGP side ------------------------------------------------------------------------
+  // PE-CE eBGP sessions in VRFs. Called by bgpCompute once the global sessions are known.
+  vpnSessions(out) {
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router" || !d.cfg.bgp || !out[d.name]) continue;
+      const b = d.cfg.bgp, r = out[d.name];
+      r.vrfNbrs = {};
+      for (const [vrf, va] of Object.entries(vrfBgpOf(b))) {
+        r.vrfNbrs[vrf] = {};
+        for (const [k, n] of Object.entries(va.nbrs)) {
+          const s = r.vrfNbrs[vrf][k] = { key: k, vrf, remoteAs: n.remoteAs, ebgp: n.remoteAs !== b.asn, state: "Idle", up: false,
+            peer: null, peerKey: null, local: null, rcvd: { ipv4: 0, ipv6: 0 }, sent: { ipv4: 0, ipv6: 0 },
+            adjIn: { ipv4: [], ipv6: [] }, raw: { ipv4: [], ipv6: [] }, afs: [] };
+          if (n.shutdown) { s.state = "Idle (Admin)"; continue; }
+          if (!vrfName(d.cfg, vrf) || this.bgpRid(d.name) === null) continue;
+          const ip = ip2n(k), src = this.sourceIp(d.name, ip, undefined, vrf);
+          if (src === null || !this.upIfs(d.name).some((x) => this.vrfOf(d.name, x) === vrf && this.ifAddrs(d.name, x).some((a) => sameNet(a.ip, ip, a.mask)))) continue;
+          s.state = "Active";
+          const there = this.deliver(d.name, { src, dst: ip, proto: "tcp", port: 179, ttl: 1, id: 179 }, { natTmp: {}, vrf });
+          if (!there.ok || there.at === d.name) continue;
+          const ce = this.devs[there.at], cb = ce.cfg.bgp, seen = n2ip(src);
+          const cn = cb && cb.nbrs[seen];
+          if (ce.type !== "router" || !cn || cn.shutdown || !out[ce.name]) continue;
+          if (cn.remoteAs !== b.asn || n.remoteAs !== cb.asn) { s.attempt = { reason: "wrongas" }; continue; }
+          const back = this.deliver(ce.name, { src: ip, dst: src, proto: "tcp", port: 179, ttl: 1, id: 179 }, { natTmp: {} });
+          if (!back.ok || back.at !== d.name || (cn.password || null) !== null) continue;
+          Object.assign(s, { up: true, state: "Established", peer: ce.name, peerKey: seen, local: seen, afs: n.active ? ["ipv4"] : [] });
+          const cs = out[ce.name].nbrs[seen];
+          Object.assign(cs, { up: true, state: "Established", peer: d.name, peerKey: k, local: k, attempt: { ok: true }, vrfPeer: s,
+            afs: cn.af.ipv4.active && n.active ? ["ipv4"] : [] });
+        }
+      }
+    }
+  },
+
+  // A path's best-path comparison and validity inside a VRF (CE next hops resolve in the VRF table).
+  vpnBest(dn, list) {
+    let top = null;
+    for (const p of list) if (p.valid && (!top || this.bgpBetter(dn, "ipv4", p, top))) top = p;
+    for (const p of list) p.best = p === top;
+    list.sort((x, y) => (x.best ? -1 : y.best ? 1 : 0));
+    return top;
+  },
+
+  // Paths a PE originates into a VRF: network statements and redistribution from the VRF's own table.
+  vpnLocal(dn, vrf, va) {
+    const b = this.devs[dn].cfg.bgp, table = this.vrfRoutes(dn, vrf), paths = [];
+    const base = (r, origin, how) => ({ pfx: pfx4(r.net, r.len), nh: r.code === "C" || !r.paths || !r.paths[0] || r.paths[0].ip === null ? "0.0.0.0" : n2ip(r.paths[0].ip),
+      med: r.code === "C" || r.code[0] === "S" ? 0 : r.metric ?? 0, lp: b.defLp, weight: 32768, origin, asPath: [], comm: [],
+      local: true, how, ebgp: false, ibgp: false, valid: true, srcVrf: vrf });
+    for (const pfx of va.networks) {
+      const r = table.find((x) => pfx4(x.net, x.len) === pfx && x.code !== "L" && !x.bgp);
+      if (r) paths.push(base(r, "i", "network"));
+    }
+    const ospfIfs = (id) => {
+      const o = Object.values(this.devs[dn].cfg.ospfVrf || {}).find((x) => x.vrf === vrf && (id === undefined || x.pid === id));
+      return o ? this.vrfOspfIfs(dn, o).map((i) => pk(and(i.ip, i.mask), maskLen(i.mask))) : [];
+    };
+    for (const [src, rd] of Object.entries(va.redist)) {
+      const covered = src === "ospf" ? new Set(ospfIfs(rd.id)) : null;
+      const want = (r) => (src === "connected" ? r.code === "C" : src === "static" ? r.code[0] === "S"
+        : src === "ospf" ? r.code.startsWith("O") || (r.code === "C" && covered.has(pk(r.net, r.len))) : false);
+      for (const r of table.filter((x) => !x.bgp && x.code !== "L" && want(x))) {
+        if (paths.some((x) => x.pfx === pfx4(r.net, r.len))) continue;
+        paths.push(base(r, "?", "redistribute"));
+      }
+    }
+    return paths;
+  },
+
+  // One round of L3VPN: each PE's VRF paths (local and from its CEs) become VPNv4 routes, PEs swap them
+  // over iBGP, every VRF imports by route target, and PEs tell their CEs the result. Returns whether
+  // anything changed, so the BGP exchange keeps going until it settles.
+  vpnRound(out) {
+    const pes = Object.keys(out).filter((dn) => hasVpnBgp(this.devs[dn].cfg.bgp));
+    if (!pes.length) return false;
+    const before = JSON.stringify(pes.map((dn) => out[dn].vpnSig || null));
+    // 1. What each PE originates and exports.
+    const exp = {};
+    for (const dn of pes) {
+      const d = this.devs[dn], b = d.cfg.bgp, r = out[dn], vrfs = vrfsOf(d.cfg);
+      r.vpnLocal = {};
+      exp[dn] = [];
+      for (const [vrf, va] of Object.entries(vrfBgpOf(b))) {
+        const v = vrfs[vrf];
+        if (!v || !v.rd) continue;
+        const cands = this.vpnLocal(dn, vrf, va);
+        for (const s of Object.values((r.vrfNbrs || {})[vrf] || {})) {
+          s.adjIn.ipv4 = [];
+          if (!s.up || !s.afs.includes("ipv4")) continue;
+          for (const raw of s.raw.ipv4) {
+            if ((raw.asPath.includes(b.asn) || (raw.asSet || []).includes(b.asn)) && !va.nbrs[s.key].allowas) continue;
+            const via = lpm(this.vrfRoutes(dn, vrf), ip2n(raw.nh));
+            const p = { ...raw, from: s.key, ebgp: true, ibgp: false, local: false, ce: true, peerRid: out[s.peer].rid,
+              weight: 0, lp: b.defLp, valid: !!via, igp: via ? via.metric ?? 0 : 0, srcVrf: vrf };
+            s.adjIn.ipv4.push(p);
+            cands.push(p);
+          }
+        }
+        r.vpnLocal[vrf] = cands;
+        const byPfx = {};
+        for (const p of cands) (byPfx[p.pfx] = byPfx[p.pfx] || []).push(p);
+        const rts = (v.rts || []).filter((x) => x.dir === "export").map((x) => x.val);
+        for (const [k, list] of Object.entries(byPfx)) {
+          const top = this.vpnBest(dn, list);
+          if (top) exp[dn].push({ vrf, pfx: k, rd: v.rd, rts, path: top });
+        }
+      }
+      // Per-prefix VPN labels, numbered after the LDP labels.
+      const ldpN = Object.values(this.ldpBindings(dn)).filter((x) => x !== IMP_NULL).length;
+      exp[dn].sort((x, y) => (x.vrf < y.vrf ? -1 : x.vrf > y.vrf ? 1 : cmpAddr(splitPfx(x.pfx)[0], splitPfx(y.pfx)[0]) || splitPfx(x.pfx)[1] - splitPfx(y.pfx)[1]));
+      exp[dn].forEach((e, i) => { e.label = 16 + ldpN + i; e.path.label = e.label; });
+    }
+    // 2. VPNv4 over iBGP sessions that have the family active on both ends.
+    for (const dn of pes) out[dn].vpnIn = [];
+    for (const dn of pes) {
+      const b = this.devs[dn].cfg.bgp;
+      for (const s of Object.values(out[dn].nbrs)) {
+        s.vpnv4 = false;
+        if (!s.up || s.ebgp || !hasVpnBgp(this.devs[s.peer].cfg.bgp)) continue;
+        const mine = vpnBgpOf(b).nbrs[s.key], theirs = vpnBgpOf(this.devs[s.peer].cfg.bgp).nbrs[s.peerKey];
+        if (!mine || !mine.active || !theirs || !theirs.active) continue;
+        s.vpnv4 = true;
+        for (const e of exp[dn]) {
+          const p = e.path;
+          out[s.peer].vpnIn.push({ pfx: e.pfx, rd: e.rd, rts: mine.ext ? [...e.rts] : [], label: e.label, nh: s.local,
+            origin: p.origin, asPath: [...p.asPath], med: p.local ? p.med : p.med ?? null, lp: p.lp ?? b.defLp, from: s.peerKey,
+            pe: dn, srcVrf: e.vrf, comm: [] });
+        }
+      }
+    }
+    // 3. Import by route target, and the best path per VRF prefix.
+    for (const dn of pes) {
+      const d = this.devs[dn], b = d.cfg.bgp, r = out[dn], vrfs = vrfsOf(d.cfg);
+      r.vpn = {};
+      for (const vrf of Object.keys(vrfBgpOf(b))) {
+        const v = vrfs[vrf];
+        if (!v || !v.rd) continue;
+        const imports = (v.rts || []).filter((x) => x.dir === "import").map((x) => x.val);
+        const cands = {};
+        for (const p of r.vpnLocal[vrf] || []) (cands[p.pfx] = cands[p.pfx] || []).push(p);
+        for (const q of r.vpnIn) {
+          if (!q.rts.some((x) => imports.includes(x))) continue;
+          const via = this.bgpNhRoute(dn, "ipv4", q.nh);
+          const peerRid = out[q.pe] ? out[q.pe].rid : 0;
+          (cands[q.pfx] = cands[q.pfx] || []).push({ ...q, imported: true, ibgp: true, ebgp: false, local: false, weight: 0,
+            valid: !!via, igp: via ? via.metric ?? 0 : 0, peerRid });
+        }
+        const best = {};
+        for (const [k, list] of Object.entries(cands)) { const top = this.vpnBest(dn, list); if (top) best[k] = top; }
+        r.vpn[vrf] = { tables: cands, best, rd: v.rd };
+      }
+    }
+    // 4. What each PE tells its CEs.
+    let changed = false;
+    for (const dn of pes) {
+      const b = this.devs[dn].cfg.bgp, r = out[dn];
+      for (const [vrf, sess] of Object.entries(r.vrfNbrs || {})) {
+        const t = r.vpn[vrf];
+        for (const s of Object.values(sess)) {
+          if (!s.up) continue;
+          const n = vrfBgpOf(b)[vrf].nbrs[s.key], sent = [];
+          if (t && s.afs.includes("ipv4")) {
+            for (const [k, p] of Object.entries(t.best).sort(([x], [y]) => (x < y ? -1 : 1))) {
+              if (p.ce && p.from === s.key) continue;
+              let path = [b.asn, ...p.asPath];
+              if (n.asOverride) path = path.map((a) => (a === s.remoteAs ? b.asn : a));
+              sent.push({ pfx: k, nh: s.local, med: p.local ? p.med : null, origin: p.origin, asPath: path, comm: [] });
+            }
+          }
+          s.sent.ipv4 = sent.length;
+          const cs = out[s.peer].nbrs[s.peerKey];
+          if (JSON.stringify(cs.raw.ipv4) !== JSON.stringify(sent)) { cs.raw.ipv4 = sent; changed = true; }
+          cs.rcvd.ipv4 = sent.length;
+        }
+      }
+      r.vpnSig = JSON.stringify([r.vpnIn.map((q) => [q.pfx, q.rd, q.rts, q.label, q.nh]),
+        Object.entries(r.vpn).map(([v, t]) => [v, Object.entries(t.best).map(([k, p]) => [k, p.nh, p.label ?? null])])]);
+    }
+    return changed || JSON.stringify(pes.map((dn) => out[dn].vpnSig)) !== before;
+  },
+
+  // -- the VRF routing table, with BGP --------------------------------------------------------------
+  vrfRoutes(dn, vrf) {
+    const base = vrfRoutesWithoutBgp.call(this, dn, vrf);
+    if (this.c.bgpBusy || this.c.vrfFullBusy) return base;
+    this.c.vrfFull = this.c.vrfFull || {};
+    const key = vrfKey(dn, vrf);
+    if (this.c.vrfFull[key]) return this.c.vrfFull[key];
+    this.c.vrfFullBusy = true;
+    try {
+      const extra = [];
+      const d = this.devs[dn];
+      const r = d.cfg.bgp && hasVpnBgp(d.cfg.bgp) ? this.bgp()[dn] : null;
+      const t = r && r.vpn && r.vpn[vrf];
+      for (const [k, p] of Object.entries(t ? t.best : {})) {
+        if (p.local) continue;
+        const { net, len } = pfxNet(k);
+        extra.push(p.ce
+          ? { code: "B", net, len, ad: 20, metric: p.med ?? 0, paths: [{ ip: ip2n(p.nh), ifn: null, bgp: true }], bgp: true, bgpPfx: k }
+          : { code: "B", net, len, ad: 200, metric: p.med ?? 0, bgp: true, bgpPfx: k, vpn: true,
+            paths: [{ ip: ip2n(p.nh), ifn: null, bgp: true, vpn: { label: p.label, pe: p.pe, vrf: p.srcVrf } }] });
+      }
+      extra.push(...this.vpnOspfExternals(dn, vrf));
+      const full = extra.length ? ribSelect([...base, ...extra]).sort((a, b) => a.net - b.net || a.len - b.len) : base;
+      this.c.vrfFull[key] = full;
+      return full;
+    } finally { this.c.vrfFullBusy = false; }
+  },
+
+  // VPN routes a PE redistributes into the VRF's OSPF process reach the other routers of that VRF's
+  // OSPF domain as O E2 routes (metric 1, like IOS's default seed for BGP routes).
+  vpnOspfExternals(dn, vrf) {
+    const per = this.ospfVrf(), me = vrfKey(dn, vrf);
+    if (!per[me]) return [];
+    let spf = null;
+    const out = [];
+    for (const [key, them] of Object.entries(per)) {
+      const o = them.o;
+      if (key === me || !o.redistBgp || !o.redistBgp.subnets) continue;
+      const pe = this.devs[them.dev];
+      if (!pe.cfg.bgp || pe.cfg.bgp.asn !== o.redistBgp.asn) continue;
+      const t = (this.bgp()[them.dev] || {}).vpn;
+      const best = t && t[them.vrf] ? t[them.vrf].best : {};
+      spf = spf || ospfSpf(per, me);
+      if (spf.dist[key] === undefined) continue;
+      for (const [k, p] of Object.entries(best)) {
+        if (p.local) continue;
+        const { net, len } = pfxNet(k);
+        out.push({ code: "O E2", otype: "e2", net, len, ad: 110, metric: 1, paths: [...spf.hops[key]] });
+      }
+    }
+    return out;
+  },
+
+  // `ping vrf` to a VPN route: the packet leaves through the core, but its source is one of the VRF's
+  // own addresses so the far site can answer.
+  sourceIp(dn, dst, source, vrf = null) {
+    const s = sourceIpWithoutVpn.call(this, dn, dst, source, vrf);
+    if (s !== null || (source !== undefined && source !== null) || !vrf || this.devs[dn].type !== "router") return s;
+    const r = lpm(this.vrfRoutes(dn, vrf), dst);
+    if (!r || !r.paths || !r.paths[0] || !r.paths[0].vpn) return s;
+    const ifn = this.upIfs(dn).find((n) => this.vrfOf(dn, n) === vrf && !n.startsWith("Loopback")) || this.upIfs(dn).find((n) => this.vrfOf(dn, n) === vrf);
+    return ifn ? this.ifAddr(dn, ifn).ip : null;
+  },
+
+  // -- logs ---------------------------------------------------------------------------------------
+  mplsSettle(log) {
+    let changed = false;
+    const per = this.ldp(), bgp = this.bgp();
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      const me = per[d.name], r = bgp[d.name];
+      if (!me && !d.rt.mpls && !(r && r.vrfNbrs)) continue;
+      const rt = d.rt.mpls = d.rt.mpls || { ldp: {}, vrf: {} };
+      const now = {};
+      for (const s of Object.values(me ? me.sessions : {})) if (s.up) now[ldpIdent(s.peerId)] = s;
+      for (const id of Object.keys(now)) {
+        if (rt.ldp[id]) continue;
+        rt.ldp[id] = Object.keys(rt.ldp).length + 1;
+        log(d.name, `%LDP-5-NBRCHG: LDP Neighbor ${id} (${rt.ldp[id]}) is UP`);
+        changed = true;
+      }
+      for (const [id, n] of Object.entries(rt.ldp)) {
+        if (now[id]) continue;
+        log(d.name, `%LDP-5-NBRCHG: LDP Neighbor ${id} (${n}) is DOWN (Discovery Hello Hold Timer expired)`);
+        delete rt.ldp[id];
+        changed = true;
+      }
+      const vnow = {};
+      for (const [vrf, sess] of Object.entries((r && r.vrfNbrs) || {})) for (const s of Object.values(sess)) if (s.up) vnow[s.key + " vrf " + vrf] = true;
+      const say = (m) => { if (!d.cfg.bgp || d.cfg.bgp.logChanges) log(d.name, m); };
+      for (const k of Object.keys(vnow)) if (!rt.vrf[k]) { rt.vrf[k] = true; say(`%BGP-5-ADJCHANGE: neighbor ${k} Up `); changed = true; }
+      for (const k of Object.keys(rt.vrf)) if (!vnow[k]) { delete rt.vrf[k]; say(`%BGP-5-ADJCHANGE: neighbor ${k} Down Peer closed the session`); changed = true; }
+    }
+    return changed;
+  },
+
+  // -- lab checks ---------------------------------------------------------------------------------
+  // ldp-nbr {device, neighbor}: an LDP session to that LDP router ID is operational.
+  // mpls-if {device, intf}: LDP runs on the interface.
+  // mpls-label {device, prefix, out?: "pop"|"label"|"none"}: the LFIB has the prefix (with that outgoing label kind).
+  // vpnv4-nbr {device, neighbor}: the BGP session carries VPNv4 (active on both ends).
+  // bgp-vrf-nbr {device, vrf, neighbor}: the PE-CE eBGP session in the VRF is established.
+  // vpn-route {device, vrf, prefix, imported?}: the VRF's BGP table has a best path (learned from another PE).
+  // mpls-trace {from, to, vrf?, min?}: traceroute reaches `to` and shows MPLS labels on at least `min` hops.
+  mplsCheck(c, d, intf) {
+    switch (c.type) {
+      case "ldp-nbr": {
+        const me = this.ldp()[d.name];
+        return !!me && Object.values(me.sessions).some((s) => s.up && s.peerId === ip2n(c.neighbor));
+      }
+      case "mpls-if": return this.mplsIfs(d.name).includes(intf);
+      case "mpls-label": {
+        const row = this.lfib(d.name).find((x) => x.prefix === c.prefix);
+        if (!row) return false;
+        return !c.out || (c.out === "pop" ? row.out === "Pop Label" : c.out === "none" ? row.out === "No Label" : /^\d+$/.test(row.out));
+      }
+      case "vpnv4-nbr": {
+        const r = this.bgp()[d.name], s = r && r.nbrs[c.neighbor];
+        return !!s && s.up && !!s.vpnv4;
+      }
+      case "bgp-vrf-nbr": {
+        const r = this.bgp()[d.name], s = r && r.vrfNbrs && r.vrfNbrs[c.vrf] && r.vrfNbrs[c.vrf][c.neighbor];
+        return !!s && s.up;
+      }
+      case "vpn-route": {
+        const r = this.bgp()[d.name], t = r && r.vpn && r.vpn[c.vrf], p = t && t.best[c.prefix];
+        return !!p && (c.imported === undefined || !!p.imported === c.imported);
+      }
+      case "mpls-trace": {
+        const hops = this.trace(d.name, ip2n(c.to), 30, undefined, c.vrf || null);
+        const last = hops[hops.length - 1];
+        return !!last && last.last && last.ip === ip2n(c.to) && hops.filter((h) => h.labels && h.labels.length).length >= (c.min || 1);
+      }
+      default: return undefined;
+    }
+  },
+});
+
+const MPLS_CHECKS = new Set(["ldp-nbr", "mpls-if", "mpls-label", "vpnv4-nbr", "bgp-vrf-nbr", "vpn-route", "mpls-trace"]);
+
+// ---- running-config ------------------------------------------------------------------------------
+function mplsIntfLines(i) {
+  const L = [];
+  if (i.ldpIgp === false) L.push(" no mpls ldp igp autoconfig");
+  if (i.mpls) L.push(" mpls ip");
+  return L;
+}
+
+function mplsHeadLines(c) {
+  const m = mplsOf(c), L = [];
+  if (m.labelProto) L.push("mpls label protocol ldp");
+  if (m.off) L.push("no mpls ip");
+  return L.length ? [...L, "!"] : [];
+}
+
+function mplsTailLines(c) {
+  const m = mplsOf(c);
+  return m.ridIf ? [`mpls ldp router-id ${m.ridIf}${m.ridForce ? " force" : ""}`, "!"] : [];
+}
+
+// The VPNv4 and per-VRF address families inside router bgp.
+function mplsBgpLines(b) {
+  const L = [];
+  const v = vpnBgpOf(b), keys = Object.keys(v.nbrs).sort(cmpAddr);
+  if (keys.length) {
+    L.push(" !", " address-family vpnv4");
+    for (const k of keys) {
+      const n = v.nbrs[k];
+      if (n.active) L.push(`  neighbor ${k} activate`);
+      if (n.ext || n.std) L.push(`  neighbor ${k} send-community${n.ext && n.std ? " both" : n.ext ? " extended" : ""}`);
+      if (n.nhs) L.push(`  neighbor ${k} next-hop-self`);
+    }
+    L.push(" exit-address-family");
+  }
+  for (const [vrf, va] of Object.entries(vrfBgpOf(b)).sort(([x], [y]) => (x < y ? -1 : 1))) {
+    L.push(" !", ` address-family ipv4 vrf ${vrf}`);
+    for (const pfx of [...va.networks].sort()) {
+      const [a, len] = splitPfx(pfx);
+      L.push(`  network ${a}${majorNet(ip2n(a)).len === len ? "" : " mask " + n2ip(lenMask(len))}`);
+    }
+    for (const [src, rd] of Object.entries(va.redist)) L.push(`  redistribute ${src}${rd.id !== undefined ? " " + rd.id : ""}`);
+    for (const [k, n] of Object.entries(va.nbrs).sort(([x], [y]) => cmpAddr(x, y))) {
+      L.push(`  neighbor ${k} remote-as ${n.remoteAs}`);
+      if (n.shutdown) L.push(`  neighbor ${k} shutdown`);
+      L.push(n.active ? `  neighbor ${k} activate` : `  no neighbor ${k} activate`);
+      if (n.asOverride) L.push(`  neighbor ${k} as-override`);
+      if (n.allowas) L.push(`  neighbor ${k} allowas-in`);
+    }
+    L.push(" exit-address-family");
+  }
+  return L;
+}
+
+// ---- show commands --------------------------------------------------------------------------------
+function showMplsInterfaces(net, dn) {
+  const L = ["Interface              IP            Tunnel   BGP Static Operational"];
+  const up = new Set(net.mplsIfs(dn));
+  for (const n of net.mplsIfsConfigured(dn)) L.push(pad(n, 23) + pad("Yes (ldp)", 14) + pad("No", 9) + pad("No", 4) + pad("No", 7) + (up.has(n) ? "Yes" : "No"));
+  return L.join("\n");
+}
+
+function showLdpNeighbor(net, dn) {
+  const me = net.ldp()[dn];
+  if (!me) return "";
+  const L = [];
+  for (const s of Object.values(me.sessions).filter((x) => x.up).sort((a, b) => a.peerId - b.peerId)) {
+    const eph = 646 + 10000 + net.devs[s.peer].idx * 37 + net.devs[dn].idx;
+    const active = me.id > s.peerId;
+    L.push(`    Peer LDP Ident: ${ldpIdent(s.peerId)}; Local LDP Ident ${ldpIdent(me.id)}`,
+      `        TCP connection: ${n2ip(s.peerId)}.${active ? 646 : eph} - ${n2ip(me.id)}.${active ? eph : 646}`,
+      "        State: Oper; Msgs sent/rcvd: 21/21; Downstream", "        Up time: 00:04:51", "        LDP discovery sources:");
+    for (const a of s.adj) L.push(`          ${a.ifn}, Src IP addr: ${n2ip(a.src)}`);
+    L.push("        Addresses bound to peer LDP Ident:");
+    const addrs = net.upIfs(s.peer).filter((n) => !net.vrfOf(s.peer, n)).flatMap((n) => net.ifAddrs(s.peer, n).map((a) => a.ip));
+    for (let i = 0; i < addrs.length; i += 3) L.push("          " + addrs.slice(i, i + 3).map((a) => pad(n2ip(a), 16)).join("").trimEnd());
+  }
+  return L.join("\n");
+}
+
+function showLdpDiscovery(net, dn) {
+  const me = net.ldp()[dn];
+  if (!me) return "";
+  const L = [" Local LDP Identifier:", `    ${me.id === null ? "0.0.0.0" : ldpIdent(me.id)}`, "    Discovery Sources:", "    Interfaces:"];
+  for (const ifn of me.ifs) {
+    const adj = me.adj.filter((a) => a.ifn === ifn);
+    L.push(`        ${ifn} (ldp): ${adj.length ? "xmit/recv" : "xmit"}`);
+    for (const a of adj) L.push(`            LDP Id: ${ldpIdent(net.ldp()[a.peer].id)}${me.sessions[a.peer].up ? "" : "; no route"}`);
+  }
+  return L.join("\n");
+}
+
+function showLdpBindings(net, dn) {
+  const me = net.ldp()[dn];
+  if (!me) return "";
+  const local = net.ldpBindings(dn), L = [];
+  const keys = Object.keys(local).sort((x, y) => { const a = x.split("/").map(Number), b = y.split("/").map(Number); return a[0] - b[0] || a[1] - b[1]; });
+  keys.forEach((k, i) => {
+    const [n, len] = k.split("/").map(Number);
+    L.push(`  lib entry: ${n2ip(n)}/${len}, rev ${2 * (i + 1)}`, `        local binding:  label: ${local[k] === IMP_NULL ? "imp-null" : local[k]}`);
+    for (const s of Object.values(me.sessions).filter((x) => x.up).sort((a, b) => a.peerId - b.peerId)) {
+      const lab = net.ldpBindings(s.peer)[k];
+      if (lab !== undefined) L.push(`        remote binding: lsr: ${ldpIdent(s.peerId)}, label: ${lab === IMP_NULL ? "imp-null" : lab}`);
+    }
+  });
+  return L.join("\n");
+}
+
+function showMplsForwarding(net, dn, vrf) {
+  const rows = net.lfib(dn).filter((r) => (vrf ? r.vrf === vrf : true));
+  const L = ["Local      Outgoing   Prefix           Bytes Label   Outgoing   Next Hop    ",
+    "Label      Label      or Tunnel Id     Switched      interface              "];
+  for (const r of rows) {
+    const tail = pad(0, 14) + pad(r.ifn.startsWith("aggregate") ? r.ifn : shortIf(r.ifn), 11) + (r.nh === null || r.nh === undefined ? "" : n2ip(r.nh));
+    // A prefix too long for its column wraps the rest of the row onto the next line, as IOS does.
+    if (r.prefix.length > 16) L.push(pad(r.local, 11) + pad(r.out, 11) + r.prefix + "   \\", (" ".repeat(39) + tail).trimEnd());
+    else L.push((pad(r.local, 11) + pad(r.out, 11) + pad(r.prefix, 17) + tail).trimEnd());
+  }
+  return rows.length || !vrf ? L.join("\n") : "";
+}
+
+// VPNv4 table rows, grouped by route distinguisher.
+function vpnRows(net, dn, onlyVrf) {
+  const r = net.bgp()[dn], b = net.devs[dn].cfg.bgp, L = [];
+  if (!r || !r.vpn) return L;
+  const groups = {};
+  for (const [vrf, t] of Object.entries(r.vpn)) {
+    if (onlyVrf && vrf !== onlyVrf) continue;
+    const g = groups[t.rd] = groups[t.rd] || { vrf, paths: {} };
+    for (const [k, list] of Object.entries(t.tables)) (g.paths[k] = g.paths[k] || []).push(...list);
+  }
+  if (!onlyVrf) {
+    for (const q of r.vpnIn || []) {
+      const g = groups[q.rd] = groups[q.rd] || { vrf: null, paths: {} };
+      const list = g.paths[q.pfx] = g.paths[q.pfx] || [];
+      if (!list.some((p) => p.imported && p.from === q.from && p.rd === q.rd)) {
+        const via = net.bgpNhRoute(dn, "ipv4", q.nh);
+        list.push({ ...q, ibgp: true, valid: !!via, weight: 0, best: false });
+      }
+    }
+  }
+  for (const rd of Object.keys(groups).sort()) {
+    const g = groups[rd];
+    L.push(`Route Distinguisher: ${rd}${g.vrf ? ` (default for vrf ${g.vrf})` : ""}`);
+    const keys = Object.keys(g.paths).sort((x, y) => cmpAddr(splitPfx(x)[0], splitPfx(y)[0]) || splitPfx(x)[1] - splitPfx(y)[1]);
+    for (const k of keys) {
+      const list = g.paths[k];
+      list.forEach((p, i) => {
+        const st = (p.valid ? "*" : " ") + (p.best ? ">" : " ");
+        const nh = p.nh || "0.0.0.0", metric = p.med === null || p.med === undefined ? "" : String(p.med);
+        const lp = p.ibgp ? String(p.lp ?? b.defLp) : "", path = asPathStr(p);
+        const head = " " + st + (p.ibgp ? "i" : " ") + " " + pad(i ? "" : k, 17);
+        L.push((head + pad(nh, 20) + lpad(metric, 6) + " " + lpad(lp, 6) + " " + lpad(p.weight ?? 0, 6) + " " + (path ? path + " " : "") + p.origin).trimEnd());
+      });
+    }
+  }
+  return L;
+}
+
+function showVpnTable(net, dn, vrf) {
+  const r = net.bgp()[dn];
+  if (!r) return "% BGP not active";
+  if (vrf && !(r.vpn || {})[vrf]) return `% Network not in table`;
+  const rows = vpnRows(net, dn, vrf);
+  return rows.length ? [`BGP table version is ${bgpVersion(r)}, local router ID is ${r.rid === null ? "0.0.0.0" : n2ip(r.rid)}`, BGP_STATUS, "",
+    "     Network          Next Hop            Metric LocPrf Weight Path", ...rows].join("\n") : "";
+}
+
+function showVpnLabels(net, dn) {
+  const r = net.bgp()[dn];
+  if (!r) return "% BGP not active";
+  const L = ["   Network          Next Hop      In label/Out label"];
+  for (const [vrf, t] of Object.entries(r.vpn || {}).sort()) {
+    L.push(`Route Distinguisher: ${t.rd} (${vrf})`);
+    for (const [k, p] of Object.entries(t.best).sort(([x], [y]) => cmpAddr(splitPfx(x)[0], splitPfx(y)[0]))) {
+      const inL = p.imported ? "nolabel" : String(p.label ?? "nolabel"), outL = p.imported ? String(p.label) : `nolabel(${vrf})`;
+      L.push(`   ${pad(k, 17)}${pad(p.nh || "0.0.0.0", 16)}${inL}/${outL}`);
+    }
+  }
+  return L.join("\n");
+}
+
+function showVpnSummary(net, dn, vrf) {
+  const r = net.bgp()[dn], b = net.devs[dn].cfg.bgp;
+  if (!r) return "% BGP not active";
+  const L = [`BGP router identifier ${r.rid === null ? "0.0.0.0" : n2ip(r.rid)}, local AS number ${b.asn}`,
+    `BGP table version is ${bgpVersion(r)}, main routing table version ${bgpVersion(r)}`, "",
+    "Neighbor        V           AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd"];
+  const row = (k, s, pfx) => {
+    const line = pad(k, 16) + "4 " + lpad(s.remoteAs, 12) + lpad(s.up ? 8 + pfx : 0, 8) + lpad(s.up ? 8 + (s.sent.ipv4 || 0) : 0, 8)
+      + lpad(s.up ? bgpVersion(r) : 0, 9) + lpad(0, 5) + lpad(0, 5) + " " + pad(bgpUpTime(s), 9) + (s.up ? String(pfx) : s.state);
+    L.push(line);
+  };
+  if (!vrf) {
+    for (const [k, n] of Object.entries(vpnBgpOf(b).nbrs).sort(([x], [y]) => cmpAddr(x, y))) {
+      const s = r.nbrs[k];
+      if (!s || !n.active) continue;
+      row(k, s, (r.vpnIn || []).filter((q) => q.from === k).length);
+    }
+  }
+  for (const [v, sess] of Object.entries(r.vrfNbrs || {})) {
+    if (vrf && v !== vrf) continue;
+    for (const [k, s] of Object.entries(sess).sort(([x], [y]) => cmpAddr(x, y))) row(k, s, s.adjIn.ipv4.length);
+  }
+  return L.join("\n");
+}
+
+// ---- help --------------------------------------------------------------------------------------------
+for (const [k, v] of Object.entries({
+  mpls: "Configure MPLS parameters", "mpls ip": "Dynamic MPLS forwarding for IP", "mpls label": "Label properties",
+  "label protocol": "Set platform default label distribution protocol", "protocol ldp": "Use LDP (default)",
+  "mpls ldp": "Label Distribution Protocol", "ldp router-id": "Select interface schema for router ID",
+  "router-id force": "Forcibly change the LDP router ID", "ldp autoconfig": "Configure LDP automatic configuration",
+  "autoconfig area": "Configure an OSPF area to run MPLS LDP", "ldp igp": "Configure IGP parameters for LDP",
+  "igp autoconfig": "Configure LDP automatic configuration",
+  "show mpls": "MPLS information", "mpls interfaces": "Per-interface MPLS forwarding information",
+  "mpls forwarding-table": "Show MPLS forwarding table", "forwarding-table vrf": "Show entries for a VPN Routing/Forwarding instance",
+  "show mpls ldp": "Show Label Distribution Protocol information", "ldp neighbor": "Display LDP neighbor information",
+  "ldp bindings": "Show the LDP Label Information Base", "ldp discovery": "Display LDP discovery information",
+  "address-family vpnv4": "Address family", "vpnv4 unicast": "Address Family modifier",
+  "ipv4 vrf": "Specify parameters for a VPN Routing/Forwarding instance",
+  "send-community extended": "Send Extended Community attribute", "send-community both": "Send Standard and Extended Community attributes",
+  "send-community standard": "Send Standard Community attribute", "as-override": "Override matching AS-number while sending update",
+  "allowas-in": "Accept as-path with my AS present in it", "redistribute bgp": "Border Gateway Protocol (BGP)",
+  "bgp subnets": "Consider subnets for redistribution into OSPF", "show bgp": "BGP information",
+  "bgp vpnv4": "Display VPNv4 NLRI specific information", "show bgp vpnv4 unicast": "Display VPNv4 Unicast NLRI specific information",
+  "unicast all": "Display information about all VPN NLRIs", "vpnv4 all": "Display information about all VPN NLRIs",
+  "unicast vrf": "Display information about a VPN Routing/Forwarding instance", "vpnv4 vrf": "Display information about a VPN Routing/Forwarding instance",
+  "all summary": "Summary of BGP neighbor status", "all labels": "Display BGP labels for prefixes",
+  "show ip bgp vpnv4": "Display VPNv4 NLRI specific information", "route vrf bgp": "Border Gateway Protocol (BGP)",
+  "no mpls": "Configure MPLS parameters",
+})) if (!(k in HELP_PATH)) HELP_PATH[k] = v;
+for (const [m, h] of Object.entries({
+  bgpvpn: { neighbor: "Specify a neighbor router", "exit-address-family": "Exit from Address Family configuration mode" },
+  bgpvrf: { neighbor: "Specify a neighbor router", network: "Specify a network to announce via BGP",
+    redistribute: "Redistribute information from another routing protocol", "exit-address-family": "Exit from Address Family configuration mode" },
+  config: { mpls: "Configure MPLS parameters" }, if: { mpls: "Configure MPLS interface parameters" },
+  subif: { mpls: "Configure MPLS interface parameters" }, range: { mpls: "Configure MPLS interface parameters" },
+  tunif: { mpls: "Configure MPLS interface parameters" },
+  ospf: { mpls: "Configure MPLS routing protocol parameters" },
+  vrfospf: { redistribute: "Redistribute information from another routing protocol" },
+})) HELP_MODE[m] = { ...(HELP_MODE[m] || {}), ...h };
+for (const [k, v] of Object.entries({ vpnv4: "Address family", "ldp": "Label Distribution Protocol", force: "Forcibly change the LDP router ID",
+  bindings: "Show the LDP Label Information Base", discovery: "Display LDP discovery information", "forwarding-table": "Show MPLS forwarding table",
+  "as-override": "Override matching AS-number while sending update", "allowas-in": "Accept as-path with my AS present in it",
+  autoconfig: "Configure LDP automatic configuration", extended: "Send Extended Community attribute" })) if (!(k in HELP)) HELP[k] = v;
+
+// ---- commands ---------------------------------------------------------------------------------------
+Object.assign(MODES, { bgpvpn: "(config-router-af)#", bgpvrf: "(config-router-af)#" });
+SUBMODES.push("bgpvpn", "bgpvrf");
+CONFIG_MODES.push("bgpvpn", "bgpvrf");
+Object.assign(PARENT, { bgpvpn: "bgp", bgpvrf: "bgp" });
+def("R", ["bgpvpn", "bgpvrf"], "end", (c) => c.s.endConfig());
+def("R", ["bgpvpn", "bgpvrf"], "exit", (c) => c.s.enter("bgp", null));
+def("R", ["bgpvpn", "bgpvrf"], "exit-address-family", (c) => c.s.enter("bgp", null));
+
+const mplsCfg = (c) => (c.cfg.mpls = c.cfg.mpls || {});
+def("R", "config", "mpls ip", (c) => { delete mplsCfg(c).off; });
+def("R", "config", "no mpls ip", (c) => { mplsCfg(c).off = true; });
+def("R", "config", "mpls label protocol ldp", (c) => { mplsCfg(c).labelProto = "ldp"; });
+def("R", "config", "no mpls label protocol ldp", (c) => { delete mplsCfg(c).labelProto; });
+def("R", "config", "mpls ldp router-id <intf>", (c, [i]) => c.s.withIf(i, 3, (ifn) => { Object.assign(mplsCfg(c), { ridIf: ifn, ridForce: false }); }));
+def("R", "config", "mpls ldp router-id <intf> force", (c, [i]) => c.s.withIf(i, 3, (ifn) => { Object.assign(mplsCfg(c), { ridIf: ifn, ridForce: true }); }));
+def("R", "config", "no mpls ldp router-id", (c) => { delete mplsCfg(c).ridIf; delete mplsCfg(c).ridForce; });
+def("R", IF_MODES, "mpls ip", (c) => eachIf(c, (n, i) => {
+  if (n.startsWith("Loopback")) { c.print(`% MPLS not supported on interface ${n}`); return false; }
+  i.mpls = true;
+}));
+def("R", IF_MODES, "no mpls ip", (c) => eachIf(c, (n, i) => { delete i.mpls; }));
+def("R", IF_MODES, "mpls label protocol ldp", (c) => eachIf(c, () => {}));
+def("R", IF_MODES, "no mpls ldp igp autoconfig", (c) => eachIf(c, (n, i) => { i.ldpIgp = false; }));
+def("R", IF_MODES, "mpls ldp igp autoconfig", (c) => eachIf(c, (n, i) => { delete i.ldpIgp; }));
+const ospfProc = (c) => ospfProcs(c.cfg).find((o) => o.pid === c.target);
+def("R", "ospf", "mpls ldp autoconfig", (c) => { ospfProc(c).ldpAuto = { area: null }; });
+def("R", "ospf", "mpls ldp autoconfig area <word|OSPF area ID as a decimal value or in IP address format>", (c, [a]) => {
+  const area = parseArea(a);
+  if (area === null) { c.invalid(4); return; }
+  ospfProc(c).ldpAuto = { area };
+});
+def("R", "ospf", "no mpls ldp autoconfig", (c) => { delete ospfProc(c).ldpAuto; });
+def("R", "vrfospf", "redistribute bgp <asn|Autonomous system number>", (c, [asn]) => { vo(c).redistBgp = { asn, subnets: false }; c.print("% Only classful networks will be redistributed"); });
+def("R", "vrfospf", "redistribute bgp <asn|Autonomous system number> subnets", (c, [asn]) => { vo(c).redistBgp = { asn, subnets: true }; });
+def("R", "vrfospf", "no redistribute bgp <asn|Autonomous system number>", (c) => { delete vo(c).redistBgp; });
+
+// router bgp: the VPNv4 family between PEs, and one IPv4 family per VRF.
+def("R", "bgp", "address-family vpnv4", (c) => { bgpOf(c).vpnv4 = vpnBgpOf(bgpOf(c)); c.s.enter("bgpvpn", null); });
+def("R", "bgp", "address-family vpnv4 unicast", (c) => { bgpOf(c).vpnv4 = vpnBgpOf(bgpOf(c)); c.s.enter("bgpvpn", null); });
+def("R", "bgp", "no address-family vpnv4", (c) => { delete bgpOf(c).vpnv4; });
+def("R", "bgp", "address-family ipv4 vrf <word|VPN Routing/Forwarding instance name>", (c, [vrf]) => {
+  const v = vrfName(c.cfg, vrf);
+  if (!v) { c.print(`% VRF ${vrf} does not exist`); return; }
+  if (!v.rd) { c.print(`% VRF ${vrf} does not have an RD configured.`); return; }
+  const all = bgpOf(c).vrfAf = vrfBgpOf(bgpOf(c));
+  if (!all[vrf]) all[vrf] = newVrfBgp();
+  c.s.enter("bgpvrf", vrf);
+});
+def("R", "bgp", "no address-family ipv4 vrf <word|VPN Routing/Forwarding instance name>", (c, [vrf]) => { delete vrfBgpOf(bgpOf(c))[vrf]; });
+
+const vpnNbr = (c, a, fn) => {
+  const k = n2ip(a), b = bgpOf(c);
+  if (!b.nbrs[k]) { c.print(`% Specify remote-as or peer-group commands first`); return; }
+  const v = b.vpnv4 = vpnBgpOf(b);
+  if (!v.nbrs[k]) v.nbrs[k] = { ...newVpnNbr(), active: false };
+  fn(v.nbrs[k]);
+};
+const NB = "<ip|Neighbor address>";
+def("R", "bgpvpn", `neighbor ${NB} activate`, (c, [a]) => vpnNbr(c, a, (n) => { n.active = true; }));
+def("R", "bgpvpn", `no neighbor ${NB} activate`, (c, [a]) => vpnNbr(c, a, (n) => { n.active = false; }));
+def("R", "bgpvpn", `neighbor ${NB} send-community`, (c, [a]) => vpnNbr(c, a, (n) => { n.std = true; }));
+def("R", "bgpvpn", `neighbor ${NB} send-community {standard|extended|both}`, (c, [a, w]) => vpnNbr(c, a, (n) => {
+  if (w !== "extended") n.std = true;
+  if (w !== "standard") n.ext = true;
+}));
+def("R", "bgpvpn", `no neighbor ${NB} send-community`, (c, [a]) => vpnNbr(c, a, (n) => { n.std = false; n.ext = false; }));
+def("R", "bgpvpn", `no neighbor ${NB} send-community {standard|extended|both}`, (c, [a, w]) => vpnNbr(c, a, (n) => {
+  if (w !== "extended") n.std = false;
+  if (w !== "standard") n.ext = false;
+}));
+def("R", "bgpvpn", `neighbor ${NB} next-hop-self`, (c, [a]) => vpnNbr(c, a, (n) => { n.nhs = true; }));
+def("R", "bgpvpn", `no neighbor ${NB} next-hop-self`, (c, [a]) => vpnNbr(c, a, (n) => { n.nhs = false; }));
+
+const vrfAf = (c) => vrfBgpOf(bgpOf(c))[c.target];
+const vrfNbr = (c, a, fn) => {
+  const n = vrfAf(c).nbrs[n2ip(a)];
+  if (!n) { c.print(`% Specify remote-as or peer-group commands first`); return; }
+  fn(n);
+};
+def("R", "bgpvrf", `neighbor ${NB} remote-as ${ASN}`, (c, [a, asn]) => {
+  const k = n2ip(a), all = vrfAf(c).nbrs;
+  if (all[k]) all[k].remoteAs = asn; else all[k] = newVrfNbr(asn);
+});
+def("R", "bgpvrf", `no neighbor ${NB}`, (c, [a]) => { delete vrfAf(c).nbrs[n2ip(a)]; });
+def("R", "bgpvrf", `no neighbor ${NB} remote-as ${ASN}`, (c, [a]) => { delete vrfAf(c).nbrs[n2ip(a)]; });
+for (const [word, key] of [["activate", "active"], ["as-override", "asOverride"], ["allowas-in", "allowas"], ["shutdown", "shutdown"]]) {
+  def("R", "bgpvrf", `neighbor ${NB} ${word}`, (c, [a]) => vrfNbr(c, a, (n) => { n[key] = true; }));
+  def("R", "bgpvrf", `no neighbor ${NB} ${word}`, (c, [a]) => vrfNbr(c, a, (n) => { n[key] = false; }));
+}
+for (const src of ["connected", "static"]) {
+  def("R", "bgpvrf", `redistribute ${src}`, (c) => { vrfAf(c).redist[src] = {}; });
+  def("R", "bgpvrf", `no redistribute ${src}`, (c) => { delete vrfAf(c).redist[src]; });
+}
+def("R", "bgpvrf", "redistribute ospf <num:1-65535|Process ID>", (c, [id]) => {
+  const o = (c.cfg.ospfVrf || {})[id];
+  if (!o || o.vrf !== c.target) { c.print(`% OSPF process ${id} is not running in VRF ${c.target}`); return; }
+  vrfAf(c).redist.ospf = { id };
+});
+def("R", "bgpvrf", "no redistribute ospf <num:1-65535|Process ID>", (c) => { delete vrfAf(c).redist.ospf; });
+const vrfNet = (c, a, m) => {
+  if (m !== null && maskLen(m) < 0) { c.print("% Invalid mask"); return null; }
+  if (m === null) { const mj = majorNet(a); return pfx4(mj.net, mj.len); }
+  return pfx4(and(a, m), maskLen(m));
+};
+def("R", "bgpvrf", "network <ip|Network number>", (c, [a]) => { const k = vrfNet(c, a, null); if (k && !vrfAf(c).networks.includes(k)) vrfAf(c).networks.push(k); });
+def("R", "bgpvrf", "network <ip|Network number> mask <ip|Network mask>", (c, [a, m]) => { const k = vrfNet(c, a, m); if (k && !vrfAf(c).networks.includes(k)) vrfAf(c).networks.push(k); });
+def("R", "bgpvrf", "no network <ip|Network number>", (c, [a]) => { const k = vrfNet(c, a, null); vrfAf(c).networks = vrfAf(c).networks.filter((x) => x !== k); });
+def("R", "bgpvrf", "no network <ip|Network number> mask <ip|Network mask>", (c, [a, m]) => { const k = vrfNet(c, a, m); vrfAf(c).networks = vrfAf(c).networks.filter((x) => x !== k); });
+
+// Route targets: removable, and also accepted under the VRF's IPv4 address family (they're kept per VRF).
+for (const m of ["vrfdef", "ipvrf", "vrfaf"]) {
+  const RT = "<word|Target VPN Extended Community (ASN:nn or IP-address:nn)>";
+  if (m === "vrfaf") {
+    def("R", m, `route-target {export|import|both} ${RT}`, (c, [dir, val]) => {
+      const v = vrfName(c.cfg, c.target);
+      v.rts = v.rts || [];
+      for (const x of dir === "both" ? ["export", "import"] : [dir]) if (!v.rts.some((r) => r.dir === x && r.val === val)) v.rts.push({ dir: x, val });
+    });
+  }
+  def("R", m, `no route-target {export|import|both} ${RT}`, (c, [dir, val]) => {
+    const v = vrfName(c.cfg, c.target), dirs = dir === "both" ? ["export", "import"] : [dir];
+    v.rts = (v.rts || []).filter((r) => !(dirs.includes(r.dir) && r.val === val));
+  });
+}
+
+// exec
+def("R", both, "show mpls interfaces", (c) => c.print(showMplsInterfaces(c.net, c.d.name)));
+def("R", both, "show mpls ldp neighbor", (c) => c.print(showLdpNeighbor(c.net, c.d.name)));
+def("R", both, "show mpls ldp discovery", (c) => c.print(showLdpDiscovery(c.net, c.d.name)));
+def("R", both, "show mpls ldp bindings", (c) => c.print(showLdpBindings(c.net, c.d.name)));
+def("R", both, "show mpls forwarding-table", (c) => c.print(showMplsForwarding(c.net, c.d.name, null)));
+def("R", both, "show mpls forwarding-table vrf <word|VPN Routing/Forwarding instance name>", (c, [v]) => c.print(showMplsForwarding(c.net, c.d.name, v)));
+for (const head of ["show bgp vpnv4 unicast", "show ip bgp vpnv4"]) {
+  def("R", both, `${head} all`, (c) => c.print(showVpnTable(c.net, c.d.name, null)));
+  def("R", both, `${head} all summary`, (c) => c.print(showVpnSummary(c.net, c.d.name, null)));
+  def("R", both, `${head} all labels`, (c) => c.print(showVpnLabels(c.net, c.d.name)));
+  def("R", both, `${head} vrf <word|VPN Routing/Forwarding instance name>`, (c, [v]) => c.print(showVpnTable(c.net, c.d.name, v)));
+  def("R", both, `${head} vrf <word|VPN Routing/Forwarding instance name> summary`, (c, [v]) => c.print(showVpnSummary(c.net, c.d.name, v)));
+}
+def("R", both, "show ip route vrf <word|VPN Routing/Forwarding instance name> bgp", (c, [v]) => {
+  if (!vrfName(c.cfg, v)) { c.print(`% IP routing table ${v} does not exist`); return; }
+  c.print(showIpRoute(c.net, c.d.name, "B", v));
+});
+// ======== end MPLS & L3VPN ========

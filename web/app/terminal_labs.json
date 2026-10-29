@@ -13399,6 +13399,930 @@
   }
  },
  {
+  "id": "mpls-ldp-core",
+  "title": "MPLS LDP: label-switch a BGP-free core",
+  "topic": "MPLS",
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "minutes": 25,
+  "summary": "Turn on LDP across a three-router core, fix a router ID nobody can reach, watch penultimate hop popping, and let MPLS carry BGP routes through a P router that has none.",
+  "intro": "PE1 and PE2 are edge routers. They run iBGP between their loopbacks and each announces its LAN. P sits in the middle and runs **only OSPF**, so it has no route to either LAN. Right now a ping from PC1 to PC2 reaches PE1, which sends it to P, and P drops it.\n\n**MPLS** fixes that without putting BGP on P. With **LDP** running, every router binds a label to each prefix in its routing table and tells its neighbours. PE1 then sends traffic for PE2's LAN with the label P gave it for PE2's loopback (the BGP next hop), and P switches it on the label alone. P never looks at the destination address.\n\nThree things trip people up:\n\n1. LDP neighbours find each other with hellos on the link, but the **session** runs over TCP 646 between their **LDP router IDs**. If that address isn't reachable, the session never forms.\n2. The LDP router ID is the **highest loopback** address unless you pin it with `mpls ldp router-id Loopback0 force`.\n3. A router advertises **implicit-null** for its own connected networks, so the router before it **pops** the label (penultimate hop popping) and the last hop gets a plain IP packet.\n\n| Router | Loopback0 | Links |\n|---|---|---|\n| PE1 | 1.1.1.1 | Gi0/0 10.0.12.1/24 to P, Gi0/1 192.168.1.1/24 to PC1 |\n| P | 2.2.2.2 | Gi0/0 10.0.12.2/24, Gi0/1 10.0.23.2/24 |\n| PE2 | 3.3.3.3 (and Loopback1 9.9.9.9) | Gi0/0 10.0.23.3/24 to P, Gi0/1 192.168.2.1/24 to PC2 |\n\nUseful commands: `show mpls interfaces`, `show mpls ldp discovery`, `show mpls ldp neighbor`, `show mpls ldp bindings`, `show mpls forwarding-table`, and `traceroute`, which shows the labels.",
+  "height": 380,
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 80,
+    "y": 270
+   },
+   {
+    "name": "PE1",
+    "type": "router",
+    "x": 230,
+    "y": 150
+   },
+   {
+    "name": "P",
+    "type": "router",
+    "x": 400,
+    "y": 150
+   },
+   {
+    "name": "PE2",
+    "type": "router",
+    "x": 570,
+    "y": 150
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 720,
+    "y": 270
+   }
+  ],
+  "links": [
+   [
+    "PE1",
+    "GigabitEthernet0/0",
+    "P",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "P",
+    "GigabitEthernet0/1",
+    "PE2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "PE1",
+    "GigabitEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "PE2",
+    "GigabitEthernet0/1",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "PE1": [
+    "hostname PE1",
+    "interface Loopback0",
+    "ip address 1.1.1.1 255.255.255.255",
+    "interface GigabitEthernet0/0",
+    "ip address 10.0.12.1 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "router ospf 1",
+    "network 1.1.1.1 0.0.0.0 area 0",
+    "network 10.0.12.0 0.0.0.255 area 0",
+    "exit",
+    "router bgp 65000",
+    "neighbor 3.3.3.3 remote-as 65000",
+    "neighbor 3.3.3.3 update-source Loopback0",
+    "neighbor 3.3.3.3 next-hop-self",
+    "network 192.168.1.0",
+    "end"
+   ],
+   "P": [
+    "hostname P",
+    "interface Loopback0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "interface GigabitEthernet0/0",
+    "ip address 10.0.12.2 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "ip address 10.0.23.2 255.255.255.0",
+    "no shutdown",
+    "router ospf 1",
+    "network 2.2.2.2 0.0.0.0 area 0",
+    "network 10.0.12.0 0.0.0.255 area 0",
+    "network 10.0.23.0 0.0.0.255 area 0",
+    "exit",
+    "end"
+   ],
+   "PE2": [
+    "hostname PE2",
+    "interface Loopback0",
+    "ip address 3.3.3.3 255.255.255.255",
+    "interface GigabitEthernet0/0",
+    "ip address 10.0.23.3 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "interface Loopback1",
+    "ip address 9.9.9.9 255.255.255.255",
+    "router ospf 1",
+    "network 3.3.3.3 0.0.0.0 area 0",
+    "network 10.0.23.0 0.0.0.255 area 0",
+    "exit",
+    "router bgp 65000",
+    "neighbor 1.1.1.1 remote-as 65000",
+    "neighbor 1.1.1.1 update-source Loopback0",
+    "neighbor 1.1.1.1 next-hop-self",
+    "network 192.168.2.0",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Turn on LDP in the core",
+    "text": "Run LDP on every core link: PE1 Gi0/0, both of P's interfaces and PE2 Gi0/0. Use `mpls ip` per interface, or `mpls ldp autoconfig` under OSPF to cover every OSPF interface at once. PE1 and P should form an LDP session.",
+    "hint": "`interface g0/0` then `mpls ip` on the PEs; on P `router ospf 1` then `mpls ldp autoconfig`. `show mpls interfaces` lists where LDP runs; `show mpls ldp neighbor` lists sessions.",
+    "checks": [
+     {
+      "type": "ldp-nbr",
+      "device": "PE1",
+      "neighbor": "2.2.2.2"
+     },
+     {
+      "type": "mpls-if",
+      "device": "P",
+      "intf": "Gi0/1"
+     },
+     {
+      "type": "mpls-if",
+      "device": "PE2",
+      "intf": "Gi0/0"
+     }
+    ]
+   },
+   {
+    "title": "Fix the router ID nobody can reach",
+    "text": "P and PE2 see each other's hellos but never form a session. Look at PE2's LDP identifier: it took its highest loopback, 9.9.9.9, which isn't in OSPF. Make every router use Loopback0 as its LDP router ID so P and PE2 can open TCP 646 to each other.",
+    "hint": "`show mpls ldp discovery` on P shows PE2's LDP ID with \"no route\". On each router: `mpls ldp router-id Loopback0 force`.",
+    "checks": [
+     {
+      "type": "ldp-nbr",
+      "device": "P",
+      "neighbor": "3.3.3.3"
+     },
+     {
+      "type": "ldp-nbr",
+      "device": "PE2",
+      "neighbor": "2.2.2.2"
+     }
+    ]
+   },
+   {
+    "title": "See penultimate hop popping",
+    "text": "PE2 advertises **implicit-null** for its connected 3.3.3.3/32, so P pops the label instead of swapping it, while PE1 still pushes P's label. Check both in the LFIB.",
+    "hint": "`show mpls forwarding-table` on P: `Pop Label` for 3.3.3.3/32. On PE1 the same prefix has a number in the Outgoing Label column. `show mpls ldp bindings 3.3.3.3 32` style detail is in `show mpls ldp bindings`.",
+    "checks": [
+     {
+      "type": "mpls-label",
+      "device": "P",
+      "prefix": "3.3.3.3/32",
+      "out": "pop"
+     },
+     {
+      "type": "mpls-label",
+      "device": "PE1",
+      "prefix": "3.3.3.3/32",
+      "out": "label"
+     }
+    ]
+   },
+   {
+    "title": "Carry BGP routes across the BGP-free core",
+    "text": "PC1 should now reach PC2, even though P still has no route to either LAN. A traceroute from PC1 or PE1 shows the label on P's hop.",
+    "hint": "From PE1: `traceroute 192.168.2.10`. Hop 1 (P) shows `[MPLS: Label 17 Exp 0]` or similar. `show ip route 192.168.2.0` on P still says the network isn't in the table.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.2.10"
+     },
+     {
+      "type": "mpls-trace",
+      "from": "PC1",
+      "to": "192.168.2.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "PE1": [
+    "interface g0/0",
+    "mpls ip",
+    "exit",
+    "mpls ldp router-id Loopback0 force"
+   ],
+   "P": [
+    "router ospf 1",
+    "mpls ldp autoconfig",
+    "exit",
+    "mpls ldp router-id Loopback0 force"
+   ],
+   "PE2": [
+    "interface g0/0",
+    "mpls ip",
+    "exit",
+    "mpls ldp router-id Loopback0 force"
+   ]
+  }
+ },
+ {
+  "id": "mpls-l3vpn",
+  "title": "MPLS L3VPN: two customers, one address plan",
+  "topic": "MPLS L3VPN",
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "minutes": 35,
+  "summary": "Build an MPLS VPN for two customers that both use 192.168.1.0/24 and 172.16.2.0/24: VPNv4 between the PEs, route targets, redistribution for one customer and eBGP to a CE for the other.",
+  "intro": "The provider core already works: OSPF, LDP and an iBGP session between the PEs' loopbacks. Both PEs have VRFs **A** and **B** with their RDs and route targets, and the customer interfaces are in their VRFs. What's missing is everything that moves customer routes between sites.\n\nHow an MPLS L3VPN works:\n\n1. Each PE turns a VRF's routes into **VPNv4** routes: the VRF's **RD** in front of the prefix (so A's 192.168.1.0/24 and B's 192.168.1.0/24 stay different), its **export route targets**, and a **VPN label**.\n2. The PEs exchange VPNv4 routes over iBGP with `address-family vpnv4`. Route targets are *extended communities*: they only travel with `neighbor ... send-community extended`.\n3. A PE **imports** a VPNv4 route into every VRF whose import route target it carries.\n4. Traffic goes with **two labels**: the transport label for the far PE's loopback (from LDP) and the VPN label underneath. P only ever sees the outer label, so it needs no customer routes.\n\nCustomer B's sites are directly attached; their routes come from `redistribute connected` under `address-family ipv4 vrf B`. Customer A's site 2 has its own router, CEA2, in AS 65001, which is already set up to peer with PE2 at 10.255.0.1.\n\n| Device | Interface | VRF | Address |\n|---|---|---|---|\n| PE1 | Loopback0 | - | 1.1.1.1/32 |\n| PE1 | Gi0/1 to PCA1 | A | 192.168.1.1/24 |\n| PE1 | Gi0/2 to PCB1 | B | 192.168.1.1/24 |\n| P | Loopback0 | - | 2.2.2.2/32 |\n| PE2 | Loopback0 | - | 3.3.3.3/32 |\n| PE2 | Gi0/1 to CEA2 | A | 10.255.0.1/30 |\n| PE2 | Gi0/2 to PCB2 | B | 172.16.2.1/24 |\n| CEA2 | Gi0/0 / Gi0/1 | - | 10.255.0.2/30 / 172.16.2.1/24 (AS 65001) |\n\nCustomer A uses RD 65000:1 and route target 65000:1; customer B uses RD 65000:2 and route target 65000:2. The core is AS 65000.",
+  "height": 460,
+  "devices": [
+   {
+    "name": "PCA1",
+    "type": "pc",
+    "x": 80,
+    "y": 130
+   },
+   {
+    "name": "PCB1",
+    "type": "pc",
+    "x": 80,
+    "y": 370
+   },
+   {
+    "name": "PE1",
+    "type": "router",
+    "x": 240,
+    "y": 250
+   },
+   {
+    "name": "P",
+    "type": "router",
+    "x": 400,
+    "y": 250
+   },
+   {
+    "name": "PE2",
+    "type": "router",
+    "x": 560,
+    "y": 250
+   },
+   {
+    "name": "CEA2",
+    "type": "router",
+    "x": 700,
+    "y": 160
+   },
+   {
+    "name": "PCA2",
+    "type": "pc",
+    "x": 700,
+    "y": 60
+   },
+   {
+    "name": "PCB2",
+    "type": "pc",
+    "x": 700,
+    "y": 380
+   }
+  ],
+  "links": [
+   [
+    "PE1",
+    "GigabitEthernet0/0",
+    "P",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "P",
+    "GigabitEthernet0/1",
+    "PE2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "PE1",
+    "GigabitEthernet0/1",
+    "PCA1",
+    "eth0"
+   ],
+   [
+    "PE1",
+    "GigabitEthernet0/2",
+    "PCB1",
+    "eth0"
+   ],
+   [
+    "PE2",
+    "GigabitEthernet0/1",
+    "CEA2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "CEA2",
+    "GigabitEthernet0/1",
+    "PCA2",
+    "eth0"
+   ],
+   [
+    "PE2",
+    "GigabitEthernet0/2",
+    "PCB2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "PE1": [
+    "hostname PE1",
+    "vrf definition A",
+    "rd 65000:1",
+    "route-target export 65000:1",
+    "route-target import 65000:1",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "vrf definition B",
+    "rd 65000:2",
+    "route-target export 65000:2",
+    "route-target import 65000:2",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "interface Loopback0",
+    "ip address 1.1.1.1 255.255.255.255",
+    "interface GigabitEthernet0/0",
+    "ip address 10.0.12.1 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "vrf forwarding A",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/2",
+    "vrf forwarding B",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "router ospf 1",
+    "mpls ldp autoconfig",
+    "network 1.1.1.1 0.0.0.0 area 0",
+    "network 10.0.12.0 0.0.0.255 area 0",
+    "exit",
+    "mpls ldp router-id Loopback0 force",
+    "router bgp 65000",
+    "neighbor 3.3.3.3 remote-as 65000",
+    "neighbor 3.3.3.3 update-source Loopback0",
+    "end"
+   ],
+   "P": [
+    "hostname P",
+    "interface Loopback0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "interface GigabitEthernet0/0",
+    "ip address 10.0.12.2 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "ip address 10.0.23.2 255.255.255.0",
+    "no shutdown",
+    "router ospf 1",
+    "mpls ldp autoconfig",
+    "network 2.2.2.2 0.0.0.0 area 0",
+    "network 10.0.12.0 0.0.0.255 area 0",
+    "network 10.0.23.0 0.0.0.255 area 0",
+    "exit",
+    "mpls ldp router-id Loopback0 force",
+    "end"
+   ],
+   "PE2": [
+    "hostname PE2",
+    "vrf definition A",
+    "rd 65000:1",
+    "route-target export 65000:1",
+    "route-target import 65000:1",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "vrf definition B",
+    "rd 65000:2",
+    "route-target export 65000:2",
+    "route-target import 65000:2",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "interface Loopback0",
+    "ip address 3.3.3.3 255.255.255.255",
+    "interface GigabitEthernet0/0",
+    "ip address 10.0.23.3 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "vrf forwarding A",
+    "ip address 10.255.0.1 255.255.255.252",
+    "no shutdown",
+    "interface GigabitEthernet0/2",
+    "vrf forwarding B",
+    "ip address 172.16.2.1 255.255.255.0",
+    "no shutdown",
+    "router ospf 1",
+    "mpls ldp autoconfig",
+    "network 3.3.3.3 0.0.0.0 area 0",
+    "network 10.0.23.0 0.0.0.255 area 0",
+    "exit",
+    "mpls ldp router-id Loopback0 force",
+    "router bgp 65000",
+    "neighbor 1.1.1.1 remote-as 65000",
+    "neighbor 1.1.1.1 update-source Loopback0",
+    "end"
+   ],
+   "CEA2": [
+    "hostname CEA2",
+    "interface GigabitEthernet0/0",
+    "ip address 10.255.0.2 255.255.255.252",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "ip address 172.16.2.1 255.255.255.0",
+    "no shutdown",
+    "router bgp 65001",
+    "neighbor 10.255.0.1 remote-as 65000",
+    "network 172.16.2.0 mask 255.255.255.0",
+    "end"
+   ],
+   "PCA1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PCB1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PCA2": [
+    "ip 172.16.2.10/24 172.16.2.1"
+   ],
+   "PCB2": [
+    "ip 172.16.2.10/24 172.16.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Carry VPNv4 between the PEs",
+    "text": "On both PEs activate the existing iBGP neighbor in `address-family vpnv4` and send it extended communities, so route targets travel with the routes.",
+    "hint": "`router bgp 65000`, `address-family vpnv4`, `neighbor 3.3.3.3 activate`, `neighbor 3.3.3.3 send-community extended` (1.1.1.1 on PE2). `show bgp vpnv4 unicast all summary` lists the neighbor.",
+    "checks": [
+     {
+      "type": "vpnv4-nbr",
+      "device": "PE1",
+      "neighbor": "3.3.3.3"
+     },
+     {
+      "type": "vpnv4-nbr",
+      "device": "PE2",
+      "neighbor": "1.1.1.1"
+     }
+    ]
+   },
+   {
+    "title": "Customer B: redistribute the connected sites",
+    "text": "On both PEs create `address-family ipv4 vrf B` and redistribute connected routes into it. PCB1 should reach PCB2 at 172.16.2.10.",
+    "hint": "`address-family ipv4 vrf B`, `redistribute connected`, `exit-address-family`. Then `show ip route vrf B` on PE1: 172.16.2.0/24 is a B route via 3.3.3.3.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "PE1",
+      "vrf": "B",
+      "prefix": "172.16.2.0/24",
+      "code": "B",
+      "via": "3.3.3.3"
+     },
+     {
+      "type": "ping",
+      "from": "PCB1",
+      "to": "172.16.2.10"
+     }
+    ]
+   },
+   {
+    "title": "Customer A: eBGP to CEA2",
+    "text": "On PE2, peer with CEA2 (10.255.0.2, AS 65001) inside `address-family ipv4 vrf A`. On PE1, redistribute VRF A's connected network so site 1 is announced. CEA2 should learn 192.168.1.0/24 from PE2, and PE1 should learn 172.16.2.0/24 from PE2.",
+    "hint": "PE2: `address-family ipv4 vrf A`, `neighbor 10.255.0.2 remote-as 65001`, `neighbor 10.255.0.2 activate`. PE1: `address-family ipv4 vrf A`, `redistribute connected`. `show ip bgp vpnv4 vrf A summary` on PE2 shows the CE.",
+    "checks": [
+     {
+      "type": "bgp-vrf-nbr",
+      "device": "PE2",
+      "vrf": "A",
+      "neighbor": "10.255.0.2"
+     },
+     {
+      "type": "bgp-route",
+      "device": "CEA2",
+      "prefix": "192.168.1.0/24"
+     },
+     {
+      "type": "route",
+      "device": "PE1",
+      "vrf": "A",
+      "prefix": "172.16.2.0/24",
+      "code": "B",
+      "via": "3.3.3.3"
+     }
+    ]
+   },
+   {
+    "title": "Same addresses, separate customers",
+    "text": "PCA1 and PCB1 both ping 172.16.2.10 and each reaches its own customer's host. Customer B must not reach customer A's PE-CE link, 10.255.0.2. A traceroute from PCA1 shows two labels on P's hop and one on PE2's.",
+    "hint": "`traceroute vrf A 172.16.2.10` on PE1 shows `[MPLS: Labels x/y Exp 0]` on P: the outer label takes the packet to PE2, the inner one picks the VRF there.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PCA1",
+      "to": "172.16.2.10"
+     },
+     {
+      "type": "ping",
+      "from": "PCB1",
+      "to": "172.16.2.10"
+     },
+     {
+      "type": "noping",
+      "from": "PCB1",
+      "to": "10.255.0.2"
+     },
+     {
+      "type": "mpls-trace",
+      "from": "PCA1",
+      "to": "172.16.2.10",
+      "min": 2
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "PE1": [
+    "router bgp 65000",
+    "address-family vpnv4",
+    "neighbor 3.3.3.3 activate",
+    "neighbor 3.3.3.3 send-community extended",
+    "exit-address-family",
+    "address-family ipv4 vrf A",
+    "redistribute connected",
+    "exit-address-family",
+    "address-family ipv4 vrf B",
+    "redistribute connected",
+    "exit-address-family"
+   ],
+   "PE2": [
+    "router bgp 65000",
+    "address-family vpnv4",
+    "neighbor 1.1.1.1 activate",
+    "neighbor 1.1.1.1 send-community extended",
+    "exit-address-family",
+    "address-family ipv4 vrf A",
+    "neighbor 10.255.0.2 remote-as 65001",
+    "neighbor 10.255.0.2 activate",
+    "exit-address-family",
+    "address-family ipv4 vrf B",
+    "redistribute connected",
+    "exit-address-family"
+   ]
+  }
+ },
+ {
+  "id": "mpls-vpn-troubleshooting",
+  "title": "Ticket: the MPLS VPN is down",
+  "topic": "MPLS L3VPN",
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "minutes": 30,
+  "summary": "Three faults in a working-looking MPLS VPN: missing extended communities, a route-target typo, and a core link without LDP.",
+  "intro": "Same network as the L3VPN lab, finished and handed over, but the customers are calling:\n\n* **Both customers:** \"Site 1 can't reach site 2 at all.\"\n* **Customer B:** still broken after the first fix.\n* **Everyone:** once the routes are back, \"the routes are there but nothing gets through.\"\n\nWork from the control plane down: is the VPNv4 session up and carrying routes (`show bgp vpnv4 unicast all summary`, `show bgp vpnv4 unicast all`)? Does each VRF import what it should (`show ip route vrf B`, `show vrf detail`-style checks with `show running-config | section vrf`)? Then the data plane: does every core router have a label for the far PE's loopback (`show mpls ldp neighbor`, `show mpls forwarding-table`)?\n\n| Device | Interface | VRF | Address |\n|---|---|---|---|\n| PE1 | Loopback0 | - | 1.1.1.1/32 |\n| PE1 | Gi0/1 to PCA1 | A | 192.168.1.1/24 |\n| PE1 | Gi0/2 to PCB1 | B | 192.168.1.1/24 |\n| P | Loopback0 | - | 2.2.2.2/32 |\n| PE2 | Loopback0 | - | 3.3.3.3/32 |\n| PE2 | Gi0/1 to CEA2 | A | 10.255.0.1/30 |\n| PE2 | Gi0/2 to PCB2 | B | 172.16.2.1/24 |\n| CEA2 | Gi0/0 / Gi0/1 | - | 10.255.0.2/30 / 172.16.2.1/24 (AS 65001) |\n\nCustomer A uses RD 65000:1 and route target 65000:1; customer B uses RD 65000:2 and route target 65000:2. The core is AS 65000.",
+  "height": 460,
+  "devices": [
+   {
+    "name": "PCA1",
+    "type": "pc",
+    "x": 80,
+    "y": 130
+   },
+   {
+    "name": "PCB1",
+    "type": "pc",
+    "x": 80,
+    "y": 370
+   },
+   {
+    "name": "PE1",
+    "type": "router",
+    "x": 240,
+    "y": 250
+   },
+   {
+    "name": "P",
+    "type": "router",
+    "x": 400,
+    "y": 250
+   },
+   {
+    "name": "PE2",
+    "type": "router",
+    "x": 560,
+    "y": 250
+   },
+   {
+    "name": "CEA2",
+    "type": "router",
+    "x": 700,
+    "y": 160
+   },
+   {
+    "name": "PCA2",
+    "type": "pc",
+    "x": 700,
+    "y": 60
+   },
+   {
+    "name": "PCB2",
+    "type": "pc",
+    "x": 700,
+    "y": 380
+   }
+  ],
+  "links": [
+   [
+    "PE1",
+    "GigabitEthernet0/0",
+    "P",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "P",
+    "GigabitEthernet0/1",
+    "PE2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "PE1",
+    "GigabitEthernet0/1",
+    "PCA1",
+    "eth0"
+   ],
+   [
+    "PE1",
+    "GigabitEthernet0/2",
+    "PCB1",
+    "eth0"
+   ],
+   [
+    "PE2",
+    "GigabitEthernet0/1",
+    "CEA2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "CEA2",
+    "GigabitEthernet0/1",
+    "PCA2",
+    "eth0"
+   ],
+   [
+    "PE2",
+    "GigabitEthernet0/2",
+    "PCB2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "PE1": [
+    "hostname PE1",
+    "vrf definition A",
+    "rd 65000:1",
+    "route-target export 65000:1",
+    "route-target import 65000:1",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "vrf definition B",
+    "rd 65000:2",
+    "route-target export 65000:2",
+    "route-target import 65000:22",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "interface Loopback0",
+    "ip address 1.1.1.1 255.255.255.255",
+    "interface GigabitEthernet0/0",
+    "ip address 10.0.12.1 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "vrf forwarding A",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/2",
+    "vrf forwarding B",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "router ospf 1",
+    "mpls ldp autoconfig",
+    "network 1.1.1.1 0.0.0.0 area 0",
+    "network 10.0.12.0 0.0.0.255 area 0",
+    "exit",
+    "mpls ldp router-id Loopback0 force",
+    "router bgp 65000",
+    "neighbor 3.3.3.3 remote-as 65000",
+    "neighbor 3.3.3.3 update-source Loopback0",
+    "address-family vpnv4",
+    "neighbor 3.3.3.3 activate",
+    "neighbor 3.3.3.3 send-community extended",
+    "exit-address-family",
+    "address-family ipv4 vrf A",
+    "redistribute connected",
+    "exit-address-family",
+    "address-family ipv4 vrf B",
+    "redistribute connected",
+    "exit-address-family",
+    "end"
+   ],
+   "P": [
+    "hostname P",
+    "interface Loopback0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "interface GigabitEthernet0/0",
+    "ip address 10.0.12.2 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "ip address 10.0.23.2 255.255.255.0",
+    "no shutdown",
+    "router ospf 1",
+    "mpls ldp autoconfig",
+    "network 2.2.2.2 0.0.0.0 area 0",
+    "network 10.0.12.0 0.0.0.255 area 0",
+    "network 10.0.23.0 0.0.0.255 area 0",
+    "exit",
+    "mpls ldp router-id Loopback0 force",
+    "interface GigabitEthernet0/1",
+    "no mpls ldp igp autoconfig",
+    "end"
+   ],
+   "PE2": [
+    "hostname PE2",
+    "vrf definition A",
+    "rd 65000:1",
+    "route-target export 65000:1",
+    "route-target import 65000:1",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "vrf definition B",
+    "rd 65000:2",
+    "route-target export 65000:2",
+    "route-target import 65000:2",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "interface Loopback0",
+    "ip address 3.3.3.3 255.255.255.255",
+    "interface GigabitEthernet0/0",
+    "ip address 10.0.23.3 255.255.255.0",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "vrf forwarding A",
+    "ip address 10.255.0.1 255.255.255.252",
+    "no shutdown",
+    "interface GigabitEthernet0/2",
+    "vrf forwarding B",
+    "ip address 172.16.2.1 255.255.255.0",
+    "no shutdown",
+    "router ospf 1",
+    "mpls ldp autoconfig",
+    "network 3.3.3.3 0.0.0.0 area 0",
+    "network 10.0.23.0 0.0.0.255 area 0",
+    "exit",
+    "mpls ldp router-id Loopback0 force",
+    "router bgp 65000",
+    "neighbor 1.1.1.1 remote-as 65000",
+    "neighbor 1.1.1.1 update-source Loopback0",
+    "address-family vpnv4",
+    "neighbor 1.1.1.1 activate",
+    "exit-address-family",
+    "address-family ipv4 vrf A",
+    "redistribute connected",
+    "neighbor 10.255.0.2 remote-as 65001",
+    "neighbor 10.255.0.2 activate",
+    "exit-address-family",
+    "address-family ipv4 vrf B",
+    "redistribute connected",
+    "exit-address-family",
+    "end"
+   ],
+   "CEA2": [
+    "hostname CEA2",
+    "interface GigabitEthernet0/0",
+    "ip address 10.255.0.2 255.255.255.252",
+    "no shutdown",
+    "interface GigabitEthernet0/1",
+    "ip address 172.16.2.1 255.255.255.0",
+    "no shutdown",
+    "router bgp 65001",
+    "neighbor 10.255.0.1 remote-as 65000",
+    "network 172.16.2.0 mask 255.255.255.0",
+    "end"
+   ],
+   "PCA1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PCB1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PCA2": [
+    "ip 172.16.2.10/24 172.16.2.1"
+   ],
+   "PCB2": [
+    "ip 172.16.2.10/24 172.16.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Ticket 1: PE1 learns nothing from PE2",
+    "text": "The VPNv4 session between the PEs is up, but PE1's VRFs have no routes from site 2. PE2 sends its VPNv4 routes without their route targets. Fix it so VRF A on PE1 learns 172.16.2.0/24.",
+    "hint": "`show bgp vpnv4 unicast all` on PE1 shows nothing imported from 3.3.3.3. Compare the `address-family vpnv4` sections: one PE is missing `neighbor ... send-community extended`.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "PE1",
+      "vrf": "A",
+      "prefix": "172.16.2.0/24",
+      "code": "B"
+     }
+    ]
+   },
+   {
+    "title": "Ticket 2: customer B still can't see site 2",
+    "text": "VRF A is fixed but VRF B on PE1 still has no route to 172.16.2.0/24. Check what it imports.",
+    "hint": "`show running-config | section vrf definition B` on PE1: the import route target doesn't match the 65000:2 that PE2 exports. Replace it.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "PE1",
+      "vrf": "B",
+      "prefix": "172.16.2.0/24",
+      "code": "B"
+     }
+    ]
+   },
+   {
+    "title": "Ticket 3: the routes are there, the traffic isn't",
+    "text": "Both VRFs have their routes, but pings across the core still fail. P has no LDP session to PE2, so PE1 has no label to reach PE2's loopback and can't send VPN traffic. Get LDP running on P's link to PE2.",
+    "hint": "`show mpls ldp neighbor` on P lists only 1.1.1.1. `show mpls interfaces` shows Gi0/1 missing: it has `no mpls ldp igp autoconfig`. Remove that (or add `mpls ip`).",
+    "checks": [
+     {
+      "type": "ldp-nbr",
+      "device": "P",
+      "neighbor": "3.3.3.3"
+     },
+     {
+      "type": "mpls-label",
+      "device": "PE1",
+      "prefix": "3.3.3.3/32",
+      "out": "label"
+     }
+    ]
+   },
+   {
+    "title": "Close the tickets",
+    "text": "Prove both customers reach their site 2 again.",
+    "hint": "PCA1 and PCB1: `ping 172.16.2.10`.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PCA1",
+      "to": "172.16.2.10"
+     },
+     {
+      "type": "ping",
+      "from": "PCB1",
+      "to": "172.16.2.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "PE2": [
+    "router bgp 65000",
+    "address-family vpnv4",
+    "neighbor 1.1.1.1 send-community extended",
+    "exit-address-family"
+   ],
+   "PE1": [
+    "vrf definition B",
+    "no route-target import 65000:22",
+    "route-target import 65000:2"
+   ],
+   "P": [
+    "interface g0/1",
+    "mpls ldp igp autoconfig"
+   ]
+  }
+ },
+ {
   "id": "sandbox",
   "title": "Sandbox",
   "topic": "Free play",
