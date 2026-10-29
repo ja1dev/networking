@@ -3,3 +3,13 @@ __pycache__/
 
 # Interactive PDFs are built on demand, not committed
 *_Interactive.pdf
+
+# macOS folder metadata
+.DS_Store
+
+# NetLab web app: local env, database and generated content
+web/.venv/
+web/data/
+web/app/data/
+web/.pytest_cache/
+.env

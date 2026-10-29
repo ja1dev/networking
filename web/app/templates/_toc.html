@@ -1,0 +1,29 @@
+{% from "_icons.html" import icon %}
+<nav class="toc" aria-label="Contents">
+  <div class="spread" style="margin-bottom:8px">
+    <a href="/read/{{ doc.id }}" class="small" style="font-weight:700">{{ doc.title }}</a>
+    <button class="icon-btn toc-toggle" type="button" data-toc-toggle aria-label="Close contents">✕</button>
+  </div>
+  {% for c in doc.chapters %}
+    {% if c.is_part %}
+    <div class="part-label">{{ c.title }}</div>
+    <ol class="part-pages">
+      {% for pid in c.pages %}
+      <li><a href="/read/{{ doc.id }}/{{ pid }}" class="{{ 'current' if page is defined and page and page.id == pid }}" data-page-link="{{ pid }}">
+        <span class="tick">{% if pid in done %}{{ icon("check", 13) }}{% endif %}</span><span>About this part</span></a></li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    {% set open = page is defined and page and page.chapter == c.id %}
+    <details {{ 'open' if open }}>
+      <summary>{{ c.title }}</summary>
+      <ol>
+        {% for pid in c.pages %}{% set p = doc.pages[pid] %}
+        <li><a href="/read/{{ doc.id }}/{{ pid }}" class="{{ 'current' if page is defined and page and page.id == pid }}" data-page-link="{{ pid }}">
+          <span class="tick">{% if pid in done %}{{ icon("check", 13) }}{% endif %}</span><span>{{ p.title }}</span></a></li>
+        {% endfor %}
+      </ol>
+    </details>
+    {% endif %}
+  {% endfor %}
+</nav>

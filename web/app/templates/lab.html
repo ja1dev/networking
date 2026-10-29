@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ lab.title }}{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/labs">Labs</a><span>/</span></div>
+<article id="lab" data-lab="{{ lab.id }}">
+  <div class="spread" style="align-items:flex-start">
+    <h1>{{ "Lab %d: "|format(lab.number) if lab.number is not none }}{{ lab.title }}</h1>
+  </div>
+  {% if lab.meta_html %}<p class="lab-meta">{{ lab.meta_html|safe }}</p>{% endif %}
+  {% if lab["items"] %}
+  <div class="card spread" style="margin-bottom:20px;position:sticky;top:8px;z-index:5">
+    <div style="flex:1;min-width:180px">
+      <div class="small"><strong id="lab-count">{{ checked|length }}</strong> / {{ lab["items"]|length }} steps</div>
+      <div class="progress" style="margin-top:4px"><span id="lab-bar" style="width: {{ pct(checked|length, lab['items']|length) }}%"></span></div>
+    </div>
+    <label class="row" style="cursor:pointer;font-weight:600">
+      <input type="checkbox" id="lab-done" {{ 'checked' if row and row.completed_at }} style="width:20px;height:20px;accent-color:var(--good)"> Lab complete
+    </label>
+  </div>
+  {% endif %}
+  <div class="prose">{{ lab.html|safe }}</div>
+  <details class="reveal notes" {{ 'open' if row and row.note }} style="margin-top:28px">
+    <summary>My lab notes</summary>
+    <div class="reveal-body">
+      <textarea id="lab-note" placeholder="Commands that tripped you up, what broke, what you'd do differently..." aria-label="Lab notes">{{ row.note if row else "" }}</textarea>
+      <div class="muted tiny" id="note-status">Saved automatically.</div>
+    </div>
+  </details>
+  <nav class="pager">
+    {% if prev %}<a class="prev" href="/labs/{{ prev.id }}"><small>← Previous</small>{{ prev.title }}</a>{% endif %}
+    {% if next %}<a class="next" href="/labs/{{ next.id }}"><small>Next →</small>{{ next.title }}</a>{% endif %}
+  </nav>
+</article>
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="lab-checked">{{ checked|tojson }}</script>
+<script type="module">
+  import { api, debounce, toast } from "netlab";
+  const lab = document.getElementById("lab").dataset.lab;
+  const checked = new Set(JSON.parse(document.getElementById("lab-checked").textContent));
+  const boxes = [...document.querySelectorAll("[data-item]")];
+  const count = document.getElementById("lab-count");
+  const bar = document.getElementById("lab-bar");
+  const done = document.getElementById("lab-done");
+  const paint = () => {
+    const n = boxes.filter((b) => b.checked).length;
+    if (count) count.textContent = n;
+    if (bar) bar.style.width = (boxes.length ? (100 * n) / boxes.length : 0) + "%";
+  };
+  boxes.forEach((b) => { b.checked = checked.has(b.dataset.item); });
+  paint();
+  boxes.forEach((b) => b.addEventListener("change", async () => {
+    try {
+      await api("POST", `/api/labs/${lab}/items/${b.dataset.item}`, { checked: b.checked });
+      paint();
+      if (boxes.every((x) => x.checked) && done && !done.checked) {
+        toast("Every step ticked. Mark the lab complete when you've done the Break it challenge too.");
+      }
+    } catch (err) { b.checked = !b.checked; }
+  }));
+  done?.addEventListener("change", async () => {
+    try {
+      await api("POST", `/api/labs/${lab}/complete`, { completed: done.checked });
+      toast(done.checked ? "Lab marked complete" : "Lab marked not complete");
+    } catch (err) { done.checked = !done.checked; }
+  });
+  const note = document.getElementById("lab-note");
+  const status = document.getElementById("note-status");
+  const save = debounce(async () => {
+    try { await api("PUT", `/api/labs/${lab}/note`, { note: note.value }); status.textContent = "Saved."; }
+    catch (err) { status.textContent = "Not saved. Check your connection; your text is still here."; }
+  }, 700);
+  note.addEventListener("input", () => { status.textContent = "Saving…"; save(); });
+</script>
+{% endblock %}

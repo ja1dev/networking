@@ -1,0 +1,89 @@
+{% from "_icons.html" import icon %}
+{% extends "base.html" %}
+{% block title %}{{ lab.title }}{% endblock %}
+{% block content_class %}wide{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/terminal">Terminal labs</a><span>/</span><span>{{ lab.topic }}</span></div>
+<div class="spread term-head">
+  <h1>{{ lab.title }}</h1>
+  <div class="row">
+    {% if lab.tasks %}<span class="pill" id="term-score">0 / {{ lab.tasks|length }} tasks</span>{% endif %}
+    <button class="btn btn-sm" type="button" id="term-reset" title="Throw away your changes and start this lab again">{{ icon("reset", 14) }} Reset lab</button>
+  </div>
+</div>
+
+<div class="term-layout" id="term-lab" data-lab="{{ lab.id }}">
+  <div class="term-main">
+    <div class="card topo-card">
+      <svg id="topo" viewBox="0 0 800 {{ lab.height }}" role="img" aria-label="Network diagram: click a device to open its console"></svg>
+      <div class="topo-legend tiny muted">
+        <span><i class="lg lg-up"></i>link up</span><span><i class="lg lg-down"></i>down</span><span><i class="lg lg-trunk"></i>trunk</span>
+        <span>Click a device to open its console. Pings animate along their path.</span>
+      </div>
+    </div>
+    <div class="card console-card">
+      <div class="console-tabs" role="tablist" id="console-tabs">
+        {% for d in lab.devices %}<button type="button" role="tab" class="console-tab" data-dev="{{ d.name }}">{{ d.name }}</button>{% endfor %}
+      </div>
+      <div class="term" id="term" aria-live="polite">
+        <pre class="term-out" id="term-out"></pre>
+        <div class="term-line"><span class="term-prompt" id="term-prompt"></span><input class="term-input" id="term-input" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" aria-label="Console input"></div>
+      </div>
+      <div class="term-keys" aria-label="Terminal keys">
+        <button type="button" class="btn btn-sm" data-key="Tab">Tab</button>
+        <button type="button" class="btn btn-sm" data-key="?">?</button>
+        <button type="button" class="btn btn-sm" data-key="ArrowUp" aria-label="Previous command">↑</button>
+        <button type="button" class="btn btn-sm" data-key="ArrowDown" aria-label="Next command">↓</button>
+        <button type="button" class="btn btn-sm" data-key="ctrl-z" title="Leave configuration mode">Ctrl+Z</button>
+        <button type="button" class="btn btn-sm" data-key="ctrl-c" title="Cancel a prompt">Ctrl+C</button>
+        <span class="muted tiny term-help-text">Enter runs · Tab completes · ? shows options · ↑↓ history · Ctrl+L clears</span>
+      </div>
+    </div>
+  </div>
+
+  <aside class="term-side">
+    <details class="card reveal term-intro" open>
+      <summary>The scenario</summary>
+      <div class="reveal-body prose">{{ lab.intro_html|safe }}</div>
+    </details>
+    {% if lab.tasks %}
+    <div class="card">
+      <div class="spread" style="margin-bottom:8px"><h3 style="margin:0">Tasks</h3><span class="muted tiny">checked live</span></div>
+      <div class="progress" id="term-bar"><span style="width:0%"></span></div>
+      <ol class="task-list" id="task-list">
+        {% for t in lab.tasks %}
+        <li class="task" data-task="{{ loop.index0 }}">
+          <span class="task-mark" aria-hidden="true"></span>
+          <div>
+            <div class="task-title">{{ t.title }}</div>
+            <div class="task-text small">{{ t.text_html|safe }}</div>
+            <details class="task-hint"><summary>Hint</summary><div class="small">{{ t.hint_html|safe }}</div></details>
+          </div>
+        </li>
+        {% endfor %}
+      </ol>
+      <div class="term-done" id="term-done" hidden>{{ icon("check", 16) }} Every task passes. Lab complete!</div>
+    </div>
+    <details class="card reveal">
+      <summary>Show the full solution</summary>
+      <div class="reveal-body prose">
+        <p class="small muted">Try the hints first. The IOS lines start from global configuration mode (<code>enable</code>, <code>configure terminal</code>); the PC lines are typed at the PC's prompt.</p>
+        {% for dev, lines in lab.solution.items() %}
+        <p class="small"><strong>{{ dev }}</strong></p>
+        <pre><code>{{ lines|join("\n") }}</code></pre>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+  </aside>
+</div>
+<nav class="pager">
+  {% if prev %}<a class="prev" href="/terminal/{{ prev.id }}"><small>← Previous</small>{{ prev.title }}</a>{% endif %}
+  {% if next %}<a class="next" href="/terminal/{{ next.id }}"><small>Next →</small>{{ next.title }}</a>{% endif %}
+</nav>
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="term-spec">{{ spec|tojson }}</script>
+<script type="application/json" id="term-saved">{{ saved|tojson }}</script>
+<script type="module" src="/static/js/terminal.js?v={{ ASSET_VERSION }}"></script>
+{% endblock %}

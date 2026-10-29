@@ -1,0 +1,43 @@
+{% from "_icons.html" import icon %}
+{% extends "base.html" %}
+{% block title %}{{ page.title }}{% endblock %}
+{% block topbar_extra %}<button class="icon-btn" type="button" data-toc-toggle aria-label="Contents" style="margin-left:auto">{{ icon("list", 22) }}</button>{% endblock %}
+{% block body %}
+<div class="doc-layout">
+  {% include "_toc.html" %}
+  <article id="reader" data-doc="{{ doc.id }}" data-page="{{ page.id }}">
+    <div class="crumbs">
+      <a href="/read">Read</a><span>/</span><a href="/read/{{ doc.id }}">{{ doc.title }}</a><span>/</span><span>{{ chapter.title }}</span>
+    </div>
+    <div class="spread" style="align-items:flex-start">
+      <h1 style="margin-bottom:6px">{{ page.title }}</h1>
+    </div>
+    <p class="muted small" style="margin:0 0 24px">Page {{ position }} of {{ doc.order|length }}{% if page.questions %} · {{ page.questions|length }} exam-style question{{ '' if page.questions|length == 1 else 's' }}{% endif %}</p>
+    <div class="prose">{{ page.html|safe }}</div>
+
+    <div class="page-actions">
+      <label class="row" style="cursor:pointer;font-weight:600">
+        <input type="checkbox" id="page-done" {{ 'checked' if row.completed_at }} style="width:20px;height:20px;accent-color:var(--good)">
+        I've read and understood this page
+      </label>
+      {% if page.questions %}<a class="btn btn-sm" href="/quiz?source={{ doc.id }}&group={{ chapter.id }}">Quiz this chapter</a>{% endif %}
+    </div>
+    <details class="reveal notes" {{ 'open' if row.note }}>
+      <summary>My notes</summary>
+      <div class="reveal-body">
+        <textarea id="page-note" placeholder="What clicked, what didn't, what to come back to..." aria-label="Notes for this page">{{ row.note }}</textarea>
+        <div class="muted tiny" id="note-status">Saved automatically.</div>
+      </div>
+    </details>
+    <nav class="pager">
+      {% if prev %}<a class="prev" href="/read/{{ doc.id }}/{{ prev.id }}" data-prev><small>← Previous</small>{{ prev.title }}</a>{% endif %}
+      {% if next %}<a class="next" href="/read/{{ doc.id }}/{{ next.id }}" data-next><small>Next →</small>{{ next.title }}</a>{% endif %}
+    </nav>
+    <p class="muted tiny" style="text-align:center;margin-top:18px"><kbd>←</kbd> <kbd>→</kbd> previous / next page · <kbd>/</kbd> search</p>
+  </article>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="question-status">{{ status|tojson }}</script>
+<script type="module" src="/static/js/reader.js?v={{ ASSET_VERSION }}"></script>
+{% endblock %}

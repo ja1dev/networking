@@ -1,0 +1,39 @@
+{% from "_icons.html" import icon %}
+{% extends "base.html" %}
+{% block title %}{{ doc.title }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div class="crumbs"><a href="/read">Read</a><span>/</span></div>
+  <h1>{{ doc.title }}</h1>
+  <p>{{ total_done }} of {{ doc.order|length }} pages done</p>
+  <div class="progress {{ 'good' if total_done == doc.order|length }}" style="margin-top:10px"><span style="width: {{ pct(total_done, doc.order|length) }}%"></span></div>
+</div>
+<div class="stack">
+  {% for ch in chapters %}{% set c = ch.c %}
+  {% if c.is_part %}<div class="eyebrow" style="margin-top:28px">{{ c.title }}</div>{% endif %}
+  <div class="card">
+    <div class="spread">
+      <h2 style="font-size:1.08rem;margin:0">{{ c.title }}</h2>
+      <span class="row">
+        {% if ch.questions %}
+        <span class="pill {{ 'pill-good' if ch.answered and ch.correct / ch.answered >= 0.85 else ('pill-bad' if ch.answered else '') }}" title="Latest answers to this chapter's questions">{{ ch.correct }}/{{ ch.answered }} of {{ ch.questions }} Qs</span>
+        <a class="btn btn-sm" href="/quiz?source={{ doc.id }}&group={{ c.id }}">Quiz</a>
+        {% endif %}
+        <span class="pill {{ 'pill-good' if ch.done == ch.pages|length }}">{{ ch.done }}/{{ ch.pages|length }}</span>
+      </span>
+    </div>
+    <ol class="list" style="margin-top:8px">
+      {% for p in ch.pages %}
+      <li class="spread" style="padding:7px 0">
+        <a href="/read/{{ doc.id }}/{{ p.id }}">{{ p.title }}</a>
+        <span class="row small muted">
+          {% if p.questions %}<span>{{ p.questions|length }} Q</span>{% endif %}
+          {% if p.id in done %}<span class="pill pill-good">{{ icon("check", 12) }} done</span>{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

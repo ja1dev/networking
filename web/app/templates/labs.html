@@ -1,0 +1,31 @@
+{% from "_icons.html" import icon %}
+{% extends "base.html" %}
+{% block title %}Labs{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Labs</h1>
+  <p>Hands-on EVE-NG/GNS3 labs that follow the CCNA guide. Tick tasks and verification steps as you go; no hardware? The <a href="/read/devnet">DevNet companion</a> maps every lab to Cisco's free sandboxes, and the <a href="/terminal">terminal labs</a> run a simulated network right here in the browser and check your work automatically.</p>
+</div>
+<details class="card reveal" style="padding:0;margin-bottom:16px">
+  <summary>How the labs work</summary>
+  <div class="reveal-body prose">{{ intro|safe }}</div>
+</details>
+<div class="grid grid-3">
+  {% for lab in labs %}
+  {% set done = progress.get(lab.id) and progress[lab.id].completed_at %}
+  {% set n = checks.get(lab.id, [])|length %}
+  <a class="card lab-card" href="/labs/{{ lab.id }}" style="color:inherit">
+    <div class="spread">
+      <span class="lab-num">{{ "Lab %d"|format(lab.number) if lab.number is not none else "Notes" }}</span>
+      {% if done %}<span class="pill pill-good">{{ icon("check", 12) }} done</span>
+      {% elif n %}<span class="pill pill-accent">in progress</span>{% endif %}
+    </div>
+    <h3>{{ lab.title }}</h3>
+    {% if lab["items"] %}
+    <div class="progress {{ 'good' if done }}"><span style="width: {{ pct(n, lab['items']|length) }}%"></span></div>
+    <span class="muted tiny">{{ n }} / {{ lab["items"]|length }} steps ticked</span>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

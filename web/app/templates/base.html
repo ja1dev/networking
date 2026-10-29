@@ -1,0 +1,57 @@
+{% from "_icons.html" import icon %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{% block title %}NetLab{% endblock %} · NetLab</title>
+<meta name="theme-color" content="#0b6cc4">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="stylesheet" href="/static/css/app.css?v={{ ASSET_VERSION }}">
+<script type="importmap">{"imports": {"netlab": "/static/js/app.js?v={{ ASSET_VERSION }}", "netlab/mcq": "/static/js/mcq.js?v={{ ASSET_VERSION }}", "netlab/subnet-math": "/static/js/subnet-math.js?v={{ ASSET_VERSION }}", "netlab/subnet-gen": "/static/js/subnet-gen.js?v={{ ASSET_VERSION }}", "netlab/ios": "/static/js/ios.js?v={{ ASSET_VERSION }}"}}</script>
+<script>
+  // Apply the saved theme before first paint so there's no flash.
+  try { var t = localStorage.getItem("netlab-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<div class="reading-bar" hidden></div>
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="/">{{ icon("logo", 24) }} NetLab</a>
+    <nav class="nav" aria-label="Main">
+      <a href="/" class="{{ 'active' if nav == 'home' }}">{{ icon("home") }} Dashboard</a>
+      <a href="/read" class="{{ 'active' if nav == 'read' }}">{{ icon("book") }} Read</a>
+      <a href="/quiz" class="{{ 'active' if nav == 'quiz' }}">{{ icon("quiz") }} Quiz</a>
+      <a href="/cards" class="{{ 'active' if nav == 'cards' }}">{{ icon("cards") }} Flashcards</a>
+      <a href="/subnetting" class="{{ 'active' if nav == 'subnet' }}">{{ icon("subnet") }} Subnetting</a>
+      <a href="/terminal" class="{{ 'active' if nav == 'terminal' }}">{{ icon("terminal") }} Terminal</a>
+      <a href="/labs" class="{{ 'active' if nav == 'labs' }}">{{ icon("lab") }} Labs</a>
+      <a href="/search" class="{{ 'active' if nav == 'search' }}">{{ icon("search") }} Search</a>
+      <a href="/settings" class="{{ 'active' if nav == 'settings' }}">{{ icon("settings") }} Settings</a>
+    </nav>
+    <div class="sidebar-foot">
+      <button class="icon-btn" type="button" data-theme-toggle title="Toggle dark mode" aria-label="Toggle dark mode">{{ icon("theme") }}</button>
+      {% if AUTH_ENABLED %}
+      <form method="post" action="/logout"><button class="icon-btn" type="submit" title="Sign out" aria-label="Sign out">{{ icon("logout") }}</button></form>
+      {% endif %}
+    </div>
+  </aside>
+  <div class="scrim" data-close-drawers></div>
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn" type="button" data-nav-toggle aria-label="Open menu">{{ icon("menu", 22) }}</button>
+      <a class="brand" href="/">{{ icon("logo", 20) }} NetLab</a>
+      {% block topbar_extra %}{% endblock %}
+    </header>
+    {% block body %}
+    <main class="content {% block content_class %}{% endblock %}">
+      {% block content %}{% endblock %}
+    </main>
+    {% endblock %}
+  </div>
+</div>
+<script type="module">import "netlab";</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

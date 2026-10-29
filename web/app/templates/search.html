@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Search</h1><p>Every page of both guides, the labs and the flashcards.</p></div>
+<form class="search-box" action="/search" method="get" role="search">
+  <input type="search" name="q" value="{{ q }}" placeholder="e.g. native vlan, ospf dr election, ip helper-address" aria-label="Search" autofocus>
+  <button class="btn btn-primary" type="submit">Search</button>
+</form>
+{% if q %}
+  <p class="muted small">{{ results|length }}{{ "+" if results|length == 60 }} result{{ '' if results|length == 1 else 's' }} for “{{ q }}”</p>
+  {% for r in results %}
+  <div class="result">
+    <div class="muted tiny">{{ r.crumb }}</div>
+    <h3><a href="{{ r.url }}">{{ r.title }}</a></h3>
+    <p>{{ r.snippet|safe }}</p>
+  </div>
+  {% else %}
+  <p class="empty">Nothing matched every word. Try fewer or different terms.</p>
+  {% endfor %}
+{% endif %}
+{% endblock %}

@@ -62,6 +62,69 @@ The CCNP kit reuses the CCNA kit's tooling rather than copying it:
 folder, and `ccnp/scripts/build_diagrams.py` imports the drawing primitives from
 `ccna/scripts/build_diagrams.py`, so both guides share one visual language.
 
+## NetLab: the interactive web app
+
+`web/` turns both kits into a study site you can deploy. The markdown stays the
+single source of truth: at build time `web/app/build_content.py` parses it into
+structured content, and the app tracks your progress in Postgres.
+
+| Area | What it does |
+| --- | --- |
+| **Read** | Both guides, the Study Tips and the DevNet companion, page by page, with a contents sidebar. Each page can be marked done and has a notes box. Every exam-style question is a live widget: pick, check, see why. Answers are graded on the server, so they never appear in the page source. Click any diagram to open it full size |
+| **Terminal** | 13 guided CLI labs plus a sandbox, run on a Cisco IOS-style simulator in the browser (`web/app/static/js/ios.js`). Each lab has a live topology diagram (links go green when up, pings animate along their path) and a console per router, switch and VPCS PC, with `?` help, Tab completion, abbreviations, `no` and `do` forms, `\| include/section`, and real IOS errors. Tasks are checked against what the simulated network actually does. Covers device hardening, addressing, VLANs, trunks and DTP, router-on-a-stick, static and floating routes, single-area OSPF and OSPF troubleshooting, standard and extended ACLs, DHCP and relay, SSH, and a multi-fault troubleshooting ticket. Progress saves to the server |
+| **Quiz** | Builds sets from the 152 CCNA bank and 814 CCNP questions by topic (or all of ENCOR / ENARSI), filtered to all, unseen or missed. **Practice** explains each answer as you go; **Exam** is timed (72s a question by default), lets you flag and change answers, and grades at the end with a per-topic breakdown |
+| **Flashcards** | All 299 cards with Anki-style spaced repetition (learning steps, ease, lapses), a daily new-card limit, per-deck study, cram mode and a browser |
+| **Subnetting** | An endless trainer across 10 problem types (network/broadcast, host ranges, right-sizing, wildcards, same-subnet, IPv6 shorten/expand...). Each answer gets the drill sheet's worked method with the bits highlighted. Also a calculator, the 60 worked drills with self-grading, and the toolkit |
+| **Labs** | Every lab's tasks and verification steps as checkboxes, plus completion and notes |
+| **Dashboard** | Continue-reading, what's due today, accuracy per source, reading/terminal/lab progress, weak topics (under 85%), streak and a 16-week activity map |
+
+Keyboard: `A`–`E` pick answers, `Enter` checks, `←`/`→` page through, `Space` flips a card and `1`–`4` rate it, `/` searches.
+
+### Run it locally (Docker)
+
+```bash
+docker compose up --build            # http://localhost:8000, with Postgres
+```
+
+Put `APP_PASSWORD`, `SECRET_KEY` and optionally `NETLAB_PORT` in a `.env` file
+next to `docker-compose.yml` to try the login or use another port.
+
+### Deploy to Railway
+
+1. Create a project from this repo. Railway reads `railway.json` and builds the root `Dockerfile`.
+2. Add a **Postgres** database to the project and reference its `DATABASE_URL` from the web service's variables.
+3. Set these variables on the web service:
+   - `APP_PASSWORD`: the password for the site. Without it, anyone with the URL can use it.
+   - `SECRET_KEY`: 32+ random characters, from `python -c "import secrets; print(secrets.token_hex(32))"`.
+4. Generate a domain under the service's **Networking** settings.
+
+Each start runs `alembic upgrade head` before serving, and Railway checks
+`/healthz`. Editing the markdown and redeploying updates the content and keeps
+your progress. Questions, cards and pages are keyed by their numbering and text.
+
+### Developing
+
+```bash
+cd web
+python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m app.build_content          # writes app/data/content.json
+.venv/bin/alembic upgrade head                 # SQLite at web/data/app.db
+.venv/bin/uvicorn app.main:app --reload
+.venv/bin/python -m pytest tests               # content, scheduler, API
+node tests/subnet_math.test.mjs && node tests/subnet_gen.test.mjs
+node tests/ios.test.mjs                        # simulator, and every terminal lab's solution
+```
+
+Terminal labs live in `web/app/terminal_labs.json`: devices with diagram
+positions, cables, starting configs, tasks with machine checks, hints and a full
+solution. `tests/ios.test.mjs` proves for every lab that no task starts solved,
+the solution passes every check, and the saved state reloads intact.
+
+Schema changes go through Alembic: edit `app/models.py`, then
+`alembic revision --autogenerate -m "..."` and review the file in
+`migrations/versions/`. The content build fails loudly if a question block in
+the markdown stops parsing, which stops a broken deploy at build time.
+
 ## Layout
 
 ```

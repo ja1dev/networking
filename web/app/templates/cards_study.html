@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Study{% endblock %}
+{% block content_class %}narrow{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/cards">Flashcards</a><span>/</span><span>{{ deck.name if deck else "All decks" }}{{ " · cram" if mode == "cram" }}</span></div>
+<div id="study" data-deck="{{ deck.id if deck else '' }}" data-mode="{{ mode }}">
+  <div class="empty">Loading…</div>
+</div>
+<p class="muted tiny" style="text-align:center;margin-top:16px"><kbd>Space</kbd> flip · <kbd>1</kbd> Again · <kbd>2</kbd> Hard · <kbd>3</kbd> Good · <kbd>4</kbd> Easy</p>
+{% endblock %}
+{% block scripts %}
+{% if cram_cards is not none %}<script type="application/json" id="cram-cards">{{ cram_cards|tojson }}</script>{% endif %}
+<script type="module" src="/static/js/cards.js?v={{ ASSET_VERSION }}"></script>
+{% endblock %}

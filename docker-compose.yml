@@ -1,0 +1,32 @@
+# Local run that mirrors Railway: the app container plus Postgres.
+#   docker compose up --build        -> http://localhost:8000 (NETLAB_PORT=8090 to change)
+# Set APP_PASSWORD and SECRET_KEY in a .env file to test the login locally.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: netlab
+      POSTGRES_PASSWORD: netlab
+      POSTGRES_DB: netlab
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netlab -d netlab"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build: .
+    ports:
+      - "${NETLAB_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql://netlab:netlab@db:5432/netlab
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      SECRET_KEY: ${SECRET_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

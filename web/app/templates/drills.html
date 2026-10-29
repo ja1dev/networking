@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Drill sheet{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Subnetting drill sheet</h1>
+  <p>The 60 worked problems from the drill sheet. Work each one on paper first, reveal the answer, then mark how it went. Your marks are saved, so you can come back for the ones you missed.</p>
+</div>
+{% set tab = "drills" %}{% set drill_count = drills.drills|length %}{% include "_subnet_tabs.html" %}
+{% set got = results.values()|select|list|length %}
+<div class="card spread" style="margin-bottom:16px">
+  <span><strong>{{ results|length }}</strong> of {{ drills.drills|length }} attempted · <strong>{{ got }}</strong> right on the latest try</span>
+  <label class="row small"><input type="checkbox" id="only-missed"> Only show what I missed or haven't tried</label>
+</div>
+<div class="stack" id="drills">
+  {% for s in drills.sections %}
+  <section class="card" data-section>
+    <h2 style="font-size:1.15rem">Section {{ s.id[1:] }}: {{ s.title }}</h2>
+    <div class="prose small">{{ s.intro_html|safe }}</div>
+    {% for d in drills.drills if d.section == s.id %}
+    <div class="drill-item" data-drill="{{ d.id }}" data-state="{{ 'right' if results.get(d.id) == true else ('wrong' if d.id in results else 'new') }}">
+      <div class="prose"><strong>Q{{ d.number }}.</strong> {{ d.prompt_html|safe }}</div>
+      <details class="reveal"><summary>Show answer</summary><div class="reveal-body prose">{{ d.answer_html|safe }}
+        <div class="self-grade"><span class="small muted">How did it go?</span>
+          <button class="btn btn-sm" type="button" data-grade="1">✓ Got it</button>
+          <button class="btn btn-sm" type="button" data-grade="0">✗ Missed it</button>
+          <span class="pill" data-badge></span></div></div></details>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module">
+  import { api } from "netlab";
+  const paint = (item) => {
+    const b = item.querySelector("[data-badge]");
+    const st = item.dataset.state;
+    b.textContent = st === "right" ? "got it last time" : st === "wrong" ? "missed last time" : "not tried";
+    b.className = "pill " + (st === "right" ? "pill-good" : st === "wrong" ? "pill-bad" : "");
+  };
+  document.querySelectorAll("[data-drill]").forEach(paint);
+  document.getElementById("drills").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-grade]");
+    if (!btn) return;
+    const item = btn.closest("[data-drill]");
+    const correct = btn.dataset.grade === "1";
+    await api("POST", "/api/drills", { kind: "sheet", item_id: item.dataset.drill, correct });
+    item.dataset.state = correct ? "right" : "wrong";
+    paint(item);
+  });
+  document.getElementById("only-missed").addEventListener("change", (e) => {
+    document.querySelectorAll("[data-drill]").forEach((d) => { d.hidden = e.target.checked && d.dataset.state === "right"; });
+    document.querySelectorAll("[data-section]").forEach((s) => {
+      s.hidden = e.target.checked && !s.querySelector("[data-drill]:not([hidden])");
+    });
+  });
+</script>
+{% endblock %}

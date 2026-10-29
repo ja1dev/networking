@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ quiz.title }}{% endblock %}
+{% block content_class %}narrow{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/quiz">Quiz</a><span>/</span></div>
+<div id="quiz" data-id="{{ quiz.id }}">
+  <div class="empty">Loading…</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="/static/js/quiz.js?v={{ ASSET_VERSION }}"></script>
+{% endblock %}

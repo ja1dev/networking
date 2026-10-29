@@ -1,0 +1,15 @@
+.git
+.claude
+**/.DS_Store
+**/__pycache__
+**/*.pyc
+web/.venv
+web/data
+web/app/data
+web/.pytest_cache
+*.pdf
+*.apkg
+*.tsv
+ccna/fonts
+ccna/scripts
+ccnp/scripts

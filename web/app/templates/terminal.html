@@ -1,0 +1,38 @@
+{% from "_icons.html" import icon %}
+{% extends "base.html" %}
+{% block title %}Terminal labs{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Terminal labs</h1>
+  <p>Real CLI practice in your browser. Each lab is a small network of IOS-style routers and switches and VPCS PCs, with a live topology diagram. You configure it at the console exactly as you would in EVE-NG, and every task is checked against what the network actually does: a ping only succeeds if your VLANs, trunks, routes and ACLs really let it through.</p>
+</div>
+<details class="card reveal" style="padding:0;margin-bottom:16px">
+  <summary>What the simulator covers</summary>
+  <div class="reveal-body prose">
+    <p><strong>Simulated:</strong> user/privileged/config modes with <code>?</code>, Tab, abbreviations, <code>no</code> and <code>do</code>; interfaces, subinterfaces and loopbacks; VLANs, access ports, 802.1Q trunks with native and allowed VLANs, and DTP negotiation; router-on-a-stick; switch SVIs and default gateways; static, default and floating static routes; single-process OSPFv2 with areas, DR/BDR election, timers, passive interfaces, costs and default-information originate; standard and extended ACLs with match counters; DHCP server, exclusions and <code>ip helper-address</code> relay; console and VTY passwords, local users, SSH and telnet between devices; CDP, MAC and ARP tables; <code>ping</code> and <code>traceroute</code>; saving, <code>reload</code> and <code>| include/section</code>.</p>
+    <p><strong>Not simulated:</strong> STP, EtherChannel, IPv6, NAT, HSRP, EIGRP/BGP, port security and wireless. Use EVE-NG or the <a href="/labs">workbook labs</a> for those. Commands outside the list answer with the usual <code>% Invalid input</code>, just as an IOS image without the feature would.</p>
+  </div>
+</details>
+<div class="grid grid-3">
+  {% for lab in labs %}
+  {% set row = progress.get(lab.id) %}
+  {% set n = row.passing|length if row else 0 %}
+  {% set total = lab.tasks|length %}
+  <a class="card lab-card" href="/terminal/{{ lab.id }}" style="color:inherit">
+    <div class="spread">
+      <span class="lab-num">{{ lab.topic }}{% if lab.minutes %} · ~{{ lab.minutes }} min{% endif %}</span>
+      {% if row and row.completed_at %}<span class="pill pill-good">{{ icon("check", 12) }} done</span>
+      {% elif row and row.state %}<span class="pill pill-accent">in progress</span>{% endif %}
+    </div>
+    <h3>{{ lab.title }}</h3>
+    <p class="muted small" style="margin:0">{{ lab.summary }}</p>
+    {% if total %}
+    <div class="progress {{ 'good' if n == total }}"><span style="width: {{ pct(n, total) }}%"></span></div>
+    <span class="muted tiny">{{ n }} / {{ total }} tasks passing</span>
+    {% else %}
+    <span class="muted tiny">{{ lab.devices|length }} devices, no tasks</span>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

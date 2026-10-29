@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Subnetting toolkit{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Toolkit &amp; speed method</h1>
+  <p>The one-page reference from the drill sheet. Memorise the charts; the trainer explains every answer with this same method.</p>
+</div>
+{% set tab = "toolkit" %}{% set drill_count = drills.drills|length %}{% include "_subnet_tabs.html" %}
+<div class="card prose">{{ drills.toolkit_html|safe }}</div>
+<div class="card prose" style="margin-top:16px">{{ drills.speed_html|safe }}</div>
+{% endblock %}

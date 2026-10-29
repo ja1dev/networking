@@ -1,0 +1,149 @@
+{% from "_icons.html" import icon %}
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="page-head spread">
+  <div>
+    <h1>Dashboard</h1>
+    <p>{% if d.streak %}{{ d.streak }}-day streak · {% endif %}{{ d.today_count }} thing{{ '' if d.today_count == 1 else 's' }} done today</p>
+  </div>
+  {% if d.streak %}<span class="pill pill-warn" title="Consecutive days with study activity">{{ icon("flame", 14) }} {{ d.streak }} day{{ '' if d.streak == 1 else 's' }}</span>{% endif %}
+</div>
+
+<div class="hero">
+  <div class="card resume">
+    {% if d.resume %}
+      <div>
+        <div class="eyebrow">Continue reading · {{ d.resume.doc_title }}</div>
+        <h2>{{ d.resume.page.title }}</h2>
+      </div>
+      <div class="row">
+        <a class="btn btn-primary" href="/read/{{ d.resume.doc }}/{{ d.resume.page.id }}">Pick up where you left off {{ icon("arrow-right", 16) }}</a>
+        {% if d.resume.page.next %}<a class="btn" href="/read/{{ d.resume.doc }}/{{ d.resume.page.next }}">Next page</a>{% endif %}
+      </div>
+    {% else %}
+      <div>
+        <div class="eyebrow">Start here</div>
+        <h2>Read the Study Tips first</h2>
+        <p class="muted small">They set up the daily loop: read a section, drill its flashcards, run the lab, answer the questions.</p>
+      </div>
+      <div class="row">
+        <a class="btn btn-primary" href="/read/tips">Open Study Tips {{ icon("arrow-right", 16) }}</a>
+        <a class="btn" href="/read/ccna">CCNA guide</a>
+        <a class="btn" href="/read/ccnp">CCNP guide</a>
+      </div>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h3>Today</h3>
+    <ul class="todo-list">
+      <li><span>Flashcards due</span>
+        {% if d.cards.due %}<a class="btn btn-sm btn-primary" href="/cards/study">Review {{ d.cards.due }}</a>
+        {% else %}<span class="pill pill-good">{{ icon("check", 12) }} clear</span>{% endif %}</li>
+      <li><span>New cards available</span>
+        {% if d.cards.new_today %}<a class="btn btn-sm" href="/cards">Learn {{ d.cards.new_today }}</a>
+        {% else %}<span class="pill">{{ d.cards.reviews_today }} reviewed</span>{% endif %}</li>
+      <li><span>Subnetting sprint</span><a class="btn btn-sm" href="/subnetting">Drill</a></li>
+      <li><span>Missed questions</span><a class="btn btn-sm" href="/quiz?filter=missed">Retry</a></li>
+    </ul>
+  </div>
+</div>
+
+<div class="grid grid-4" style="margin-bottom:16px">
+  {% for s in d.sources %}
+  <a class="card" href="/quiz?source={{ s.id }}" style="color:inherit;text-decoration:none">
+    <div class="stat-label">{{ s.title }}</div>
+    <div class="stat">{% if s.accuracy is not none %}{{ (s.accuracy * 100)|round|int }}%{% else %}–{% endif %}</div>
+    <div class="muted small">{{ s.answered }} / {{ s.total }} answered</div>
+  </a>
+  {% endfor %}
+  <a class="card" href="/cards" style="color:inherit;text-decoration:none">
+    <div class="stat-label">Flashcards</div>
+    <div class="stat">{{ d.cards.studied }}<span class="muted small"> / {{ d.cards.total }}</span></div>
+    <div class="muted small">{% if d.cards.retention is not none %}{{ (d.cards.retention * 100)|round|int }}% recall (30d){% else %}{{ d.cards.mature }} mature{% endif %}</div>
+  </a>
+  <a class="card" href="/subnetting" style="color:inherit;text-decoration:none">
+    <div class="stat-label">Subnetting (7 days)</div>
+    <div class="stat">{% if d.subnetting.accuracy is not none %}{{ (d.subnetting.accuracy * 100)|round|int }}%{% else %}–{% endif %}</div>
+    <div class="muted small">{{ d.subnetting.n }} solved{% if d.subnetting.avg_seconds %} · {{ d.subnetting.avg_seconds|round(1) }}s avg{% endif %}</div>
+  </a>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h3>Reading progress</h3>
+    {% for r in d.reading %}
+    <div class="meter-row">
+      <a href="/read/{{ r.id }}">{{ r.title }}</a>
+      <span class="muted small">{{ r.done }} / {{ r.total }}</span>
+      <div class="progress {{ 'good' if r.done == r.total }}"><span style="width: {{ pct(r.done, r.total) }}%"></span></div>
+    </div>
+    {% endfor %}
+    <div class="meter-row">
+      <a href="/terminal">Terminal labs</a>
+      <span class="muted small">{{ d.terminal.done }} / {{ d.terminal.total }}</span>
+      <div class="progress {{ 'good' if d.terminal.done == d.terminal.total }}"><span style="width: {{ pct(d.terminal.done, d.terminal.total) }}%"></span></div>
+    </div>
+    <div class="meter-row">
+      <a href="/labs">Labs</a>
+      <span class="muted small">{{ d.labs.done }} / {{ d.labs.total }}</span>
+      <div class="progress {{ 'good' if d.labs.done == d.labs.total }}"><span style="width: {{ pct(d.labs.done, d.labs.total) }}%"></span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Weak spots</h3>
+    {% if d.weak %}
+    <p class="muted small" style="margin-top:-6px">Topics below 85% on your latest answers. Re-read, then retry the misses.</p>
+    <ul class="list">
+      {% for g in d.weak %}
+      <li class="spread">
+        <span><span class="small muted">{{ SOURCE_TITLES[g.source] }}</span><br>{{ g.title }}</span>
+        <span class="row">
+          <span class="pill pill-bad">{{ (g.accuracy * 100)|round|int }}%</span>
+          <a class="btn btn-sm" href="/quiz?source={{ g.source }}&group={{ g.id }}&filter=missed">Retry</a>
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty small">Answer at least 3 questions in a topic and anything under 85% shows up here.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Activity</h3>
+    <div class="heatmap" aria-label="Study activity over the last 16 weeks">
+      {% for col in d.heatmap %}<div class="heat-col">{% for c in col %}<div class="heat l{{ c.level }}{{ ' future' if c.future }}" title="{{ c.date }}: {{ c.count }}"></div>{% endfor %}</div>{% endfor %}
+    </div>
+    <p class="muted tiny" style="margin-bottom:0">Questions, card reviews, drills, pages, lab steps and terminal tasks per day, last 16 weeks.</p>
+  </div>
+
+  <div class="card">
+    <div class="spread"><h3 style="margin:0">Recent quizzes</h3><a class="btn btn-sm" href="/quiz">New quiz</a></div>
+    {% if d.quizzes %}
+    <ul class="list">
+      {% for q in d.quizzes %}
+      <li class="spread">
+        <a href="/quiz/{{ q.id }}">{{ q.title }}</a>
+        {% if q.finished_at %}<span class="pill {{ 'pill-good' if q.score / (q.question_ids|length) >= 0.85 else 'pill-bad' }}">{{ q.score }}/{{ q.question_ids|length }}</span>
+        {% else %}<span class="pill pill-accent">in progress</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty small">No quizzes yet. Build one from the practice bank or the CCNP questions.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module">
+  // First visit: adopt this device's timezone so "today" and streaks match your day.
+  import { api } from "netlab";
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if ({{ (d.tz_is_default)|tojson }} && tz && tz !== "UTC") {
+    api("POST", "/api/settings", { timezone: tz }).then(() => location.reload()).catch(() => {});
+  }
+</script>
+{% endblock %}

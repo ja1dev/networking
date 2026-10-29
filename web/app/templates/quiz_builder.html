@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Quiz{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Quiz</h1>
+  <p>Build a set from {{ sources.bank|sum(attribute='total') }} CCNA bank questions and {{ sources.ccnp|sum(attribute='total') }} CCNP exam-style questions. Practice mode explains each answer as you go. Exam mode is timed and only grades at the end.</p>
+</div>
+
+<form id="quiz-form" class="card stack">
+  <div>
+    <label class="field">Question source</label>
+    <div class="segmented" role="radiogroup">
+      {% for sid, stitle in SOURCE_TITLES.items() %}
+      <label><input type="radio" name="source" value="{{ sid }}" {{ 'checked' if sid == source }}>{{ stitle }}</label>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% for sid, groups in sources.items() %}
+  <div data-groups="{{ sid }}" {{ 'hidden' if sid != source }}>
+    <div class="spread" style="margin-bottom:6px">
+      <label class="field" style="margin:0">Topics <span class="muted small" style="font-weight:400">(none ticked = all)</span></label>
+      <div class="row">
+        {% if sid == "ccnp" %}
+        <button type="button" class="btn btn-sm" data-pick="ENCOR">ENCOR only</button>
+        <button type="button" class="btn btn-sm" data-pick="ENARSI">ENARSI only</button>
+        {% endif %}
+        <button type="button" class="btn btn-sm" data-pick="none">Clear</button>
+      </div>
+    </div>
+    <div class="check-group">
+      {% for g in groups %}
+      <label>
+        <input type="checkbox" name="group" value="{{ g.id }}" data-total="{{ g.total }}" {{ 'checked' if preselect == g.id and sid == source }}>
+        <span>{{ g.title }} <span class="muted tiny">({{ g.total }})</span></span>
+        {% if g.answered %}<span class="acc pill {{ 'pill-good' if g.accuracy >= 0.85 else 'pill-bad' }}" title="{{ g.answered }} answered">{{ (g.accuracy * 100)|round|int }}%</span>{% endif %}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="grid grid-3">
+    <div>
+      <label class="field">Which questions</label>
+      <div class="segmented">
+        <label><input type="radio" name="filter" value="all" {{ 'checked' if qfilter == 'all' }}>All</label>
+        <label><input type="radio" name="filter" value="unseen" {{ 'checked' if qfilter == 'unseen' }}>Unseen</label>
+        <label><input type="radio" name="filter" value="missed" {{ 'checked' if qfilter == 'missed' }}>Missed</label>
+      </div>
+    </div>
+    <div>
+      <label class="field" for="count">How many</label>
+      <select id="count" name="count">
+        <option value="10">10</option>
+        <option value="20" selected>20</option>
+        <option value="40">40</option>
+        <option value="60">60</option>
+        <option value="100">100</option>
+        <option value="1000">All that match</option>
+      </select>
+    </div>
+    <div>
+      <label class="field">Mode</label>
+      <div class="segmented">
+        <label><input type="radio" name="mode" value="practice" checked>Practice</label>
+        <label><input type="radio" name="mode" value="exam">Exam</label>
+      </div>
+      <div class="muted tiny" id="mode-help" style="margin-top:4px">Feedback after every question.</div>
+    </div>
+  </div>
+  <div class="row">
+    <button class="btn btn-primary btn-lg" type="submit">Start quiz</button>
+    <span class="muted small" id="pool-count"></span>
+  </div>
+</form>
+
+<div class="card" style="margin-top:16px">
+  <h3>History</h3>
+  {% if quizzes %}
+  <ul class="list">
+    {% for q in quizzes %}
+    <li class="spread" data-quiz-row="{{ q.id }}">
+      <span><a href="/quiz/{{ q.id }}">{{ q.title }}</a><br>
+        <span class="muted tiny">{{ q.mode|capitalize }} · {{ q.question_ids|length }} questions · {{ q.created_at.strftime('%b %d, %H:%M') }} UTC</span></span>
+      <span class="row">
+        {% if q.finished_at %}<span class="pill {{ 'pill-good' if q.score / (q.question_ids|length) >= 0.85 else 'pill-bad' }}">{{ q.score }}/{{ q.question_ids|length }} · {{ pct(q.score, q.question_ids|length) }}%</span>
+        {% else %}<a class="btn btn-sm btn-primary" href="/quiz/{{ q.id }}">Resume</a>{% endif %}
+        <button class="btn btn-sm btn-ghost" type="button" data-delete-quiz="{{ q.id }}" title="Delete this quiz and its answers">Delete</button>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty small">Your quizzes will show up here.</p>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="quiz-meta">{{ {"parts": parts, "seconds": settings.exam_seconds_per_question}|tojson }}</script>
+<script type="module">
+  import { api, toast } from "netlab";
+  const meta = JSON.parse(document.getElementById("quiz-meta").textContent);
+  const form = document.getElementById("quiz-form");
+  const source = () => form.querySelector("input[name=source]:checked").value;
+  const groupsBox = () => form.querySelector(`[data-groups="${source()}"]`);
+
+  function refresh() {
+    form.querySelectorAll("[data-groups]").forEach((g) => { g.hidden = g.dataset.groups !== source(); });
+    const ticked = [...groupsBox().querySelectorAll("input:checked")];
+    const all = [...groupsBox().querySelectorAll("input")];
+    const n = (ticked.length ? ticked : all).reduce((sum, i) => sum + Number(i.dataset.total), 0);
+    document.getElementById("pool-count").textContent = `${n} question${n === 1 ? "" : "s"} in the selected topics`;
+    const exam = form.querySelector("input[name=mode]:checked").value === "exam";
+    const count = Math.min(Number(form.count.value), n);
+    document.getElementById("mode-help").textContent = exam
+      ? `Timed: ${Math.round(count * meta.seconds / 60)} min for ${count} questions (${meta.seconds}s each). Graded at the end.`
+      : "Feedback after every question.";
+  }
+  form.addEventListener("change", refresh);
+  refresh();
+
+  form.addEventListener("click", (e) => {
+    const pick = e.target.closest("[data-pick]");
+    if (!pick) return;
+    const want = pick.dataset.pick === "none" ? [] : meta.parts[pick.dataset.pick];
+    groupsBox().querySelectorAll("input").forEach((i) => { i.checked = want.includes(i.value); });
+    refresh();
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector("button[type=submit]");
+    btn.disabled = true;
+    try {
+      const res = await api("POST", "/api/quiz", {
+        source: source(),
+        groups: [...groupsBox().querySelectorAll("input:checked")].map((i) => i.value),
+        filter: form.querySelector("input[name=filter]:checked").value,
+        count: Number(form.count.value),
+        mode: form.querySelector("input[name=mode]:checked").value,
+      });
+      location.href = res.url;
+    } catch (err) {
+      btn.disabled = false;
+    }
+  });
+
+  document.querySelectorAll("[data-delete-quiz]").forEach((b) => b.addEventListener("click", async () => {
+    if (b.dataset.armed !== "1") {
+      b.dataset.armed = "1";
+      b.textContent = "Click again to delete";
+      b.classList.add("btn-bad");
+      setTimeout(() => { b.dataset.armed = ""; b.textContent = "Delete"; b.classList.remove("btn-bad"); }, 4000);
+      return;
+    }
+    await api("DELETE", `/api/quiz/${b.dataset.deleteQuiz}`);
+    document.querySelector(`[data-quiz-row="${b.dataset.deleteQuiz}"]`).remove();
+    toast("Quiz deleted");
+  }));
+</script>
+{% endblock %}

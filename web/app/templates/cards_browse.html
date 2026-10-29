@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Browse cards{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/cards">Flashcards</a><span>/</span></div>
+<div class="page-head spread">
+  <h1>{{ deck.name if deck else "All cards" }}</h1>
+  <select onchange="location.href = '/cards/browse' + (this.value ? '?deck=' + this.value : '')" aria-label="Deck" style="width:auto">
+    <option value="">All decks</option>
+    {% for d in decks %}<option value="{{ d.id }}" {{ 'selected' if deck and deck.id == d.id }}>{{ d.name }}</option>{% endfor %}
+  </select>
+</div>
+<div class="card">
+  <ul class="list">
+    {% for c in cards %}{% set s = states.get(c.id) %}
+    <li id="card-{{ c.id }}">
+      <div class="spread" style="align-items:flex-start">
+        <strong style="flex:1">{{ c.front_html|safe }}</strong>
+        {% if not s %}<span class="pill pill-accent">new</span>
+        {% elif s.state != "review" %}<span class="pill pill-bad">learning</span>
+        {% else %}<span class="pill {{ 'pill-good' if s.interval_days >= 21 }}" title="Next review {{ as_utc(s.due_at).strftime('%b %d') }}">{{ s.interval_days|int }}d{{ " · " ~ s.lapses ~ " lapses" if s.lapses }}</span>{% endif %}
+      </div>
+      <div class="muted" style="margin-top:4px">{{ c.back_html|safe }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

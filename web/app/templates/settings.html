@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content_class %}narrow{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Settings</h1></div>
+<form id="settings" class="card stack">
+  <div>
+    <label class="field" for="new_cards_per_day">New flashcards per day</label>
+    <input type="number" id="new_cards_per_day" name="new_cards_per_day" min="0" max="200" value="{{ settings.new_cards_per_day }}">
+    <div class="muted tiny">20 is a steady pace: about 15 minutes of reviews a day once it settles.</div>
+  </div>
+  <div>
+    <label class="field" for="exam_seconds_per_question">Exam mode: seconds per question</label>
+    <input type="number" id="exam_seconds_per_question" name="exam_seconds_per_question" min="20" max="600" value="{{ settings.exam_seconds_per_question }}">
+    <div class="muted tiny">The real exams allow roughly 70–75 seconds per item. Go lower to build speed.</div>
+  </div>
+  <div>
+    <label class="field" for="timezone">Timezone</label>
+    <div class="row" style="flex-wrap:nowrap">
+      <input type="text" id="timezone" name="timezone" value="{{ settings.timezone }}" placeholder="America/Toronto">
+      <button class="btn" type="button" id="detect-tz">Use this device's</button>
+    </div>
+    <div class="muted tiny">Decides when "today" starts for streaks, daily new cards and the activity map.</div>
+  </div>
+  <div><button class="btn btn-primary" type="submit">Save settings</button></div>
+</form>
+<div class="card" style="margin-top:16px">
+  <h3>Content</h3>
+  <p class="small muted" style="margin:0">Built from the markdown in the repo at deploy time: {{ stats.pages }} reading pages, {{ stats.ccna_bank }} CCNA bank questions, {{ stats.ccnp }} CCNP questions, {{ stats.cards }} flashcards, {{ stats.drills }} worked drills and {{ stats.labs }} lab sections. Edit the markdown and redeploy to update it; your progress is kept.</p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module">
+  import { api, toast } from "netlab";
+  const form = document.getElementById("settings");
+  document.getElementById("detect-tz").addEventListener("click", () => {
+    form.timezone.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await api("POST", "/api/settings", {
+      new_cards_per_day: form.new_cards_per_day.value,
+      exam_seconds_per_question: form.exam_seconds_per_question.value,
+      timezone: form.timezone.value.trim(),
+    });
+    toast("Settings saved");
+  });
+</script>
+{% endblock %}

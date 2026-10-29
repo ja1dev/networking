@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Subnetting{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Subnetting</h1>
+  <p>Endless problems, checked instantly, each with the worked method. The exam pace is 60–90 seconds a question. Aim for under 30 here.</p>
+</div>
+{% set tab = "trainer" %}{% include "_subnet_tabs.html" %}
+<div class="grid" style="grid-template-columns:minmax(0,1fr);gap:16px">
+  <div class="card drill-card" id="trainer"><div class="empty">Loading…</div></div>
+  <div class="card grid grid-3" id="session-stats"></div>
+  <details class="card reveal" style="padding:0">
+    <summary>Problem types</summary>
+    <div class="reveal-body" id="prefs"></div>
+  </details>
+  <div class="card">
+    <h3>Last 30 days</h3>
+    {% if stats.n %}
+    <div class="table-wrap"><table>
+      <tr><th>Type</th><th>Solved</th><th>Accuracy</th><th>Avg time (right)</th></tr>
+      {% for kind, s in stats.kinds|dictsort %}
+      <tr><td data-kind="{{ kind }}">{{ kind }}</td><td>{{ s.n }}</td>
+        <td><span class="pill {{ 'pill-good' if s.accuracy >= 0.9 else ('pill-warn' if s.accuracy >= 0.75 else 'pill-bad') }}">{{ (s.accuracy * 100)|round|int }}%</span></td>
+        <td>{{ (s.avg_seconds|round(1)) ~ 's' if s.avg_seconds else '–' }}</td></tr>
+      {% endfor %}
+    </table></div>
+    {% else %}
+    <p class="empty small">Solve a few problems and your per-type accuracy and speed show up here.</p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h3>Calculator</h3>
+    <input type="text" id="calc-input" placeholder="172.16.45.200/20  or  10.1.1.70 255.255.255.224" autocomplete="off" spellcheck="false" style="font-family:var(--mono)">
+    <div id="calc-out" style="margin-top:12px"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="/static/js/subnet.js?v={{ ASSET_VERSION }}"></script>
+<script type="module">
+  import { KINDS } from "netlab/subnet-gen";
+  document.querySelectorAll("[data-kind]").forEach((td) => { td.textContent = KINDS[td.dataset.kind] || "Drill sheet"; });
+</script>
+{% endblock %}
