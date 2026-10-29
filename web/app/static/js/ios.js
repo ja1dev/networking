@@ -1297,6 +1297,7 @@ export class Network {
       if (this.switchingSettle(log)) { changed = true; this.touch(); }
       if (this.bgpSettle(log)) { changed = true; this.touch(); }
       if (this.mplsSettle(log)) changed = true;
+      this.mcastSettle(log);
       if (!changed) break;
     }
     return logs;
@@ -1858,6 +1859,7 @@ export class Network {
         if (SVC_CHECKS[c.type]) return Boolean(SVC_CHECKS[c.type](this, c, d, intf));
         if (BGP_CHECKS.has(c.type)) return Boolean(this.bgpCheck(d, c));
         if (VPN_CHECKS.has(c.type)) return Boolean(this.vpnCheck(c, d, intf));
+        if (MCAST_CHECKS.has(c.type)) return Boolean(this.mcastCheck(c, d, intf));
         if (ROUTING_CHECKS.has(c.type)) return Boolean(this.checkRouting(c));
         if (AUTO_CHECKS.has(c.type)) return Boolean(this.autoCheck(c, d, intf));
         if (MPLS_CHECKS.has(c.type)) return Boolean(this.mplsCheck(c, d, intf));
@@ -3725,6 +3727,7 @@ export function runningConfig(net, dn, onlyIf) {
       for (const h of i.helpers) L.push(" ip helper-address " + n2ip(h));
       if (i.aclIn) L.push(` ip access-group ${i.aclIn} in`);
       if (i.aclOut) L.push(` ip access-group ${i.aclOut} out`);
+      L.push(...mcastIfLines(i));
       if (i.nat) L.push(" ip nat " + i.nat);
       if (i.hsrpVer === 2) L.push(" standby version 2");
       for (const [g, s] of Object.entries(i.standby).sort((a, b) => a[0] - b[0])) {
@@ -3801,6 +3804,7 @@ export function runningConfig(net, dn, onlyIf) {
   if (!c.domainLookup) L.push("no ip domain lookup");
   if (c.domain) L.push("ip domain name " + c.domain);
   L.push(...svcConfig(d, "global"));
+  L.push(...mcastHeadLines(d));
   if (d.type === "router" && c.ipv6Routing) L.push("ipv6 unicast-routing");
   L.push(...swGlobalLines(d));
   if (d.type === "router") {
@@ -3861,6 +3865,7 @@ export function runningConfig(net, dn, onlyIf) {
         .filter((x) => x !== null && x !== undefined).join(" ") + staticSuffix(r));
     }
     L.push(...vpnRoutingLines(c));
+    L.push(...mcastTailLines(c));
     L.push(...aclConfigLines(c), ...bgpPolicyConfig(c));
     for (const r of c.routes6) L.push(["ipv6 route", `${r.net}/${r.len}`, r.ifn, r.nh, r.ad !== 1 ? r.ad : null].filter((x) => x !== null && x !== undefined).join(" "));
     if (c.ospf6) {
@@ -5854,10 +5859,10 @@ def("RS", "priv", "write erase", eraseNvram);
 def("RS", "priv", "erase startup-config", eraseNvram);
 def("RS", "priv", "reload", (c) => c.s.reload());
 def("RS", ["user", "priv"], "terminal length <num:0-512|Number of lines on screen (0 for no pausing)>", () => {});
-def("RS", ["user", "priv"], "ping <ip|Ping destination address>", (c, [ip]) => c.s.ping(ip, null, 5));
+def("RS", ["user", "priv"], "ping <ip|Ping destination address>", (c, [ip]) => c.s.ping(ip, null, null));
 def("RS", ["user", "priv"], "ping <ip|Ping destination address> repeat <num:1-100>", (c, [ip, n]) => c.s.ping(ip, null, n));
 def("RS", ["user", "priv"], "ping <ip|Ping destination address> source <intf>", (c, [ip, ifn]) => c.s.pingFrom(ip, ifn));
-def("RS", ["user", "priv"], "ping <ip|Ping destination address> source <ip|Source address>", (c, [ip, src]) => c.s.ping(ip, src, 5));
+def("RS", ["user", "priv"], "ping <ip|Ping destination address> source <ip|Source address>", (c, [ip, src]) => c.s.ping(ip, src, null));
 def("RS", ["user", "priv"], "traceroute <ip|Trace route to destination address>", (c, [ip]) => c.s.traceroute(ip));
 def("RS", ["user", "priv"], "ssh -l <word|Login name> <ip|IP address of the remote system>", (c, [user, ip]) => c.s.remote("ssh", ip, user));
 def("RS", ["user", "priv"], "telnet <ip|IP address of a remote system>", (c, [ip]) => c.s.remote("telnet", ip, null));
@@ -11535,7 +11540,8 @@ ping HOST [-c count]     Ping HOST (IPv4 or IPv6) with ICMP echo requests
 ping6 HOST [-c count]    Ping an IPv6 HOST
 save                     Save the configuration
 show [ip|ipv6|arp]       Show the PC's settings
-trace HOST               Print the path packets take to HOST`;
+trace HOST               Print the path packets take to HOST
+mcast join|leave GROUP   NetLab extension: join or leave a multicast group (IGMPv2)`;
 
 const colonMac = (m) => m.replace(/\./g, "").match(/../g).join(":");
 const ms = () => (0.3 + Math.random() * 1.5).toFixed(3);
@@ -12010,6 +12016,8 @@ export class Session {
 
   // -- ping, traceroute, remote login ---------------------------------------------------
   ping(dst, source, count, size = 100, tos = 0) {
+    if (isMcastAddr(dst) && this.d.type === "router") { this.mcastPing(dst, source, count ?? 1, size); return; }
+    count = count ?? 5;
     const net = this.net, dn = this.d.name;
     this.print("Type escape sequence to abort.", `Sending ${count}, ${size}-byte ICMP Echos to ${n2ip(dst)}, timeout is 2 seconds:`);
     if (source !== null) {
@@ -12114,7 +12122,7 @@ export class Session {
         this.print("% Invalid source interface - IP not enabled or interface is down");
         return;
       }
-      this.ping(dst, a.ip, 5);
+      this.ping(dst, a.ip, null);
     });
   }
 
@@ -12227,6 +12235,7 @@ export class Session {
       this.print("IPv6 address/mask cleared");
     } else if (cmd === "arp") this.vpcsArp();
     else if (cmd === "save") this.print("Saving startup configuration to startup.vpc", ".  done");
+    else if (cmd === "mcast") this.vpcsMcast(w);
     else bad();
   }
 
@@ -15666,7 +15675,7 @@ guardRuns(["router", "switch"], "priv", ["clear", "counters"], (c, args) => {
   const run = (c) => {
     const w = c.toks.map((t) => t.t);
     const dst = ip2n(w[1]);
-    let count = 5, size = 100, tos = 0, src = null, bad = false;
+    let count = null, size = 100, tos = 0, src = null, bad = false;
     for (let i = 2; i < w.length; i++) {
       const k = Object.keys(OPTS).find((o) => o.startsWith(w[i].toLowerCase()));
       if (k === "repeat") count = +w[++i];
@@ -16324,6 +16333,1145 @@ const L3SW_PATHS = {
   }
   for (const p of L3SW_PATHS.priv) graft("priv", p, same);
 }
+
+// ======== Multicast ========
+// IGMP, PIM sparse and dense mode, the RP (static, Auto-RP, BSR), RPF checks against the unicast RIB
+// (or static mroutes), the shared tree, source registration and the SPT switchover, plus IGMP
+// snooping on switches. Routers run PIM. VPCS has no IGMP, so PCs join groups with the NetLab
+// extension "mcast join GROUP"; a router interface with "ip igmp join-group" is a receiver too.
+// Multicast state that traffic creates ((S,G) sources, the RP's SPT join, last-hop SPT switchover)
+// lives in each router's runtime (rt.mc) and survives a save/reload of the lab like the ARP table.
+
+const isMcastAddr = (ip) => ip >>> 28 === 14;
+const AUTORP_ANNOUNCE = ip2n("224.0.1.39"), AUTORP_DISCOVERY = ip2n("224.0.1.40");
+const MC_ALL = { net: ip2n("224.0.0.0"), len: 4 };
+const newMc = () => ({ routing: false, rps: [], announce: null, discovery: null, listener: false, bsr: null, crp: null,
+  mroutes: [], sptInf: false, snoopOff: false, snoopVlanOff: [] });
+const MC_NONE = Object.freeze(newMc());
+// Read a device's multicast settings without creating them (so a show command never "changes" the config).
+const mcOf = (cfg) => cfg.mc || MC_NONE;
+const mcW = (cfg) => cfg.mc || (cfg.mc = newMc());
+const mcRt = (d) => d.rt.mc || (d.rt.mc = { src: {}, rpJoin: {}, spt: {}, nbrs: [], dr: {}, rpfFail: {} });
+const MC_UP = "00:01:12/00:02:47";
+const pimModeLetter = (m) => (m === "dense-mode" ? "D" : m === "sparse-dense-mode" ? "SD" : "S");
+const MC_FLAG_ORDER = "DSJCLPRFT";
+const mcFlags = (set) => [...MC_FLAG_ORDER].filter((f) => set.has(f)).join("");
+
+// The group ranges an Auto-RP/BSR candidate or static RP covers: the permits of its standard ACL.
+function mcAclRanges(cfg, name) {
+  const acl = name && cfg.acls && cfg.acls[name];
+  if (!name || !acl) return [MC_ALL];
+  const out = acl.entries.filter((e) => e.action === "permit" && e.src)
+    .map((e) => ({ net: e.src.addr, len: maskLen((~e.src.wild) >>> 0) })).filter((r) => r.len >= 0);
+  return out.length ? out : [MC_ALL];
+}
+const inRanges = (ranges, g) => ranges.some((r) => sameNet(g, r.net, lenMask(r.len)));
+
+Object.assign(Network.prototype, {
+  mcRouters() { return Object.values(this.devs).filter((d) => d.type === "router"); },
+
+  // The router interface that owns an address (virtual IPs don't count).
+  mcOwnerIf(ip) {
+    for (const d of this.mcRouters()) {
+      const n = this.upIfs(d.name).find((x) => this.ifAddrs(d.name, x).some((a) => a.ip === ip));
+      if (n) return { dev: d.name, ifn: n };
+    }
+    return null;
+  },
+
+  // Reverse-path forwarding toward an address: a static mroute wins over the unicast route
+  // (distance-preferred lookup, mroutes default to distance 0). {ifn, nbr, type, route|mroute} or {fail}.
+  mcRpf(dn, addr) {
+    const own = this.upIfs(dn).find((n) => this.ifAddrs(dn, n).some((a) => a.ip === addr));
+    if (own) return { ifn: own, nbr: null, self: true, type: "local" };
+    const mr = mcOf(this.devs[dn].cfg).mroutes.filter((m) => sameNet(addr, m.net, m.mask))
+      .sort((a, b) => maskLen(b.mask) - maskLen(a.mask))[0];
+    if (mr) {
+      if (mr.ifn) return this.ifUp(dn, mr.ifn) ? { ifn: mr.ifn, nbr: null, type: "static", mroute: mr } : { fail: true };
+      const e = this.routerEgress(dn, mr.rpf);
+      return e.fail ? { fail: true } : { ifn: e.ifn, nbr: mr.rpf, type: "static", mroute: mr };
+    }
+    const r = this.lookup(dn, addr);
+    const e = r ? this.routerEgress(dn, addr) : { fail: "noroute" };
+    if (!r || e.fail) return { fail: true };
+    let nbr = e.nh;
+    if (e.nh === addr) {
+      // The address is on a connected segment: its RPF neighbour is that router (a host has none).
+      const o = this.mcOwnerIf(addr);
+      nbr = o ? addr : null;
+    }
+    return { ifn: e.ifn, nbr, type: "unicast", route: r, connected: e.nh === addr };
+  },
+
+  // PIM per router: interfaces, neighbours (any PIM router on the segment, whatever its mode) and the DR.
+  mcPim() {
+    if (this.c.mcPim) return this.c.mcPim;
+    const out = {};
+    for (const d of this.mcRouters()) {
+      const ifs = {};
+      for (const [n, i] of Object.entries(d.cfg.intfs)) {
+        if (!i.pim) continue;
+        const a = this.ifAddr(d.name, n);
+        ifs[n] = { mode: i.pim, addr: a ? a.ip : null, up: !!a && this.ifUp(d.name, n), prio: i.pimDr ?? 1, nbrs: [], dr: a ? a.ip : null };
+      }
+      out[d.name] = { on: mcOf(d.cfg).routing, ifs };
+    }
+    for (const [dn, p] of Object.entries(out)) {
+      if (!p.on) continue;
+      for (const [n, x] of Object.entries(p.ifs)) {
+        if (!x.up || n.startsWith("Loopback")) continue;
+        for (const e of this.flood(dn, n)) {
+          const q = out[e.dev], y = q && q.on && q.ifs[e.ifn];
+          if (!y || !y.up || e.dev === dn || x.nbrs.some((m) => m.ip === y.addr)) continue;
+          x.nbrs.push({ ip: y.addr, dev: e.dev, ifn: e.ifn, prio: y.prio, mode: y.mode });
+        }
+        x.nbrs.sort((a, b) => a.ip - b.ip);
+        // DR: highest priority, then highest address.
+        const best = [{ ip: x.addr, prio: x.prio }, ...x.nbrs].sort((a, b) => b.prio - a.prio || b.ip - a.ip)[0];
+        x.dr = best.ip;
+      }
+    }
+    return (this.c.mcPim = out);
+  },
+
+  isPimNbr(dn, ifn, ip) {
+    const p = this.mcPim()[dn], x = p && p.on && p.ifs[ifn];
+    return !!x && x.up && x.nbrs.some((n) => n.ip === ip);
+  },
+
+  // Can Auto-RP's dense-mode groups cross this interface? Dense or sparse-dense mode, or sparse with
+  // "ip pim autorp listener".
+  mcDenseOk(dn, ifn) {
+    const x = this.mcPim()[dn].ifs[ifn];
+    if (!x || !x.up) return false;
+    return x.mode !== "sparse-mode" || mcOf(this.devs[dn].cfg).listener;
+  },
+
+  // IGMP memberships per router interface ("dn|ifn" -> [{group, reporter}]): IGMP runs where PIM does,
+  // and a router's own "ip igmp join-group" shows up on that interface even without PIM.
+  mcIgmp() {
+    if (this.c.mcIgmp) return this.c.mcIgmp;
+    const out = {}, pim = this.mcPim();
+    for (const d of this.mcRouters()) {
+      for (const [n, i] of Object.entries(d.cfg.intfs)) {
+        const x = pim[d.name].ifs[n];
+        const a = this.ifAddr(d.name, n);
+        if (!a || !this.ifUp(d.name, n)) continue;
+        const rows = (i.igmpJoin || []).map((g) => ({ group: g, reporter: a.ip }));
+        if (x && x.up) {
+          for (const e of this.flood(d.name, n)) {
+            const ed = this.devs[e.dev];
+            if (ed.type === "pc" && ed.cfg.ip !== null) for (const g of ed.cfg.mcast || []) rows.push({ group: g, reporter: ed.cfg.ip });
+            if (ed.type === "router") {
+              const ea = this.ifAddr(e.dev, e.ifn);
+              for (const g of ed.cfg.intfs[e.ifn].igmpJoin || []) if (ea && this.ifUp(e.dev, e.ifn)) rows.push({ group: g, reporter: ea.ip });
+            }
+          }
+        }
+        if (rows.length) out[d.name + "|" + n] = rows.sort((p, q) => p.group - q.group || p.reporter - q.reporter);
+      }
+    }
+    return (this.c.mcIgmp = out);
+  },
+
+  // Routers a dense-mode flood from origin reaches within scope hops (Auto-RP announcements/discovery).
+  mcDenseReach(origin, scope) {
+    const seen = new Map([[origin, 0]]), q = [origin], pim = this.mcPim();
+    while (q.length) {
+      const dn = q.shift(), depth = seen.get(dn);
+      if (depth >= scope || !pim[dn].on) continue;
+      for (const [n, x] of Object.entries(pim[dn].ifs)) {
+        if (!this.mcDenseOk(dn, n)) continue;
+        for (const nb of x.nbrs) {
+          if (seen.has(nb.dev) || !this.mcDenseOk(nb.dev, nb.ifn)) continue;
+          seen.set(nb.dev, depth + 1);
+          q.push(nb.dev);
+        }
+      }
+    }
+    return seen;
+  },
+
+  // Auto-RP: candidate RPs announce to 224.0.1.39, mapping agents pick the highest RP address per
+  // group range and announce the mapping to 224.0.1.40. Both groups flood in dense mode.
+  mcAutoRp() {
+    if (this.c.mcAutoRp) return this.c.mcAutoRp;
+    const res = { maps: {}, heard: {} };
+    const addrOf = (dn, ifn) => { const a = ifn && this.ifUp(dn, ifn) ? this.ifAddr(dn, ifn) : null; return a ? a.ip : null; };
+    const crps = this.mcRouters().filter((d) => mcOf(d.cfg).routing && mcOf(d.cfg).announce).map((d) => {
+      const a = mcOf(d.cfg).announce;
+      return { dn: d.name, rp: addrOf(d.name, a.ifn), scope: a.scope, ranges: mcAclRanges(d.cfg, a.acl), acl: a.acl };
+    }).filter((x) => x.rp !== null);
+    const mas = this.mcRouters().filter((d) => mcOf(d.cfg).routing && mcOf(d.cfg).discovery).map((d) => {
+      const m = mcOf(d.cfg).discovery;
+      return { dn: d.name, ip: addrOf(d.name, m.ifn), scope: m.scope, ifn: m.ifn };
+    }).filter((x) => x.ip !== null);
+    for (const ma of mas) {
+      const heard = crps.filter((c) => this.mcDenseReach(c.dn, c.scope).has(ma.dn));
+      res.heard[ma.dn] = heard;
+      if (!heard.length) continue;
+      // Per range, the highest RP address wins.
+      const best = {};
+      for (const c of heard) for (const r of c.ranges) {
+        const k = r.net + "/" + r.len;
+        if (!best[k] || c.rp > best[k].rp) best[k] = { rp: c.rp, range: r };
+      }
+      for (const dn of this.mcDenseReach(ma.dn, ma.scope).keys()) {
+        const prev = res.maps[dn];
+        // With two mapping agents, the one with the higher address is used.
+        if (prev && prev.by > ma.ip) continue;
+        res.maps[dn] = { by: ma.ip, entries: Object.values(best) };
+      }
+    }
+    return (this.c.mcAutoRp = res);
+  },
+
+  // BSR: the candidate with the highest priority (then address) in each PIM domain is elected; candidate
+  // RPs unicast to it, and it floods the RP set hop by hop to every PIM router.
+  mcBsr() {
+    if (this.c.mcBsr) return this.c.mcBsr;
+    const pim = this.mcPim(), res = { bsr: {}, rpset: {} };
+    const comp = (start) => {
+      const seen = new Set([start]), q = [start];
+      while (q.length) {
+        const dn = q.shift();
+        for (const x of Object.values(pim[dn].ifs)) for (const nb of x.nbrs) if (!seen.has(nb.dev)) { seen.add(nb.dev); q.push(nb.dev); }
+      }
+      return seen;
+    };
+    const cands = this.mcRouters().filter((d) => mcOf(d.cfg).routing && mcOf(d.cfg).bsr).map((d) => {
+      const b = mcOf(d.cfg).bsr, a = this.ifUp(d.name, b.ifn) && this.ifAddr(d.name, b.ifn);
+      return a ? { dn: d.name, ip: a.ip, prio: b.prio, hash: b.hash } : null;
+    }).filter(Boolean);
+    for (const c of cands) {
+      for (const dn of comp(c.dn)) {
+        const cur = res.bsr[dn];
+        if (!cur || c.prio > cur.prio || (c.prio === cur.prio && c.ip > cur.ip)) res.bsr[dn] = c;
+      }
+    }
+    for (const d of this.mcRouters()) {
+      const r = mcOf(d.cfg).crp;
+      const b = res.bsr[d.name];
+      if (!r || !mcOf(d.cfg).routing || !b) continue;
+      const a = this.ifUp(d.name, r.ifn) && this.ifAddr(d.name, r.ifn);
+      // Candidate-RP advertisements are unicast to the BSR.
+      if (!a || (b.dn !== d.name && this.routerEgress(d.name, b.ip).fail)) continue;
+      (res.rpset[b.dn] = res.rpset[b.dn] || []).push({ rp: a.ip, prio: r.prio, ranges: mcAclRanges(d.cfg, r.acl), dn: d.name });
+    }
+    return (this.c.mcBsr = res);
+  },
+
+  // Every group-to-RP mapping a router knows: [{rp, src: static|autorp|bsr, by, prio, ranges, acl, override, match(g)}]
+  mcRpMap(dn) {
+    const cache = this.c.mcRpMap || (this.c.mcRpMap = {});
+    if (cache[dn]) return cache[dn];
+    const d = this.devs[dn], mc = mcOf(d.cfg), out = [];
+    if (mc.routing) {
+      for (const r of mc.rps) {
+        out.push({ rp: r.ip, src: "static", acl: r.acl, override: r.override, prio: 0, ranges: mcAclRanges(d.cfg, r.acl),
+          match: (g) => (r.acl ? this.aclPermits(dn, r.acl, { src: g, dst: g, proto: "ip" }, false) : true) });
+      }
+      const auto = this.mcAutoRp().maps[dn];
+      if (auto) for (const e of auto.entries) out.push({ rp: e.rp, src: "autorp", by: auto.by, prio: 0, ranges: [e.range], match: (g) => inRanges([e.range], g) });
+      const b = this.mcBsr().bsr[dn];
+      if (b) for (const e of this.mcBsr().rpset[b.dn] || []) out.push({ rp: e.rp, src: "bsr", by: b.ip, prio: e.prio, ranges: e.ranges, match: (g) => inRanges(e.ranges, g) });
+    }
+    return (cache[dn] = out);
+  },
+
+  // The RP a router uses for a group: learned (Auto-RP/BSR) mappings beat static ones unless the static
+  // one says "override"; the longest range, then the lowest priority value, then the highest address wins.
+  mcRpFor(dn, g) {
+    if (g === AUTORP_ANNOUNCE || g === AUTORP_DISCOVERY || (g >>> 8) === (ip2n("224.0.0.0") >>> 8)) return null;
+    const maps = this.mcRpMap(dn).filter((m) => m.match(g));
+    const best = (xs) => xs.map((m) => ({ m, len: Math.max(...m.ranges.filter((r) => sameNet(g, r.net, lenMask(r.len))).map((r) => r.len), 0) }))
+      .sort((a, b) => b.len - a.len || a.m.prio - b.m.prio || b.m.rp - a.m.rp).map((x) => x.m)[0] || null;
+    const stat = maps.filter((m) => m.src === "static");
+    const over = stat.find((m) => m.override);
+    if (over) return over;
+    return best(maps.filter((m) => m.src !== "static")) || best(stat);
+  },
+
+  // Sparse when there is an RP for the group; dense when there isn't and dense-capable interfaces exist.
+  mcMode(dn, g) {
+    const p = this.mcPim()[dn];
+    if (!p || !p.on) return null;
+    const dense = Object.values(p.ifs).some((x) => x.up && x.mode !== "sparse-mode");
+    if (g === AUTORP_ANNOUNCE || g === AUTORP_DISCOVERY) return dense ? "dense" : null;
+    if (this.mcRpFor(dn, g)) return "sparse";
+    return dense ? "dense" : "sparse";
+  },
+
+  // A router's interest in a group: local joins (L) and interfaces where it is DR for members (C).
+  mcInterest(dn, g) {
+    const d = this.devs[dn], pim = this.mcPim()[dn], igmp = this.mcIgmp();
+    const local = Object.entries(d.cfg.intfs).filter(([n, i]) => (i.igmpJoin || []).includes(g) && this.ifUp(dn, n)).map(([n]) => n);
+    const members = Object.entries(pim.ifs).filter(([n, x]) => x.up && x.dr === x.addr && (igmp[dn + "|" + n] || []).some((m) => m.group === g)).map(([n]) => n);
+    return { local, members };
+  },
+
+  // Sources traffic has made known for a group: [{s, fhr}], from each first-hop router's runtime.
+  mcSources(g) {
+    const out = [];
+    for (const d of this.mcRouters()) for (const s of ((d.rt.mc && d.rt.mc.src[g]) || [])) out.push({ s, fhr: d.name });
+    return out;
+  },
+
+  // The multicast forwarding state for one group: the shared tree (*,G) and a tree per source (S,G).
+  // extra adds a source that hasn't sent yet (the packet being sent right now).
+  mcTree(g, extra = null) {
+    const cache = this.c.mcT || (this.c.mcT = {});
+    const key = g + (extra ? "|" + extra.s + "|" + extra.fhr : "");
+    if (cache[key]) return cache[key];
+    const pim = this.mcPim();
+    const routers = this.mcRouters().filter((d) => pim[d.name].on).map((d) => d.name);
+    const mode = {}, interest = {};
+    for (const dn of routers) {
+      mode[dn] = this.mcMode(dn, g);
+      const it = this.mcInterest(dn, g);
+      if (it.local.length || it.members.length) interest[dn] = it;
+    }
+    // An outgoing interface's state carries the interface's own PIM mode, as IOS prints it.
+    const lab = (dn, n) => {
+      const x = pim[dn] && pim[dn].ifs[n], m = x ? x.mode : "sparse-mode";
+      return m === "sparse-dense-mode" ? "Sparse-Dense" : m === "dense-mode" ? "Dense" : "Sparse";
+    };
+    // Send a join hop by hop toward the root of a tree: each hop needs a PIM neighbour on its RPF interface.
+    const joinUp = (map, mk, dn, state, kids) => {
+      for (let hop = 0; hop < 32; hop++) {
+        const e = map[dn] || (map[dn] = mk(dn));
+        if (e.joined || e.root) return;
+        e.joined = true;
+        if (!e.nbr || !this.isPimNbr(dn, e.iif, e.nbr)) { e.stuck = true; return; }
+        const o = this.mcOwnerIf(e.nbr);
+        if (!o || !pim[o.dev] || !pim[o.dev].on) { e.stuck = true; return; }
+        const u = map[o.dev] || (map[o.dev] = mk(o.dev));
+        if (u.iif === o.ifn) { e.stuck = true; return; }
+        u.oil[o.ifn] = state.split("/")[0] + "/" + lab(o.dev, o.ifn);
+        if (kids) ((kids[o.dev] = kids[o.dev] || {})[o.ifn] = kids[o.dev][o.ifn] || []).push(dn);
+        dn = o.dev;
+      }
+    };
+    // ---- the shared tree, rooted at the RP
+    const star = {}, kids = {};
+    const mkStar = (dn) => {
+      const rp = this.mcRpFor(dn, g), rpf = rp ? this.mcRpf(dn, rp.rp) : null;
+      const ok = rpf && !rpf.fail && !rpf.self;
+      return { rp: rp ? rp.rp : 0, iif: ok ? rpf.ifn : "Null", nbr: ok ? (rpf.nbr ?? 0) : 0, root: !ok, isRp: !!(rpf && rpf.self),
+        oil: {}, flags: new Set(["S"]) };
+    };
+    for (const dn of Object.keys(interest).sort()) {
+      if (mode[dn] !== "sparse") continue;
+      const e = star[dn] || (star[dn] = mkStar(dn));
+      const it = interest[dn];
+      if (it.members.length || it.local.length) e.flags.add("C");
+      if (it.local.length) e.flags.add("L");
+      if (!mcOf(this.devs[dn].cfg).sptInf) e.flags.add("J");
+      for (const n of it.members) e.oil[n] = "Forward/" + lab(dn, n);
+      joinUp(star, mkStar, dn, "Forward/Sparse", kids);
+    }
+    // ---- one tree per source
+    const sources = this.mcSources(g);
+    if (extra && !sources.some((x) => x.s === extra.s && x.fhr === extra.fhr)) sources.push(extra);
+    const src = {};
+    for (const { s, fhr } of sources) {
+      const smode = mode[fhr] || (pim[fhr] && pim[fhr].on ? this.mcMode(fhr, g) : null);
+      const T = { s, fhr, mode: smode, map: {}, rp: null, rpDn: null };
+      src[s] = T;
+      const mkSg = (dn) => {
+        const rpf = this.mcRpf(dn, s);
+        const ok = !rpf.fail && !rpf.self;
+        return { iif: rpf.fail ? "Null" : rpf.ifn, nbr: ok ? (rpf.nbr ?? 0) : 0, root: !ok, oil: {}, flags: new Set() };
+      };
+      if (smode === "dense") {
+        // Flood and prune: every dense router keeps (S,G) with its RPF interface toward the source; an
+        // outgoing interface forwards only while someone downstream still wants the traffic.
+        const dense = routers.filter((dn) => mode[dn] === "dense" || dn === fhr);
+        const child = {};
+        for (const dn of dense) T.map[dn] = mkSg(dn);
+        // A router floods to its children: routers whose RPF neighbour toward the source is this router.
+        for (const dn of dense) {
+          const e = T.map[dn];
+          if (e.root || !e.nbr || !this.isPimNbr(dn, e.iif, e.nbr)) continue;
+          const o = this.mcOwnerIf(e.nbr);
+          if (o && T.map[o.dev]) ((child[o.dev] = child[o.dev] || {})[o.ifn] = child[o.dev][o.ifn] || []).push(dn);
+        }
+        const memo = {};
+        const need = (dn) => {
+          if (memo[dn] !== undefined) return memo[dn];
+          memo[dn] = false;
+          const it = interest[dn];
+          let v = !!it;
+          for (const list of Object.values(child[dn] || {})) for (const k of list) if (need(k)) v = true;
+          return (memo[dn] = v);
+        };
+        for (const dn of dense) {
+          const e = T.map[dn], it = interest[dn] || { local: [], members: [] };
+          for (const [n, x] of Object.entries(pim[dn].ifs)) {
+            if (n === e.iif || !x.up || x.mode === "sparse-mode" || n.startsWith("Loopback")) continue;
+            if (!x.nbrs.length && !it.members.includes(n)) continue;
+            const fw = it.members.includes(n) || ((child[dn] || {})[n] || []).some(need);
+            e.oil[n] = (fw ? "Forward/" : "Prune/") + lab(dn, n);
+          }
+          e.flags.add("T");
+          if (!Object.values(e.oil).some((v) => v.startsWith("Forward")) && !it.local.length) e.flags.add("P");
+        }
+        T.fwd = (dn) => Object.entries((T.map[dn] || { oil: {} }).oil).filter(([, v]) => v.startsWith("Forward")).map(([n]) => n);
+        continue;
+      }
+      // Sparse mode.
+      const rp = this.mcRpFor(fhr, g);
+      T.rp = rp ? rp.rp : null;
+      const rpOwner = rp ? this.mcOwnerIf(rp.rp) : null;
+      T.rpDn = rpOwner ? rpOwner.dev : null;
+      // Last-hop routers ask for the source tree after their first packet, but only set the SPT bit (and
+      // prune the source off the shared tree) once that tree actually reaches the source.
+      const wants = (dn) => !!(interest[dn] && mode[dn] === "sparse" && dn !== fhr && !mcOf(this.devs[dn].cfg).sptInf
+        && this.devs[dn].rt.mc && this.devs[dn].rt.mc.spt[s + "|" + g]);
+      for (const dn of Object.keys(interest).sort()) if (wants(dn)) joinUp(T.map, mkSg, dn, "Forward/Sparse", null);
+      const chain = (dn) => {
+        const path = [];
+        for (let i = 0; i < 32; i++) {
+          const e = T.map[dn];
+          if (!e) return { ok: false, path };
+          path.push(dn);
+          if (dn === fhr) return { ok: true, path };
+          if (e.stuck || e.root || !e.joined) return { ok: false, path };
+          const o = this.mcOwnerIf(e.nbr);
+          if (!o) return { ok: false, path };
+          dn = o.dev;
+        }
+        return { ok: false, path };
+      };
+      const switchedSet = new Set(Object.keys(interest).filter((dn) => wants(dn) && chain(dn).ok));
+      const switched = (dn) => switchedSet.has(dn);
+      // Which shared-tree branches still need this source's packets from the RP (not switched to the SPT).
+      const memo = {};
+      const rptNeed = (dn) => {
+        if (memo[dn] !== undefined) return memo[dn];
+        memo[dn] = false;
+        let v = !!interest[dn] && !switched(dn);
+        for (const list of Object.values(kids[dn] || {})) for (const k of list) if (rptNeed(k)) v = true;
+        return (memo[dn] = v);
+      };
+      T.rptOil = (dn) => {
+        const e = star[dn];
+        if (!e) return [];
+        const it = interest[dn] || { members: [] };
+        return Object.keys(e.oil).filter((n) => (it.members.includes(n) && !switched(dn)) || ((kids[dn] || {})[n] || []).some(rptNeed));
+      };
+      const rpNeeds = !!T.rpDn && !!star[T.rpDn] && (T.rptOil(T.rpDn).length > 0 || (interest[T.rpDn] && interest[T.rpDn].local.length > 0));
+      // The RP joins the source tree once a registered packet has reached it, and only while it has a
+      // branch that still uses the shared tree; last-hop routers switch after their first packet.
+      if (T.rpDn && T.rpDn !== fhr && rpNeeds && this.devs[T.rpDn].rt.mc && this.devs[T.rpDn].rt.mc.rpJoin[s + "|" + g]) {
+        joinUp(T.map, mkSg, T.rpDn, "Forward/Sparse", null);
+      }
+      const fe = T.map[fhr] || (T.map[fhr] = mkSg(fhr));
+      if (T.rp !== null && T.rpDn !== fhr) fe.flags.add("F");
+      fe.flags.add("T");
+      if (T.rpDn && star[T.rpDn] && T.rpDn !== fhr && !T.map[T.rpDn]) T.map[T.rpDn] = { ...mkSg(T.rpDn), viaRegister: true };
+      // Has the RP's source tree reached the first-hop router? Until it has, the FHR keeps registering.
+      const complete = !!(T.rpDn && T.map[T.rpDn] && T.map[T.rpDn].joined && chain(T.rpDn).ok);
+      // The SPT bit is set along every source-tree branch that really reaches the source.
+      for (const dn of [...switchedSet, ...(complete ? [T.rpDn] : [])]) for (const x of chain(dn).path) T.map[x].flags.add("T");
+      // A last-hop router still waiting for its source tree shows the join it has asked for.
+      for (const dn of Object.keys(interest)) if (wants(dn) && !switched(dn) && T.map[dn]) T.map[dn].flags.add("J");
+      T.registering = !!T.rpDn && T.rpDn !== fhr && rpNeeds && !complete;
+      T.rpNeeds = rpNeeds;
+      // (S,G) outgoing interfaces inherit the (*,G) ones not pruned off the shared tree for this source.
+      T.fwd = (dn) => {
+        const e = T.map[dn], set = new Set(Object.keys((e && e.oil) || {}));
+        if (star[dn]) for (const n of T.rptOil(dn)) set.add(n);
+        if (interest[dn] && switched(dn)) for (const n of interest[dn].members) set.add(n);
+        if (e) set.delete(e.iif);
+        return [...set];
+      };
+      for (const [dn, e] of Object.entries(T.map)) {
+        const fw = T.fwd(dn);
+        e.shownOil = Object.fromEntries(fw.map((n) => [n, "Forward/" + lab(dn, n)]));
+        if (!fw.length && !(interest[dn] && interest[dn].local.length)) e.flags.add("P");
+        if (dn === fhr && T.registering) e.flags.delete("P");
+      }
+    }
+    // Dense (*,G) entries: interested routers and every router holding (S,G) dense state.
+    const denseStar = {};
+    for (const dn of routers) {
+      const holds = Object.values(src).some((T) => T.mode === "dense" && T.map[dn]);
+      if (mode[dn] !== "dense" || (!interest[dn] && !holds)) continue;
+      const it = interest[dn] || { local: [], members: [] }, flags = new Set(["D"]);
+      if (it.members.length || it.local.length) flags.add("C");
+      if (it.local.length) flags.add("L");
+      const oil = {};
+      for (const [n, x] of Object.entries(pim[dn].ifs)) {
+        if (x.up && x.mode !== "sparse-mode" && !n.startsWith("Loopback") && (x.nbrs.length || it.members.includes(n))) oil[n] = "Forward/" + lab(dn, n);
+      }
+      denseStar[dn] = { rp: 0, iif: "Null", nbr: 0, oil, flags };
+    }
+    return (cache[key] = { g, star, denseStar, src, interest, mode });
+  },
+
+  // Every group the network knows about: joined anywhere, or with an active source.
+  mcGroups() {
+    const gs = new Set();
+    for (const d of Object.values(this.devs)) {
+      if (d.type === "pc") for (const g of d.cfg.mcast || []) gs.add(g);
+      if (d.type !== "router") continue;
+      for (const i of Object.values(d.cfg.intfs)) for (const g of i.igmpJoin || []) gs.add(g);
+      if (d.rt.mc) for (const g of Object.keys(d.rt.mc.src)) if (d.rt.mc.src[g].length) gs.add(+g);
+    }
+    return [...gs].sort((a, b) => a - b);
+  },
+
+  // Echo replies come from the interface the router would use to reach the source.
+  mcReplyIp(dn, s) { return this.devs[dn].type === "pc" ? this.devs[dn].cfg.ip : this.sourceIp(dn, s); },
+
+  // One multicast packet from router dn, sourced from s, first sent out of outs. Follows the trees with
+  // RPF checks on every arrival and returns {receivers: [{dev, ip}], rpfFails}. Unless dry, the state
+  // the packet leaves behind is recorded (source known at the FHR, RP's SPT join, last-hop switchover).
+  mcSend(dn, g, s, outs, dry) {
+    const fhrOn = this.mcPim()[dn].on;
+    const T = this.mcTree(g, fhrOn ? { s, fhr: dn } : null);
+    const S = T.src[s] || null;
+    const got = new Map(), seen = new Set(), q = [], accepted = new Set(), rpfFails = [];
+    const recv = (dev) => {
+      const ip = this.mcReplyIp(dev, s);
+      if (ip !== null && ip !== undefined && !got.has(dev)) got.set(dev, { dev, ip });
+    };
+    const send = (x, o) => {
+      for (const e of this.flood(x, o)) {
+        const ed = this.devs[e.dev];
+        if (ed.type === "pc") { if ((ed.cfg.mcast || []).includes(g) && ed.cfg.ip !== null) recv(e.dev); }
+        else if (ed.type === "router") q.push({ dn: e.dev, ifn: e.ifn });
+      }
+    };
+    const local = (x) => Object.entries(this.devs[x].cfg.intfs).some(([n, i]) => (i.igmpJoin || []).includes(g) && this.ifUp(x, n));
+    for (const o of outs) send(dn, o);
+    seen.add(dn + "|*");
+    if (fhrOn && S) {
+      accepted.add(dn);
+      for (const o of S.fwd(dn)) if (!outs.includes(o)) send(dn, o);
+      // Registers: unicast to the RP, which forwards down the shared tree.
+      if (S.mode === "sparse" && S.registering && this.deliver(dn, { src: s, dst: S.rp, proto: "pim" }, {}).ok) {
+        q.unshift({ dn: S.rpDn, ifn: "Register" });
+      }
+    }
+    while (q.length) {
+      const { dn: x, ifn: i } = q.shift();
+      if (seen.has(x + "|" + i) || x === dn) continue;
+      seen.add(x + "|" + i);
+      const xd = this.devs[x], p = this.mcPim()[x];
+      const hostJoin = i !== "Register" && (xd.cfg.intfs[i].igmpJoin || []).includes(g);
+      if (!p.on || (i !== "Register" && !p.ifs[i])) { if (hostJoin) recv(x); continue; }
+      let fw = null;
+      const e = S && S.map[x], st = T.star[x];
+      if (i === "Register") fw = S.rptOil(x);
+      else if (S && S.mode === "dense") fw = e && e.iif === i ? S.fwd(x) : null;
+      else if (e && !e.viaRegister && e.iif === i) fw = S.fwd(x);
+      else if (st && st.iif === i && S && (!e || e.viaRegister || !e.flags.has("T"))) fw = S.rptOil(x);
+      if (fw === null) {
+        rpfFails.push({ dev: x, ifn: i });
+        if (hostJoin && !p.on) recv(x);
+        continue;
+      }
+      accepted.add(x);
+      if (local(x)) recv(x);
+      for (const o of fw) if (o !== i) send(x, o);
+    }
+    if (!dry) {
+      if (fhrOn) {
+        const r = mcRt(this.devs[dn]);
+        r.src[g] = r.src[g] || [];
+        if (!r.src[g].includes(s)) r.src[g].push(s);
+      }
+      if (S && S.mode === "sparse") {
+        if (S.rpDn && accepted.has(S.rpDn) && S.rpNeeds) mcRt(this.devs[S.rpDn]).rpJoin[s + "|" + g] = true;
+        for (const x of accepted) if (T.interest[x] && !mcOf(this.devs[x].cfg).sptInf) mcRt(this.devs[x]).spt[s + "|" + g] = true;
+      }
+      for (const f of rpfFails) {
+        const r = mcRt(this.devs[f.dev]);
+        r.rpfFail[s + "|" + g] = (r.rpfFail[s + "|" + g] || 0) + 1;
+      }
+      delete this.c.mcT;
+    }
+    return { receivers: [...got.values()].sort((a, b) => a.ip - b.ip), rpfFails };
+  },
+
+  // A ping to a group from a router: one copy per interface (each sourced from that interface), or
+  // one source address sent out of every interface. Returns per request the receivers that replied.
+  mcPing(dn, g, source, count, dry) {
+    const ups = this.upIfs(dn).filter((n) => !n.startsWith("Loopback"));
+    const copies = source !== null && source !== undefined ? [{ s: source, outs: ups }]
+      : ups.map((n) => ({ s: this.ifAddr(dn, n).ip, outs: [n] }));
+    const out = [];
+    for (let k = 0; k < count; k++) {
+      const replies = new Map();
+      for (const c of copies) {
+        const r = this.mcSend(dn, g, c.s, c.outs, dry);
+        for (const x of r.receivers) {
+          if (replies.has(x.ip)) continue;
+          const back = this.deliver(x.dev, { src: x.ip, dst: c.s, proto: "icmp", icmp: "echo-reply" }, {});
+          if (back.ok) replies.set(x.ip, x);
+        }
+      }
+      out.push([...replies.values()].sort((a, b) => a.ip - b.ip));
+    }
+    return out;
+  },
+
+  // Log PIM neighbour and DR changes as they happen.
+  mcastSettle(log) {
+    const pim = this.mcPim();
+    for (const d of this.mcRouters()) {
+      const p = pim[d.name];
+      if (!p.on && !d.rt.mc) continue;
+      const r = mcRt(d), now = [], drs = {};
+      if (p.on) for (const [n, x] of Object.entries(p.ifs)) {
+        if (!x.up) continue;
+        for (const nb of x.nbrs) now.push(n + "|" + nb.ip);
+        drs[n] = x.dr;
+      }
+      for (const k of now) if (!r.nbrs.includes(k)) { const [n, ip] = k.split("|"); log(d.name, `%PIM-5-NBRCHG: neighbor ${n2ip(+ip)} UP on interface ${n}`); }
+      for (const k of r.nbrs) if (!now.includes(k)) { const [n, ip] = k.split("|"); log(d.name, `%PIM-5-NBRCHG: neighbor ${n2ip(+ip)} DOWN on interface ${n} non DR`); }
+      for (const [n, dr] of Object.entries(drs)) {
+        const prev = r.dr[n] ?? this.ifAddr(d.name, n).ip;
+        if (prev !== dr) log(d.name, `%PIM-5-DRCHG: DR change from neighbor ${n2ip(prev === this.ifAddr(d.name, n).ip ? 0 : prev)} to ${n2ip(dr)} on interface ${n}`);
+      }
+      r.nbrs = now;
+      r.dr = drs;
+    }
+    return false;
+  },
+
+  // IGMP snooping on a switch: member ports per VLAN and group, and mrouter ports (toward PIM routers).
+  mcSnoop(sw) {
+    const cache = this.c.mcSnoop || (this.c.mcSnoop = {});
+    if (cache.all === undefined) {
+      const all = {};
+      const note = (dev, ifn, g, kind) => {
+        for (const e of this.flood(dev, ifn)) {
+          for (const h of e.trail) {
+            if (this.devs[h.b].type !== "switch" || h.vlan === null || h.vlan === undefined) continue;
+            const v = ((all[h.b] = all[h.b] || {})[h.vlan] = all[h.b][h.vlan] || { groups: {}, mrouters: new Set() });
+            if (kind === "member") (v.groups[g] = v.groups[g] || new Set()).add(h.bp);
+            else v.mrouters.add(h.bp);
+          }
+        }
+      };
+      for (const d of Object.values(this.devs)) {
+        if (d.type === "pc" && d.cfg.ip !== null) for (const g of d.cfg.mcast || []) note(d.name, "eth0", g, "member");
+        if (d.type !== "router") continue;
+        const p = this.mcPim()[d.name];
+        for (const [n, i] of Object.entries(d.cfg.intfs)) {
+          if (!this.ifUp(d.name, n) || !this.ifAddr(d.name, n)) continue;
+          for (const g of i.igmpJoin || []) note(d.name, n, g, "member");
+          if (p.on && p.ifs[n] && p.ifs[n].up) note(d.name, n, null, "mrouter");
+        }
+      }
+      cache.all = all;
+    }
+    const d = this.devs[sw], mc = mcOf(d.cfg), mine = cache.all[sw] || {}, out = {};
+    for (const v of Object.keys(d.cfg.vlans).map(Number).sort((a, b) => a - b)) {
+      const on = !mc.snoopOff && !mc.snoopVlanOff.includes(v);
+      const x = mine[v] || { groups: {}, mrouters: new Set() };
+      out[v] = { on, groups: on ? x.groups : {}, mrouters: on ? x.mrouters : new Set() };
+    }
+    return out;
+  },
+
+  mcastCheck(c, d, intf) {
+    const ip = (x) => (typeof x === "number" ? x : ip2n(x));
+    switch (c.type) {
+      case "mc-routing": return mcOf(d.cfg).routing;
+      case "pim-nbr": {
+        const p = this.mcPim()[d.name];
+        return Object.entries(p.ifs).some(([n, x]) => (!intf || n === intf) && x.up && x.nbrs.some((nb) => nb.ip === ip(c.neighbor)));
+      }
+      case "pim-dr": { const x = this.mcPim()[d.name].ifs[intf]; return !!x && x.up && x.dr === ip(c.dr); }
+      case "igmp-group": {
+        const igmp = this.mcIgmp();
+        return Object.entries(igmp).some(([k, rows]) => k.startsWith(d.name + "|") && (!intf || k === d.name + "|" + intf) && rows.some((r) => r.group === ip(c.group)));
+      }
+      case "rp-map": {
+        const m = this.mcRpFor(d.name, ip(c.group));
+        return !!m && m.rp === ip(c.rp) && (!c.via || m.src === c.via);
+      }
+      case "mroute": {
+        const T = this.mcTree(ip(c.group));
+        let e;
+        if (c.source) { const S = T.src[ip(c.source)]; e = S && S.map[d.name] && { ...S.map[d.name], oil: S.map[d.name].shownOil || S.map[d.name].oil }; }
+        else e = T.star[d.name] || T.denseStar[d.name];
+        if (!e) return false;
+        if (c.flags && ![...c.flags].every((f) => e.flags.has(f))) return false;
+        if (c.iif && e.iif !== canonIf(d, c.iif)) return false;
+        if (c.oil && !String(e.oil[canonIf(d, c.oil)] || "").startsWith("Forward")) return false;
+        return true;
+      }
+      case "mping": {
+        const src = c.source ? (isIp(c.source) ? ip2n(c.source) : (this.ifAddr(d.name, canonIf(d, c.source)) || {}).ip) : null;
+        const res = this.mcPing(d.name, ip(c.group), src ?? null, 1, true)[0];
+        return res.length > 0 && (c.replies || []).every((r) => res.some((x) => x.ip === ip(r)));
+      }
+      case "rpf": {
+        const r = this.mcRpf(d.name, ip(c.source));
+        return !r.fail && r.ifn === intf && (!c.via || r.type === c.via);
+      }
+      case "snoop-group": {
+        const s = this.mcSnoop(d.name);
+        return Object.entries(s).some(([v, x]) => (!c.vlan || +v === c.vlan) && x.groups[ip(c.group)]
+          && (!intf || x.groups[ip(c.group)].has(intf)));
+      }
+      default: return undefined;
+    }
+  },
+});
+
+const MCAST_CHECKS = new Set(["mc-routing", "pim-nbr", "pim-dr", "igmp-group", "rp-map", "mroute", "mping", "rpf", "snoop-group"]);
+
+// ---- running-config
+function mcastHeadLines(d) {
+  const mc = mcOf(d.cfg);
+  if (d.type === "router") return mc.routing ? ["ip multicast-routing"] : [];
+  const L = [];
+  if (mc.snoopOff) L.push("no ip igmp snooping");
+  for (const v of [...mc.snoopVlanOff].sort((a, b) => a - b)) L.push("no ip igmp snooping vlan " + v);
+  return L;
+}
+function mcastIfLines(i) {
+  const L = [];
+  if (i.pimDr !== undefined && i.pimDr !== null) L.push(" ip pim dr-priority " + i.pimDr);
+  if (i.pim) L.push(" ip pim " + i.pim);
+  for (const g of i.igmpJoin || []) L.push(" ip igmp join-group " + n2ip(g));
+  if (i.igmpVer && i.igmpVer !== 2) L.push(" ip igmp version " + i.igmpVer);
+  return L;
+}
+function mcastTailLines(cfg) {
+  const mc = mcOf(cfg), L = [];
+  if (mc.listener) L.push("ip pim autorp listener");
+  if (mc.bsr) L.push(`ip pim bsr-candidate ${mc.bsr.ifn}` + (mc.bsr.hash === null && mc.bsr.prio === 0 ? "" : ` ${mc.bsr.hash ?? 0} ${mc.bsr.prio}`));
+  if (mc.crp) L.push(`ip pim rp-candidate ${mc.crp.ifn}${mc.crp.acl ? " group-list " + mc.crp.acl : ""}${mc.crp.prio !== 0 ? " priority " + mc.crp.prio : ""}`);
+  if (mc.announce) L.push(`ip pim send-rp-announce ${mc.announce.ifn} scope ${mc.announce.scope}${mc.announce.acl ? " group-list " + mc.announce.acl : ""}`);
+  if (mc.discovery) L.push(`ip pim send-rp-discovery ${mc.discovery.ifn} scope ${mc.discovery.scope}`);
+  for (const r of mc.rps) L.push(`ip pim rp-address ${n2ip(r.ip)}${r.acl ? " " + r.acl : ""}${r.override ? " override" : ""}`);
+  if (mc.sptInf) L.push("ip pim spt-threshold infinity");
+  for (const m of mc.mroutes) L.push(`ip mroute ${n2ip(m.net)} ${n2ip(m.mask)} ${m.ifn || n2ip(m.rpf)}${m.dist ? " " + m.dist : ""}`);
+  return L;
+}
+
+// ---- show commands
+const MROUTE_HEAD = `IP Multicast Routing Table
+Flags: D - Dense, S - Sparse, B - Bidir Group, s - SSM Group, C - Connected,
+       L - Local, P - Pruned, R - RP-bit set, F - Register flag,
+       T - SPT-bit set, J - Join SPT, M - MSDP created entry, E - Extranet,
+       X - Proxy Join Timer Running, A - Candidate for MSDP Advertisement,
+       U - URD, I - Received Source Specific Host Report,
+       Z - Multicast Tunnel, z - MDT-data group sender,
+       Y - Joined MDT-data group, y - Sending to MDT-data group,
+       G - Received BGP C-Mroute, g - Sent BGP C-Mroute,
+       N - Received BGP Shared-Tree Prune, n - BGP C-Mroute suppressed,
+       Q - Received BGP S-A Route, q - Sent BGP S-A Route,
+       V - RD & Vector, v - Vector, p - PIM Joins on route,
+       x - VxLAN group, c - PFP-SA cache created entry,
+       * - determined by Assert, # - iif-starg configured on rpf intf
+Outgoing interface flags: H - Hardware switched, A - Assert winner, p - PIM Join
+ Timers: Uptime/Expires
+ Interface state: Interface, Next-Hop or VCD, State/Mode
+`;
+
+function mrouteEntry(head, e, oil, expires) {
+  const L = [head, `  Incoming interface: ${e.iif}, RPF nbr ${n2ip(e.nbr || 0)}`];
+  const rows = Object.entries(oil).sort((a, b) => ifSort(a[0], b[0]));
+  if (!rows.length) L.push("  Outgoing interface list: Null");
+  else {
+    L.push("  Outgoing interface list:");
+    for (const [n, st] of rows) L.push(`    ${n}, ${st}, 00:01:12/${st.endsWith("Dense") ? "stopped" : expires}`);
+  }
+  return [...L, ""];
+}
+
+function showIpMroute(net, dn, only) {
+  const L = [MROUTE_HEAD];
+  if (!net.mcPim()[dn].on) return L.join("\n");
+  const groups = net.mcGroups();
+  const rpMapped = net.mcAutoRp().maps[dn] || net.mcRpMap(dn).length;
+  if (net.mcAutoRp().maps[dn] && !groups.includes(AUTORP_DISCOVERY)) groups.unshift(AUTORP_DISCOVERY);
+  for (const g of groups) {
+    if (only !== undefined && only !== g) continue;
+    if (g === AUTORP_DISCOVERY) {
+      if (!net.mcAutoRp().maps[dn]) continue;
+      const oil = {};
+      for (const [n, x] of Object.entries(net.mcPim()[dn].ifs)) {
+        if (net.mcDenseOk(dn, n) && !n.startsWith("Loopback")) oil[n] = "Forward/" + (x.mode === "sparse-dense-mode" ? "Sparse-Dense" : x.mode === "dense-mode" ? "Dense" : "Sparse");
+      }
+      L.push(...mrouteEntry(`(*, ${n2ip(g)}), 00:01:12/stopped, RP 0.0.0.0, flags: DCL`, { iif: "Null", nbr: 0 }, oil, "00:02:47"));
+      continue;
+    }
+    const T = net.mcTree(g);
+    const st = T.star[dn] || T.denseStar[dn];
+    if (st) {
+      const exp = T.denseStar[dn] && !T.star[dn] ? "stopped" : "00:02:47";
+      L.push(...mrouteEntry(`(*, ${n2ip(g)}), 00:01:12/${exp}, RP ${n2ip(st.rp || 0)}, flags: ${mcFlags(st.flags)}`, st, st.oil, "00:02:47"));
+    }
+    for (const s of Object.keys(T.src).map(Number).sort((a, b) => a - b)) {
+      const S = T.src[s], e = S.map[dn];
+      if (!e) continue;
+      L.push(...mrouteEntry(`(${n2ip(s)}, ${n2ip(g)}), 00:00:41/00:02:18, flags: ${mcFlags(e.flags)}`, e, S.mode === "dense" ? e.oil : (e.shownOil || {}), "00:02:47"));
+    }
+  }
+  void rpMapped;
+  return L.join("\n").replace(/\n$/, "");
+}
+
+function showPimNbr(net, dn, only) {
+  const L = ["PIM Neighbor Table", "Mode: B - Bidir Capable, DR - Designated Router, N - Default DR Priority,",
+    "      P - Proxy Capable, S - State Refresh Capable, G - GenID Capable,", "      L - DR Load-balancing Capable",
+    "Neighbor          Interface                Uptime/Expires    Ver   DR", "Address                                                            Prio/Mode"];
+  const p = net.mcPim()[dn];
+  if (p.on) {
+    for (const [n, x] of Object.entries(p.ifs).sort((a, b) => ifSort(a[0], b[0]))) {
+      if (only && n !== only) continue;
+      for (const nb of x.nbrs) L.push(pad(n2ip(nb.ip), 18) + pad(n, 25) + "00:01:12/00:01:33 v2    " + `${nb.prio} / ${x.dr === nb.ip ? "DR " : ""}S P G`);
+    }
+  }
+  return L.join("\n");
+}
+
+function showPimIf(net, dn) {
+  const L = ["", "Address          Interface                Ver/   Nbr    Query  DR         DR", "                                          Mode   Count  Intvl  Prior"];
+  const p = net.mcPim()[dn];
+  for (const [n, x] of Object.entries(p.ifs).sort((a, b) => ifSort(a[0], b[0]))) {
+    if (x.addr === null) continue;
+    const dr = p.on && x.up ? n2ip(x.dr) : "0.0.0.0";
+    L.push(pad(n2ip(x.addr), 17) + pad(n, 25) + pad("v2/" + pimModeLetter(x.mode), 7) + pad(p.on && x.up ? x.nbrs.length : 0, 7)
+      + pad(30, 7) + pad(x.prio, 11) + dr);
+  }
+  return L.join("\n");
+}
+
+function showIgmpGroups(net, dn, only) {
+  const L = ["IGMP Connected Group Membership", "Group Address    Interface                Uptime    Expires   Last Reporter   Group Accounted"];
+  const rows = [];
+  for (const [k, list] of Object.entries(net.mcIgmp())) {
+    const [d, n] = k.split("|");
+    if (d !== dn) continue;
+    const by = {};
+    for (const r of list) if (by[r.group] === undefined || r.reporter > by[r.group]) by[r.group] = r.reporter;
+    for (const [g, rep] of Object.entries(by)) if (only === undefined || +g === only) rows.push([+g, n, rep]);
+  }
+  rows.sort((a, b) => a[0] - b[0] || ifSort(a[1], b[1]));
+  for (const [g, n, rep] of rows) L.push(pad(n2ip(g), 17) + pad(n, 25) + pad("00:01:12", 10) + pad("00:02:47", 10) + pad(n2ip(rep), 16));
+  return L.join("\n");
+}
+
+function showIgmpIf(net, dn) {
+  const d = net.devs[dn], p = net.mcPim()[dn], L = [];
+  for (const [n, i] of Object.entries(d.cfg.intfs).sort((a, b) => ifSort(a[0], b[0]))) {
+    const st = net.ifState(dn, n), a = net.ifAddr(dn, n);
+    if (!a) continue;
+    L.push(`${n} is ${st.status}, line protocol is ${st.proto}`, `  Internet address is ${n2ip(a.ip)}/${maskLen(a.mask)}`);
+    const x = p.ifs[n];
+    if (!x) { L.push("  IGMP is disabled on interface"); continue; }
+    const ver = i.igmpVer || 2;
+    const querier = p.on && x.up ? Math.min(x.addr, ...x.nbrs.map((nb) => nb.ip)) : x.addr;
+    L.push("  IGMP is enabled on interface", `  Current IGMP host version is ${ver}`, `  Current IGMP router version is ${ver}`,
+      "  IGMP query interval is 60 seconds", "  IGMP configured query interval is 60 seconds", "  IGMP querier timeout is 120 seconds",
+      "  IGMP configured querier timeout is 120 seconds", "  IGMP max query response time is 10 seconds",
+      "  Last member query count is 2", "  Last member query response interval is 1000 ms",
+      "  Inbound IGMP access group is not set", "  IGMP activity: 1 joins, 0 leaves",
+      `  Multicast routing is ${p.on ? "enabled" : "disabled"} on interface`, "  Multicast TTL threshold is 0",
+      `  Multicast designated router (DR) is ${n2ip(x.dr)}${x.dr === x.addr ? " (this system)" : ""}`,
+      `  IGMP querying router is ${n2ip(querier)}${querier === x.addr ? " (this system)" : ""}`,
+      `  Multicast groups joined by this system (number of users):`);
+    for (const g of i.igmpJoin || []) L.push(`      ${n2ip(g)}(1)`);
+  }
+  return L.join("\n");
+}
+
+function showRpMapping(net, dn) {
+  const d = net.devs[dn], mc = mcOf(d.cfg), L = ["PIM Group-to-RP Mappings"];
+  if (mc.discovery && mc.routing) L.push(`This system is an RP-mapping agent (${mc.discovery.ifn})`);
+  if (mc.announce && mc.routing) L.push("This system is an RP (Auto-RP)");
+  const b = net.mcBsr().bsr[dn];
+  if (b && b.dn === dn) L.push("This system is the Bootstrap Router (v2)");
+  if (mc.crp && mc.routing) L.push("This system is a candidate RP (v2)");
+  L.push("");
+  const rangeStr = (r) => `${n2ip(r.net)}/${r.len}`;
+  // Learned mappings are listed per group range, the preferred RP first.
+  const byRange = new Map();
+  for (const m of net.mcRpMap(dn)) {
+    if (m.src === "static") continue;
+    for (const r of m.ranges) {
+      const k = rangeStr(r);
+      if (!byRange.has(k)) byRange.set(k, []);
+      byRange.get(k).push(m);
+    }
+  }
+  for (const [k, ms] of byRange) {
+    L.push(`Group(s) ${k}`);
+    for (const m of ms.sort((a, b) => a.prio - b.prio || b.rp - a.rp)) {
+      L.push(`  RP ${n2ip(m.rp)} (?), ${m.src === "bsr" ? "v2" : "v2v1"}`);
+      L.push(m.src === "bsr" ? `    Info source: ${n2ip(m.by)} (?), via bootstrap, priority ${m.prio}, holdtime 150`
+        : `    Info source: ${n2ip(m.by)} (?), elected via Auto-RP`);
+      L.push("         Uptime: 00:01:12, expires: 00:02:17");
+    }
+  }
+  for (const m of net.mcRpMap(dn).filter((x) => x.src === "static")) {
+    L.push(`Group(s): ${m.acl ? "" : "224.0.0.0/4, "}${m.acl ? "Acl: " + m.acl + ", " : ""}Static${m.override ? ", Override" : ""}`, `    RP: ${n2ip(m.rp)} (?)`);
+  }
+  return L.join("\n");
+}
+
+function showRpf(net, dn, s) {
+  const r = net.mcRpf(dn, s);
+  if (r.fail) return `RPF information for ? (${n2ip(s)}) failed, no route exists`;
+  const L = [`RPF information for ? (${n2ip(s)})`, `  RPF interface: ${r.ifn}`];
+  if (r.self) L.push(`  RPF neighbor: ? (${n2ip(s)}) - directly connected`);
+  else if (r.connected || r.nbr === null) L.push(`  RPF neighbor: ? (${n2ip(r.nbr ?? s)}) - directly connected`);
+  else L.push(`  RPF neighbor: ? (${n2ip(r.nbr)})`);
+  if (r.type === "static") {
+    const m = r.mroute;
+    L.push(`  RPF route/mask: ${n2ip(m.net)}/${maskLen(m.mask)}`, "  RPF type: multicast (static)");
+  } else if (r.route) {
+    const src = r.route.src || {}, proto = src.proto === "connected" ? "connected" : src.id !== undefined ? `${src.proto} ${src.id}` : src.proto || "connected";
+    L.push(`  RPF route/mask: ${n2ip(r.route.net)}/${r.route.len}`, `  RPF type: unicast (${proto})`);
+  }
+  L.push("  Doing distance-preferred lookups across tables", `  RPF topology: ipv4 multicast base${r.type === "static" ? "" : ", originated from ipv4 unicast base"}`);
+  return L.join("\n");
+}
+
+function showBsrRouter(net, dn) {
+  const b = net.mcBsr().bsr[dn];
+  if (!b) return "PIMv2 Bootstrap information";
+  const me = b.dn === dn;
+  const L = ["PIMv2 Bootstrap information"];
+  if (me) L.push("This system is the Bootstrap Router (BSR)");
+  L.push(`  BSR address: ${n2ip(b.ip)} (?)`, `  Uptime:      00:01:12, BSR Priority: ${b.prio}, Hash mask length: ${b.hash ?? 0}`);
+  if (me) L.push("  Next bootstrap message in 00:00:48");
+  else L.push("  Expires:     00:01:58");
+  const crp = mcOf(net.devs[dn].cfg).crp;
+  if (crp && mcOf(net.devs[dn].cfg).routing) {
+    const a = net.ifAddr(dn, crp.ifn);
+    if (a) L.push("", `  Candidate RP: ${n2ip(a.ip)}(${crp.ifn})`, `    Holdtime 150 seconds`, `    Advertisement interval 60 seconds`,
+      "    Next advertisement in 00:00:48");
+  }
+  return L.join("\n");
+}
+
+function showSnoopGroups(net, sw) {
+  const L = ["Vlan      Group                    Type        Version     Port List", "-----------------------------------------------------------------------"];
+  for (const [v, x] of Object.entries(net.mcSnoop(sw))) {
+    for (const g of Object.keys(x.groups).map(Number).sort((a, b) => a - b)) {
+      L.push(pad(v, 10) + pad(n2ip(g), 25) + pad("igmp", 12) + pad("v2", 12) + [...x.groups[g]].sort(ifSort).map(shortIf).join(", "));
+    }
+  }
+  return L.join("\n");
+}
+
+function showSnoopMrouter(net, sw) {
+  const L = ["Vlan    ports", "-----+----------------------------------------"];
+  for (const [v, x] of Object.entries(net.mcSnoop(sw))) {
+    if (x.mrouters.size) L.push(lpad(v, 4) + "    " + [...x.mrouters].sort(ifSort).map((p) => shortIf(p) + "(dynamic)").join(", "));
+  }
+  return L.join("\n");
+}
+
+function showSnoop(net, sw) {
+  const mc = mcOf(net.devs[sw].cfg), on = (b) => (b ? "Enabled" : "Disabled");
+  const L = ["Global IGMP Snooping configuration:", "-------------------------------------------",
+    `IGMP snooping                : ${on(!mc.snoopOff)}`, "IGMPv3 snooping (minimal)    : Enabled", "Report suppression           : Enabled",
+    "TCN solicit query            : Disabled", "TCN flood query count        : 2", "Robustness variable          : 2",
+    "Last member query count      : 2", "Last member query interval   : 1000", ""];
+  for (const [v, x] of Object.entries(net.mcSnoop(sw))) {
+    L.push(`Vlan ${v}:`, "--------", `IGMP snooping                       : ${on(x.on)}`, "IGMPv2 immediate leave              : Disabled",
+      "Explicit host tracking              : Enabled", "Multicast router learning mode      : pim-dvmrp", "CGMP interoperability mode          : IGMP_ONLY",
+      "Robustness variable                 : 2", "Last member query count             : 2", "Last member query interval          : 1000", "");
+  }
+  return L.join("\n").replace(/\n$/, "");
+}
+
+// ---- help text for the new keywords (merged, never replacing another section's entries)
+Object.assign(HELP_PATH, {
+  "show ip pim": "PIM information", "show ip igmp": "IGMP information", "show ip mroute": "IP multicast routing table",
+  "show ip rpf": "Display RPF information for multicast source", "pim neighbor": "PIM neighbor information",
+  "pim interface": "PIM interface information", "pim rp": "PIM Rendezvous Point (RP) information", "rp mapping": "Show group-to-RP mappings",
+  "pim bsr-router": "Bootstrap router (v2)", "igmp groups": "IGMP group membership information", "igmp interface": "IGMP interface information",
+  "ip igmp snooping": "Global IGMP Snooping enable", "show ip igmp snooping": "Snooping information on a VLAN", "snooping groups": "IGMP snooping group membership information",
+  "snooping mrouter": "IGMP snooping mrouter information", "snooping vlan": "IGMP Snooping enable for a VLAN",
+  "clear ip mroute": "Delete multicast routes", "mroute *": "Delete all multicast routes",
+  "ip multicast-routing": "Enable IP multicast forwarding", "multicast-routing distributed": "Distributed multicast switching",
+  "ip mroute": "Configure static multicast routes",
+  "pim sparse-mode": "Enable PIM sparse-mode operation", "pim dense-mode": "Enable PIM dense-mode operation",
+  "pim sparse-dense-mode": "Enable PIM sparse-dense-mode operation", "pim dr-priority": "PIM router DR priority",
+  "igmp join-group": "IGMP join multicast group", "igmp version": "IGMP version", "igmp version 1": "IGMP version 1",
+  "igmp version 2": "IGMP version 2", "igmp version 3": "IGMP version 3",
+  "pim rp-address": "PIM RP-address (Rendezvous Point)", "rp-address override": "Overrides dynamically learnt RP mappings",
+  "pim send-rp-announce": "Auto-RP send RP announcement", "pim send-rp-discovery": "Auto-RP send RP discovery message (as RP-mapping agent)",
+  "send-rp-announce scope": "RP announcement scope", "send-rp-discovery scope": "Scope of the RP discovery",
+  "send-rp-announce group-list": "Group access-list", "scope group-list": "Group access-list",
+  "group-list priority": "RP candidate priority", "pim autorp": "Configure AutoRP global operations",
+  "autorp listener": "Allow AutoRP packets across sparse mode interface", "pim bsr-candidate": "Candidate bootstrap router (candidate BSR)",
+  "pim rp-candidate": "To be a PIMv2 RP candidate", "rp-candidate group-list": "Group Ranges for this C-RP",
+  "rp-candidate priority": "RP candidate priority", "pim spt-threshold": "Source-tree switching threshold",
+  "spt-threshold infinity": "Never switch to source-tree",
+});
+for (const m of IF_MODES) HELP_MODE[m] = { ...(HELP_MODE[m] || {}), "ip pim": "PIM interface commands", "ip igmp": "IGMP interface commands" };
+HELP_MODE.config = { ...(HELP_MODE.config || {}), "ip pim": "PIM global commands", "ip igmp": "IGMP global configuration" };
+
+// ---- configuration commands (routers)
+def("R", "config", "ip multicast-routing", (c) => { mcW(c.cfg).routing = true; });
+def("R", "config", "ip multicast-routing distributed", (c) => { mcW(c.cfg).routing = true; });
+def("R", "config", "no ip multicast-routing", (c) => { mcW(c.cfg).routing = false; });
+def("R", "config", "no ip multicast-routing distributed", (c) => { mcW(c.cfg).routing = false; });
+const setRp = (c, ip, acl, override) => {
+  const mc = mcW(c.cfg);
+  mc.rps = mc.rps.filter((r) => !(r.ip === ip && (r.acl || null) === (acl || null)));
+  mc.rps.push({ ip, acl: acl || null, override: !!override });
+};
+def("R", "config", "ip pim rp-address <ip|IP address of Rendezvous-point for group>", (c, [ip]) => setRp(c, ip, null, false));
+def("R", "config", "ip pim rp-address <ip|IP address of Rendezvous-point for group> override", (c, [ip]) => setRp(c, ip, null, true));
+def("R", "config", "ip pim rp-address <ip|IP address of Rendezvous-point for group> <num:1-99|Access-list reference for group>", (c, [ip, a]) => setRp(c, ip, String(a), false));
+def("R", "config", "ip pim rp-address <ip|IP address of Rendezvous-point for group> <num:1-99|Access-list reference for group> override", (c, [ip, a]) => setRp(c, ip, String(a), true));
+def("R", "config", "no ip pim rp-address <ip|IP address of Rendezvous-point for group>", (c, [ip]) => { const mc = mcW(c.cfg); mc.rps = mc.rps.filter((r) => r.ip !== ip); });
+def("R", "config", "no ip pim rp-address <ip|IP address of Rendezvous-point for group> <num:1-99|Access-list reference for group>", (c, [ip]) => { const mc = mcW(c.cfg); mc.rps = mc.rps.filter((r) => r.ip !== ip); });
+def("R", "config", "ip pim send-rp-announce <intf> scope <num:1-255|TTL>", (c, [n, sc]) => c.s.withIf(n, 3, (ifn) => { mcW(c.cfg).announce = { ifn, scope: sc, acl: null }; }));
+def("R", "config", "ip pim send-rp-announce <intf> scope <num:1-255|TTL> group-list <word|IP Access list number or name>", (c, [n, sc, a]) => c.s.withIf(n, 3, (ifn) => { mcW(c.cfg).announce = { ifn, scope: sc, acl: a }; }));
+def("R", "config", "no ip pim send-rp-announce <intf> scope <num:1-255|TTL>", (c) => { mcW(c.cfg).announce = null; });
+def("R", "config", "no ip pim send-rp-announce <intf> scope <num:1-255|TTL> group-list <word|IP Access list number or name>", (c) => { mcW(c.cfg).announce = null; });
+def("R", "config", "ip pim send-rp-discovery <intf> scope <num:1-255|TTL>", (c, [n, sc]) => c.s.withIf(n, 3, (ifn) => { mcW(c.cfg).discovery = { ifn, scope: sc }; }));
+def("R", "config", "no ip pim send-rp-discovery <intf> scope <num:1-255|TTL>", (c) => { mcW(c.cfg).discovery = null; });
+def("R", "config", "ip pim autorp listener", (c) => { mcW(c.cfg).listener = true; });
+def("R", "config", "no ip pim autorp listener", (c) => { mcW(c.cfg).listener = false; });
+def("R", "config", "ip pim bsr-candidate <intf>", (c, [n]) => c.s.withIf(n, 3, (ifn) => { mcW(c.cfg).bsr = { ifn, hash: null, prio: 0 }; }));
+def("R", "config", "ip pim bsr-candidate <intf> <num:0-32|Hash Mask length for RP selection>", (c, [n, h]) => c.s.withIf(n, 3, (ifn) => { mcW(c.cfg).bsr = { ifn, hash: h, prio: 0 }; }));
+def("R", "config", "ip pim bsr-candidate <intf> <num:0-32|Hash Mask length for RP selection> <num:0-255|Priority value for candidate bootstrap router>", (c, [n, h, p]) => c.s.withIf(n, 3, (ifn) => { mcW(c.cfg).bsr = { ifn, hash: h, prio: p }; }));
+def("R", "config", "no ip pim bsr-candidate <intf>", (c) => { mcW(c.cfg).bsr = null; });
+const setCrp = (c, n, acl, prio) => c.s.withIf(n, 3, (ifn) => { mcW(c.cfg).crp = { ifn, acl, prio }; });
+def("R", "config", "ip pim rp-candidate <intf>", (c, [n]) => setCrp(c, n, null, 0));
+def("R", "config", "ip pim rp-candidate <intf> group-list <word|IP Access list number or name>", (c, [n, a]) => setCrp(c, n, a, 0));
+def("R", "config", "ip pim rp-candidate <intf> priority <num:0-255|Priority value>", (c, [n, p]) => setCrp(c, n, null, p));
+def("R", "config", "ip pim rp-candidate <intf> group-list <word|IP Access list number or name> priority <num:0-255|Priority value>", (c, [n, a, p]) => setCrp(c, n, a, p));
+def("R", "config", "no ip pim rp-candidate <intf>", (c) => { mcW(c.cfg).crp = null; });
+def("R", "config", "ip pim spt-threshold infinity", (c) => { mcW(c.cfg).sptInf = true; });
+def("R", "config", "ip pim spt-threshold <num:0-4294967|Traffic rate in kilobits per second>", (c, [k]) => { mcW(c.cfg).sptInf = false; if (k !== 0) c.print("% Only 0 (the default) and infinity are simulated; using 0"); });
+def("R", "config", "no ip pim spt-threshold", (c) => { mcW(c.cfg).sptInf = false; });
+const addMroute = (c, net, mask, rpf, ifn, dist) => {
+  if (maskLen(mask) < 0) { c.print("% Inconsistent address and mask"); return; }
+  const mc = mcW(c.cfg);
+  mc.mroutes = mc.mroutes.filter((m) => !(m.net === and(net, mask) && m.mask === mask));
+  mc.mroutes.push({ net: and(net, mask), mask, rpf, ifn, dist: dist || 0 });
+};
+def("R", "config", "ip mroute <ip|Source address> <ip|Source mask> <ip|RPF neighbor address or route>", (c, [n, m, r]) => addMroute(c, n, m, r, null, 0));
+def("R", "config", "ip mroute <ip|Source address> <ip|Source mask> <ip|RPF neighbor address or route> <num:1-255|Administrative distance for mroute>", (c, [n, m, r, ad]) => addMroute(c, n, m, r, null, ad));
+def("R", "config", "ip mroute <ip|Source address> <ip|Source mask> <intf>", (c, [n, m, i]) => c.s.withIf(i, 4, (ifn) => addMroute(c, n, m, null, ifn, 0)));
+const delMroute = (c, net, mask) => { const mc = mcW(c.cfg); mc.mroutes = mc.mroutes.filter((x) => !(x.net === and(net, mask) && x.mask === mask)); };
+def("R", "config", "no ip mroute <ip|Source address> <ip|Source mask>", (c, [n, m]) => delMroute(c, n, m));
+def("R", "config", "no ip mroute <ip|Source address> <ip|Source mask> <ip|RPF neighbor address or route>", (c, [n, m]) => delMroute(c, n, m));
+def("R", "config", "no ip mroute <ip|Source address> <ip|Source mask> <intf>", (c, [n, m]) => delMroute(c, n, m));
+
+// interface level
+def("R", IF_MODES, "ip pim {sparse-mode|dense-mode|sparse-dense-mode}", (c, [m]) => {
+  eachIf(c, (n, i) => { i.pim = m; });
+  if (!mcOf(c.cfg).routing) c.print('WARNING: "ip multicast-routing" is not configured,', '         IP Multicast packets will not be forwarded');
+});
+def("R", IF_MODES, "no ip pim {sparse-mode|dense-mode|sparse-dense-mode}", (c) => eachIf(c, (n, i) => { delete i.pim; }));
+def("R", IF_MODES, "ip pim dr-priority <num:0-4294967294|DR priority>", (c, [p]) => eachIf(c, (n, i) => { i.pimDr = p; }));
+def("R", IF_MODES, "no ip pim dr-priority", (c) => eachIf(c, (n, i) => { delete i.pimDr; }));
+def("R", IF_MODES, "ip igmp join-group <ip|IP group address>", (c, [g]) => {
+  if (!isMcastAddr(g)) { c.print(`% ${n2ip(g)} is not a valid multicast group address`); return; }
+  eachIf(c, (n, i) => { if (!(i.igmpJoin || []).includes(g)) i.igmpJoin = [...(i.igmpJoin || []), g].sort((a, b) => a - b); });
+});
+def("R", IF_MODES, "no ip igmp join-group <ip|IP group address>", (c, [g]) => eachIf(c, (n, i) => {
+  i.igmpJoin = (i.igmpJoin || []).filter((x) => x !== g);
+  if (!i.igmpJoin.length) delete i.igmpJoin;
+}));
+def("R", IF_MODES, "ip igmp version {1|2|3}", (c, [v]) => eachIf(c, (n, i) => { if (+v === 2) delete i.igmpVer; else i.igmpVer = +v; }));
+def("R", IF_MODES, "no ip igmp version", (c) => eachIf(c, (n, i) => { delete i.igmpVer; }));
+
+// switches: IGMP snooping (on by default)
+def("S", "config", "ip igmp snooping", (c) => { mcW(c.cfg).snoopOff = false; });
+def("S", "config", "no ip igmp snooping", (c) => { mcW(c.cfg).snoopOff = true; });
+def("S", "config", "ip igmp snooping vlan <num:1-1001|Vlan number>", (c, [v]) => { const mc = mcW(c.cfg); mc.snoopVlanOff = mc.snoopVlanOff.filter((x) => x !== v); });
+def("S", "config", "no ip igmp snooping vlan <num:1-1001|Vlan number>", (c, [v]) => { const mc = mcW(c.cfg); if (!mc.snoopVlanOff.includes(v)) mc.snoopVlanOff.push(v); });
+
+// show and clear
+const MC_SHOW = ["user", "priv"];
+def("R", MC_SHOW, "show ip mroute", (c) => c.print(showIpMroute(c.net, c.d.name)));
+def("R", MC_SHOW, "show ip mroute <ip|IP name or group address>", (c, [g]) => c.print(showIpMroute(c.net, c.d.name, g)));
+def("R", MC_SHOW, "show ip pim neighbor", (c) => c.print(showPimNbr(c.net, c.d.name)));
+def("R", MC_SHOW, "show ip pim neighbor <intf>", (c, [n]) => c.s.withIf(n, 4, (ifn) => c.print(showPimNbr(c.net, c.d.name, ifn))));
+def("R", MC_SHOW, "show ip pim interface", (c) => c.print(showPimIf(c.net, c.d.name)));
+def("R", MC_SHOW, "show ip pim rp mapping", (c) => c.print(showRpMapping(c.net, c.d.name)));
+def("R", MC_SHOW, "show ip pim rp", (c) => {
+  const L = [];
+  for (const g of c.net.mcGroups()) {
+    const m = c.net.mcRpFor(c.d.name, g), T = c.net.mcTree(g);
+    if (m && (T.star[c.d.name] || Object.values(T.src).some((S) => S.map[c.d.name]))) {
+      L.push(`Group: ${n2ip(g)}, RP: ${n2ip(m.rp)}, ${m.src === "static" ? "uptime 00:01:12, expires never" : "v2, uptime 00:01:12, expires 00:02:17"}`);
+    }
+  }
+  c.print(L.join("\n"));
+});
+def("R", MC_SHOW, "show ip pim bsr-router", (c) => c.print(showBsrRouter(c.net, c.d.name)));
+def("R", MC_SHOW, "show ip igmp groups", (c) => c.print(showIgmpGroups(c.net, c.d.name)));
+def("R", MC_SHOW, "show ip igmp groups <ip|IP name or group address>", (c, [g]) => c.print(showIgmpGroups(c.net, c.d.name, g)));
+def("R", MC_SHOW, "show ip igmp interface", (c) => c.print(showIgmpIf(c.net, c.d.name)));
+def("R", MC_SHOW, "show ip rpf <ip|IP name or address of multicast source>", (c, [s]) => c.print(showRpf(c.net, c.d.name, s)));
+def("R", "priv", "clear ip mroute *", (c) => { delete c.d.rt.mc; });
+def("R", "priv", "clear ip mroute <ip|IP name or group address>", (c, [g]) => {
+  const r = c.d.rt.mc;
+  if (!r) return;
+  delete r.src[g];
+  for (const k of Object.keys(r.spt)) if (+k.split("|")[1] === g) delete r.spt[k];
+  for (const k of Object.keys(r.rpJoin)) if (+k.split("|")[1] === g) delete r.rpJoin[k];
+});
+def("S", MC_SHOW, "show ip igmp snooping", (c) => c.print(showSnoop(c.net, c.d.name)));
+def("S", MC_SHOW, "show ip igmp snooping groups", (c) => c.print(showSnoopGroups(c.net, c.d.name)));
+def("S", MC_SHOW, "show ip igmp snooping mrouter", (c) => c.print(showSnoopMrouter(c.net, c.d.name)));
+
+// ---- the console: multicast ping from a router, and group membership on a PC
+Object.assign(Session.prototype, {
+  mcastPing(dst, source, count, size) {
+    const dn = this.d.name, net = this.net;
+    this.print("Type escape sequence to abort.", `Sending ${count}, ${size}-byte ICMP Echos to ${n2ip(dst)}, timeout is 2 seconds:`);
+    if (source !== null) {
+      if (!net.upIfs(dn).some((n) => net.ifAddr(dn, n).ip === source)) {
+        this.print("% Invalid source address- IP address not on any of our up interfaces");
+        return;
+      }
+      this.print(`Packet sent with a source address of ${n2ip(source)}`);
+    }
+    const res = net.mcPing(dn, dst, source, count, false);
+    this.print("");
+    res.forEach((replies, k) => {
+      if (!replies.length) this.print(".");
+      for (const r of replies) this.print(`Reply to request ${k} from ${n2ip(r.ip)}, ${1 + ((r.ip + k) % 7)} ms`);
+    });
+  },
+
+  // NetLab extension (VPCS has no IGMP): "mcast join|leave GROUP" and "mcast" to list.
+  vpcsMcast(w) {
+    const c = this.d.cfg, sub = (w[1] || "").toLowerCase();
+    if (!sub || sub === "show") {
+      const gs = c.mcast || [];
+      this.print(gs.length ? "Joined groups: " + gs.map(n2ip).join(", ") : "No multicast groups joined");
+      return;
+    }
+    if ((sub === "join" || sub === "leave") && isIp(w[2] || "")) {
+      const g = ip2n(w[2]);
+      if (!isMcastAddr(g) || (g >>> 8) === (ip2n("224.0.0.0") >>> 8)) { this.print(`${w[2]} is not a multicast group address you can join`); return; }
+      if (sub === "join") {
+        if (c.ip === null) { this.print("Set an IPv4 address first: IGMP reports need a source address"); return; }
+        if (!(c.mcast || []).includes(g)) c.mcast = [...(c.mcast || []), g].sort((a, b) => a - b);
+        this.print(`Joined ${n2ip(g)} (IGMPv2 membership report sent)`);
+      } else {
+        c.mcast = (c.mcast || []).filter((x) => x !== g);
+        this.print(`Left ${n2ip(g)} (IGMPv2 leave sent)`);
+      }
+      return;
+    }
+    this.print("Usage: mcast join GROUP | mcast leave GROUP | mcast");
+  },
+});
+// ======== end Multicast ========
 
 // ======== Automation (NETCONF/RESTCONF) ========
 //

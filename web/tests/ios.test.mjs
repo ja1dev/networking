@@ -2519,6 +2519,192 @@ test("multilayer switch: OSPF, EIGRP and RIP on routed ports and SVIs once ip ro
   assert.doesNotMatch(nb.slice(nb.indexOf("Neighbor ID")), /9\.9\.9\.9/);
 });
 
+// ---- Multicast ----------------------------------------------------------------------------------
+// R1 (source on Loopback1) - R2 (RP 2.2.2.2) - R3 - SW1 - PC3/PC4, with an optional R1-R3 link that
+// carries unicast only. OSPF everywhere; pass extra lines per device.
+function mcastNet({ triangle = false, mode = "sparse-mode", extra = {}, pim13 = false } = {}) {
+  const links = [["R1", "GigabitEthernet0/0", "R2", "GigabitEthernet0/0"], ["R2", "GigabitEthernet0/1", "R3", "GigabitEthernet0/0"],
+    ["R3", "GigabitEthernet0/1", "SW1", "GigabitEthernet0/1"], ["SW1", "FastEthernet0/1", "PC3", "eth0"], ["SW1", "FastEthernet0/2", "PC4", "eth0"]];
+  if (triangle) links.push(["R1", "GigabitEthernet0/1", "R3", "GigabitEthernet0/2"]);
+  const net = new Network({ devices: [R("R1"), R("R2"), R("R3"), S("SW1"), P("PC3"), P("PC4")], links });
+  const pim = (on) => (on ? [" ip pim " + mode] : []);
+  const ospf = (rid) => ["router ospf 1", " router-id " + rid, " network 0.0.0.0 255.255.255.255 area 0"];
+  applyConfig(net, "R1", ["hostname R1", "ip multicast-routing", "interface g0/0", " ip address 10.1.12.1 255.255.255.0", ...pim(true), " no shutdown",
+    ...(triangle ? ["interface g0/1", " ip address 10.1.13.1 255.255.255.0", ...pim(pim13), " no shutdown"] : []),
+    "interface loopback1", " ip address 10.1.1.1 255.255.255.0", " ip ospf network point-to-point", ...ospf("1.1.1.1"), ...(extra.R1 || [])]);
+  applyConfig(net, "R2", ["hostname R2", "ip multicast-routing", "interface g0/0", " ip address 10.1.12.2 255.255.255.0", ...pim(true), " no shutdown",
+    "interface g0/1", " ip address 10.1.23.2 255.255.255.0", ...pim(true), ...(triangle ? [" ip ospf cost 100"] : []), " no shutdown",
+    "interface loopback0", " ip address 2.2.2.2 255.255.255.255", ...ospf("2.2.2.2"), ...(extra.R2 || [])]);
+  applyConfig(net, "R3", ["hostname R3", "ip multicast-routing", "interface g0/0", " ip address 10.1.23.3 255.255.255.0", ...pim(true),
+    ...(triangle ? [" ip ospf cost 100"] : []), " no shutdown", "interface g0/1", " ip address 10.1.3.3 255.255.255.0", ...pim(true), " no shutdown",
+    ...(triangle ? ["interface g0/2", " ip address 10.1.13.3 255.255.255.0", ...pim(pim13), " no shutdown"] : []),
+    ...ospf("3.3.3.3"), ...(extra.R3 || [])]);
+  const pc = (n, ip) => { const s = new Session(net, n); s.input(`ip ${ip}/24 10.1.3.3`); return s; };
+  return { net, pc3: pc("PC3", "10.1.3.10"), pc4: pc("PC4", "10.1.3.11") };
+}
+const exec = (net, dev, ...lines) => { const s = new Session(net, dev); s.input("enable"); return lines.map((l) => s.input(l)).join("\n"); };
+const rpAll = (ip) => ({ R1: [`ip pim rp-address ${ip}`], R2: [`ip pim rp-address ${ip}`], R3: [`ip pim rp-address ${ip}`] });
+
+test("multicast: PIM neighbours, the DR election and its log lines", () => {
+  const { net } = mcastNet({ extra: rpAll("2.2.2.2") });
+  assert.ok(net.check({ type: "pim-nbr", device: "R2", neighbor: "10.1.12.1" }));
+  assert.ok(net.check({ type: "pim-nbr", device: "R2", neighbor: "10.1.23.3", intf: "GigabitEthernet0/1" }));
+  // Highest IP wins the DR on equal priority; dr-priority overrides it.
+  assert.ok(net.check({ type: "pim-dr", device: "R2", intf: "GigabitEthernet0/0", dr: "10.1.12.2" }));
+  const s = new Session(net, "R1");
+  s.input("enable"); s.input("conf t"); s.input("interface g0/0");
+  s.input("ip pim dr-priority 200");
+  assert.match(s.consoleLines.R1.join("\n"), /%PIM-5-DRCHG: DR change from neighbor 10\.1\.12\.2 to 10\.1\.12\.1 on interface GigabitEthernet0\/0/);
+  assert.ok(net.check({ type: "pim-dr", device: "R2", intf: "GigabitEthernet0/0", dr: "10.1.12.1" }));
+  const out = exec(net, "R2", "show ip pim neighbor");
+  assert.match(out, /^10\.1\.12\.1 +GigabitEthernet0\/0 +\S+ v2 +200 \/ DR S P G$/m);
+  assert.match(out, /^10\.1\.23\.3 +GigabitEthernet0\/1 +\S+ v2 +1 \/ DR S P G$/m);
+  assert.match(exec(net, "R3", "show ip pim interface"), /^10\.1\.3\.3 +GigabitEthernet0\/1 +v2\/S +0 +30 +1 +10\.1\.3\.3$/m);
+  // PIM without "ip multicast-routing" warns and forms no neighbours.
+  const n2 = new Network({ devices: [R("A"), R("B")], links: [["A", "GigabitEthernet0/0", "B", "GigabitEthernet0/0"]] });
+  const a = new Session(n2, "A");
+  for (const l of ["en", "conf t", "int g0/0", "ip add 10.0.0.1 255.255.255.0", "no shut"]) a.input(l);
+  assert.match(a.input("ip pim sparse-mode"), /WARNING: "ip multicast-routing" is not configured/);
+  applyConfig(n2, "B", ["ip multicast-routing", "int g0/0", " ip add 10.0.0.2 255.255.255.0", " ip pim sparse-mode", " no shut"]);
+  assert.ok(!n2.check({ type: "pim-nbr", device: "B", neighbor: "10.0.0.1" }));
+});
+
+test("multicast: IGMP builds the shared tree, registers reach the RP, and the last hop switches to the SPT", () => {
+  const { net, pc3 } = mcastNet({ extra: rpAll("2.2.2.2") });
+  assert.match(pc3.input("mcast join 239.1.1.1"), /Joined 239\.1\.1\.1/);
+  assert.ok(net.check({ type: "igmp-group", device: "R3", group: "239.1.1.1", intf: "GigabitEthernet0/1" }));
+  assert.match(exec(net, "R3", "show ip igmp groups"), /^239\.1\.1\.1 +GigabitEthernet0\/1 +\S+ +\S+ +10\.1\.3\.10/m);
+  // (*,G) on the last hop points at the RP; the RP forwards toward it.
+  const r3 = exec(net, "R3", "show ip mroute 239.1.1.1");
+  assert.match(r3, /\(\*, 239\.1\.1\.1\), \S+, RP 2\.2\.2\.2, flags: SJC\n  Incoming interface: GigabitEthernet0\/0, RPF nbr 10\.1\.23\.2\n  Outgoing interface list:\n    GigabitEthernet0\/1, Forward\/Sparse, /);
+  assert.match(exec(net, "R2", "show ip mroute 239.1.1.1"), /RP 2\.2\.2\.2, flags: S\n  Incoming interface: Null, RPF nbr 0\.0\.0\.0\n  Outgoing interface list:\n    GigabitEthernet0\/1, Forward\/Sparse/);
+  assert.ok(!/239\.1\.1\.1/.test(exec(net, "R1", "show ip mroute")), "no receivers behind R1, no state");
+  // One reply per joined receiver: PC3 answers, PC4 (not joined) doesn't.
+  const ping = exec(net, "R1", "ping 239.1.1.1 repeat 2 source loopback1");
+  assert.match(ping, /Sending 2, 100-byte ICMP Echos to 239\.1\.1\.1, timeout is 2 seconds:\nPacket sent with a source address of 10\.1\.1\.1\n\nReply to request 0 from 10\.1\.3\.10, \d+ ms\nReply to request 1 from 10\.1\.3\.10, \d+ ms/);
+  assert.ok(!/10\.1\.3\.11/.test(ping));
+  // The traffic leaves (S,G) state: register flag at the source's router, SPT bit everywhere on the source tree.
+  assert.match(exec(net, "R1", "show ip mroute 239.1.1.1"), /\(10\.1\.1\.1, 239\.1\.1\.1\), \S+, flags: FT\n  Incoming interface: Loopback1, RPF nbr 0\.0\.0\.0\n  Outgoing interface list:\n    GigabitEthernet0\/0, Forward\/Sparse/);
+  assert.ok(net.check({ type: "mroute", device: "R3", group: "239.1.1.1", source: "10.1.1.1", flags: "T", iif: "GigabitEthernet0/0", oil: "GigabitEthernet0/1" }));
+  // A multicast ping defaults to one packet; with nobody listening it shows a dot.
+  pc3.input("mcast leave 239.1.1.1");
+  assert.match(exec(net, "R1", "ping 239.1.1.1 source loopback1"), /Sending 1, 100-byte ICMP Echos to 239\.1\.1\.1[^\n]*\n[^\n]*\n\n\.$/);
+  // "clear ip mroute *" forgets traffic-driven state.
+  exec(net, "R1", "clear ip mroute *");
+  assert.ok(!net.check({ type: "mroute", device: "R1", group: "239.1.1.1", source: "10.1.1.1" }));
+});
+
+test("multicast: an RPF interface without PIM breaks the tree, and a static mroute fixes it", () => {
+  // OSPF prefers the R1-R3 link for everything, but it doesn't run PIM.
+  const { net, pc3 } = mcastNet({ triangle: true, extra: rpAll("2.2.2.2") });
+  pc3.input("mcast join 239.5.5.5");
+  assert.match(exec(net, "R3", "show ip rpf 2.2.2.2"), /RPF interface: GigabitEthernet0\/2\n  RPF neighbor: \? \(10\.1\.13\.1\)\n  RPF route\/mask: 2\.2\.2\.2\/32\n  RPF type: unicast \(ospf 1\)/);
+  assert.ok(!net.check({ type: "mroute", device: "R2", group: "239.5.5.5" }), "the join never reaches the RP");
+  assert.ok(!net.check({ type: "mping", from: "R1", group: "239.5.5.5", source: "Loopback1", replies: ["10.1.3.10"] }));
+  applyConfig(net, "R3", ["ip mroute 2.2.2.2 255.255.255.255 10.1.23.2"]);
+  assert.match(exec(net, "R3", "show ip rpf 2.2.2.2"), /RPF interface: GigabitEthernet0\/0\n  RPF neighbor: \? \(10\.1\.23\.2\)\n  RPF route\/mask: 2\.2\.2\.2\/32\n  RPF type: multicast \(static\)/);
+  assert.ok(net.check({ type: "rpf", device: "R3", source: "2.2.2.2", intf: "GigabitEthernet0/0", via: "static" }));
+  assert.ok(net.check({ type: "route", device: "R3", prefix: "2.2.2.2/32", via: "10.1.13.1" }), "unicast routing is unchanged");
+  // The source tree toward 10.1.1.1 would also cross the non-PIM link, so R3 stays on the shared tree
+  // (no SPT bit) and every packet still arrives through the RP.
+  const ping = exec(net, "R1", "ping 239.5.5.5 repeat 3 source loopback1");
+  assert.equal((ping.match(/Reply to request \d from 10\.1\.3\.10/g) || []).length, 3);
+  assert.ok(net.check({ type: "mroute", device: "R3", group: "239.5.5.5", source: "10.1.1.1", flags: "J", iif: "GigabitEthernet0/2" }));
+  assert.ok(!net.check({ type: "mroute", device: "R3", group: "239.5.5.5", source: "10.1.1.1", flags: "T" }));
+  assert.match(runningConfig(net, "R3"), /^ip mroute 2\.2\.2\.2 255\.255\.255\.255 10\.1\.23\.2$/m);
+});
+
+test("multicast: dense mode floods, prunes branches without receivers and RPF-checks every arrival", () => {
+  const { net, pc3 } = mcastNet({ triangle: true, pim13: true, mode: "dense-mode" });
+  pc3.input("mcast join 239.7.7.7");
+  assert.match(exec(net, "R1", "ping 239.7.7.7 source loopback1"), /Reply to request 0 from 10\.1\.3\.10/);
+  // R2 has nobody downstream (R3's RPF toward the source is the direct R1 link): pruned.
+  assert.match(exec(net, "R2", "show ip mroute 239.7.7.7"), /\(10\.1\.1\.1, 239\.7\.7\.7\), \S+, flags: PT\n  Incoming interface: GigabitEthernet0\/0, RPF nbr 10\.1\.12\.1\n  Outgoing interface list:\n    GigabitEthernet0\/1, Prune\/Dense/);
+  assert.match(exec(net, "R1", "show ip mroute 239.7.7.7"), /GigabitEthernet0\/0, Prune\/Dense[\s\S]*GigabitEthernet0\/1, Forward\/Dense/);
+  assert.match(exec(net, "R3", "show ip mroute 239.7.7.7"), /\(\*, 239\.7\.7\.7\), \S+\/stopped, RP 0\.0\.0\.0, flags: DC/);
+  assert.ok(net.check({ type: "mroute", device: "R3", group: "239.7.7.7", source: "10.1.1.1", iif: "GigabitEthernet0/2", oil: "GigabitEthernet0/1" }));
+});
+
+test("multicast: Auto-RP needs dense flooding (or the listener) to reach the mapping agent", () => {
+  const { net, pc3 } = mcastNet({ extra: { R2: ["interface loopback0", " ip pim sparse-mode", "ip pim send-rp-announce loopback0 scope 16"],
+    R3: ["interface loopback0", " ip address 3.3.3.3 255.255.255.255", " ip pim sparse-mode", "router ospf 1", " network 3.3.3.3 0.0.0.0 area 0",
+      "ip pim send-rp-discovery loopback0 scope 16"] } });
+  pc3.input("mcast join 239.2.2.2");
+  assert.ok(!net.check({ type: "rp-map", device: "R1", group: "239.2.2.2", rp: "2.2.2.2" }), "sparse-mode links block 224.0.1.39/40");
+  for (const r of ["R1", "R2", "R3"]) applyConfig(net, r, ["ip pim autorp listener"]);
+  for (const r of ["R1", "R2", "R3"]) assert.ok(net.check({ type: "rp-map", device: r, group: "239.2.2.2", rp: "2.2.2.2", via: "autorp" }), r);
+  const map = exec(net, "R3", "show ip pim rp mapping");
+  assert.match(map, /This system is an RP-mapping agent \(Loopback0\)\n\nGroup\(s\) 224\.0\.0\.0\/4\n  RP 2\.2\.2\.2 \(\?\), v2v1\n    Info source: 3\.3\.3\.3 \(\?\), elected via Auto-RP/);
+  assert.match(exec(net, "R1", "ping 239.2.2.2 source loopback1"), /Reply to request 0 from 10\.1\.3\.10/);
+  // A second candidate with a higher address wins the range; a static "override" RP beats both.
+  applyConfig(net, "R3", ["ip pim send-rp-announce loopback0 scope 16"]);
+  assert.ok(net.check({ type: "rp-map", device: "R1", group: "239.2.2.2", rp: "3.3.3.3", via: "autorp" }));
+  applyConfig(net, "R1", ["ip pim rp-address 2.2.2.2"]);
+  assert.ok(net.check({ type: "rp-map", device: "R1", group: "239.2.2.2", rp: "3.3.3.3", via: "autorp" }), "learned beats static");
+  applyConfig(net, "R1", ["no ip pim rp-address 2.2.2.2", "ip pim rp-address 2.2.2.2 override"]);
+  assert.ok(net.check({ type: "rp-map", device: "R1", group: "239.2.2.2", rp: "2.2.2.2", via: "static" }));
+});
+
+test("multicast: BSR elects the bootstrap router and distributes the candidate RPs", () => {
+  const { net, pc3 } = mcastNet({ extra: {
+    R1: ["interface loopback1", " ip pim sparse-mode", "ip pim rp-candidate loopback1 priority 10"],
+    R2: ["interface loopback0", " ip pim sparse-mode", "ip pim bsr-candidate loopback0 0 50", "ip pim rp-candidate loopback0"],
+    R3: ["interface loopback0", " ip address 3.3.3.3 255.255.255.255", " ip pim sparse-mode", "router ospf 1", " network 3.3.3.3 0.0.0.0 area 0",
+      "ip pim bsr-candidate loopback0"] } });
+  pc3.input("mcast join 239.3.3.3");
+  // R2's priority 50 beats R3's higher address; the RP with the lower priority value (R2, 0) beats R1 (10).
+  assert.match(exec(net, "R1", "show ip pim bsr-router"), /BSR address: 2\.2\.2\.2 \(\?\)\n  Uptime: +\S+, BSR Priority: 50, Hash mask length: 0/);
+  assert.match(exec(net, "R2", "show ip pim bsr-router"), /This system is the Bootstrap Router \(BSR\)/);
+  for (const r of ["R1", "R3"]) assert.ok(net.check({ type: "rp-map", device: r, group: "239.3.3.3", rp: "2.2.2.2", via: "bsr" }), r);
+  assert.match(exec(net, "R3", "show ip pim rp mapping"), /RP 2\.2\.2\.2 \(\?\), v2\n    Info source: 2\.2\.2\.2 \(\?\), via bootstrap, priority 0, holdtime 150[\s\S]*RP 10\.1\.1\.1 \(\?\), v2\n    Info source: 2\.2\.2\.2 \(\?\), via bootstrap, priority 10/);
+  assert.match(exec(net, "R1", "ping 239.3.3.3 source loopback1"), /Reply to request 0 from 10\.1\.3\.10/);
+  assert.match(runningConfig(net, "R2"), /^ip pim bsr-candidate Loopback0 0 50$/m);
+  assert.match(runningConfig(net, "R1"), /^ip pim rp-candidate Loopback1 priority 10$/m);
+});
+
+test("multicast: a router can be a receiver, and IGMP snooping tracks member and mrouter ports", () => {
+  const { net, pc3 } = mcastNet({ extra: { ...rpAll("2.2.2.2"), R2: ["ip pim rp-address 2.2.2.2", "interface g0/1", " ip igmp join-group 239.9.9.9"] } });
+  pc3.input("mcast join 239.9.9.9");
+  assert.match(exec(net, "R2", "show ip mroute 239.9.9.9"), /flags: SJCL/);
+  const replies = exec(net, "R1", "ping 239.9.9.9 source loopback1");
+  assert.match(replies, /Reply to request 0 from 10\.1\.3\.10/);
+  assert.match(replies, /Reply to request 0 from 10\.1\.(12|23)\.2/);
+  assert.match(exec(net, "SW1", "show ip igmp snooping groups"), /^1 +239\.9\.9\.9 +igmp +v2 +Fa0\/1$/m);
+  assert.match(exec(net, "SW1", "show ip igmp snooping mrouter"), /^ +1 +Gi0\/1\(dynamic\)$/m);
+  assert.ok(net.check({ type: "snoop-group", device: "SW1", group: "239.9.9.9", vlan: 1, intf: "FastEthernet0/1" }));
+  applyConfig(net, "SW1", ["no ip igmp snooping vlan 1"]);
+  assert.ok(!net.check({ type: "snoop-group", device: "SW1", group: "239.9.9.9" }));
+  assert.match(runningConfig(net, "SW1"), /^no ip igmp snooping vlan 1$/m);
+  // VPCS help lists the extension, and bad groups are refused.
+  assert.match(pc3.input("?"), /mcast join\|leave GROUP/);
+  assert.match(pc3.input("mcast join 224.0.0.5"), /not a multicast group address you can join/);
+});
+
+test("multicast: ? help, running-config order and config replay", () => {
+  const net = new Network({ devices: [R("R1"), S("SW1")], links: [] });
+  const r = new Session(net, "R1");
+  for (const l of ["en", "conf t"]) r.input(l);
+  assert.match(r.help("ip pim "), /autorp +Configure AutoRP global operations[\s\S]*rp-address +PIM RP-address \(Rendezvous Point\)[\s\S]*spt-threshold +Source-tree switching threshold/);
+  assert.match(r.help("ip pim send-rp-announce loopback0 scope 16 "), /group-list +Group access-list/);
+  assert.match(r.help("ip pim rp-candidate loopback0 group-list 10 "), /priority +RP candidate priority/);
+  r.input("interface g0/0");
+  assert.match(r.help("ip pim "), /dense-mode +Enable PIM dense-mode operation\n +dr-priority +PIM router DR priority\n +sparse-dense-mode +Enable PIM sparse-dense-mode operation\n +sparse-mode +Enable PIM sparse-mode operation/);
+  assert.match(r.help("ip igmp version "), /1 +IGMP version 1\n +2 +IGMP version 2\n +3 +IGMP version 3/);
+  r.input("end");
+  assert.match(r.help("show ip pim "), /bsr-router +Bootstrap router \(v2\)\n +interface +PIM interface information\n +neighbor +PIM neighbor information\n +rp +PIM Rendezvous Point \(RP\) information/);
+  const lines = ["ip multicast-routing", "interface g0/0", " ip address 10.0.0.1 255.255.255.0", " ip pim dr-priority 7", " ip pim sparse-dense-mode",
+    " ip igmp join-group 239.1.1.1", " ip igmp version 3", "ip pim autorp listener", "ip pim send-rp-announce GigabitEthernet0/0 scope 8 group-list 20",
+    "ip pim spt-threshold infinity", "ip pim rp-address 10.0.0.9 10 override", "ip mroute 172.16.0.0 255.255.0.0 10.0.0.2 5"];
+  applyConfig(net, "R1", lines);
+  const run = runningConfig(net, "R1");
+  assert.match(run, /^ip multicast-routing$/m);
+  assert.match(run, / ip address 10\.0\.0\.1 255\.255\.255\.0\n ip pim dr-priority 7\n ip pim sparse-dense-mode\n ip igmp join-group 239\.1\.1\.1\n ip igmp version 3\n/);
+  assert.match(run, /^ip pim autorp listener\nip pim send-rp-announce GigabitEthernet0\/0 scope 8 group-list 20\nip pim rp-address 10\.0\.0\.9 10 override\nip pim spt-threshold infinity\nip mroute 172\.16\.0\.0 255\.255\.0\.0 10\.0\.0\.2 5$/m);
+  const copy = new Network({ devices: [R("R1"), S("SW1")], links: [] });
+  applyConfig(copy, "R1", run.split("\n").filter((l) => /^(ip |interface | ip )/.test(l)));
+  assert.equal(runningConfig(copy, "R1"), run);
+});
+
 // ---- automation: IOS-XE, RESTCONF, NETCONF and the Linux workstation
 const XE = (name) => ({ name, type: "router", model: "csr" });
 const WS = (name) => ({ name, type: "pc", os: "linux" });
