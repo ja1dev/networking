@@ -210,9 +210,32 @@ def visit_page(db: Session, uid: int, doc_id: str, page_id: str) -> PageProgress
     return row
 
 
-def set_page_complete(db: Session, uid: int, doc_id: str, page_id: str, done: bool):
-    _page_row(db, uid, doc_id, page_id).completed_at = utcnow() if done else None
+def set_page_read(db: Session, uid: int, content: Content, doc_id: str, page_id: str):
+    """A section without questions is done once it has been read to the end."""
+    if content.page(doc_id, page_id)["questions"]:
+        raise ServiceError("This section completes itself when every question on it is answered correctly.")
+    row = _page_row(db, uid, doc_id, page_id)
+    if row.completed_at is None:
+        row.completed_at = utcnow()
     db.commit()
+
+
+def done_pages(db: Session, uid: int, content: Content, doc_id: str, prog=None, results=None) -> set:
+    """The sections of a document that are done, judged by what was shown rather than ticked: every
+    question on the page answered correctly (latest answer, from the reader or a quiz), or, for a
+    page without questions, read to the end."""
+    doc = content.docs[doc_id]
+    prog = page_progress(db, uid, doc_id) if prog is None else prog
+    results = latest_results(db, uid) if results is None else results
+    out = set()
+    for pid in doc["order"]:
+        questions = doc["pages"][pid]["questions"]
+        if questions:
+            if all(q in results and results[q][0] for q in questions):
+                out.add(pid)
+        elif prog.get(pid) and prog[pid].completed_at:
+            out.add(pid)
+    return out
 
 
 def set_page_note(db: Session, uid: int, doc_id: str, page_id: str, note: str):
@@ -756,13 +779,12 @@ def dashboard(db: Session, uid: int, content: Content, kits=("ccna", "ccnp")) ->
     tz = local_tz(db, uid)
     today = utcnow().astimezone(tz).date()
     reading = []
+    results = latest_results(db, uid)
     for doc_id in content.doc_ids(kits):
         doc = content.docs[doc_id]
-        prog = page_progress(db, uid, doc_id)
-        done = sum(1 for pid in doc["order"] if prog.get(pid) and prog[pid].completed_at)
+        done = len(done_pages(db, uid, content, doc_id, results=results))
         reading.append({"id": doc_id, "kit": doc["kit"], "title": doc["title"], "done": done,
                         "total": len(doc["order"])})
-    results = latest_results(db, uid)
     sources = []
     weak = []
     for source in content.sources(kits):

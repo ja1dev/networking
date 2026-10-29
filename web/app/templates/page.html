@@ -16,10 +16,13 @@
     <div class="prose">{{ page.html|safe }}</div>
 
     <div class="page-actions">
-      <label class="row" style="cursor:pointer;font-weight:600">
-        <input type="checkbox" id="page-done" {{ 'checked' if row.completed_at }} style="width:20px;height:20px;accent-color:var(--good)">
-        I've read and understood this page
-      </label>
+      {# Done is earned, not ticked: every question right, or (no questions) read to the end. #}
+      {% set right = status.values()|select|list|length %}
+      {% set total = page.questions|length %}
+      <div class="section-status{{ ' done' if page_done }}" id="section-status" data-total="{{ total }}" role="status">
+        <span class="section-mark" aria-hidden="true">{{ icon("check", 16) }}</span>
+        <span id="section-text">{% if total %}{% if page_done %}Section complete: all {{ total }} question{{ '' if total == 1 else 's' }} answered correctly.{% else %}{{ right }} of {{ total }} question{{ '' if total == 1 else 's' }} answered correctly. Get {{ 'it' if total == 1 else 'them all' }} right to complete this section.{% endif %}{% else %}{% if page_done %}Section complete: read to the end.{% else %}This section completes when you reach the end of it.{% endif %}{% endif %}</span>
+      </div>
       {% if page.questions %}<a class="btn btn-sm" href="/quiz?source={{ doc.id }}&group={{ chapter.id }}">Quiz this chapter</a>{% endif %}
     </div>
     <details class="reveal notes" {{ 'open' if row.note }}>

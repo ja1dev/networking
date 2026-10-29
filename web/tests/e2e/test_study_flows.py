@@ -10,10 +10,8 @@ from e2e_helpers import TOAST
 pytestmark = pytest.mark.e2e
 
 
-def test_reader_question_and_page_progress(user_page, server):
-    page = user_page
-    page.goto(server.base + "/read/ccnp/1-3")
-    box = page.locator(".mcq").first
+def _answer_right(box):
+    """Answer a reader question, retrying with the revealed letters if the first pick was wrong."""
     box.scroll_into_view_if_needed()
     expect(box.locator(".mcq-check")).to_be_disabled()
     box.locator(".mcq-opt").first.click()
@@ -29,10 +27,42 @@ def test_reader_question_and_page_progress(user_page, server):
             box.locator('.mcq-opt[data-letter="%s"]' % letter).click()
         box.locator(".mcq-check").click()
         expect(status).to_have_text("Correct")
-    page.check("#page-done")
-    expect(page.locator(TOAST)).to_contain_text("Marked as done")
+
+
+def test_reader_section_completes_through_its_questions(user_page, server):
+    page = user_page
+    page.goto(server.base + "/read/ccnp/1-3")
+    boxes = page.locator(".mcq")
+    total = boxes.count()
+    section = page.locator("#section-status")
+    expect(section).to_contain_text("0 of %d questions answered correctly" % total)
+    expect(section).not_to_have_class(re.compile(r"\bdone\b"))
+    for i in range(total):
+        _answer_right(boxes.nth(i))
+        if i < total - 1:
+            expect(section).to_contain_text("%d of %d questions answered correctly" % (i + 1, total))
+    expect(section).to_have_class(re.compile(r"\bdone\b"))
+    expect(section).to_contain_text("Section complete: all %d questions answered correctly." % total)
+    expect(page.locator(TOAST)).to_contain_text("Section complete")
     page.reload()
-    expect(page.locator("#page-done")).to_be_checked()
+    expect(page.locator("#section-status")).to_have_class(re.compile(r"\bdone\b"))
+    page.goto(server.base + "/read/ccnp")
+    row = page.locator("li", has=page.locator('a[href="/read/ccnp/1-3"]'))
+    expect(row).to_contain_text("done")
+
+
+def test_reader_section_without_questions_completes_at_the_end(user_page, server):
+    page = user_page
+    page.goto(server.base + "/read/ccna/1-3")
+    section = page.locator("#section-status")
+    expect(section).to_contain_text("This section completes when you reach the end of it.")
+    # Pressing Space to scroll mustn't flip anything; only reaching the end completes the section.
+    page.keyboard.press("Space")
+    section.scroll_into_view_if_needed()
+    expect(section).to_have_class(re.compile(r"\bdone\b"))
+    expect(section).to_contain_text("Section complete: read to the end.")
+    page.reload()
+    expect(page.locator("#section-status")).to_have_class(re.compile(r"\bdone\b"))
 
 
 def test_practice_quiz_start_to_results(user_page, server):

@@ -247,7 +247,7 @@ def library(request: Request, db: Session = Depends(get_db), user: User = Depend
     for doc_id in content.doc_ids(kits(request)):
         doc = content.docs[doc_id]
         prog = services.page_progress(db, user.id, doc_id)
-        done = sum(1 for p in doc["order"] if prog.get(p) and prog[p].completed_at)
+        done = len(services.done_pages(db, user.id, content, doc_id, prog=prog))
         visited = [r for r in prog.values() if r.last_visited_at]
         last = max(visited, key=lambda r: as_utc(r.last_visited_at)) if visited else None
         docs.append({"id": doc_id, "kit": doc["kit"], "title": doc["title"], "blurb": DOC_BLURBS[doc_id],
@@ -267,17 +267,16 @@ def doc_index(request: Request, doc_id: str, db: Session = Depends(get_db),
         not_found()
     prog = services.page_progress(db, user.id, doc_id)
     results = services.latest_results(db, user.id)
+    done = services.done_pages(db, user.id, content, doc_id, prog=prog, results=results)
     chapters = []
     for c in doc["chapters"]:
         pages = [doc["pages"][p] for p in c["pages"]]
         qids = [q for p in pages for q in p["questions"]]
         answered = [results[q][0] for q in qids if q in results]
         chapters.append({"c": c, "pages": pages,
-                         "done": sum(1 for p in pages if prog.get(p["id"]) and prog[p["id"]].completed_at),
+                         "done": sum(1 for p in pages if p["id"] in done),
                          "questions": len(qids), "answered": len(answered), "correct": sum(answered)})
-    return render(request, "doc.html", "read", doc=doc, chapters=chapters,
-                  done={pid for pid, r in prog.items() if r.completed_at},
-                  total_done=sum(1 for pid, r in prog.items() if r.completed_at and pid in doc["pages"]))
+    return render(request, "doc.html", "read", doc=doc, chapters=chapters, done=done, total_done=len(done))
 
 
 @app.get("/read/{doc_id}/{page_id}", response_class=HTMLResponse)
@@ -289,11 +288,11 @@ def read_page(request: Request, doc_id: str, page_id: str, db: Session = Depends
         not_found()
     doc = content.docs[doc_id]
     row = services.visit_page(db, user.id, doc_id, page_id)
-    prog = services.page_progress(db, user.id, doc_id)
     chapter = content.chapter_of(doc_id, page_id)
     status = services.page_question_status(db, user.id, page["questions"])
+    done = services.done_pages(db, user.id, content, doc_id)
     return render(request, "page.html", "read", doc=doc, page=page, chapter=chapter,
-                  row=row, done={pid for pid, r in prog.items() if r.completed_at},
+                  row=row, done=done, page_done=page_id in done,
                   prev=doc["pages"].get(page["prev"]) if page["prev"] else None,
                   next=doc["pages"].get(page["next"]) if page["next"] else None,
                   status=status, position=doc["order"].index(page_id) + 1)
@@ -452,10 +451,9 @@ def settings_page(request: Request, db: Session = Depends(get_db), user: User = 
 # JSON API
 # ---------------------------------------------------------------------------
 
-class PageFlag(BaseModel):
+class PageRef(BaseModel):
     doc: str
     page: str
-    completed: bool
 
 
 class PageNote(BaseModel):
@@ -533,10 +531,10 @@ def _require_page(doc: str, page: str):
         raise ServiceError("unknown page")
 
 
-@app.post("/api/pages/complete")
-def api_page_complete(body: PageFlag, db: Session = Depends(get_db), user: User = Depends(current_user)):
+@app.post("/api/pages/read")
+def api_page_read(body: PageRef, db: Session = Depends(get_db), user: User = Depends(current_user)):
     _require_page(body.doc, body.page)
-    services.set_page_complete(db, user.id, body.doc, body.page, body.completed)
+    services.set_page_read(db, user.id, get_content(), body.doc, body.page)
     return {"ok": True}
 
 

@@ -128,10 +128,10 @@ def test_drills_labs_pages_settings(client):
     assert client.post("/api/labs/lab3/complete", json={"completed": True}).json()["ok"]
     assert client.put("/api/labs/lab3/note", json={"note": "vlan 10"}).json()["ok"]
     assert "vlan 10" in client.get("/labs/lab3").text
-    assert client.post("/api/pages/complete", json={"doc": "ccna", "page": "1-1", "completed": True}).json()["ok"]
+    assert client.post("/api/pages/read", json={"doc": "ccna", "page": "1-1"}).json()["ok"]
     assert client.put("/api/pages/note", json={"doc": "ccna", "page": "1-1", "note": "my note"}).json()["ok"]
     assert "my note" in client.get("/read/ccna/1-1").text
-    assert client.post("/api/pages/complete", json={"doc": "ccna", "page": "zz", "completed": True}).status_code == 400
+    assert client.post("/api/pages/read", json={"doc": "ccna", "page": "zz"}).status_code == 400
     assert client.post("/api/settings", json={"timezone": "Nowhere/Land"}).status_code == 400
     assert client.post("/api/settings", json={"exam_seconds_per_question": 5}).status_code == 400
     assert client.post("/api/settings", json={"timezone": "America/Toronto"}).json()["timezone"] == "America/Toronto"
@@ -191,3 +191,56 @@ def test_quiz_title_names_the_exam(client, content):
     enarsi = get_content().ccnp_parts["ENARSI"]
     qz = client.post("/api/quiz", json={"source": "ccnp", "groups": enarsi, "count": 2}).json()["id"]
     assert client.get("/api/quiz/%d" % qz).json()["title"].endswith("all of ENARSI")
+
+
+
+def test_sections_complete_through_their_questions(client, content):
+    from app import services
+    from app.content import get_content
+    from app.db import SessionLocal
+    from app.models import User
+    page = content["docs"]["ccnp"]["pages"]["1-2"]
+    qids = page["questions"]
+    assert len(qids) >= 2
+
+    def done():
+        with SessionLocal() as db:
+            uid = db.query(User).filter_by(username="admin").one().id
+            return "1-2" in services.done_pages(db, uid, get_content(), "ccnp")
+
+    def answer(qid, right):
+        q = content["questions"][qid]
+        pick = q["answer"] if right else [next(o["letter"] for o in q["options"] if o["letter"] not in q["answer"])]
+        if not right and len(q["answer"]) > 1:
+            pick = [o["letter"] for o in q["options"] if o["letter"] not in q["answer"]][:len(q["answer"])]
+        assert client.post("/api/questions/%s/answer" % qid, json={"selected": pick}).json()["correct"] is right
+
+    assert not done()
+    # A section with questions can't be ticked by hand.
+    r = client.post("/api/pages/read", json={"doc": "ccnp", "page": "1-2"})
+    assert r.status_code == 400 and "every question" in r.json()["error"]
+    for qid in qids[:-1]:
+        answer(qid, True)
+    html = client.get("/read/ccnp/1-2").text
+    assert "%d of %d questions answered correctly" % (len(qids) - 1, len(qids)) in html
+    assert not done()
+    answer(qids[-1], False)
+    assert not done(), "a wrong answer doesn't complete the section"
+    answer(qids[-1], True)
+    assert done()
+    assert "Section complete: all %d questions answered correctly." % len(qids) in client.get("/read/ccnp/1-2").text
+    # The contents page ticks it, and the latest answer counts: getting one wrong again reopens it.
+    contents = client.get("/read/ccnp").text
+    row = contents[contents.index('href="/read/ccnp/1-2"'):]
+    assert " done</span>" in row[:row.index("</li>")]
+    answer(qids[0], False)
+    assert not done()
+    answer(qids[0], True)
+    assert done()
+
+
+def test_sections_without_questions_complete_when_read(client):
+    html = client.get("/read/ccna/1-2").text
+    assert "This section completes when you reach the end of it." in html
+    assert client.post("/api/pages/read", json={"doc": "ccna", "page": "1-2"}).json()["ok"]
+    assert "Section complete: read to the end." in client.get("/read/ccna/1-2").text

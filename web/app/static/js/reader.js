@@ -1,4 +1,4 @@
-// Reading page: live questions, "done" checkbox, autosaved notes, keyboard paging.
+// Reading page: live questions, section completion, autosaved notes, keyboard paging.
 import { api, debounce, toast, typing } from "netlab";
 import { reset, showResult, toggle, selected } from "netlab/mcq";
 
@@ -30,6 +30,7 @@ reader.addEventListener("click", async (e) => {
       const res = await api("POST", `/api/questions/${encodeURIComponent(box.dataset.qid)}/answer`,
         { selected: selected(box) });
       showResult(box, { ...res, link: null });
+      recordAnswer(box.dataset.qid, res.correct);
       const prev = box.querySelector(".mcq-prev");
       prev.hidden = false;
       prev.className = "mcq-prev pill " + (res.correct ? "pill-good" : "pill-bad");
@@ -40,17 +41,48 @@ reader.addEventListener("click", async (e) => {
   }
 });
 
-const done = document.getElementById("page-done");
-done.addEventListener("change", async () => {
-  try {
-    await api("POST", "/api/pages/complete", { doc, page, completed: done.checked });
-    const link = document.querySelector(`[data-page-link="${CSS.escape(page)}"] .tick`);
-    if (link) link.innerHTML = done.checked ? "✓" : "";
-    toast(done.checked ? "Marked as done" : "Marked as not done");
-  } catch (err) {
-    done.checked = !done.checked;
+// A section is done when every question on it has been answered correctly (latest answer), or,
+// with no questions, once it has been read to the end. Nothing to tick, so nothing to tick by accident.
+const sectionBox = document.getElementById("section-status");
+const sectionText = document.getElementById("section-text");
+const total = +sectionBox.dataset.total;
+const correct = { ...status };
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+function showSection() {
+  const right = Object.values(correct).filter(Boolean).length;
+  const complete = sectionBox.classList.contains("done");
+  if (total) {
+    sectionText.textContent = complete
+      ? `Section complete: all ${plural(total, "question")} answered correctly.`
+      : `${right} of ${plural(total, "question")} answered correctly. Get ${total === 1 ? "it" : "them all"} right to complete this section.`;
+  } else {
+    sectionText.textContent = complete ? "Section complete: read to the end." : "This section completes when you reach the end of it.";
   }
-});
+  const tick = document.querySelector(`[data-page-link="${CSS.escape(page)}"] .tick`);
+  if (tick) tick.textContent = complete ? "✓" : "";
+}
+
+function recordAnswer(qid, ok) {
+  correct[qid] = ok;
+  const was = sectionBox.classList.contains("done");
+  const now = Object.keys(correct).length === total && Object.values(correct).every(Boolean);
+  sectionBox.classList.toggle("done", now);
+  showSection();
+  if (now && !was) toast("Section complete");
+}
+
+if (!total && !sectionBox.classList.contains("done")) {
+  // Reaching the bottom of the page counts as reading it.
+  const seen = new IntersectionObserver(async (entries) => {
+    if (!entries.some((e) => e.isIntersecting)) return;
+    seen.disconnect();
+    await api("POST", "/api/pages/read", { doc, page });
+    sectionBox.classList.add("done");
+    showSection();
+  });
+  seen.observe(sectionBox);
+}
 
 const note = document.getElementById("page-note");
 const noteStatus = document.getElementById("note-status");
