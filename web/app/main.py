@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import config, services
-from .content import DOC_BLURBS, DOC_ORDER, KIT_TITLES, SOURCE_TITLES, TRACKS, get_content, kits_for
+from .content import DOC_BLURBS, DOC_ORDER, KIT_TITLES, SOURCE_NOUNS, SOURCE_TITLES, TRACKS, get_content, kits_for
 from .db import SessionLocal, as_utc, get_db, utcnow
 from .models import ROLES, User
 from .services import ServiceError
@@ -54,7 +54,7 @@ def pct(part, whole):
 
 templates.env.globals.update(
     pct=pct, ASSET_VERSION=ASSET_VERSION, AUTH_ENABLED=config.AUTH_ENABLED,
-    DOC_ORDER=DOC_ORDER, SOURCE_TITLES=SOURCE_TITLES)
+    DOC_ORDER=DOC_ORDER, SOURCE_TITLES=SOURCE_TITLES, SOURCE_NOUNS=SOURCE_NOUNS)
 
 
 # ---------------------------------------------------------------------------

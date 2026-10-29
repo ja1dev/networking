@@ -2055,6 +2055,17 @@ IP works identically:
 - Only the **final** switch on the destination network cares about the **host part** ("ah, device .10 specifically").
 
 *So the split is what lets routers stay small and fast:* they think in terms of **neighborhoods (networks)**, not individual houses (hosts). This is called **hierarchical addressing**, and it's why a handful of routing entries can reach the entire internet. Everything in Chapter 12 (subnetting) is just *you deciding where to draw that network/host line* to make neighborhoods the right size.
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "172.16.45.200",
+  "prefix": 20,
+  "title": "Where the network ends and the hosts begin",
+  "prompt": "Slide the prefix length and watch the network bits (solid) and host bits (dashed) move. Click any bit to flip it."
+}
+```
+
 
 ## 11.3 IP Address Classes (The Old System)
 

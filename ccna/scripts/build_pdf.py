@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import sys
@@ -83,6 +84,16 @@ def normalize_blocks(md_text):
     return "\n".join(out)
 
 
+def print_diagrams(md_text):
+    """Interactive ```diagram blocks (JSON for the web app) print as a pointer to the web edition."""
+    def note(m):
+        title = json.loads(m.group(1)).get("title", "Interactive diagram")
+        return ("> **Interactive diagram: %s.** Open this section in the NetLab web app to "
+                "step through it or try it yourself." % title)
+    return re.sub(r"^```diagram\s*\n(.*?)\n```\s*$", note, md_text, flags=re.S | re.M)
+
+
+text = print_diagrams(text)
 text = normalize_blocks(text)
 
 def check_tables(md_text):

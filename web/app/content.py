@@ -15,8 +15,9 @@ DOC_BLURBS = {
     "tips": "How to work through the CCNA kit: the daily loop and the readiness checkpoints",
     "devnet": "Run every lab on Cisco's free DevNet sandboxes, no hardware needed",
 }
-SOURCE_TITLES = {"bank": "CCNA Practice Bank", "ccnp": "CCNP Exam-Style Questions"}
-SOURCE_KITS = {"bank": "ccna", "ccnp": "ccnp"}
+SOURCE_TITLES = {"bank": "CCNA Practice Bank", "ccna": "CCNA Guide Questions", "ccnp": "CCNP Exam-Style Questions"}
+SOURCE_KITS = {"bank": "ccna", "ccna": "ccna", "ccnp": "ccnp"}
+SOURCE_NOUNS = {"bank": "CCNA practice bank", "ccna": "CCNA guide", "ccnp": "CCNP exam-style"}
 # What a reader studies for: one kit, or both side by side.
 TRACKS = [("ccnp", "CCNP"), ("ccna", "CCNA"), ("both", "Both")]
 KIT_TITLES = {"ccna": "CCNA", "ccnp": "CCNP"}
@@ -98,7 +99,9 @@ class Content:
 
     def sources(self, kits):
         # CCNP first: it's the track people move on to, so it leads when both are shown.
-        return [s for s in ("ccnp", "bank") if SOURCE_KITS[s] in kits]
+        # A guide only counts as a source once it has questions in it.
+        return [s for s in ("ccnp", "ccna", "bank") if SOURCE_KITS[s] in kits
+                and (s == "bank" or any(q["source"] == s for q in self.questions.values()))]
 
     def decks_for(self, kits):
         return [d for d in self.decks if d["kit"] in kits]

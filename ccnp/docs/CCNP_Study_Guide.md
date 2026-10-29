@@ -3588,6 +3588,73 @@ R1's results: R3 at cost 5, R2 at cost 8 **via R3** (not the direct link), R4 at
 
 **Why would anyone choose EIGRP over OSPF, or vice versa?** EIGRP is simpler to design (no area planning), converges extremely fast with feasible successors, and summarizes anywhere. OSPF is a **multi-vendor standard** with a predictable hierarchical design and far better visibility — every router can show you the full map of its area. *Mixed-vendor or very large structured networks lean OSPF; all-Cisco networks that value simplicity often run EIGRP.*
 
+```diagram
+{
+  "type": "path",
+  "title": "OSPF picks the lowest total cost, not the fewest hops",
+  "prompt": "Change any link cost and watch R1's path to R5 move. Make two paths cost the same and OSPF load-shares across both (ECMP).",
+  "metric": "Cost",
+  "from": "R1",
+  "to": "R5",
+  "nodes": [
+    {
+      "id": "R1",
+      "x": 0,
+      "y": 1
+    },
+    {
+      "id": "R2",
+      "x": 1.5,
+      "y": 0
+    },
+    {
+      "id": "R3",
+      "x": 1.5,
+      "y": 2
+    },
+    {
+      "id": "R4",
+      "x": 3,
+      "y": 0
+    },
+    {
+      "id": "R5",
+      "x": 4.5,
+      "y": 1
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "cost": 10,
+      "label": "1G"
+    },
+    {
+      "a": "R2",
+      "b": "R4",
+      "cost": 10
+    },
+    {
+      "a": "R4",
+      "b": "R5",
+      "cost": 10
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "cost": 64,
+      "label": "T1"
+    },
+    {
+      "a": "R3",
+      "b": "R5",
+      "cost": 1
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 5.7**
 
 **Q1.** R1 learns 10.5.5.0/24 through OSPF twice: as an intra-area route with cost 50 and as an inter-area route with cost 10. Which route does R1 install?
@@ -4568,6 +4635,63 @@ A passive interface **stops sending and processing hellos** — so no neighbour 
 **What goes wrong without it:** a user on 192.168.1.0/24 runs a lab router (or malware) that speaks OSPF. Gi0/3 isn't passive, so R1 forms an adjacency with it. The rogue device advertises 0.0.0.0/0 with a low cost, and part of the network starts sending internet traffic to a laptop. A passive interface ignores its Hellos, so the adjacency can never form, and adding OSPF authentication (Chapter 27) closes the gap on interfaces that must stay active.
 
 **Why "passive-interface default" rather than listing the user ports?** Safety by default. A new interface added next year is passive unless someone consciously makes it a routing link. *Fail closed: an interface has to be invited into the routing protocol, not remembered and excluded.*
+
+```diagram
+{
+  "type": "compare",
+  "title": "Who becomes DR and BDR on this segment?",
+  "prompt": "Four routers share one Ethernet segment. Highest priority wins, then highest router ID; priority 0 never takes part. (In real life the election only happens when the segment comes up: a running DR isn't pre-empted.)",
+  "places": [
+    "DR",
+    "BDR"
+  ],
+  "fields": [
+    {
+      "id": "prio",
+      "label": "Interface priority",
+      "kind": "number",
+      "rule": "highest",
+      "ineligible": 0
+    },
+    {
+      "id": "rid",
+      "label": "Router ID",
+      "kind": "ip",
+      "rule": "highest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "R1",
+      "values": {
+        "prio": 1,
+        "rid": "1.1.1.1"
+      }
+    },
+    {
+      "label": "R2",
+      "values": {
+        "prio": 1,
+        "rid": "2.2.2.2"
+      }
+    },
+    {
+      "label": "R3",
+      "values": {
+        "prio": 1,
+        "rid": "3.3.3.3"
+      }
+    },
+    {
+      "label": "R4",
+      "values": {
+        "prio": 0,
+        "rid": "4.4.4.4"
+      }
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 6.7**
 
@@ -8229,6 +8353,16 @@ The trust boundary is the point where you start believing markings. Everything o
 3. Someone unplugs the phone and plugs a laptop straight into the port. CDP no longer sees a phone, so the switch **stops trusting**, and the laptop's markings are not believed.
 
 The goal in every case: only the real phone's voice reaches the priority queue. **Platform note:** older Catalyst switches with `mls qos` enabled treat every port as untrusted until you say otherwise. Catalyst 9000 switches preserve (trust) incoming markings by default, so on those you must *explicitly* remark untrusted ports.
+
+```diagram
+{
+  "type": "bits",
+  "mode": "dscp",
+  "value": 46,
+  "title": "DSCP: six bits, many names",
+  "prompt": "Click the bits. The top three are the old IP precedence; AF classes use the next two bits for drop probability. Try 34 (AF41), 26 (AF31) and 24 (CS3)."
+}
+```
 
 **📝 Exam-style questions — 11.2**
 
@@ -18569,6 +18703,45 @@ IPv6 works identically with `ipv6 prefix-list`, with lengths up to 128.
 
 **Exam trap: the silent rewrite.** Type `ip prefix-list P permit 10.1.1.0/16` and IOS doesn't reject it. It **zeroes the host bits** and stores `10.1.0.0/16`. Because the entry was "fixed" for you, it may match far more (or other) routes than you meant. Always check `show run | include prefix-list` or `show ip prefix-list` after typing one, and read what IOS actually stored.
 
+```diagram
+{
+  "type": "match",
+  "kind": "prefix-list",
+  "name": "BRANCHES",
+  "title": "Test routes against a prefix list",
+  "prompt": "Type a route (prefix and length) and see which line catches it. Remember: the first `len` bits must match, then the length must fit `ge`/`le`.",
+  "rules": [
+    {
+      "seq": 5,
+      "action": "deny",
+      "prefix": "10.0.0.0/8"
+    },
+    {
+      "seq": 10,
+      "action": "permit",
+      "prefix": "10.0.0.0/8",
+      "ge": 24,
+      "le": 24
+    },
+    {
+      "seq": 15,
+      "action": "permit",
+      "prefix": "172.16.0.0/12",
+      "le": 16
+    }
+  ],
+  "input": "10.20.30.0/24",
+  "tries": [
+    "10.0.0.0/8",
+    "10.20.0.0/16",
+    "172.16.0.0/12",
+    "172.20.0.0/16",
+    "172.20.1.0/24",
+    "192.168.1.0/24"
+  ]
+}
+```
+
 **📝 Exam-style questions — 23.2**
 
 **Q1.** An engineer configures `ip prefix-list P permit 172.16.0.0/16 ge 20 le 22`. Which two routes match? (Choose two.)
@@ -23695,6 +23868,107 @@ router bgp 65001
 4. **Fix:** `neighbor 3.3.3.3 update-source Loopback0` on R1 and `neighbor 1.1.1.1 update-source Loopback0` on R3. Within seconds the summary shows a prefix count instead of `Active`.
 5. **If it's still Active** after that, the next suspect is an ACL on the path. BGP needs TCP port 179 in **both** directions: to port 179 from the side that opens the connection, and from port 179 for the replies. The safest entries are `permit tcp host 1.1.1.1 host 3.3.3.3 eq bgp` and `permit tcp host 1.1.1.1 eq bgp host 3.3.3.3` (plus the mirror pair on the other router's inbound ACL).
 
+```diagram
+{
+  "type": "sequence",
+  "title": "A BGP session coming up, state by state",
+  "actors": [
+    {
+      "id": "R1",
+      "label": "R1 (AS 65001)"
+    },
+    {
+      "id": "R2",
+      "label": "R2 (AS 65002)"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Both peers: Idle",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "states": {
+        "R1": "Idle",
+        "R2": "Idle"
+      },
+      "text": "`neighbor 192.0.2.2 remote-as 65002` is configured. BGP starts in **Idle**, then tries to open a TCP connection."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "TCP SYN",
+      "detail": "to port 179",
+      "states": {
+        "R1": "Connect"
+      },
+      "text": "R1 moves to **Connect** while its TCP handshake to port 179 is in progress. If the SYN gets no answer it falls to **Active** and retries, so a session stuck in Active usually means TCP can't get through: a wrong address, an ACL, or no route to the peer."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "TCP SYN-ACK",
+      "text": "The peer answers, so there's IP reachability and something listening on 179."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "TCP ACK",
+      "text": "TCP is up. Now BGP itself talks."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "OPEN",
+      "detail": "AS 65001, hold 180, RID 1.1.1.1",
+      "states": {
+        "R1": "OpenSent"
+      },
+      "text": "R1 sends an **OPEN** with its AS, hold time and router ID and enters **OpenSent**."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "OPEN",
+      "detail": "AS 65002, hold 180, RID 2.2.2.2",
+      "states": {
+        "R1": "OpenConfirm",
+        "R2": "OpenConfirm"
+      },
+      "text": "Each side checks the other's OPEN. A peer AS that doesn't match `remote-as` gets a **NOTIFICATION** (bad peer AS) and the session resets. Here everything matches: **OpenConfirm**."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "KEEPALIVE",
+      "dashed": true,
+      "text": "A KEEPALIVE acknowledges the OPEN."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "KEEPALIVE",
+      "dashed": true,
+      "states": {
+        "R1": "Established",
+        "R2": "Established"
+      },
+      "tone": "good",
+      "text": "Both sides are **Established**. `show ip bgp summary` now shows a prefix count instead of a state name."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "UPDATE",
+      "detail": "10.1.0.0/16, AS_PATH 65001",
+      "tone": "good",
+      "text": "Routes flow in **UPDATE** messages. After this, KEEPALIVEs every 60 s hold the session; three missed (the 180 s hold time) tear it down."
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 28.3**
 
 **Q1.** Refer to the exhibit. What is the state of the session with 10.1.13.3?
@@ -24057,6 +24331,139 @@ Paths: (2 available, best #1, table default)
 ```
 
 *To explain why a path won, compare the two entries in the table's order and stop at the first difference. Here it's localpref 200 vs 100, at step 2.*
+
+```diagram
+{
+  "type": "compare",
+  "title": "BGP best path: rig the attributes and watch the decision",
+  "prompt": "R1 has learned 10.50.0.0/16 three ways. Change any value and the walk below re-runs the best-path steps in order. Try raising path B's local preference, or giving path C a weight. (Real IOS also prefers the oldest eBGP path just before the router-ID step; that step is left out here.)",
+  "winner": "Best path",
+  "fields": [
+    {
+      "id": "weight",
+      "label": "Weight",
+      "kind": "number",
+      "rule": "highest"
+    },
+    {
+      "id": "lp",
+      "label": "Local preference",
+      "kind": "number",
+      "rule": "highest"
+    },
+    {
+      "id": "local",
+      "label": "Locally originated",
+      "kind": "bool",
+      "rule": "true"
+    },
+    {
+      "id": "aspath",
+      "label": "AS-path length",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "origin",
+      "label": "Origin",
+      "kind": "choice",
+      "rule": "order",
+      "options": [
+        {
+          "value": "i",
+          "label": "IGP (i)"
+        },
+        {
+          "value": "e",
+          "label": "EGP (e)"
+        },
+        {
+          "value": "?",
+          "label": "Incomplete (?)"
+        }
+      ]
+    },
+    {
+      "id": "nas",
+      "label": "Neighbor AS",
+      "kind": "number",
+      "rule": "context"
+    },
+    {
+      "id": "med",
+      "label": "MED",
+      "kind": "number",
+      "rule": "lowest",
+      "onlyIfSame": "nas"
+    },
+    {
+      "id": "ebgp",
+      "label": "eBGP over iBGP",
+      "kind": "bool",
+      "rule": "true"
+    },
+    {
+      "id": "igp",
+      "label": "IGP metric to next hop",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "rid",
+      "label": "Neighbor router ID",
+      "kind": "ip",
+      "rule": "lowest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "Path A via ISP1",
+      "values": {
+        "weight": 0,
+        "lp": 100,
+        "local": false,
+        "aspath": 2,
+        "origin": "i",
+        "nas": 65010,
+        "med": 50,
+        "ebgp": true,
+        "igp": 0,
+        "rid": "192.0.2.1"
+      }
+    },
+    {
+      "label": "Path B via ISP2",
+      "values": {
+        "weight": 0,
+        "lp": 100,
+        "local": false,
+        "aspath": 2,
+        "origin": "i",
+        "nas": 65020,
+        "med": 0,
+        "ebgp": true,
+        "igp": 0,
+        "rid": "198.51.100.1"
+      }
+    },
+    {
+      "label": "Path C via R2 (iBGP)",
+      "values": {
+        "weight": 0,
+        "lp": 100,
+        "local": false,
+        "aspath": 3,
+        "origin": "i",
+        "nas": 65010,
+        "med": 0,
+        "ebgp": false,
+        "igp": 20,
+        "rid": "10.255.0.2"
+      }
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 28.6**
 
@@ -25917,7 +26324,237 @@ Hub# show ip nhrp
 
 ## 30.5 Spoke-to-Spoke in Phase 3, Step by Step
 
-![Phase 3 — the hub redirects, the spokes resolve each other, traffic goes direct](images/c30_phase3_seq.png)
+```diagram
+{
+  "type": "topology",
+  "title": "DMVPN Phase 3: from hub hairpin to a direct spoke-to-spoke tunnel",
+  "caption": "Solid lines are the internet underlay; purple arcs are mGRE tunnels over it. Press **Next** to follow the first packets from PC1 to PC2.",
+  "nodes": [
+    {
+      "id": "Hub",
+      "kind": "router",
+      "x": 2,
+      "y": 0,
+      "sub": "Tu0 10.0.0.1",
+      "info": "The **NHS** (next-hop server). Every spoke registers its tunnel-to-NBMA mapping here, and the hub advertises a summary (10.0.0.0/8) to the spokes. `ip nhrp redirect` on its tunnel makes it tell spokes about better paths."
+    },
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 2,
+      "y": 1.1,
+      "label": "Internet",
+      "info": "The **underlay**. It only ever sees GRE (and ESP) packets between public NBMA addresses, never the 10.x inner addresses."
+    },
+    {
+      "id": "S1",
+      "kind": "router",
+      "x": 0,
+      "y": 2,
+      "label": "Spoke 1",
+      "sub": "NBMA 203.0.113.11",
+      "info": "Registers 10.0.0.11 ↔ 203.0.113.11 with the hub. `ip nhrp shortcut` lets it install the routes that NHRP resolution hands it."
+    },
+    {
+      "id": "S2",
+      "kind": "router",
+      "x": 4,
+      "y": 2,
+      "label": "Spoke 2",
+      "sub": "NBMA 203.0.113.12",
+      "info": "Owns 10.12.0.0/24. Answers NHRP Resolution Requests for that prefix directly to the asking spoke."
+    },
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0,
+      "y": 3.1,
+      "sub": "10.11.0.10"
+    },
+    {
+      "id": "PC2",
+      "kind": "host",
+      "x": 4,
+      "y": 3.1,
+      "sub": "10.12.0.10"
+    }
+  ],
+  "links": [
+    {
+      "a": "Hub",
+      "b": "INET"
+    },
+    {
+      "a": "S1",
+      "b": "INET"
+    },
+    {
+      "a": "S2",
+      "b": "INET"
+    },
+    {
+      "a": "S1",
+      "b": "PC1"
+    },
+    {
+      "a": "S2",
+      "b": "PC2"
+    },
+    {
+      "id": "t1",
+      "a": "S1",
+      "b": "Hub",
+      "style": "tunnel",
+      "info": "Static spoke-to-hub tunnel: Spoke 1 knows the hub's NBMA address from `ip nhrp nhs ... nbma ...`."
+    },
+    {
+      "id": "t2",
+      "a": "S2",
+      "b": "Hub",
+      "style": "tunnel",
+      "info": "Static spoke-to-hub tunnel."
+    },
+    {
+      "id": "t12",
+      "a": "S1",
+      "b": "S2",
+      "style": "tunnel",
+      "info": "The **dynamic** spoke-to-spoke tunnel. It only exists after NHRP resolution, and it ages out with the NHRP holdtime once traffic stops."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The first packet follows the summary to the hub",
+      "text": "PC1 sends to 10.12.0.10. Spoke 1's only route for it is the hub's summary, so the packet goes up tunnel **t1** to the hub.",
+      "links": {
+        "t12": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "S1",
+            "Hub"
+          ],
+          "via": [
+            "S1-PC1",
+            "t1"
+          ],
+          "label": "data"
+        }
+      ]
+    },
+    {
+      "title": "2. The hub hairpins it and sends a Redirect",
+      "text": "The hub forwards the packet back out **the same Tunnel0** toward Spoke 2. In and out the same mGRE interface is the hint that two spokes could talk directly, so the hub sends Spoke 1 an **NHRP Redirect**.",
+      "nodes": {
+        "Hub": {
+          "badge": "hairpin",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "Hub",
+            "S2",
+            "PC2"
+          ],
+          "via": [
+            "t2",
+            "S2-PC2"
+          ],
+          "label": "data"
+        },
+        {
+          "path": [
+            "Hub",
+            "S1"
+          ],
+          "via": [
+            "t1"
+          ],
+          "label": "Redirect",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. Spoke 1 asks who owns 10.12.0.10",
+      "text": "Spoke 1 sends an **NHRP Resolution Request**. It doesn't know Spoke 2's public address yet, so the request travels through the hub.",
+      "nodes": {
+        "Hub": null
+      },
+      "packets": [
+        {
+          "path": [
+            "S1",
+            "Hub",
+            "S2"
+          ],
+          "via": [
+            "t1",
+            "t2"
+          ],
+          "label": "Resolution Req",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. Spoke 2 answers directly",
+      "text": "Spoke 2 replies **straight to Spoke 1's NBMA address** (bringing up IPsec between them first): *10.12.0.0/24 is behind me, at 203.0.113.12.*",
+      "links": {
+        "t12": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "S2",
+            "S1"
+          ],
+          "via": [
+            "t12"
+          ],
+          "label": "Resolution Reply",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. The shortcut takes over",
+      "text": "Spoke 1 installs an `H` route, 10.12.0.0/24 via 10.0.0.12, overriding the summary. From now on traffic goes spoke to spoke and the hub drops out of the data path.",
+      "nodes": {
+        "S1": {
+          "badge": "H route",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "t1": "dim",
+        "t2": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "S1",
+            "S2",
+            "PC2"
+          ],
+          "via": [
+            "S1-PC1",
+            "t12",
+            "S2-PC2"
+          ],
+          "label": "data",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 1. A host behind **Spoke 1** sends to 10.12.0.10 (behind Spoke 2). Spoke 1's route is the hub's summary, so the packet goes **to the hub**.
 2. The hub forwards it on to Spoke 2 — out the **same** tunnel it came in on. Seeing that hairpin, the hub sends an **NHRP Redirect** (traffic indication) back to Spoke 1.
@@ -26786,6 +27423,76 @@ Extended IP access list GUEST-IN
 - `show ntp associations` → no peers.
 - **Cause:** the NTP server line was removed during a clean-up, so the router never set its clock after the reboot.
 - **Fix:** restore `ntp server 10.1.1.1`. Once synchronised, `show time-range` reports BUSINESS-HOURS `(active)` and line 10 starts counting matches.
+
+```diagram
+{
+  "type": "match",
+  "kind": "extended",
+  "name": "EDGE-IN",
+  "title": "Walk a packet through an extended ACL",
+  "prompt": "Change the packet and watch IOS read the ACL top-down. It stops at the first match; nothing matching means the invisible `deny ip any any`.",
+  "rules": [
+    {
+      "action": "permit",
+      "proto": "tcp",
+      "src": "any",
+      "dst": "host 203.0.113.10",
+      "port": "eq 443"
+    },
+    {
+      "action": "permit",
+      "proto": "tcp",
+      "src": "198.51.100.0 0.0.0.255",
+      "dst": "host 203.0.113.10",
+      "port": "eq 22"
+    },
+    {
+      "action": "deny",
+      "proto": "ip",
+      "src": "10.0.0.0 0.255.255.255",
+      "dst": "any"
+    },
+    {
+      "action": "permit",
+      "proto": "udp",
+      "src": "any",
+      "dst": "host 203.0.113.53",
+      "port": "eq domain"
+    }
+  ],
+  "input": {
+    "proto": "tcp",
+    "src": "192.0.2.77",
+    "dst": "203.0.113.10",
+    "port": 443
+  },
+  "tries": [
+    {
+      "proto": "tcp",
+      "src": "192.0.2.77",
+      "dst": "203.0.113.10",
+      "port": 22
+    },
+    {
+      "proto": "tcp",
+      "src": "198.51.100.9",
+      "dst": "203.0.113.10",
+      "port": 22
+    },
+    {
+      "proto": "udp",
+      "src": "10.1.1.1",
+      "dst": "203.0.113.53",
+      "port": 53
+    },
+    {
+      "proto": "icmp",
+      "src": "192.0.2.77",
+      "dst": "203.0.113.10"
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 31.2**
 

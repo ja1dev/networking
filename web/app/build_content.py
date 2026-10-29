@@ -25,6 +25,8 @@ import sys
 
 import markdown
 
+from .diagrams import DiagramError, prepare as prepare_diagram
+
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(APP_DIR))
 DEFAULT_OUT = os.path.join(APP_DIR, "data", "content.json")
@@ -48,9 +50,9 @@ DRILLS_FILE = "ccna/docs/CCNA_Subnetting_Drills.md"
 CARDS_FILES = {"ccna": "ccna/docs/CCNA_Flashcards.md", "ccnp": "ccnp/docs/CCNP_Flashcards.md"}
 LABS_FILES = {"ccna": "ccna/docs/CCNA_Lab_Workbook.md", "ccnp": "ccnp/docs/CCNP_Lab_Workbook.md"}
 
-# The sources cross-reference each other by these counts; a mismatch means a
-# question block stopped parsing.
-EXPECTED = {"ccna_bank": 152, "ccnp": 814, "drills": 60}
+# The bank and drill sheet are fixed sets; a mismatch means a question block stopped parsing.
+# The guides grow, so each is instead checked against its own count of "**Qn.**" lines.
+EXPECTED = {"ccna_bank": 152, "drills": 60}
 
 Q_START = re.compile(r"^\*\*Q(\d+)\.\*\*\s*(.*)$")
 FENCE = re.compile(r"^\s*(```|~~~)")
@@ -62,8 +64,13 @@ OPTION_BULLET = re.compile(r"^\s*-\s+\*\*([A-F])\.\*\*\s+(.*)$")
 OPTION_PLAIN = re.compile(r"^([A-F])\.\s+(.*)$")
 INLINE_OPTION_SPLIT = re.compile(r"\s{2,}(?=[B-F]\.\s)")
 EXAM_HEADER = re.compile(r"^\*\*📝\s*Exam-style questions\s*[—-]\s*(.+?)\*\*\s*$")
+LOOSE_Q = re.compile(r"^\s*\*\*\s*Q\s*\d+\s*[.:)]")
+DIAGRAM_FENCE = re.compile(r"^```diagram\s*$")
 PLACEHOLDER = "XXSLOT%05dXX"
 PLACEHOLDER_P = re.compile(r"<p>XXSLOT(\d{5})XX</p>|XXSLOT(\d{5})XX")
+
+
+SCRIPT = re.compile(r"<script\b[^>]*>.*?</script>", re.S)
 
 
 class ContentError(Exception):
@@ -307,6 +314,15 @@ def mcq_widget(q):
         % (q["id"], q["id"], multi, q["number"], badge, q["stem_html"], opts))
 
 
+def diagram_figure(spec):
+    """The figure the reader's script turns into an interactive diagram; the spec rides along as JSON."""
+    data = json.dumps(spec, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    return ('<figure class="dg" data-kind="%s"><script type="application/json" class="dg-spec">%s</script>'
+            '<figcaption class="dg-head"><strong class="dg-title">%s</strong></figcaption>'
+            '<p class="dg-nojs muted small">This diagram is interactive and needs JavaScript.</p></figure>'
+            % (spec["type"], data, html.escape(spec["title"])))
+
+
 def reveal_widget(summary, body_html):
     return ('<details class="reveal"><summary>%s</summary><div class="reveal-body">%s</div>'
             '</details>' % (html.escape(summary), body_html))
@@ -327,9 +343,43 @@ class PageRenderer:
         self.doc_id = doc_id
         self.kit = kit
         self.questions = questions
+        self.blocks = 0
+
+    def take_diagrams(self, lines, slots, ctx):
+        """Swap each ```diagram block for a placeholder whose slot holds the interactive figure."""
+        out = []
+        i = 0
+        for_inline = lambda text: render_inline(text, self.kit)
+        while i < len(lines):
+            if not DIAGRAM_FENCE.match(lines[i]):
+                # Skip over other code blocks whole, so a diagram fence quoted inside one stays code.
+                if FENCE.match(lines[i]):
+                    j = i + 1
+                    while j < len(lines) and not FENCE.match(lines[j]):
+                        j += 1
+                    out.extend(lines[i:j + 1])
+                    i = j + 1
+                    continue
+                out.append(lines[i])
+                i += 1
+                continue
+            j = i + 1
+            while j < len(lines) and lines[j].strip() != "```":
+                j += 1
+            if j >= len(lines):
+                raise ContentError("%s: unterminated diagram block" % ctx["page_title"])
+            try:
+                spec = prepare_diagram("\n".join(lines[i + 1:j]), for_inline)
+            except DiagramError as e:
+                raise ContentError("%s %s: diagram %s" % (self.doc_id, ctx["page_title"], e))
+            slots.append(diagram_figure(spec))
+            out.extend(["", PLACEHOLDER % (len(slots) - 1), ""])
+            i = j + 1
+        return out
 
     def render_page(self, lines, ctx):
         slots = []
+        lines = self.take_diagrams(lines, slots, ctx)
         out = []
         last = 0
         group_label = None
@@ -342,6 +392,7 @@ class PageRenderer:
                 if hm:
                     group_label = hm.group(1).strip()
             if kind == "q":
+                self.blocks += 1
                 q = parse_mcq(block, self.kit)
                 if q["mcq"]:
                     q.update(self.question_meta(q, ctx, group_label))
@@ -438,7 +489,7 @@ def build_doc(cfg, questions):
                    "page_id": pid, "page_title": ptitle, "page_number": pnum}
             page_html = renderer.render_page(pbody, ctx)
             page = {"id": pid, "title": ptitle, "chapter": chap_id, "html": page_html,
-                    "text": plain_text(page_html),
+                    "text": plain_text(SCRIPT.sub(" ", page_html)),
                     "questions": [qid for qid, q in questions.items()
                                   if q["source"] == cfg["id"] and q["page_id"] == pid]}
             pages.append(page)
@@ -446,6 +497,10 @@ def build_doc(cfg, questions):
         if chapter["pages"]:
             chapters.append(chapter)
 
+    written = sum(1 for _, line, in_fence in fence_aware(lines) if not in_fence and LOOSE_Q.match(line))
+    if written != renderer.blocks:
+        raise ContentError("%s has %d lines that start a question but %d parsed; check the **Qn.** "
+                           "formatting near the new questions" % (cfg["file"], written, renderer.blocks))
     for k, p in enumerate(pages):
         p["prev"] = pages[k - 1]["id"] if k else None
         p["next"] = pages[k + 1]["id"] if k + 1 < len(pages) else None
@@ -669,6 +724,7 @@ def build():
     docs = {cfg["id"]: build_doc(cfg, questions) for cfg in DOCS}
     groups, bank_count = build_bank(questions)
     ccnp_count = sum(1 for q in questions.values() if q["source"] == "ccnp")
+    ccna_count = sum(1 for q in questions.values() if q["source"] == "ccna")
     decks, cards = [], []
     labs = {"intro_html": {}, "labs": []}
     for kit in CARDS_FILES:
@@ -681,7 +737,7 @@ def build():
     if len({c["id"] for c in cards}) != len(cards):
         raise ContentError("two flashcards share the same question text")
     drills = build_drills()
-    counts = {"ccna_bank": bank_count, "ccnp": ccnp_count, "drills": len(drills["drills"])}
+    counts = {"ccna_bank": bank_count, "ccna": ccna_count, "ccnp": ccnp_count, "drills": len(drills["drills"])}
     for key, want in EXPECTED.items():
         if counts[key] != want:
             raise ContentError("expected %d %s questions, parsed %d" % (want, key, counts[key]))
@@ -696,7 +752,8 @@ def build():
         "drills": drills,
         "labs": labs,
         "stats": dict(counts, cards=len(cards), labs=len(labs["labs"]),
-                      pages=sum(len(d["pages"]) for d in docs.values())),
+                      pages=sum(len(d["pages"]) for d in docs.values()),
+                      diagrams=sum(p["html"].count('<figure class="dg"') for d in docs.values() for p in d["pages"].values())),
     }
 
 
@@ -711,8 +768,9 @@ def main():
         json.dump(content, f, ensure_ascii=False, separators=(",", ":"))
     s = content["stats"]
     print("Wrote %s (%.1f MB)" % (out, os.path.getsize(out) / 1e6))
-    print("  %d pages, %d CCNA bank + %d CCNP questions, %d cards, %d drills, %d labs"
-          % (s["pages"], s["ccna_bank"], s["ccnp"], s["cards"], s["drills"], s["labs"]))
+    print("  %d pages, %d interactive diagrams, %d CCNA bank + %d CCNA guide + %d CCNP questions, "
+          "%d cards, %d drills, %d labs" % (s["pages"], s["diagrams"], s["ccna_bank"], s["ccna"], s["ccnp"],
+                                           s["cards"], s["drills"], s["labs"]))
 
 
 if __name__ == "__main__":

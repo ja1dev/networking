@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head">
   <h1>Quiz</h1>
-  <p>{% for sid, groups in sources.items() %}{{ groups|sum(attribute='total') }} {{ "CCNA practice bank" if sid == "bank" else "CCNP exam-style" }} questions{{ " and " if not loop.last }}{% endfor %}. Practice mode explains each answer as you go; exam mode is timed and grades at the end.</p>
+  <p>{% for sid, groups in sources.items() %}{{ groups|sum(attribute='total') }} {{ SOURCE_NOUNS[sid] }} questions{{ " and " if not loop.last }}{% endfor %}. Practice mode explains each answer as you go; exam mode is timed and grades at the end.</p>
 </div>
 
 <form id="quiz-form" class="card stack">

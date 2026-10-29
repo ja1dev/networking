@@ -1,6 +1,9 @@
 // Reading page: live questions, section completion, autosaved notes, keyboard paging.
 import { api, debounce, toast, typing } from "netlab";
 import { reset, showResult, toggle, selected } from "netlab/mcq";
+import { mountAll } from "netlab/diagrams";
+
+mountAll(document.getElementById("reader"));
 
 const reader = document.getElementById("reader");
 const doc = reader.dataset.doc;
