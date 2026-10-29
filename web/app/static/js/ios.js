@@ -5554,6 +5554,30 @@ Object.assign(HELP_PATH, {
   "authentication text": "Plain text authentication", "ip route static": "Static routes",
 });
 
+// Help for the keywords the CCNP routing commands added.
+Object.assign(HELP_PATH, {
+  "send version 1": "RIP version 1", "send version 2": "RIP version 2",
+  "receive version 1": "RIP version 1", "receive version 2": "RIP version 2", "version 1 2": "RIP version 2",
+  "default-information only": "Advertise only the default route", "reachable-via any": "Source is reachable via any interface",
+  "start-time pending": "Start pending", "vrf connected": "Connected", "null 0": "Null interface number",
+  "sla state": "IP SLA state", "debug ip routing": "Routing table events", "undebug ip routing": "Routing table events",
+  "topology all-links": "Show all links in topology table",
+  "vrf static": "Static routes", "server name": "Name of the server in this group",
+  "distribute-list prefix": "Filter prefixes in routing updates", "filter-list prefix": "Filter networks between OSPF areas",
+  "user v3 auth": "authentication parameters for the user", "inspection limit rate": "Rate Limit",
+  "metric-type 1": "Set OSPF External Type 1 metrics", "metric-type 2": "Set OSPF External Type 2 metrics",
+  "metric-type internal": "Use IGP metric as the MED for BGP",
+  "nssa-external type-1": "nssa-external type 1 route", "nssa-external type-2": "nssa-external type 2 route",
+  "intra-area inter-area": "Inter-area routes", "inter-area intra-area": "Intra-area routes",
+  "delay up": "Delay up change notification", "delay down": "Delay down change notification",
+  "address prefix lifetime": "Configure prefix lifetimes",
+});
+Object.assign(HELP, {
+  "log-adjacency-changes": "Log changes in adjacency state",
+  "intra-area": "Intra-area routes", "inter-area": "Inter-area routes",
+});
+Object.assign(HELP_PATH, { "timers basic": "Basic routing protocol update timers" });
+
 // Keywords that mean something else depending on the mode they're typed in.
 // Help that depends on a command word anywhere earlier in the line (see the CCNP routing commands).
 const HELP_CTX = {};
@@ -5561,9 +5585,12 @@ const HELP_MODE = {
   priv: { clock: "Manage the system clock" },
   user: {},
   config: { clock: "Configure time-of-day clock", track: "Object tracking configuration commands" },
-  ospf: { network: "Enable routing on an IP network" },
+  ospf: { network: "Enable routing on an IP network", area: "OSPF area parameters" },
   eigrp: { network: "Enable routing on an IP network", eigrp: "EIGRP specific commands" },
   pool: { network: "Network number and mask" },
+  rip: { timers: "Adjust routing timers" },
+  ripng: { distance: "Administrative distance" },
+  slaecho: { timeout: "Timeout value" },
 };
 
 // Help for the switching, NAT, HSRP, IPv6, EIGRP and housekeeping commands.
@@ -7032,14 +7059,15 @@ Object.assign(HELP_PATH, {
   "rip send": "Advertisement transmission", "ospf database summary": "Network summary link states", "ip sla summary": "IP SLAs summary",
   "database router": "Router link states", "match length": "Packet length", "match community": "Match BGP community list", "set community": "BGP community attribute",
 });
-Object.assign(HELP_MODE, {
+// Merged per mode, so help other sections set for the same mode survives.
+for (const [m, h] of Object.entries({
   rmap: { description: "Route-map comment", set: "Set values in destination routing protocol", match: "Match values from routing table" },
   kchain: { key: "Configure a key" }, kckey: { key: "Configure a key", "key-string": "Set key string" }, dhcp6: { "dns-server": "DNS servers" },
   afif: { authentication: "authentication subcommands", "split-horizon": "Perform split horizon", shutdown: "Disable Address-Family on interface" },
   afif6: { authentication: "authentication subcommands", "split-horizon": "Perform split horizon", shutdown: "Disable Address-Family on interface" }, ospf: { distance: "Define an administrative distance", neighbor: "Specify a neighbor router" },
-  rip: { network: "Enable routing on an IP network", version: "Set routing protocol version", distance: "Define an administrative distance", "auto-summary": "Enable automatic network number summarization" },
-  eigrp: { distance: "Define an administrative distance" }, aftop: { distance: "Define an administrative distance" },
-});
+  rip: { network: "Enable routing on an IP network", version: "Set routing protocol version", "version 1": "RIP version 1", "version 2": "RIP version 2", distance: "Define an administrative distance", "auto-summary": "Enable automatic network number summarization" },
+  eigrp: { distance: "Define an administrative distance" }, eigrp6: { distance: "Define an administrative distance" }, aftop: { distance: "Define an administrative distance" }, aftop6: { distance: "Define an administrative distance" },})) HELP_MODE[m] = { ...(HELP_MODE[m] || {}), ...h };
+
 
 // Register a command with optional keyword clauses that may follow in any order (each at most once).
 // opts: [{key, spec}] where spec may hold <params> or {a|b}; fn(c, base args, {key: [values]}).
@@ -7747,7 +7775,7 @@ def("R", both, "show ip route rip", (c) => c.print(showIpRoute(c.net, c.d.name, 
 def("R", "priv", "show ip rip database", (c) => c.print(showRipDb(c.net, c.d.name)));
 def("R", "priv", "show ip eigrp neighbors detail", (c) => c.cfg.eigrp && c.print(showEigrpNbrs(c.net, c.d.name, true)));
 def("R", "priv", "show ip eigrp topology all-links", (c) => c.cfg.eigrp && c.print(showEigrpTopo(c.net, c.d.name, true)));
-def("R", "priv", "show ip eigrp topology <word|IP prefix <network>/<length>, e.g., 192.168.0.0/16>", (c, [p]) => c.print(showEigrpTopoOne(c.net, c.d.name, p)));
+def("R", "priv", "show ip eigrp topology <word|IP prefix network/length, e.g., 192.168.0.0/16>", (c, [p]) => c.print(showEigrpTopoOne(c.net, c.d.name, p)));
 def("R", "priv", "show ipv6 eigrp neighbors", (c) => c.print(showEigrp6Nbrs(c.net, c.d.name)));
 def("R", "priv", "show ipv6 eigrp topology", (c) => c.print(showEigrp6Topo(c.net, c.d.name)));
 def("R", "priv", "show ipv6 eigrp interfaces", (c) => c.print(showEigrp6Ifs(c.net, c.d.name)));

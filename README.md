@@ -71,12 +71,13 @@ structured content, and the app tracks your progress in Postgres.
 | Area | What it does |
 | --- | --- |
 | **Read** | Both guides, the Study Tips and the DevNet companion, page by page, with a contents sidebar. Each page can be marked done and has a notes box. Every exam-style question is a live widget: pick, check, see why. Answers are graded on the server, so they never appear in the page source. Click any diagram to open it full size |
-| **Terminal** | 21 guided CLI labs plus a sandbox, run on a Cisco IOS-style simulator in the browser (`web/app/static/js/ios.js`). Each lab has a live topology diagram (links go green when up, dashed amber when spanning tree blocks them, thick when bundled; pings animate along their path) and a console per router, switch and VPCS PC, with `?` help (including a trailing `?` on a line), Tab completion, abbreviations with IOS's ambiguity errors, `no` and `do` forms, `\| include/section`, extended ping and real IOS errors. Tasks are checked against what the simulated network actually does. Covers device hardening, addressing, VLANs, trunks and DTP, spanning tree (PVST+/Rapid PVST+, PortFast, BPDU guard), EtherChannel (LACP/PAgP), port security, router-on-a-stick, static and floating routes, OSPF and OSPF troubleshooting, EIGRP (classic and named, DUAL, variance), standard and extended ACLs, DHCP and relay, NAT/PAT, HSRP with tracking, IPv6 with SLAAC and OSPFv3, SSH, and a multi-fault troubleshooting ticket. Progress saves to the server |
+| **Terminal** | 59 guided CLI labs (20 CCNA, 39 CCNP: ENCOR and ENARSI) plus a sandbox, run on a Cisco IOS-style simulator in the browser (`web/app/static/js/ios.js`). Each lab has a live topology diagram (links go green when up, amber when spanning tree blocks them, thick when bundled, tunnels as arcs with a lock when encrypted; pings animate along their path) and a console per router, switch and VPCS PC, with `?` help (including a trailing `?`), Tab completion, abbreviations with IOS's ambiguity errors, `no` and `do`, `\| include/section`, extended ping and real IOS messages. Tasks are checked against what the simulated network actually does. CCNA: VLANs, trunks, STP, EtherChannel, port security, OSPF, ACLs, DHCP, NAT, HSRP, IPv6, SSH. CCNP: MST, VTP, VRRP/GLBP, SPAN, DHCP snooping/DAI/PVLANs, L3 switching, OSPF areas/stub/NSSA/virtual links, EIGRP named/stub/IPv6, RIP, redistribution and route-maps, PBR and IP SLA, BGP and MP-BGP, VRF-lite, GRE, IPsec, DMVPN, QoS, NTP, syslog, SNMPv3, NetFlow, AAA and EEM. The simulator's fidelity to real IOS output is pinned by `web/tests/ios_conformance.test.mjs`. Progress saves to the server |
 | **Quiz** | Builds sets from the 152 CCNA bank and 814 CCNP questions by topic (or all of ENCOR / ENARSI), filtered to all, unseen or missed. **Practice** explains each answer as you go; **Exam** is timed (72s a question by default), lets you flag and change answers, and grades at the end with a per-topic breakdown |
-| **Flashcards** | All 299 cards with Anki-style spaced repetition (learning steps, ease, lapses), a daily new-card limit, per-deck study, cram mode and a browser |
+| **Flashcards** | 874 cards (299 CCNA, 575 CCNP) with Anki-style spaced repetition (learning steps, ease, lapses), a daily new-card limit, per-deck study, cram mode and a browser |
 | **Subnetting** | An endless trainer across 10 problem types (network/broadcast, host ranges, right-sizing, wildcards, same-subnet, IPv6 shorten/expand...). Each answer gets the drill sheet's worked method with the bits highlighted. Also a calculator, the 60 worked drills with self-grading, and the toolkit |
-| **Labs** | Every lab's tasks and verification steps as checkboxes, plus completion and notes |
+| **Workbook labs** | The CCNA (19) and CCNP (22) EVE-NG lab workbooks: tasks and verification steps as checkboxes, plus completion and notes |
 | **Dashboard** | Continue-reading, what's due today, accuracy per source, reading/terminal/lab progress, weak topics (under 85%), streak and a 16-week activity map |
+| **Tracks** | A CCNP / CCNA / Both switch at the top of the sidebar (and in Settings) decides what every page shows: guides, quiz sources, flashcard decks, workbooks, terminal labs, search and the dashboard. It's saved per user |
 | **Accounts** | Everyone signs in with their own username and password and gets their own workspace: reading progress, notes, quiz history, flashcard schedule, drills, lab checklists, terminal labs and settings are all per user. Admins also get a **Users** page to add people, set passwords, change roles and delete accounts. Anyone can change their own password in Settings |
 
 Keyboard: `A`–`E` pick answers, `Enter` checks, `←`/`→` page through, `Space` flips a card and `1`–`4` rate it, `/` searches.
@@ -116,12 +117,17 @@ python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest tests               # content, scheduler, API
 node tests/subnet_math.test.mjs && node tests/subnet_gen.test.mjs
 node tests/ios.test.mjs                        # simulator, and every terminal lab's solution
+node tests/ios_conformance.test.mjs            # simulator output against real IOS behaviour
+.venv/bin/python -m pytest tests/e2e -m e2e    # browser end-to-end suite (Chrome, ~3 min)
 ```
 
 Terminal labs live in `web/app/terminal_labs.json`: devices with diagram
 positions, cables, starting configs, tasks with machine checks, hints and a full
 solution. `tests/ios.test.mjs` proves for every lab that no task starts solved,
-the solution passes every check, and the saved state reloads intact.
+the solution passes every check (typed line by line, with every check evaluated
+after each line), and the saved state reloads intact. Each lab carries a `track`
+(`ccna` or `ccnp`) and an `exam` (`CCNA`, `ENCOR` or `ENARSI`) so it appears
+under the right track.
 
 Schema changes go through Alembic: edit `app/models.py`, then
 `alembic revision --autogenerate -m "..."` and review the file in

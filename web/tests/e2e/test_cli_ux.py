@@ -68,6 +68,8 @@ def test_ios_error_messages(sandbox):
     cmd(page, "c")
     expect(out).to_contain_text('% Ambiguous command:  "c"')
     cmd(page, "show")
+    expect(out).to_contain_text('% Type "show ?" for a list of subcommands')
+    cmd(page, "show ip")
     expect(out).to_contain_text("% Incomplete command.")
     cmd(page, "conf t")
     cmd(page, "do c")
