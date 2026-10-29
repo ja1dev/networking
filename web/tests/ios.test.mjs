@@ -1252,4 +1252,373 @@ test("BGP: prefix-lists, as-path lists, help text and a config that replays", ()
   assert.equal(runningConfig(fresh, "A"), text);
 });
 
+// ---------------------------------------------------------------- CCNP switching
+const on = (net, dev, ...lines) => applyConfig(net, dev, lines);
+const pcs = (net, list) => { for (const [pc, ip] of list) console_(net, pc, "ip " + ip); };
+const swTriangle = () => new Network({ devices: [S("SW1"), S("SW2"), S("SW3"), P("PC1"), P("PC2")],
+  links: [["SW1", G(1), "SW2", G(1)], ["SW2", G(2), "SW3", G(2)], ["SW1", G(2), "SW3", G(1)], ["SW2", F(1), "PC1", "eth0"], ["SW3", F(1), "PC2", "eth0"]] });
+
+test("MST: instances get their own roots, a region needs matching name, revision and mapping", () => {
+  const net = swTriangle();
+  const region = ["spanning-tree mode mst", "spanning-tree mst configuration", "name CORE", "revision 1", "instance 1 vlan 10", "instance 2 vlan 20", "exit"];
+  for (const sw of ["SW1", "SW2", "SW3"]) on(net, sw, "vlan 10,20", "exit", "interface range g0/1 - 2", "switchport mode trunk", "exit", ...region);
+  on(net, "SW2", "spanning-tree mst 1 priority 4096");
+  on(net, "SW3", "spanning-tree mst 2 root primary");
+  assert.deepEqual(net.mstRegions(), [["SW1", "SW2", "SW3"]]);
+  assert.ok(net.check({ type: "mst-root", device: "SW2", instance: 1 }));
+  assert.ok(net.check({ type: "mst-root", device: "SW3", instance: 2 }));
+  assert.ok(net.check({ type: "mst-root", device: "SW1", instance: 0 }), "lowest MAC is the CIST root");
+  // MST uses long path costs: 20000 for a gigabit link.
+  assert.equal(net.stp(10).SW1.ports[G(1)].cost, 20000);
+  // Instance 1 blocks on SW3, instance 2 on SW2: different VLANs use different links.
+  assert.equal(net.stp(10).SW3.ports[G(1)].state, "BLK");
+  assert.equal(net.stp(20).SW2.ports[G(1)].state, "BLK");
+  const out = console_(net, "SW1", "en", "show spanning-tree mst configuration", "show spanning-tree mst 1");
+  assert.match(out, /Name +\[CORE\]\nRevision +1 +Instances configured 3/);
+  assert.match(out, /##### MST1 +vlans mapped: +10\nBridge +address 0cd5\.0000\.8000 +priority +32769 \(32768 sysid 1\)/);
+  // A different revision splits the region: SW3's ports become boundary ports following the CIST.
+  on(net, "SW3", "spanning-tree mst configuration", "revision 2", "exit");
+  assert.deepEqual(net.mstRegions(), [["SW1", "SW2"], ["SW3"]]);
+  assert.ok(net.stp(10).SW3.ports[G(2)].boundary);
+  assert.match(console_(net, "SW3", "en", "show spanning-tree mst 1"), /Bound\(PVST\)/);
+  // abort throws away the edits made in the submode.
+  on(net, "SW3", "spanning-tree mst configuration", "revision 1", "abort");
+  assert.equal(net.devs.SW3.cfg.mst.rev, 2);
+  assert.match(runningConfig(net, "SW3"), /spanning-tree mode mst\n[\s\S]*spanning-tree mst 2 priority 24576\n!\nspanning-tree mst configuration\n name CORE\n revision 2\n instance 1 vlan 10\n instance 2 vlan 20/);
+});
+
+test("STP protection: root guard, loop guard with BPDU filter, UplinkFast", () => {
+  const net = new Network({ devices: [S("SW1"), S("SW2"), S("ROGUE")], links: [["SW1", G(1), "SW2", G(1)], ["SW2", F(24), "ROGUE", F(24)]] });
+  on(net, "SW1", "spanning-tree vlan 1 priority 4096");
+  on(net, "SW2", "interface f0/24", "spanning-tree guard root");
+  on(net, "ROGUE", "spanning-tree vlan 1 priority 0");
+  assert.ok(net.check({ type: "stp-root", device: "SW1", vlan: 1 }), "root guard keeps the rogue from taking over");
+  assert.ok(net.check({ type: "stp-inconsistent", device: "SW2", intf: "f0/24", vlan: 1, kind: "root" }));
+  assert.match(console_(net, "SW2", "en", "show spanning-tree inconsistentports"), /VLAN0001 +FastEthernet0\/24 +Root Inconsistent/);
+  on(net, "SW2", "interface f0/24", "no spanning-tree guard");
+  assert.ok(!net.check({ type: "stp-root", device: "SW1", vlan: 1 }));
+
+  const t = swTriangle();
+  on(t, "SW1", "spanning-tree vlan 1 priority 4096");
+  assert.equal(t.stp(1).SW3.ports[G(2)].state, "BLK");
+  // The far end filters BPDUs: SW3's alternate port hears nothing and would start forwarding (a loop)...
+  on(t, "SW2", "interface g0/2", "spanning-tree bpdufilter enable");
+  assert.equal(t.stp(1).SW3.ports[G(2)].state, "FWD");
+  // ...unless loop guard holds it.
+  on(t, "SW3", "interface g0/2", "spanning-tree guard loop");
+  assert.ok(t.check({ type: "stp-inconsistent", device: "SW3", intf: "g0/2", vlan: 1, kind: "loop" }));
+  assert.equal(t.stp(1).SW3.ports[G(2)].state, "BKN");
+
+  const u = swTriangle();
+  on(u, "SW3", "spanning-tree uplinkfast");
+  assert.equal(u.stp(1).SW3.bid[0], 49153, "UplinkFast raises the bridge priority to 49152");
+  assert.equal(u.stp(1).SW3.ports[G(1)].cost, 3004, "and adds 3000 to port costs");
+  assert.match(console_(u, "SW3", "en", "show spanning-tree summary"), /UplinkFast +is enabled/);
+});
+
+test("errdisable recovery brings a port back after the interval, and BPDU guard trips it again", () => {
+  const net = new Network({ devices: [S("SW1"), S("SW2")], links: [["SW1", F(1), "SW2", F(1)]] });
+  on(net, "SW1", "errdisable recovery cause bpduguard", "errdisable recovery interval 30", "interface f0/1", "spanning-tree portfast", "spanning-tree bpduguard enable");
+  assert.ok(net.check({ type: "errdisabled", device: "SW1", intf: "f0/1", reason: "bpduguard" }));
+  assert.ok(net.check({ type: "errdisable-recovery", device: "SW1", cause: "bpduguard", interval: 30 }));
+  assert.match(console_(net, "SW1", "en", "show errdisable recovery"), /bpduguard +Enabled[\s\S]*Timer interval: 30 seconds[\s\S]*Fa0\/1 +bpduguard/);
+  net.skew = 31000;
+  const out = console_(net, "SW1", "");
+  assert.match(out, /%PM-4-ERR_RECOVER: Attempting to recover from bpduguard err-disable state on Fa0\/1[\s\S]*%PM-4-ERR_DISABLE: bpduguard/);
+  // Remove the cause and the next recovery sticks.
+  on(net, "SW1", "interface f0/1", "no spanning-tree bpduguard", "no spanning-tree portfast");
+  net.skew = 70000;
+  console_(net, "SW1", "");
+  assert.ok(!net.check({ type: "errdisabled", device: "SW1", intf: "f0/1" }));
+  assert.ok(net.portUp("SW1", F(1)));
+});
+
+test("VTP: servers propagate, clients can't create VLANs, transparent switches relay and keep their own", () => {
+  const net = new Network({ devices: [S("SW1"), S("SW2"), S("SW3"), S("SW4")], links: [["SW1", G(1), "SW2", G(1)], ["SW2", G(2), "SW3", G(1)], ["SW3", G(2), "SW4", G(1)]] });
+  for (const sw of ["SW1", "SW2", "SW3", "SW4"]) on(net, sw, "interface range g0/1 - 2", "switchport mode trunk");
+  on(net, "SW2", "vtp mode client");
+  on(net, "SW3", "vtp mode transparent", "vlan 99", "name LOCAL");
+  on(net, "SW4", "vtp mode client");
+  on(net, "SW1", "vtp domain CCNP", "vlan 10", "name SALES", "vlan 20");
+  for (const sw of ["SW2", "SW4"]) {
+    assert.ok(net.check({ type: "vtp-vlan", device: sw, vlan: 10, name: "SALES" }), sw + " learns VLAN 10");
+    assert.ok(net.check({ type: "vtp", device: sw, domain: "CCNP", mode: "client" }), sw + " learns the domain");
+  }
+  assert.ok(net.check({ type: "vtp-vlan", device: "SW3", vlan: 10, absent: true }), "transparent doesn't apply the updates");
+  assert.ok(net.check({ type: "vtp-vlan", device: "SW4", vlan: 99, absent: true }), "and doesn't advertise its own VLANs");
+  assert.equal(net.devs.SW2.cfg.vtp.rev, net.devs.SW1.cfg.vtp.rev);
+  assert.match(console_(net, "SW2", "en", "conf t", "vlan 30"), /VTP VLAN configuration not allowed when device is in CLIENT mode\./);
+  assert.match(console_(net, "SW1", "en", "show vtp status"), /VTP Operating Mode +: Server\n[\s\S]*Configuration Revision +: [1-9]/);
+  assert.match(runningConfig(net, "SW3"), /\nvtp mode transparent\n[\s\S]*\nvlan 99\n name LOCAL\n!/);
+  assert.ok(net.check({ type: "vtp", device: "SW3", domain: "" }), "a transparent switch never learns the domain");
+  assert.doesNotMatch(runningConfig(net, "SW1"), /^vlan 10/m, "server-mode VLANs live in vlan.dat, not the running-config");
+  // A different password keeps a switch out of the domain's updates.
+  on(net, "SW4", "vtp password secret");
+  on(net, "SW1", "vlan 40");
+  assert.ok(net.check({ type: "vtp-vlan", device: "SW2", vlan: 40 }));
+  assert.ok(net.check({ type: "vtp-vlan", device: "SW4", vlan: 40, absent: true }));
+});
+
+test("VTP: a switch with a higher revision wipes the domain, and transparent mode resets the revision", () => {
+  const mk = () => new Network({ devices: [S("SW1"), S("NEW")], links: [["SW1", G(1), "NEW", G(1)]] });
+  const net = mk();
+  on(net, "NEW", "interface g0/1", "shutdown", "exit", "vtp domain CCNP", "vlan 100", "vlan 101", "vlan 102", "vlan 103", "vlan 104");
+  on(net, "SW1", "vtp domain CCNP", "vlan 10,20", "interface g0/1", "switchport mode trunk");
+  assert.ok(net.devs.NEW.cfg.vtp.rev > net.devs.SW1.cfg.vtp.rev);
+  on(net, "NEW", "interface g0/1", "no shutdown");
+  assert.ok(net.check({ type: "vtp-vlan", device: "SW1", vlan: 10, absent: true }), "SW1's VLANs are overwritten");
+  assert.ok(net.check({ type: "vtp-vlan", device: "SW1", vlan: 104 }));
+  const safe = mk();
+  on(safe, "NEW", "interface g0/1", "shutdown", "exit", "vtp domain CCNP", "vlan 100", "vlan 101", "vlan 102", "vlan 103", "vlan 104", "exit", "vtp mode transparent", "vtp mode client");
+  assert.equal(safe.devs.NEW.cfg.vtp.rev, 0, "leaving server mode resets the revision");
+  on(safe, "SW1", "vtp domain CCNP", "vlan 10,20", "interface g0/1", "switchport mode trunk");
+  on(safe, "NEW", "interface g0/1", "no shutdown");
+  assert.ok(safe.check({ type: "vtp-vlan", device: "SW1", vlan: 10 }));
+  assert.ok(safe.check({ type: "vtp-vlan", device: "NEW", vlan: 10 }));
+});
+
+test("VTP pruning and VTPv3 primary servers", () => {
+  const net = new Network({ devices: [S("SW1"), S("SW2"), S("SW3"), P("PC1")], links: [["SW1", G(1), "SW2", G(1)], ["SW1", G(2), "SW3", G(1)], ["SW2", F(1), "PC1", "eth0"]] });
+  on(net, "SW1", "vtp domain CCNP", "vtp pruning", "vlan 10,20", "exit", "interface range g0/1 - 2", "switchport mode trunk");
+  on(net, "SW2", "vtp mode client", "interface f0/1", "switchport mode access", "switchport access vlan 10");
+  on(net, "SW3", "vtp mode client");
+  const out = console_(net, "SW1", "en", "show interfaces trunk");
+  assert.match(out, /not pruned\nGi0\/1 +1,10\nGi0\/2 +1/);
+  const v3 = new Network({ devices: [S("SW1"), S("SW2")], links: [["SW1", G(1), "SW2", G(1)]] });
+  for (const sw of ["SW1", "SW2"]) on(v3, sw, "vtp domain CCNP", "vtp version 3", "interface g0/1", "switchport mode trunk");
+  assert.match(console_(v3, "SW1", "en", "conf t", "vlan 50"), /not the primary server for vlan database/);
+  console_(v3, "SW1", "en", "vtp primary", "");
+  on(v3, "SW1", "vlan 50", "name V3");
+  assert.ok(v3.check({ type: "vtp-vlan", device: "SW2", vlan: 50, name: "V3" }));
+  assert.match(console_(v3, "SW1", "en", "show vtp status"), /VTP Operating Mode +: Primary Server/);
+  assert.match(console_(v3, "SW1", "en", "conf t", "vtp version 3"), /^(?![\s\S]*Cannot)/);
+  assert.match(console_(new Network({ devices: [S("X")], links: [] }), "X", "en", "conf t", "vtp version 3"), /Cannot set the version to 3 because domain name is not configured/);
+});
+
+const fhrpNet = () => {
+  const net = new Network({ devices: [R("R1"), R("R2"), R("CORE"), S("SW1"), P("PC1"), P("PC2"), P("PC3")],
+    links: [["R1", G(0), "SW1", G(1)], ["R2", G(0), "SW1", G(2)], ["SW1", F(1), "PC1", "eth0"], ["SW1", F(2), "PC2", "eth0"], ["SW1", F(3), "PC3", "eth0"],
+      ["R1", G(1), "CORE", G(0)], ["R2", G(1), "CORE", G(1)]] });
+  on(net, "CORE", "interface g0/0", "ip address 10.1.0.2 255.255.255.0", "no shutdown", "interface g0/1", "ip address 10.2.0.2 255.255.255.0", "no shutdown",
+    "interface loopback0", "ip address 8.8.8.8 255.255.255.255", "exit", "ip route 192.168.1.0 255.255.255.0 10.1.0.1", "ip route 192.168.1.0 255.255.255.0 10.2.0.1");
+  on(net, "R1", "interface g0/1", "ip address 10.1.0.1 255.255.255.0", "no shutdown", "exit", "ip route 0.0.0.0 0.0.0.0 10.1.0.2", "track 1 interface g0/1 line-protocol");
+  on(net, "R2", "interface g0/1", "ip address 10.2.0.1 255.255.255.0", "no shutdown", "exit", "ip route 0.0.0.0 0.0.0.0 10.2.0.2");
+  pcs(net, [["PC1", "192.168.1.11/24 192.168.1.254"], ["PC2", "192.168.1.12/24 192.168.1.254"], ["PC3", "192.168.1.13/24 192.168.1.254"]]);
+  return net;
+};
+
+test("VRRP: master election, preempt by default, tracking failover, virtual MAC, owner priority 255", () => {
+  const net = fhrpNet();
+  on(net, "R2", "interface g0/0", "ip address 192.168.1.2 255.255.255.0", "vrrp 1 ip 192.168.1.254", "no shutdown");
+  on(net, "R1", "interface g0/0", "ip address 192.168.1.1 255.255.255.0", "vrrp 1 ip 192.168.1.254", "vrrp 1 priority 110", "vrrp 1 track 1 decrement 20", "no shutdown");
+  assert.ok(net.check({ type: "fhrp", proto: "vrrp", device: "R1", intf: "g0/0", group: 1, state: "Master" }), "VRRP preempts by default");
+  assert.ok(net.ping("PC1", "8.8.8.8").ok);
+  console_(net, "PC1", "ping 8.8.8.8 -c 1");
+  assert.match(console_(net, "PC1", "show arp"), /00:00:5e:00:01:01 +192\.168\.1\.254/);
+  assert.match(console_(net, "R1", "en", "show vrrp brief"), /Gi0\/0 +1 +110 +\d+ +Y +Master +192\.168\.1\.1 +192\.168\.1\.254/);
+  const fail = console_(net, "R1", "en", "conf t", "interface g0/1", "shutdown");
+  assert.match(fail, /%VRRP-6-STATECHANGE: Gi0\/0 Grp 1 state Master -> Backup/);
+  assert.ok(net.check({ type: "fhrp", proto: "vrrp", device: "R2", intf: "g0/0", group: 1, state: "Master" }));
+  assert.ok(net.ping("PC1", "8.8.8.8").ok, "traffic follows the new master");
+  on(net, "R1", "interface g0/1", "no shutdown");
+  assert.ok(net.check({ type: "fhrp", proto: "vrrp", device: "R1", intf: "g0/0", group: 1, state: "Master" }));
+  // The router that owns the virtual address always wins with priority 255.
+  on(net, "R2", "interface g0/0", "no vrrp 1", "vrrp 1 ip 192.168.1.2");
+  on(net, "R1", "interface g0/0", "no vrrp 1", "vrrp 1 ip 192.168.1.2", "vrrp 1 priority 200");
+  assert.match(console_(net, "R2", "en", "show vrrp brief"), /Gi0\/0 +1 +255 +\d+ +Y +Y +Master/);
+  assert.match(runningConfig(net, "R1"), / vrrp 1 ip 192\.168\.1\.2\n vrrp 1 priority 200\n/);
+});
+
+test("VRRPv3 syntax and output", () => {
+  const net = fhrpNet();
+  assert.match(console_(net, "R1", "en", "conf t", "interface g0/0", "vrrp 1 address-family ipv4"), /Invalid input/);
+  on(net, "R1", "fhrp version vrrp v3", "interface g0/0", "ip address 192.168.1.1 255.255.255.0", "no shutdown", "vrrp 1 address-family ipv4", "address 192.168.1.254 primary", "priority 120", "exit-vrrp");
+  on(net, "R2", "fhrp version vrrp v3", "interface g0/0", "ip address 192.168.1.2 255.255.255.0", "no shutdown", "vrrp 1 address-family ipv4", "address 192.168.1.254 primary", "exit-vrrp");
+  assert.ok(net.check({ type: "fhrp", proto: "vrrp", device: "R1", intf: "g0/0", group: 1, state: "Master" }));
+  const out = console_(net, "R1", "en", "show vrrp", "show vrrp brief");
+  assert.match(out, /GigabitEthernet0\/0 - Group 1 - Address-Family IPv4\n +State is MASTER/);
+  assert.match(out, /Gi0\/0 +1 IPv4 120 +0 +N +Y +MASTER +192\.168\.1\.1\(local\) 192\.168\.1\.254/);
+  assert.match(runningConfig(net, "R1"), /fhrp version vrrp v3[\s\S]* vrrp 1 address-family ipv4\n  priority 120\n  address 192\.168\.1\.254 primary\n  exit-vrrp/);
+  assert.match(console_(net, "R1", "en", "conf t", "interface g0/0", "vrrp 2 ip 192.168.1.253"), /legacy configuration is disabled/);
+  assert.ok(net.ping("PC2", "8.8.8.8").ok);
+});
+
+test("GLBP: the AVG hands hosts different forwarders, and a forwarder outlives its router", () => {
+  const net = fhrpNet();
+  on(net, "R1", "interface g0/0", "ip address 192.168.1.1 255.255.255.0", "glbp 1 ip 192.168.1.254", "glbp 1 priority 110", "glbp 1 preempt", "no shutdown");
+  on(net, "R2", "interface g0/0", "ip address 192.168.1.2 255.255.255.0", "glbp 1 ip", "no shutdown");
+  assert.ok(net.check({ type: "fhrp", proto: "glbp", device: "R1", intf: "g0/0", group: 1, state: "Active" }));
+  assert.ok(net.check({ type: "fhrp", proto: "glbp", device: "R2", intf: "g0/0", group: 1, state: "Standby" }), "R2 learns the virtual IP from the AVG");
+  for (const pc of ["PC1", "PC2", "PC3"]) console_(net, pc, "ping 8.8.8.8 -c 2");
+  assert.ok(net.check({ type: "glbp-hosts", device: "R1", intf: "g0/0", group: 1, distinct: 2 }));
+  assert.match(console_(net, "PC2", "show arp"), /00:07:b4:00:01:02 +192\.168\.1\.254/);
+  assert.match(console_(net, "R1", "en", "show glbp brief"), /Gi0\/0 +1 +- +110 +Active +192\.168\.1\.254 +local +192\.168\.1\.2\nGi0\/0 +1 +1 +- +Active +0007\.b400\.0101 +local[\s\S]*Gi0\/0 +1 +2 +- +Listen +0007\.b400\.0102 +192\.168\.1\.2/);
+  on(net, "R2", "interface g0/0", "shutdown");
+  assert.ok(net.check({ type: "glbp-forwarding", device: "R1", intf: "g0/0", group: 1, count: 2 }), "R1 takes over forwarder 2");
+  assert.ok(net.ping("PC2", "8.8.8.8").ok);
+  assert.match(runningConfig(net, "R2"), / glbp 1 ip\n/);
+  assert.match(runningConfig(net, "R1"), / glbp 1 ip 192\.168\.1\.254\n glbp 1 priority 110\n glbp 1 preempt\n/);
+});
+
+test("SPAN, RSPAN and ERSPAN copy the traffic they should, and a destination port stops switching", () => {
+  const net = new Network({ devices: [S("SW1"), S("SW2"), R("R1"), R("R2"), P("PC1"), P("PC2"), P("SNIFF1"), P("SNIFF2")],
+    links: [["SW1", G(1), "SW2", G(1)], ["SW1", F(1), "PC1", "eth0"], ["SW1", F(2), "PC2", "eth0"], ["SW1", F(24), "SNIFF1", "eth0"], ["SW2", F(24), "SNIFF2", "eth0"],
+      ["SW1", G(2), "R1", G(0)], ["R1", G(1), "R2", G(0)]] });
+  pcs(net, [["PC1", "10.0.0.1/24 10.0.0.254"], ["PC2", "10.0.0.2/24 10.0.0.254"], ["SNIFF1", "10.0.0.3/24"]]);
+  on(net, "R1", "interface g0/0", "ip address 10.0.0.254 255.255.255.0", "no shutdown", "interface g0/1", "ip address 10.12.0.1 255.255.255.0", "no shutdown");
+  on(net, "R2", "interface g0/0", "ip address 10.12.0.2 255.255.255.0", "no shutdown", "exit", "ip route 10.0.0.0 255.255.255.0 10.12.0.1");
+  assert.ok(net.ping("SNIFF1", "10.0.0.1").ok);
+  on(net, "SW1", "monitor session 1 source interface f0/1", "monitor session 1 destination interface f0/24");
+  assert.ok(!net.ping("SNIFF1", "10.0.0.1").ok, "a SPAN destination port no longer forwards normal traffic");
+  assert.match(console_(net, "SW1", "en", "show interfaces status"), /Fa0\/24 +monitoring/);
+  console_(net, "PC1", "ping 10.0.0.2 -c 3");
+  assert.ok(net.check({ type: "span-copies", device: "SW1", session: 1, min: 6 }), "both directions of three pings");
+  assert.match(console_(net, "SW1", "en", "conf t", "monitor session 2 destination interface f0/1"), /% Interface\(s\) Fa0\/1 already configured as monitor sources for session 1/);
+  // RSPAN: copies cross the trunk in VLAN 999, which must be a remote-span VLAN on both switches.
+  on(net, "SW1", "vlan 999", "remote-span", "exit", "monitor session 3 source vlan 1 rx", "monitor session 3 destination remote vlan 999", "interface g0/1", "switchport mode trunk");
+  on(net, "SW2", "vlan 999", "exit", "monitor session 1 source remote vlan 999", "monitor session 1 destination interface f0/24", "interface g0/1", "switchport mode trunk");
+  console_(net, "PC2", "ping 10.0.0.254 -c 2");
+  assert.ok(!net.check({ type: "span-copies", device: "SW2", session: 1, min: 1 }), "VLAN 999 isn't remote-span on SW2 yet");
+  on(net, "SW2", "vlan 999", "remote-span");
+  console_(net, "PC2", "ping 10.0.0.254 -c 2");
+  assert.ok(net.check({ type: "span-copies", device: "SW2", session: 1, min: 4 }));
+  assert.match(console_(net, "SW2", "en", "show monitor session 1"), /Type +: Remote Destination Session\nSource RSPAN VLAN +: 999\nDestination Ports +: Fa0\/24/);
+  // ERSPAN: GRE copies to an IP address, so the destination only has to be routable.
+  on(net, "R1", "monitor session 1 type erspan-source", "source interface g0/0", "no shutdown", "destination", "erspan-id 100", "ip address 10.12.0.2", "origin ip address 10.12.0.1");
+  on(net, "R2", "monitor session 1 type erspan-destination", "destination interface g0/2", "no shutdown", "source", "erspan-id 100", "ip address 10.12.0.2");
+  console_(net, "PC1", "ping 10.0.0.254 -c 2");
+  assert.ok(net.check({ type: "span-copies", device: "R2", session: 1, min: 4 }));
+  assert.match(runningConfig(net, "R1"), /monitor session 1 type erspan-source\n source interface GigabitEthernet0\/0\n no shutdown\n destination\n  erspan-id 100\n  ip address 10\.12\.0\.2\n  origin ip address 10\.12\.0\.1/);
+  assert.match(runningConfig(net, "SW1"), /monitor session 1 source interface FastEthernet0\/1\nmonitor session 1 destination interface FastEthernet0\/24\nmonitor session 3 source vlan 1 rx\nmonitor session 3 destination remote vlan 999/);
+});
+
+test("DHCP snooping blocks rogue servers, option 82 needs a trusting server, DAI and IP source guard use the bindings", () => {
+  const net = new Network({ devices: [S("SW1"), R("R1"), R("ROGUE"), P("PC1"), P("PC2")],
+    links: [["SW1", G(1), "R1", G(0)], ["SW1", F(24), "ROGUE", G(0)], ["SW1", F(1), "PC1", "eth0"], ["SW1", F(2), "PC2", "eth0"]] });
+  on(net, "ROGUE", "interface g0/0", "ip address 10.1.1.250 255.255.255.0", "no shutdown", "exit", "ip dhcp pool EVIL", "network 10.1.1.0 255.255.255.0", "default-router 10.1.1.250");
+  on(net, "R1", "interface g0/0", "ip address 10.1.1.1 255.255.255.0", "no shutdown", "exit", "ip dhcp excluded-address 10.1.1.1 10.1.1.99",
+    "ip dhcp pool LAN", "network 10.1.1.0 255.255.255.0", "default-router 10.1.1.1");
+  assert.match(console_(net, "PC1", "ip dhcp"), /GW 10\.1\.1\.250/, "without snooping the rogue answers first");
+  console_(net, "PC1", "clear ip");
+  on(net, "SW1", "ip dhcp snooping", "ip dhcp snooping vlan 1");
+  assert.match(console_(net, "PC1", "ip dhcp"), /Can't find dhcp server/, "nothing is trusted yet");
+  assert.match(console_(net, "SW1", ""), /%DHCP_SNOOPING-5-DHCP_SNOOPING_UNTRUSTED_PORT: DHCP_SNOOPING drop message on untrusted port, message type: DHCPOFFER/);
+  on(net, "SW1", "interface g0/1", "ip dhcp snooping trust");
+  assert.match(console_(net, "PC1", "ip dhcp"), /Can't find dhcp server/, "option 82 with giaddr 0 is dropped by the IOS server");
+  on(net, "R1", "ip dhcp relay information trust-all");
+  assert.match(console_(net, "PC1", "ip dhcp"), /DDORA IP 10\.1\.1\.100\/24 GW 10\.1\.1\.1/);
+  assert.ok(net.check({ type: "snoop-binding", device: "SW1", ip: "10.1.1.100", intf: "f0/1" }));
+  assert.match(console_(net, "SW1", "en", "show ip dhcp snooping binding"), /00:50:79:66:68:03 +10\.1\.1\.100 +86400 +dhcp-snooping +1 +FastEthernet0\/1/);
+  // DAI: the static host and the untrusted uplink fail validation.
+  console_(net, "PC2", "ip 10.1.1.50/24 10.1.1.1");
+  on(net, "SW1", "ip arp inspection vlan 1");
+  assert.ok(!net.ping("PC1", "10.1.1.1").ok, "the router's ARP reply arrives on an untrusted port");
+  on(net, "SW1", "interface g0/1", "ip arp inspection trust");
+  assert.ok(net.ping("PC1", "10.1.1.1").ok);
+  console_(net, "PC2", "ping 10.1.1.1 -c 1");
+  assert.ok(net.check({ type: "dai-drops", device: "SW1", min: 1 }));
+  on(net, "SW1", "arp access-list STATIC", "permit ip host 10.1.1.50 mac host 0050.7966.6804", "exit", "ip arp inspection filter STATIC vlan 1");
+  assert.ok(net.ping("PC2", "10.1.1.1").ok, "an ARP ACL vouches for the static host");
+  // IP source guard: only the leased address may be used on the port.
+  on(net, "SW1", "interface f0/1", "ip verify source", "exit", "no ip arp inspection vlan 1");
+  assert.ok(net.ping("PC1", "10.1.1.1").ok);
+  console_(net, "PC1", "ip 10.1.1.77/24 10.1.1.1");
+  assert.ok(!net.ping("PC1", "10.1.1.1").ok);
+  assert.match(runningConfig(net, "SW1"), /ip dhcp snooping vlan 1\nip dhcp snooping\nip arp inspection filter STATIC vlan 1/);
+  assert.match(runningConfig(net, "SW1"), /interface FastEthernet0\/1\n ip verify source\n/);
+  assert.match(runningConfig(net, "SW1"), /arp access-list STATIC\n permit ip host 10\.1\.1\.50 mac host 0050\.7966\.6804/);
+});
+
+test("private VLANs, protected ports and voice VLANs", () => {
+  const net = new Network({ devices: [S("SW1"), R("R1"), P("PC1"), P("PC2"), P("PC3"), P("PC4")],
+    links: [["SW1", G(1), "R1", G(0)], ["SW1", F(1), "PC1", "eth0"], ["SW1", F(2), "PC2", "eth0"], ["SW1", F(3), "PC3", "eth0"], ["SW1", F(4), "PC4", "eth0"]] });
+  assert.match(console_(net, "SW1", "en", "conf t", "vlan 100", "private-vlan primary"), /Private VLANs can only be configured when VTP is in transparent\/off modes/);
+  on(net, "SW1", "vtp mode transparent", "vlan 101", "private-vlan isolated", "vlan 102", "private-vlan community", "vlan 100", "private-vlan primary",
+    "private-vlan association 101,102", "interface range f0/1 - 2", "switchport mode private-vlan host", "switchport private-vlan host-association 100 101",
+    "interface range f0/3 - 4", "switchport mode private-vlan host", "switchport private-vlan host-association 100 102",
+    "interface g0/1", "switchport mode private-vlan promiscuous", "switchport private-vlan mapping 100 101,102");
+  on(net, "R1", "interface g0/0", "ip address 10.1.0.1 255.255.255.0", "no shutdown");
+  pcs(net, [["PC1", "10.1.0.11/24 10.1.0.1"], ["PC2", "10.1.0.12/24 10.1.0.1"], ["PC3", "10.1.0.13/24 10.1.0.1"], ["PC4", "10.1.0.14/24 10.1.0.1"]]);
+  const ok = (a, b) => net.ping(a, b).ok;
+  assert.ok(ok("PC1", "10.1.0.1") && ok("PC3", "10.1.0.1"), "everyone reaches the promiscuous port");
+  assert.ok(!ok("PC1", "10.1.0.12"), "isolated hosts can't reach each other");
+  assert.ok(ok("PC3", "10.1.0.14"), "community hosts can");
+  assert.ok(!ok("PC1", "10.1.0.13") && !ok("PC4", "10.1.0.12"), "and the two secondaries are kept apart");
+  assert.ok(net.check({ type: "pvlan-port", device: "SW1", intf: "f0/1", mode: "host" }));
+  assert.match(console_(net, "SW1", "en", "show vlan private-vlan"), /100 +101 +isolated +Fa0\/1, Fa0\/2, Gi0\/1\n100 +102 +community +Fa0\/3, Fa0\/4, Gi0\/1/);
+  assert.match(runningConfig(net, "SW1"), /vlan 100\n private-vlan primary\n private-vlan association 101,102\n!\nvlan 101\n private-vlan isolated/);
+  assert.match(runningConfig(net, "SW1"), /interface FastEthernet0\/1\n switchport private-vlan host-association 100 101\n switchport mode private-vlan host\n/);
+
+  const p = new Network({ devices: [S("SW1"), P("PC1"), P("PC2"), P("PC3")], links: [["SW1", F(1), "PC1", "eth0"], ["SW1", F(2), "PC2", "eth0"], ["SW1", F(3), "PC3", "eth0"]] });
+  on(p, "SW1", "interface range f0/1 - 2", "switchport mode access", "switchport protected", "interface f0/3", "switchport mode access", "switchport voice vlan 150");
+  pcs(p, [["PC1", "10.0.0.1/24"], ["PC2", "10.0.0.2/24"], ["PC3", "10.0.0.3/24"]]);
+  assert.ok(!p.ping("PC1", "10.0.0.2").ok, "two protected ports can't talk");
+  assert.ok(p.ping("PC1", "10.0.0.3").ok, "a protected port reaches an unprotected one");
+  assert.ok(p.check({ type: "voice-vlan", device: "SW1", intf: "f0/3", vlan: 150 }));
+  assert.equal(p.egressTag(p.devs.SW1, F(3), 150), 150, "the voice VLAN is tagged");
+  assert.equal(p.egressTag(p.devs.SW1, F(3), 1), null, "data stays untagged");
+  assert.match(console_(p, "SW1", "en", "show interfaces f0/3 switchport"), /Voice VLAN: 150 \(VLAN0150\)/);
+});
+
+test("layer-3 switching: ip routing, SVIs as gateways, a routed uplink and static routes", () => {
+  const net = new Network({ devices: [S("MLS"), R("R1"), P("PC1"), P("PC2")], links: [["MLS", G(1), "R1", G(0)], ["MLS", F(1), "PC1", "eth0"], ["MLS", F(2), "PC2", "eth0"]] });
+  on(net, "MLS", "vlan 10,20", "interface f0/1", "switchport mode access", "switchport access vlan 10", "interface f0/2", "switchport mode access", "switchport access vlan 20",
+    "interface vlan 10", "ip address 10.1.10.1 255.255.255.0", "no shutdown", "interface vlan 20", "ip address 10.1.20.1 255.255.255.0", "no shutdown");
+  pcs(net, [["PC1", "10.1.10.10/24 10.1.10.1"], ["PC2", "10.1.20.10/24 10.1.20.1"]]);
+  assert.ok(!net.ping("PC1", "10.1.20.10").ok, "a layer-2 switch doesn't route between its SVIs");
+  assert.match(console_(net, "MLS", "en", "show ip route"), /^Default gateway is not set/m);
+  assert.match(console_(net, "MLS", "en", "conf t", "interface g0/1", "ip address 10.0.0.1 255.255.255.252"), /Invalid input/);
+  on(net, "MLS", "ip routing", "interface g0/1", "no switchport", "ip address 10.0.0.1 255.255.255.252", "no shutdown", "exit", "ip route 0.0.0.0 0.0.0.0 10.0.0.2");
+  on(net, "R1", "interface g0/0", "ip address 10.0.0.2 255.255.255.252", "no shutdown", "interface loopback0", "ip address 8.8.8.8 255.255.255.255", "exit",
+    "ip route 10.1.0.0 255.255.0.0 10.0.0.1");
+  assert.ok(net.ping("PC1", "10.1.20.10").ok);
+  assert.ok(net.ping("PC1", "8.8.8.8").ok);
+  assert.equal(net.ping("PC1", "10.1.20.10").ttl, 63, "the switch decrements the TTL like a router");
+  assert.ok(net.check({ type: "route", device: "MLS", prefix: "0.0.0.0/0", code: "S*" }));
+  assert.ok(net.check({ type: "routed-port", device: "MLS", intf: "g0/1" }));
+  assert.match(console_(net, "MLS", "en", "show interfaces status"), /Gi0\/1 +connected +routed/);
+  assert.match(runningConfig(net, "MLS"), /ip routing\n[\s\S]*interface GigabitEthernet0\/1\n no switchport\n ip address 10\.0\.0\.1 255\.255\.255\.252\n[\s\S]*ip route 0\.0\.0\.0 0\.0\.0\.0 10\.0\.0\.2/);
+  // An SVI can relay DHCP once the switch routes.
+  on(net, "R1", "ip dhcp pool V20", "network 10.1.20.0 255.255.255.0", "default-router 10.1.20.1");
+  on(net, "MLS", "interface vlan 20", "ip helper-address 10.0.0.2");
+  assert.match(console_(net, "PC2", "ip dhcp"), /DDORA IP 10\.1\.20\.\d+\/24 GW 10\.1\.20\.1/);
+});
+
+test("console messages for another device wait for its console, unless the lab page took them", () => {
+  const net = new Network({ devices: [S("SW1"), S("SW2")], links: [["SW1", G(1), "SW2", G(1)]] });
+  const sw1 = new Session(net, "SW1"), sw2 = new Session(net, "SW2");
+  for (const l of ["en", "conf t", "interface g0/1", "switchport mode trunk"]) sw2.input(l);
+  const out = ["en", "conf t", "interface g0/1", "switchport mode trunk", "switchport trunk native vlan 99"].map((l) => sw1.input(l)).join("\n");
+  assert.match(out, /%CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on GigabitEthernet0\/1 \(99\), with Switch GigabitEthernet0\/1 \(1\)\./);
+  assert.match(sw2.input(""), /%CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on GigabitEthernet0\/1 \(1\), with Switch GigabitEthernet0\/1 \(99\)\./);
+  assert.equal(sw2.input(""), "", "shown once");
+  // The lab page reads s.events and writes them into the other console itself: no second copy.
+  sw1.input("switchport trunk native vlan 98");
+  assert.ok(sw1.events.SW2.length);
+  assert.doesNotMatch(sw2.input(""), /NATIVE_VLAN/);
+});
+
+test("a switch with every CCNP feature replays its running-config", () => {
+  const net = new Network({ devices: [S("A"), R("B")], links: [] });
+  on(net, "A", "vtp domain LAB", "vtp mode transparent", "ip routing", "ip dhcp snooping vlan 10", "ip dhcp snooping", "ip arp inspection vlan 10",
+    "errdisable recovery cause psecure-violation", "errdisable recovery interval 60", "spanning-tree mode mst", "spanning-tree loopguard default",
+    "spanning-tree mst 1 priority 8192", "spanning-tree mst configuration", "name R1", "revision 3", "instance 1 vlan 10,20", "exit",
+    "vlan 10", "name DATA", "vlan 999", "remote-span", "vlan 200", "private-vlan primary", "private-vlan association 201", "vlan 201", "private-vlan isolated",
+    "interface f0/1", "switchport mode access", "switchport access vlan 10", "switchport voice vlan 150", "switchport protected", "spanning-tree guard root",
+    "storm-control broadcast level 20", "storm-control action trap", "ip verify source", "spanning-tree mst 1 cost 1000",
+    "interface f0/2", "switchport mode private-vlan host", "switchport private-vlan host-association 200 201",
+    "interface g0/1", "no switchport", "ip address 10.0.0.1 255.255.255.0", "interface g0/2", "switchport mode trunk", "ip dhcp snooping trust", "ip arp inspection trust",
+    "spanning-tree bpdufilter enable", "exit", "ip route 0.0.0.0 0.0.0.0 10.0.0.2", "arp access-list HOSTS", "permit ip host 10.0.0.5 mac any", "exit",
+    "monitor session 1 source vlan 10 rx", "monitor session 1 destination remote vlan 999");
+  on(net, "B", "fhrp version vrrp v3", "interface g0/0", "ip address 10.9.0.2 255.255.255.0", "glbp 5 ip 10.9.0.1", "glbp 5 weighting 110 lower 90 upper 100",
+    "glbp 5 load-balancing host-dependent", "ip dhcp relay information trusted", "vrrp 3 address-family ipv4", "address 10.9.0.3 primary", "priority 90", "exit-vrrp");
+  for (const dev of ["A", "B"]) {
+    const text = runningConfig(net, dev);
+    const fresh = new Network({ devices: [S("A"), R("B")], links: [] });
+    const keep = (l) => !/^(Building configuration|Current configuration|!|version |end$|no aaa new-model)/.test(l) && l.trim() !== "";
+    applyConfig(fresh, dev, text.split("\n").filter(keep).flatMap((l) => (l.startsWith("interface ") ? [l, " no shutdown"] : [l])));
+    assert.equal(runningConfig(fresh, dev), text, dev);
+  }
+});
+
 console.log(`ios: ${passed} tests passed`);

@@ -2673,8 +2673,8 @@ function showSwitchport(net, dn, p) {
     "private-vlan host": "private-vlan host", "private-vlan promiscuous": "private-vlan promiscuous" }[i.mode];
   const vname = (v) => `${v} (${d.cfg.vlans[v] || "Inactive"})`;
   return [`Name: ${shortIf(p)}`, "Switchport: Enabled", `Administrative Mode: ${adm}`,
-    `Operational Mode: ${net.portUp(dn, p) ? (op === "trunk" ? "trunk" : "static access") : "down"}`,
-    "Administrative Trunking Encapsulation: dot1q", `Negotiation of Trunking: ${i.noneg || i.mode === "access" ? "Off" : "On"}`,
+    `Operational Mode: ${net.portUp(dn, p) ? (i.mode.startsWith("private-vlan") ? i.mode : op === "trunk" ? "trunk" : "static access") : "down"}`,
+    "Administrative Trunking Encapsulation: dot1q", `Negotiation of Trunking: ${i.noneg || i.mode === "access" || i.mode.startsWith("private-vlan") ? "Off" : "On"}`,
     `Access Mode VLAN: ${vname(i.accessVlan)}`, `Trunking Native Mode VLAN: ${vname(i.native)}`,
     `Trunking VLANs Enabled: ${i.allowed === null ? "ALL" : vlanStr(i.allowed) || "NONE"}`,
     `Administrative private-vlan host-association: ${xr(i).pvHost ? xr(i).pvHost.join(" (") + ")" : "none"}`,
@@ -6213,39 +6213,6 @@ function tailLines(d) {
   return L.length ? [...L, "!"] : [];
 }
 
-// -- modes -------------------------------------------------------------------------------------------------
-Object.assign(MODES, { mst: "(config-mst)#", vrrp: "(config-if-vrrp)#", erspan: "(config-mon-erspan-src)#",
-  erspandst: "(config-mon-erspan-src-dst)#", erspanr: "(config-mon-erspan-dst)#", erspanrsrc: "(config-mon-erspan-dst-src)#",
-  arpacl: "(config-arp-nacl)#" });
-const SW_MODES = ["mst", "vrrp", "erspan", "erspandst", "erspanr", "erspanrsrc", "arpacl"];
-SUBMODES.push(...SW_MODES);
-CONFIG_MODES.push(...SW_MODES);
-for (const m of SW_MODES) def(m === "vrrp" || m.startsWith("erspan") ? "R" : "S", m, "end", (c) => c.s.endConfig());
-def("S", ["mst", "arpacl"], "exit", (c) => c.s.enter("config", null));
-def("R", "vrrp", "exit", (c) => c.s.enter("if", [c.target.ifn]));
-def("R", "vrrp", "exit-vrrp", (c) => c.s.enter("if", [c.target.ifn]));
-def("R", ["erspan", "erspanr"], "exit", (c) => c.s.enter("config", null));
-def("R", "erspandst", "exit", (c) => c.s.enter("erspan", c.target));
-def("R", "erspanrsrc", "exit", (c) => c.s.enter("erspanr", c.target));
-
-PARAMS.insts = { fmt: "WORD", help: "MST instance range, example 0-3,5,7-9", match: (t, k) => {
-  if (!/^[\d,-]+$/.test(t[k].t)) return null;
-  const out = [];
-  for (const part of t[k].t.split(",")) {
-    const m = /^(\d+)(?:-(\d+))?$/.exec(part);
-    if (!m) return null;
-    const a = +m[1], b = m[2] !== undefined ? +m[2] : a;
-    if (b < a || b > 4094) return null;
-    for (let i = a; i <= b; i++) out.push(i);
-  }
-  return { used: 1, value: [...new Set(out)] };
-} };
-PARAMS.pct = { fmt: "<0.00 - 100.00>", help: "Enter rising threshold", match: (t, k) => {
-  const v = Number(t[k].t);
-  return /^\d{1,3}(\.\d{1,2})?$/.test(t[k].t) && v >= 0 && v <= 100 ? { used: 1, value: v } : null;
-} };
-
-
 // Help is worked out when a command is defined, so it is added before the commands. Existing entries
 // are left alone: they already describe the commands defined above.
 const addHelp = (target, add) => { for (const [k, v] of Object.entries(add)) if (!(k in target)) target[k] = v; };
@@ -6284,7 +6251,13 @@ addHelp(HELP_PATH, {
   "show vlan remote-span": "Remote SPAN VLANs", "switchport mode private-vlan": "Set the mode to private-vlan host or promiscuous",
   "private-vlan host": "Set the mode to private-vlan host", "private-vlan promiscuous": "Set the mode to private-vlan promiscuous",
   "switchport private-vlan": "Set the private VLAN configuration", "private-vlan host-association": "Set the private VLAN host association",
-  "private-vlan mapping": "Set the private VLAN promiscuous mapping", "mapping add": "Add to private VLAN mapping list",
+  "switchport private-vlan mapping": "Set the private VLAN promiscuous mapping", "private-vlan mapping": "Set the private VLAN SVI mapping",
+  "instance vlan": "Range of vlans to add to the instance mapping", "weighting track decrement": "Weighting decrement",
+  "interface both": "Monitor received and transmitted traffic", "interface rx": "Monitor received traffic only",
+  "interface tx": "Monitor transmitted traffic only", "vlan both": "Monitor received and transmitted traffic",
+  "vlan rx": "Monitor received traffic only", "vlan tx": "Monitor transmitted traffic only",
+  "vtp version 1": "Set the adminstrative domain to VTP version 1", "vtp version 2": "Set the adminstrative domain to VTP version 2",
+  "vtp version 3": "Set the adminstrative domain to VTP version 3", "mapping add": "Add to private VLAN mapping list",
   "mapping remove": "Remove from private VLAN mapping list", "switchport voice": "Voice appliance attributes",
   "voice vlan": "VLAN for voice application", "voice vlan none": "Don't tell telephone about voice vlan",
   "switchport protected": "Configure an interface to be a protected port", "remote-span": "Configure as Remote SPAN VLAN",
@@ -6367,6 +6340,40 @@ addHelp(HELP_MODE, {
 });
 addHelp(HELP_MODE.config, { vtp: "Configure global VTP state", errdisable: "Error disable" });
 
+
+// -- modes -------------------------------------------------------------------------------------------------
+Object.assign(MODES, { mst: "(config-mst)#", vrrp: "(config-if-vrrp)#", erspan: "(config-mon-erspan-src)#",
+  erspandst: "(config-mon-erspan-src-dst)#", erspanr: "(config-mon-erspan-dst)#", erspanrsrc: "(config-mon-erspan-dst-src)#",
+  arpacl: "(config-arp-nacl)#" });
+const SW_MODES = ["mst", "vrrp", "erspan", "erspandst", "erspanr", "erspanrsrc", "arpacl"];
+SUBMODES.push(...SW_MODES);
+CONFIG_MODES.push(...SW_MODES);
+for (const m of SW_MODES) def(m === "vrrp" || m.startsWith("erspan") ? "R" : "S", m, "end", (c) => c.s.endConfig());
+def("S", ["mst", "arpacl"], "exit", (c) => c.s.enter("config", null));
+def("R", "vrrp", "exit", (c) => c.s.enter("if", [c.target.ifn]));
+def("R", "vrrp", "exit-vrrp", (c) => c.s.enter("if", [c.target.ifn]));
+def("R", ["erspan", "erspanr"], "exit", (c) => c.s.enter("config", null));
+def("R", "erspandst", "exit", (c) => c.s.enter("erspan", c.target));
+def("R", "erspanrsrc", "exit", (c) => c.s.enter("erspanr", c.target));
+
+PARAMS.insts = { fmt: "WORD", help: "MST instance range, example 0-3,5,7-9", match: (t, k) => {
+  if (!/^[\d,-]+$/.test(t[k].t)) return null;
+  const out = [];
+  for (const part of t[k].t.split(",")) {
+    const m = /^(\d+)(?:-(\d+))?$/.exec(part);
+    if (!m) return null;
+    const a = +m[1], b = m[2] !== undefined ? +m[2] : a;
+    if (b < a || b > 4094) return null;
+    for (let i = a; i <= b; i++) out.push(i);
+  }
+  return { used: 1, value: [...new Set(out)] };
+} };
+PARAMS.pct = { fmt: "<0.00 - 100.00>", help: "Enter rising threshold", match: (t, k) => {
+  const v = Number(t[k].t);
+  return /^\d{1,3}(\.\d{1,2})?$/.test(t[k].t) && v >= 0 && v <= 100 ? { used: 1, value: v } : null;
+} };
+
+
 // -- MST ------------------------------------------------------------------------------------------------
 const mstSet = (cfg) => (cfg.mst = cfg.mst || clone(MST_DEFAULT));
 def("S", "config", "spanning-tree mode mst", (c) => { c.cfg.stp.mode = "mst"; });
@@ -6378,14 +6385,24 @@ def("S", "mst", "name <word|Configuration name>", (c, [n]) => {
 def("S", "mst", "no name", (c) => { mstSet(c.cfg).name = ""; });
 def("S", "mst", "revision <num:0-65535|Configuration revision number>", (c, [r]) => { mstSet(c.cfg).rev = r; });
 def("S", "mst", "no revision", (c) => { mstSet(c.cfg).rev = 0; });
-def("S", "mst", "instance <num:1-4094|MST instance id> vlan <vlans|Range of vlans to add to the instance mapping>", (c, [i, vs]) => {
+// The list may carry spaces after the commas, as show running-config prints it ("10, 20").
+const mstVlanList = (c, text, at) => {
+  const vs = parseVlans(text.replace(/\s+/g, ""));
+  if (!vs) c.invalid(at);
+  return vs;
+};
+def("S", "mst", "instance <num:1-4094|MST instance id> vlan <line|Range of vlans to add to the instance mapping, example 1-3,5,7-9>", (c, [i, text]) => {
+  const vs = mstVlanList(c, text, 3);
+  if (!vs) return;
   const m = mstSet(c.cfg);
   for (const [k, list] of Object.entries(m.map)) m.map[k] = list.filter((v) => !vs.includes(v));
   m.map[i] = [...new Set([...(m.map[i] || []), ...vs])].sort((a, b) => a - b);
   for (const k of Object.keys(m.map)) if (!m.map[k].length) delete m.map[k];
 });
 def("S", "mst", "no instance <num:1-4094|MST instance id>", (c, [i]) => { delete mstSet(c.cfg).map[i]; });
-def("S", "mst", "no instance <num:1-4094|MST instance id> vlan <vlans|Range of vlans to remove from the instance mapping>", (c, [i, vs]) => {
+def("S", "mst", "no instance <num:1-4094|MST instance id> vlan <line|Range of vlans to remove from the instance mapping>", (c, [i, text]) => {
+  const vs = mstVlanList(c, text, 4);
+  if (!vs) return;
   const m = mstSet(c.cfg);
   if (m.map[i]) m.map[i] = m.map[i].filter((v) => !vs.includes(v));
   if (m.map[i] && !m.map[i].length) delete m.map[i];
@@ -9191,7 +9208,7 @@ export function applyConfig(net, devName, lines) {
   if (net.devs[devName].type !== "pc") s.frames[0].mode = "config";
   for (const line of lines) {
     const out = s.input(line);
-    const notes = /^%\s?(Access VLAN does not exist|Login disabled|OSPF: Reference|OSPFv3: Reference|The key modulus|Generating|Warning: portfast|Warning: this command enables portfast|Portfast has been configured|Only classful|OSPFv3-4-NORTRID|This simulator doesn't summarise)/;
+    const notes = /^%\s?(Access VLAN does not exist|Login disabled|OSPF: Reference|OSPFv3: Reference|The key modulus|Generating|Warning: portfast|Warning: this command enables portfast|Portfast has been configured|Only classful|OSPFv3-4-NORTRID|This simulator doesn't summarise|Voice VLAN does not exist|Warning: VLAN \d+ is not configured as a remote-span|Warning: UplinkFast)/;
     if (out.split("\n").some((l) => (l.startsWith("%") && !notes.test(l)) || /^(Bad mask|Bad command|Invalid address|Command rejected)/.test(l))) {
       throw new Error(`${devName}: "${line}" -> ${out}`);
     }
