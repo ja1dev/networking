@@ -89,19 +89,21 @@ const PORTS = {
   switch: [...Array(24)].map((_, i) => "FastEthernet0/" + (i + 1)).concat(["GigabitEthernet0/1", "GigabitEthernet0/2"]),
   pc: ["eth0"],
 };
-const IF_TYPES = { router: ["GigabitEthernet", "Loopback"], switch: ["FastEthernet", "GigabitEthernet", "Port-channel", "Vlan"] };
+const IF_TYPES = { router: ["GigabitEthernet", "Loopback", "Tunnel"], switch: ["FastEthernet", "GigabitEthernet", "Port-channel", "Vlan"] };
 const IF_HELP = {
   GigabitEthernet: "GigabitEthernet IEEE 802.3z", FastEthernet: "FastEthernet IEEE 802.3",
   Loopback: "Loopback interface", Vlan: "Catalyst Vlans", "Port-channel": "Ethernet Channel of interfaces",
+  Tunnel: "Tunnel interface",
 };
-const SHORT = { GigabitEthernet: "Gi", FastEthernet: "Fa", Loopback: "Lo", Vlan: "Vl", "Port-channel": "Po" };
+const SHORT = { GigabitEthernet: "Gi", FastEthernet: "Fa", Loopback: "Lo", Vlan: "Vl", "Port-channel": "Po", Tunnel: "Tu" };
 export const shortIf = (n) => n.replace(/^[A-Za-z-]+/, (t) => SHORT[t] || t);
 const ifType = (n) => (/^[A-Za-z-]+/.exec(n) || [""])[0];
 const physOf = (n) => n.split(".")[0];
 const isSub = (n) => n.includes(".");
 const isPo = (n) => n.startsWith("Port-channel");
+const isTun = (n) => n.startsWith("Tunnel");
 const poNum = (n) => +n.slice(12);
-const RANK = { Vlan: 0, "Port-channel": 0.5, FastEthernet: 1, GigabitEthernet: 2, Loopback: 3, eth: 4 };
+const RANK = { Vlan: 0, "Port-channel": 0.5, FastEthernet: 1, GigabitEthernet: 2, Loopback: 3, Tunnel: 3.5, eth: 4 };
 
 function ifSort(a, b) {
   const ta = RANK[ifType(a)] ?? 9, tb = RANK[ifType(b)] ?? 9;
@@ -129,7 +131,7 @@ export function parseIfName(devType, toks, k) {
     num = nx.t; used = 2;
   }
   const t = types[0];
-  const ok = t === "Loopback" ? /^\d{1,9}$/.test(num)
+  const ok = t === "Loopback" || t === "Tunnel" ? /^\d{1,9}$/.test(num)
     : t === "Vlan" ? /^\d{1,4}$/.test(num) && +num >= 1 && +num <= 4094
       : t === "Port-channel" ? /^\d{1,2}$/.test(num) && +num >= 1 && +num <= 48
         : /^\d+\/\d+(\.\d{1,9})?$/.test(num);
@@ -301,6 +303,7 @@ export class Network {
     const c = d.type === "pc" ? {} : d.cfg.intfs[ifn];
     if (!c) return { status: "down", proto: "down" };
     if (c.shut) return { status: "administratively down", proto: "down" };
+    if (isTun(ifn)) return { status: "up", proto: this.tunUp(dn, ifn) ? "up" : "down" };
     let up;
     if (ifn.startsWith("Loopback")) up = true;
     else if (ifn.startsWith("Vlan")) up = this.sviUp(d, +ifn.slice(4));
@@ -579,6 +582,7 @@ export class Network {
   flood(dn, ifn) {
     const key = dn + "|" + ifn;
     if (this.c.flood[key]) return this.c.flood[key];
+    if (isTun(ifn)) return (this.c.flood[key] = this.tunFlood(dn, ifn));
     const out = [], q = [], seen = new Set();
     const send = (from, port, tag, trail) => {
       if (!this.lup(from, port)) return;
@@ -667,6 +671,7 @@ export class Network {
     if (!o) return out;
     const nets = [...o.networks].sort((a, b) => bitCount(a.wild) - bitCount(b.wild));
     for (const ifn of this.upIfs(dn)) {
+      if (this.vrfOf(dn, ifn)) continue;
       const c = d.cfg.intfs[ifn], { ip, mask } = this.ifAddr(dn, ifn), oc = c.ospf || {};
       let area = null;
       if (oc.pid === o.pid && oc.area !== undefined && oc.area !== null) area = oc.area;
@@ -679,7 +684,7 @@ export class Network {
       const hello = oc.hello ?? 10;
       out.push({
         ifn, ip, mask, area, passive, hello, dead: oc.dead ?? hello * 4, prio: oc.prio ?? 1,
-        ptp: !!oc.ptp, loop: ifn.startsWith("Loopback"),
+        ptp: oc.ptp !== undefined ? !!oc.ptp : isTun(ifn), loop: ifn.startsWith("Loopback"),
         cost: oc.cost ?? Math.max(1, Math.floor((o.refBw * 1000) / this.bandwidth(d, ifn))),
       });
     }
@@ -695,7 +700,7 @@ export class Network {
       return mem.reduce((s, p) => s + this.bandwidth(d, p), 0) || 100000;
     }
     const t = ifType(ifn);
-    return t === "FastEthernet" ? 100000 : t === "Loopback" ? 8000000 : 1000000;
+    return t === "FastEthernet" ? 100000 : t === "Loopback" ? 8000000 : t === "Tunnel" ? 100 : 1000000;
   }
 
   routerId(dn) {
@@ -785,6 +790,7 @@ export class Network {
     if (this.c.routes[dn]) return this.c.routes[dn];
     const d = this.devs[dn], cands = [];
     for (const ifn of this.upIfs(dn)) {
+      if (this.vrfOf(dn, ifn)) continue;
       for (const { ip, mask } of this.ifAddrs(dn, ifn)) {
         const len = maskLen(mask);
         cands.push({ code: "C", net: and(ip, mask), len, ad: 0, metric: 0, ifn });
@@ -828,6 +834,7 @@ export class Network {
       if (!added) break;
       table = select(cands);
     }
+    table = this.nhrpOverlay(dn, table);
     table.sort((a, b) => a.net - b.net || a.len - b.len);
     this.c.routes[dn] = table;
     return table;
@@ -835,16 +842,16 @@ export class Network {
 
   lookup(dn, ip) { return lpm(this.routes(dn), ip); }
 
-  // Where a router sends a packet for dst: {ifn, nh, proxy} or {fail}.
-  routerEgress(dn, dst, depth = 0) {
-    const r = this.lookup(dn, dst);
+  // Where a router sends a packet for dst: {ifn, nh, proxy} or {fail}. vrf picks the routing table.
+  routerEgress(dn, dst, depth = 0, vrf = null) {
+    const r = vrf ? lpm(this.vrfRoutes(dn, vrf), dst) : this.lookup(dn, dst);
     if (!r) return { fail: "noroute" };
     if (r.code === "C" || r.code === "L") return { ifn: r.ifn, nh: dst };
     const p = r.paths[0];
     if (p.ifn && p.ip === null) return { ifn: p.ifn, nh: dst, proxy: true };
     if (p.ifn) return { ifn: p.ifn, nh: p.ip };
     if (depth > 4) return { fail: "noroute" };
-    const e = this.routerEgress(dn, p.ip, depth + 1);
+    const e = this.routerEgress(dn, p.ip, depth + 1, vrf);
     if (e.fail) return e;
     return e.nh === p.ip || e.proxy ? { ifn: e.ifn, nh: e.proxy ? p.ip : e.nh } : e;
   }
@@ -885,12 +892,15 @@ export class Network {
   deliver(src, pkt, opts = {}) {
     pkt = { ...pkt };
     const res = { ok: false, links: [], hops: [], arpMiss: false, pkt };
-    let cur = src, originated = true, ttl = pkt.ttl ?? 255, inIf = null;
+    let cur = src, originated = true, ttl = pkt.ttl ?? 255, inIf = null, prev = null;
+    // The routing table a packet is looked up in: the VRF of the interface it arrived on.
+    let vrf = opts.vrf ?? null;
     for (let n = 0; n < 40; n++) {
       const d = this.devs[cur];
+      res.vrf = vrf;
       // NAT outside-to-inside happens before routing.
       if (!originated && d.type === "router" && d.cfg.intfs[inIf].nat === "outside") this.natInbound(cur, pkt, opts);
-      if (this.ownsIp(cur, pkt.dst)) {
+      if (this.ownsIpIn(cur, pkt.dst, vrf)) {
         res.ok = true;
         res.at = cur;
         if (opts.record && pkt.proto === "icmp" && d.rt.debug && d.rt.debug.icmp) {
@@ -903,13 +913,27 @@ export class Network {
         if (d.type !== "router") return { ...res, fail: "drop", failAt: cur };
         if (--ttl <= 0) return { ...res, fail: "ttl", failAt: cur };
       }
-      const eg = d.type === "router" ? this.routerEgress(cur, pkt.dst) : this.hostEgress(cur, pkt.dst);
+      const eg = d.type === "router" ? this.routerEgress(cur, pkt.dst, 0, vrf) : this.hostEgress(cur, pkt.dst);
       if (eg.fail) return { ...res, fail: eg.fail, failAt: cur };
       // NAT inside-to-outside happens after routing, before the outbound ACL.
       if (!originated && d.type === "router" && d.cfg.intfs[inIf].nat === "inside" && d.cfg.intfs[eg.ifn].nat === "outside"
         && !this.natOutbound(cur, eg.ifn, pkt, opts)) return { ...res, fail: "nat", failAt: cur };
       if (!originated && d.cfg.intfs[eg.ifn].aclOut && !this.aclPermits(cur, d.cfg.intfs[eg.ifn].aclOut, pkt, opts.record)) {
         return { ...res, fail: "acl", failAt: cur };
+      }
+      // Tunnels and crypto maps carry the packet across the underlay to the far end in one step.
+      const via = d.type === "router" ? this.vpnHop(cur, eg, pkt, opts, res, { inIf, prev, originated }) : null;
+      if (via) {
+        if (via.fail) return { ...res, fail: via.fail, failAt: cur };
+        prev = cur;
+        cur = via.dev;
+        inIf = via.ifn;
+        originated = false;
+        vrf = this.vrfOf(cur, inIf);
+        res.hops.push({ dev: cur, ip: this.ifAddr(cur, inIf).ip, ifn: inIf });
+        const acl = this.devs[cur].cfg.intfs[inIf].aclIn;
+        if (acl && !this.aclPermits(cur, acl, pkt, opts.record)) return { ...res, fail: "acl", failAt: cur };
+        continue;
       }
       const seg = this.flood(cur, eg.ifn);
       const live = (e) => this.ifUp(e.dev, e.ifn) && this.ifAddr(e.dev, e.ifn);
@@ -935,14 +959,18 @@ export class Network {
       }
       if (opts.record) this.learn(cur, eg.ifn, tgt, eg.nh, res);
       res.links.push(...tgt.trail);
+      prev = cur;
       cur = tgt.dev;
       inIf = tgt.ifn;
       originated = false;
+      vrf = this.vrfOf(cur, inIf);
       const td = this.devs[cur];
       res.hops.push({ dev: cur, ip: this.ifAddr(cur, tgt.ifn).ip, ifn: tgt.ifn });
       if (td.type === "router") {
         const acl = td.cfg.intfs[tgt.ifn].aclIn;
         if (acl && !this.aclPermits(cur, acl, pkt, opts.record)) return { ...res, fail: "acl", failAt: cur };
+        // Cleartext that a crypto map on this interface expects to arrive encrypted is dropped.
+        if (this.cryptoWantsEncrypted(cur, tgt.ifn, pkt)) return { ...res, fail: "crypto", failAt: cur };
       }
     }
     return { ...res, fail: "ttl", failAt: cur };
@@ -952,7 +980,7 @@ export class Network {
   learn(dn, ifn, tgt, nh, res) {
     const smac = this.mac(dn, ifn), dmac = tgt.vmac || this.mac(tgt.dev, tgt.ifn);
     this.learnMacs(tgt.trail, smac, dmac, ifn);
-    const d = this.devs[dn], key = n2ip(nh);
+    const d = this.devs[dn], v = this.vrfOf(dn, ifn), key = (v ? v + "|" : "") + n2ip(nh);
     // Only a router has to ARP before it can forward, and it drops the packet while it waits.
     // Hosts resolve first and then send, so their own first packet isn't lost.
     if (d.type === "router" && !d.rt.arp[key]) res.arpMiss = true;
@@ -967,7 +995,8 @@ export class Network {
       if (r.type !== "router") continue;
       const aimed = e === tgt || Object.entries(r.cfg.intfs[e.ifn].standby || {})
         .some(([g, s]) => s.ip === nh || (r.rt.hsrp[e.ifn + "|" + g] || {}).vip === nh);
-      if (aimed) r.rt.arp[n2ip(sender.ip)] = { mac: smac, ifn: e.ifn };
+      const rv = this.vrfOf(e.dev, e.ifn);
+      if (aimed) r.rt.arp[(rv ? rv + "|" : "") + n2ip(sender.ip)] = { mac: smac, ifn: e.ifn };
     }
   }
 
@@ -1110,11 +1139,11 @@ export class Network {
     return d.cfg.nat.statics.some((s) => s.global === ip) || Object.values(d.cfg.nat.pools).some((p) => ip >= p.start && ip <= p.end);
   }
 
-  sourceIp(dn, dst, source) {
+  sourceIp(dn, dst, source, vrf = null) {
     const d = this.devs[dn];
     if (source !== undefined && source !== null) return source;
     if (d.type === "pc") return d.cfg.ip;
-    const eg = d.type === "router" ? this.routerEgress(dn, dst) : this.hostEgress(dn, dst);
+    const eg = d.type === "router" ? this.routerEgress(dn, dst, 0, vrf) : this.hostEgress(dn, dst);
     if (eg.fail) return null;
     return this.ifAddr(dn, eg.ifn).ip;
   }
@@ -1125,22 +1154,24 @@ export class Network {
       if (dst.includes(":")) return this.ping6(dn, parse6(dst), opts);
       dst = ip2n(dst);
     }
-    const src = this.sourceIp(dn, dst, opts.source);
-    if (this.ownsIp(dn, dst)) return { ok: true, links: [], ttl: 255, hops: [] };
+    const vrf = opts.vrf ?? null;
+    const src = this.sourceIp(dn, dst, opts.source, vrf);
+    if (this.ownsIpIn(dn, dst, vrf)) return { ok: true, links: [], ttl: 255, hops: [] };
     if (src === null) {
-      const eg = this.devs[dn].type === "router" ? this.routerEgress(dn, dst) : this.hostEgress(dn, dst);
+      const eg = this.devs[dn].type === "router" ? this.routerEgress(dn, dst, 0, vrf) : this.hostEgress(dn, dst);
       return { ok: false, fail: eg.fail || "noip", failAt: dn, links: [] };
     }
     const o = { ...opts, natTmp: opts.natTmp || {} };
     const there = this.deliver(dn, { src, dst, proto: "icmp", icmp: "echo", id: 1 }, o);
     if (!there.ok) return { ...there, by: this.ifFacing(there) };
-    const back = this.deliver(there.at, { src: there.pkt.dst, dst: there.pkt.src, proto: "icmp", icmp: "echo-reply", id: there.pkt.id }, o);
+    const back = this.deliver(there.at, { src: there.pkt.dst, dst: there.pkt.src, proto: "icmp", icmp: "echo-reply", id: there.pkt.id }, { ...o, vrf: there.vrf });
     // The reply only counts if it comes back to us, from the address we pinged.
     const ok = back.ok && back.at === dn && back.pkt.src === dst;
     const routers = back.hops.filter((h) => this.devs[h.dev].type === "router").length;
     const startTtl = this.devs[there.at].type === "pc" ? 64 : 255;
     return { ok, fail: ok ? undefined : back.fail || "drop", failAt: ok ? undefined : back.failAt || back.at,
-      links: there.links.concat(back.links), back: true, arpMiss: there.arpMiss || back.arpMiss, ttl: startTtl - routers, hops: there.hops };
+      links: there.links.concat(back.links), back: true, arpMiss: there.arpMiss || back.arpMiss, ttl: startTtl - routers, hops: there.hops,
+      crypto: !!there.crypto && !!back.crypto };
   }
 
   // The address an ICMP error would come from: the failing router's ingress interface.
@@ -1150,22 +1181,22 @@ export class Network {
   }
 
   // Router-by-router path for traceroute: [{ip, ok}] ending at the destination when reached.
-  trace(dn, dst, max = 30, source) {
+  trace(dn, dst, max = 30, source, vrf = null) {
     if (typeof dst === "string") dst = ip2n(dst);
-    const src = this.sourceIp(dn, dst, source);
-    const out = [], o = { natTmp: {} };
+    const src = this.sourceIp(dn, dst, source, vrf);
+    const out = [], o = { natTmp: {}, vrf };
     if (src === null) return out;
     const home = (back) => back.ok && back.at === dn;
     for (let ttl = 1; ttl <= max; ttl++) {
       const r = this.deliver(dn, { src, dst, proto: "udp", ttl, id: 1 }, o);
       if (r.ok) {
-        const back = this.deliver(r.at, { src: r.pkt.dst, dst: r.pkt.src, proto: "icmp", icmp: "unreachable", id: r.pkt.id }, o);
+        const back = this.deliver(r.at, { src: r.pkt.dst, dst: r.pkt.src, proto: "icmp", icmp: "unreachable", id: r.pkt.id }, { ...o, vrf: r.vrf });
         out.push({ ip: home(back) ? dst : null, last: true });
         return out;
       }
       if (r.fail === "ttl") {
         const h = r.hops.filter((x) => x.dev === r.failAt).pop();
-        const back = this.deliver(r.failAt, { src: h.ip, dst: r.pkt.src, proto: "icmp", icmp: "time-exceeded", id: r.pkt.id }, o);
+        const back = this.deliver(r.failAt, { src: h.ip, dst: r.pkt.src, proto: "icmp", icmp: "time-exceeded", id: r.pkt.id }, { ...o, vrf: r.vrf });
         out.push({ ip: home(back) ? h.ip : null });
         continue;
       }
@@ -1317,6 +1348,7 @@ export class Network {
     const log = (dn, m) => (logs[dn] = logs[dn] || []).push(m);
     for (const [dn, msgs] of Object.entries(this.pend)) for (const m of msgs) log(dn, m);
     this.pend = {};
+    this.tunLog(log);
     for (let pass = 0; pass < 6; pass++) {
       let changed = false;
       for (const d of Object.values(this.devs)) {
@@ -1346,7 +1378,7 @@ export class Network {
     const c = d.cfg.intfs[ifn];
     if (c.delay) return c.delay;
     const t = ifType(ifn);
-    return t === "Loopback" ? 500 : t === "FastEthernet" ? 10 : 1; // tens of microseconds
+    return t === "Loopback" ? 500 : t === "Tunnel" ? 5000 : t === "FastEthernet" ? 10 : 1; // tens of microseconds
   }
 
   eigrpRid(dn) {
@@ -1360,6 +1392,7 @@ export class Network {
   eigrpIfs(dn) {
     const d = this.devs[dn], e = d.cfg.eigrp, out = [];
     for (const ifn of this.upIfs(dn)) {
+      if (this.vrfOf(dn, ifn)) continue;
       const { ip, mask } = this.ifAddr(dn, ifn);
       const hit = e.networks.some((n) => (n.wild === null ? majorNet(ip).net === n.addr : wildMatch(ip, n.addr, n.wild)));
       if (!hit) continue;
@@ -1437,9 +1470,13 @@ export class Network {
         for (const n of me.nbrs) {
           for (const [k, en] of Object.entries(tab[n.dev])) {
             if (en.via.some((v) => v.dev === dn)) continue; // split horizon
+            // A multipoint tunnel keeps IOS's per-interface split horizon (on unless turned off), and
+            // with next-hop-self off the neighbour passes on the original next hop (DMVPN phase 2).
+            if (isTun(n.ifn) && en.via.some((v) => v.ifn === n.ifn) && this.eigrpTunSH(n.dev, n.ifn)) continue;
+            const keepNh = isTun(n.ifn) && en.via.length && en.via[0].ifn === n.ifn && !this.eigrpTunNHS(n.dev, n.ifn);
             const vec = { bw: Math.min(en.vec.bw, n.li.bw), dly: en.vec.dly + n.li.dly };
             (cands[k] = cands[k] || []).push({ metric: this.eigrpMetric(me, vec), rd: en.metric, vec, ext: en.ext,
-              net: en.net, len: en.len, ip: n.ip, ifn: n.local, dev: n.dev });
+              net: en.net, len: en.len, ip: keepNh ? en.via[0].ip : n.ip, ifn: n.local, dev: n.dev });
           }
         }
         for (const [k, cs] of Object.entries(cands)) {
@@ -1861,8 +1898,11 @@ export class Network {
     // A check about an interface that doesn't exist yet (say Port-channel1 before the bundle) is simply false.
     if (intf && d.type !== "pc" && !d.cfg.intfs[intf]) return c.type === "noping" || c.type === "noroute" || c.type === "noconfig";
     switch (c.type) {
-      case "ping": return this.ping(c.from, c.to).ok;
-      case "noping": return !this.ping(c.from, c.to).ok;
+      case "ping": {
+        const r = this.ping(c.from, c.to, c.vrf ? { vrf: c.vrf } : {});
+        return r.ok && (!c.encrypted || r.crypto);
+      }
+      case "noping": return !this.ping(c.from, c.to, c.vrf ? { vrf: c.vrf } : {}).ok;
       case "hostname": return d.cfg.hostname === c.value;
       case "config": return new RegExp(c.match, "m").test(runningConfig(this, d.name));
       case "noconfig": return !new RegExp(c.match, "m").test(runningConfig(this, d.name));
@@ -1883,13 +1923,13 @@ export class Network {
       }
       case "route": {
         const [net, len] = c.prefix.split("/");
-        const r = this.routes(d.name).find((x) => x.net === ip2n(net) && x.len === +len);
+        const r = (c.vrf ? this.vrfRoutes(d.name, c.vrf) : this.routes(d.name)).find((x) => x.net === ip2n(net) && x.len === +len);
         if (!r || (c.code && r.code !== c.code)) return false;
         return !c.via || (!!r.paths && r.paths.some((p) => p.ip === ip2n(c.via)));
       }
       case "noroute": {
         const [net, len] = c.prefix.split("/");
-        return !this.routes(d.name).some((x) => x.net === ip2n(net) && x.len === +len && (!c.code || x.code === c.code));
+        return !(c.vrf ? this.vrfRoutes(d.name, c.vrf) : this.routes(d.name)).some((x) => x.net === ip2n(net) && x.len === +len && (!c.code || x.code === c.code));
       }
       case "ospf-nbrs": {
         const o = this.ospf()[d.name];
@@ -1978,7 +2018,11 @@ export class Network {
         const t = e && e.topo[ip2n(net) + "/" + len];
         return !!t && t.fs.some((x) => x.ip === ip2n(c.via));
       }
-      default: throw new Error("unknown check type " + c.type);
+      default: {
+        const r = this.vpnCheck(c, d, intf);
+        if (r === undefined) throw new Error("unknown check type " + c.type);
+        return r;
+      }
     }
   }
 }
@@ -2132,7 +2176,7 @@ function aceStr(type, e) {
 const actionStr = (type, a) => (type === "standard" && a === "deny" ? "deny  " : a);
 
 const PORT_NAMES = { ftp: 21, ssh: 22, telnet: 23, smtp: 25, domain: 53, bootps: 67, bootpc: 68, tftp: 69, www: 80,
-  pop3: 110, ntp: 123, snmp: 161, https: 443 };
+  pop3: 110, ntp: 123, snmp: 161, https: 443, isakmp: 500, "non500-isakmp": 4500 };
 const ICMP_TYPES = ["echo", "echo-reply", "unreachable", "time-exceeded"];
 
 // Parse what follows permit/deny in an ACL. Returns {entry} or {at: index of the bad word}.
@@ -2169,7 +2213,7 @@ export function parseAce(type, words) {
     return { op, a };
   };
   if (type === "extended") {
-    const m = ["ip", "icmp", "tcp", "udp"].filter((x) => x === lw(i) || (lw(i) && x.startsWith(lw(i)) && lw(i).length > 1));
+    const m = ["ip", "icmp", "tcp", "udp", "gre", "esp", "ahp"].filter((x) => x === lw(i) || (lw(i) && x.startsWith(lw(i)) && lw(i).length > 1));
     if (m.length !== 1) return { at: i };
     e.proto = m[0];
     i++;
@@ -2209,6 +2253,7 @@ export function runningConfig(net, dn, onlyIf) {
     if (i.bw) L.push(" bandwidth " + i.bw);
     if (i.delay) L.push(" delay " + i.delay);
     if (i.encap) L.push(" encapsulation dot1Q " + i.encap.vlan + (i.encap.native ? " native" : ""));
+    if (i.vrf) L.push(vrfFwdLine(c, i));
     if (d.type === "router" || n.startsWith("Vlan")) {
       for (const s of i.secondary || []) L.push(` ip address ${n2ip(s.ip)} ${n2ip(s.mask)} secondary`);
       L.push(i.ip === null ? " no ip address" : ` ip address ${n2ip(i.ip)} ${n2ip(i.mask)}`);
@@ -2245,6 +2290,7 @@ export function runningConfig(net, dn, onlyIf) {
       if (o6.pid !== undefined) L.push(` ipv6 ospf ${o6.pid} area ${o6.area}`);
       const o = i.ospf;
       if (o.ptp) L.push(" ip ospf network point-to-point");
+      else if (o.ptp === false && isTun(n)) L.push(" ip ospf network broadcast");
       if (o.hello !== undefined) L.push(" ip ospf hello-interval " + o.hello);
       if (o.dead !== undefined) L.push(" ip ospf dead-interval " + o.dead);
       if (o.prio !== undefined) L.push(" ip ospf priority " + o.prio);
@@ -2273,6 +2319,7 @@ export function runningConfig(net, dn, onlyIf) {
       if (s.prio !== null) L.push(" spanning-tree port-priority " + s.prio);
       for (const [v, k] of Object.entries(s.vcost).sort((a, b) => a[0] - b[0])) L.push(` spanning-tree vlan ${v} cost ${k}`);
     }
+    if (d.type === "router") L.push(...vpnIntfLines(c, n, i));
     if (i.duplex) L.push(" duplex " + i.duplex);
     if (i.speed) L.push(" speed " + i.speed);
     if (!i.cdp) L.push(" no cdp enable");
@@ -2324,6 +2371,7 @@ export function runningConfig(net, dn, onlyIf) {
     for (const [n, t] of Object.entries(c.tracks).sort((a, b) => a[0] - b[0])) L.push(`track ${n} interface ${t.ifn} line-protocol`);
     L.push("!");
   }
+  if (d.type === "router") L.push(...vpnGlobalLines(c));
   for (const n of Object.keys(c.intfs).sort(ifSort)) L.push(...intfBlock(n), "!");
   if (d.type === "router" && c.eigrp) L.push(...eigrpConfig(c.eigrp), "!");
   if (d.type === "router" && c.ospf) {
@@ -2351,6 +2399,7 @@ export function runningConfig(net, dn, onlyIf) {
       L.push(["ip route", n2ip(r.net), n2ip(lenMask(r.len)), r.ifn, r.nh !== null ? n2ip(r.nh) : null, r.ad !== 1 ? r.ad : null]
         .filter((x) => x !== null && x !== undefined).join(" "));
     }
+    L.push(...vpnRoutingLines(c));
     const names = Object.keys(c.acls);
     const numbered = names.filter((n) => /^\d+$/.test(n)).sort((a, b) => a - b);
     const named = names.filter((n) => !/^\d+$/.test(n)).sort();
@@ -2447,9 +2496,9 @@ const ROUTE_CODES = `Codes: L - local, C - connected, S - static, R - RIP, M - m
        o - ODR, P - periodic downloaded static route, H - NHRP, l - LISP
        + - replicated route, % - next hop override`;
 
-function showIpRoute(net, dn, filter) {
-  const all = net.routes(dn);
-  const L = [ROUTE_CODES, ""];
+function showIpRoute(net, dn, filter, vrf) {
+  const all = vrf ? net.vrfRoutes(dn, vrf) : net.routes(dn);
+  const L = vrf ? ["", "Routing Table: " + vrf, ROUTE_CODES, ""] : [ROUTE_CODES, ""];
   const def = all.find((r) => r.net === 0 && r.len === 0);
   if (def) {
     const p = def.paths ? def.paths[0] : null;
@@ -2476,19 +2525,19 @@ function showIpRoute(net, dn, filter) {
   };
   for (const [key, g] of groups) {
     if (key.startsWith("top|")) {
-      for (const r of g.routes) text(r, true).forEach((t, i) => L.push((i ? "" : r.code).padEnd(6) + t));
+      for (const r of g.routes) text(r, true).forEach((t, i) => L.push((i ? "" : routeCode(r)).padEnd(6) + t));
       continue;
     }
     const lens = new Set(g.routes.map((r) => r.len));
     const exact = g.routes.length === 1 && g.routes[0].len === g.major.len;
     if (exact) {
-      text(g.routes[0], true).forEach((t, i) => L.push((i ? "" : g.routes[0].code).padEnd(6) + t));
+      text(g.routes[0], true).forEach((t, i) => L.push((i ? "" : routeCode(g.routes[0])).padEnd(6) + t));
       continue;
     }
     const n = g.routes.length;
     if (lens.size === 1) L.push(`      ${n2ip(g.major.net)}/${[...lens][0]} is subnetted, ${n} subnets`);
     else L.push(`      ${n2ip(g.major.net)}/${g.major.len} is variably subnetted, ${n} subnets, ${lens.size} masks`);
-    for (const r of g.routes) text(r, lens.size > 1).forEach((t, i) => L.push((i ? "" : r.code).padEnd(9) + t));
+    for (const r of g.routes) text(r, lens.size > 1).forEach((t, i) => L.push((i ? "" : routeCode(r)).padEnd(9) + t));
   }
   return L.join("\n");
 }
@@ -2509,6 +2558,7 @@ function showInterfaces(net, dn, only) {
   for (const n of Object.keys(d.cfg.intfs).sort(ifSort)) {
     if (only && n !== only) continue;
     const i = d.cfg.intfs[n], s = net.ifState(dn, n), err = net.errdis(dn, n);
+    if (isTun(n)) { L.push(...showTunnelIf(net, dn, n)); continue; }
     const hw = n.startsWith("Loopback") ? "Loopback" : n.startsWith("Vlan") ? "EtherSVI" : isPo(n) ? "EtherChannel"
       : d.type === "router" ? "iGbE" : "Fast Ethernet";
     L.push(`${n} is ${s.status}, line protocol is ${s.proto}${err ? " (err-disabled)" : ""}`);
@@ -2664,7 +2714,7 @@ function showAcls(net, dn, only) {
 function showOspfNbr(net, dn) {
   const o = net.ospf()[dn];
   const L = ["", "Neighbor ID     Pri   State           Dead Time   Address         Interface"];
-  for (const n of o ? o.nbrs : []) {
+  for (const n of [...(o ? o.nbrs : []), ...net.vrfOspfNbrs(dn)]) {
     L.push(pad(n2ip(n.rid), 16) + lpad(n.prio, 3) + "   " + pad(n.state, 16) + pad("00:00:" + String(n.dead - 5).padStart(2, "0"), 12) + pad(n2ip(n.ip), 16) + n.local);
   }
   return L.join("\n");
@@ -3183,15 +3233,18 @@ function showEigrpIfs(net, dn) {
   return L.join("\n");
 }
 
-function showArp(net, dn) {
+function showArp(net, dn, vrf = null) {
   const d = net.devs[dn];
   const L = ["Protocol  Address          Age (min)  Hardware Addr   Type   Interface"];
   const rows = [];
   for (const n of net.upIfs(dn)) {
-    if (n.startsWith("Loopback")) continue;
+    if (n.startsWith("Loopback") || isTun(n) || net.vrfOf(dn, n) !== vrf) continue;
     rows.push([net.ifAddr(dn, n).ip, "-", net.mac(dn, n), n]);
   }
-  for (const [ip, e] of Object.entries(d.rt.arp)) if (net.ifUp(dn, e.ifn)) rows.push([ip2n(ip), "0", e.mac, e.ifn]);
+  for (const [k, e] of Object.entries(d.rt.arp)) {
+    const [v, ip] = k.includes("|") ? k.split("|") : [null, k];
+    if (v === vrf && net.ifUp(dn, e.ifn)) rows.push([ip2n(ip), "0", e.mac, e.ifn]);
+  }
   rows.sort((a, b) => a[0] - b[0]);
   for (const r of rows) L.push("Internet  " + pad(n2ip(r[0]), 17) + lpad(r[1], 9) + "   " + pad(r[2], 16) + "ARPA   " + r[3]);
   return L.join("\n");
@@ -3567,13 +3620,15 @@ const MODES = {
   stdacl: "(config-std-nacl)#", extacl: "(config-ext-nacl)#", ospf6: "(config-rtr)#", eigrp: "(config-router)#",
   eigrpn: "(config-router)#", eigrpaf: "(config-router-af)#", afif: "(config-router-af-interface)#",
   aftop: "(config-router-af-topology)#", track: "(config-track)#",
+  tunif: "(config-if)#", vrfdef: "(config-vrf)#", vrfaf: "(config-vrf-af)#", ipvrf: "(config-vrf)#", vrfospf: "(config-router)#",
+  isakmp: "(config-isakmp)#", tset: "(cfg-crypto-trans)#", ipsecprof: "(ipsec-profile)#", cmap: "(config-crypto-map)#",
 };
 const SUBMODES = ["if", "subif", "range", "line", "ospf", "vlan", "pool", "stdacl", "extacl", "ospf6", "eigrp", "eigrpn",
-  "eigrpaf", "afif", "aftop", "track"];
+  "eigrpaf", "afif", "aftop", "track", "tunif", "vrfdef", "vrfaf", "ipvrf", "vrfospf", "isakmp", "tset", "ipsecprof", "cmap"];
 // Where "exit" goes from each nested mode (everything else returns to global configuration).
 const PARENT = { afif: "eigrpaf", aftop: "eigrpaf", eigrpaf: "eigrpn" };
 const CONFIG_MODES = ["config", ...SUBMODES];
-const IF_MODES = ["if", "subif", "range"];
+const IF_MODES = ["if", "subif", "range", "tunif"];
 
 // ---- exec ---------------------------------------------------------------
 def("RS", "user", "enable", (c) => c.s.enable());
@@ -3817,6 +3872,7 @@ def("R", "config", "router ospf <num:1-65535|Process ID>", (c, [pid]) => {
 });
 def("R", "config", "no router ospf <num:1-65535|Process ID>", (c, [pid]) => {
   if (c.cfg.ospf && c.cfg.ospf.pid === pid) c.cfg.ospf = null;
+  if (c.cfg.ospfVrf && c.cfg.ospfVrf[pid]) delete c.cfg.ospfVrf[pid];
 });
 const parseArea = (w) => (isIp(w) ? ip2n(w) : /^\d{1,10}$/.test(w) && +w <= 4294967295 ? +w : null);
 def("R", "ospf", "network <ip|Network number> <ip|OSPF wild card bits> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [addr, wild, a]) => {
@@ -4022,7 +4078,7 @@ def("R", IF_MODES, "no ip ospf dead-interval", ospfDel("dead"));
 def("R", IF_MODES, "ip ospf priority <num:0-255|Priority>", ospfSet("prio"));
 def("R", IF_MODES, "no ip ospf priority", ospfDel("prio"));
 def("R", IF_MODES, "ip ospf network point-to-point", ospfSet("ptp", true));
-def("R", IF_MODES, "ip ospf network broadcast", ospfDel("ptp"));
+def("R", IF_MODES, "ip ospf network broadcast", ospfSet("ptp", false));
 def("R", IF_MODES, "no ip ospf network", ospfDel("ptp"));
 def("R", IF_MODES, "ip ospf <num:1-65535|Process ID> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [pid, a]) => {
   const area = parseArea(a);
@@ -5083,12 +5139,12 @@ export class Session {
     const d = this.d, c = d.cfg;
     if (!n) { this.print("% Incomplete command.", ""); return; }
     if (!c.intfs[n]) {
-      const virtual = n.startsWith("Loopback") || n.startsWith("Vlan") || (d.type === "switch" && isPo(n))
+      const virtual = n.startsWith("Loopback") || n.startsWith("Vlan") || (d.type === "switch" && isPo(n)) || (d.type === "router" && isTun(n))
         || (d.type === "router" && isSub(n) && d.ports.includes(physOf(n)));
       if (!virtual) { this.cx.invalid(1); return; }
       c.intfs[n] = newIntf(d.type, n);
     }
-    this.enter(isSub(n) ? "subif" : "if", [n]);
+    this.enter(isSub(n) ? "subif" : isTun(n) ? "tunif" : "if", [n]);
   }
 
   enterRange(text) {
@@ -5120,6 +5176,7 @@ export class Session {
       if (len < 0) { this.print(`Bad mask 0x${hex(mask, 8).toUpperCase()} for address ${n2ip(ip)}`); return; }
       if (len < 31 && (and(ip, mask) === ip || ((ip | ~mask) >>> 0) === ip)) { this.print(`Bad mask /${len} for address ${n2ip(ip)}`); return; }
       for (const [o, oc] of Object.entries(c.intfs)) {
+        if ((oc.vrf || null) !== (c.intfs[n].vrf || null)) continue; // each VRF is its own address space
         const theirs = [...(oc.ip !== null ? [{ ip: oc.ip, mask: oc.mask, sec: false }] : []), ...(oc.secondary || []).map((s) => ({ ...s, sec: true }))];
         for (const t of theirs) {
           if (o === n && (t.sec ? t.ip === ip : !secondary)) continue; // replacing this very address
@@ -5526,6 +5583,1673 @@ export class Session {
   }
 }
 
+// ======== VRF, tunnels, IPsec, DMVPN ========
+//
+// VRF-lite: an interface's `vrf` names the routing table its packets are looked up in. Each VRF has
+// its own connected, static (cfg.vrfRoutes) and OSPF (cfg.ospfVrf, one process per VRF) routes, so
+// the same addresses can be reused in different VRFs.
+//
+// Tunnels: a Tunnel interface's `tun` holds its source, destination and mode. Its line protocol comes
+// up when the source is up and (point-to-point) the destination is routable in the global table
+// without using a tunnel; a destination that is only reachable through a tunnel is recursive routing
+// and keeps that tunnel down. Packets routed into a tunnel are carried across the underlay as GRE (or
+// ESP when the tunnel is protected) to the far end, where they continue from its tunnel interface.
+//
+// IPsec: crypto maps on a physical interface encrypt traffic their ACL matches to a peer; tunnel
+// protection encrypts a tunnel. Either works only when the two ends agree: an ISAKMP policy in common,
+// the same pre-shared key for each other's address, a common transform set and (crypto maps) mirrored
+// ACLs. IKE needs UDP 500 between the peers, and the underlay must carry ESP.
+//
+// DMVPN: multipoint GRE tunnels with NHRP. Spokes register with their next-hop server (the hub); the
+// hub learns their NBMA addresses. Routing protocols run hub-to-spoke. Phase 2: with next-hop-self off
+// on the hub, a spoke's route to another spoke points at that spoke; the first packet goes via the hub
+// while NHRP resolves the address, later ones go direct. Phase 3: the hub's `ip nhrp redirect` tells a
+// spoke that sent it a packet for another spoke to install a shortcut (an H route, or a next-hop
+// override on the same prefix) when the spoke has `ip nhrp shortcut`.
+
+const vrfsOf = (c) => c.vrfs || {};
+const cryptoOf = (c) => c.crypto || { policies: {}, keys: [], tsets: {}, profiles: {}, maps: {} };
+const tunOf = (i) => i.tun || {};
+const tunMode = (t) => t.mode || "gre";
+const nhrpOf = (i) => i.nhrp || {};
+const vrfKey = (dn, vrf) => dn + "|" + vrf;
+// IOS's built-in ISAKMP policies, used while none is configured.
+const DEFAULT_POLICIES = [
+  { prio: 65507, encr: "aes", bits: 128, hash: "sha", auth: "rsa-sig", group: 5 },
+  { prio: 65508, encr: "aes", bits: 128, hash: "sha", auth: "pre-share", group: 5 },
+  { prio: 65509, encr: "aes", bits: 128, hash: "md5", auth: "rsa-sig", group: 5 },
+  { prio: 65510, encr: "aes", bits: 128, hash: "md5", auth: "pre-share", group: 5 },
+  { prio: 65511, encr: "3des", bits: null, hash: "sha", auth: "rsa-sig", group: 5 },
+  { prio: 65512, encr: "3des", bits: null, hash: "sha", auth: "pre-share", group: 5 },
+  { prio: 65513, encr: "3des", bits: null, hash: "md5", auth: "rsa-sig", group: 5 },
+  { prio: 65514, encr: "3des", bits: null, hash: "md5", auth: "pre-share", group: 5 },
+];
+const newPolicy = (prio) => ({ prio, encr: "des", bits: null, hash: "sha", auth: "rsa-sig", group: 1, life: 86400 });
+const policySig = (p) => [p.encr, p.bits, p.hash, p.auth, p.group].join("/");
+const tsetSig = (t) => [...t.transforms].sort().join(" ") + "|" + (t.mode || "tunnel");
+// IKE itself and ESP are never encrypted again by a crypto map.
+const ikeOrEsp = (p) => p.proto === "esp" || (p.proto === "udp" && (p.port === 500 || p.port === 4500));
+const spi = (a, b) => ((0x1a2b3c4d ^ a ^ b) >>> 0);
+
+Object.assign(Network.prototype, {
+  // -- VRF-lite ------------------------------------------------------------------------
+  vrfOf(dn, ifn) {
+    const d = this.devs[dn];
+    if (!d || d.type !== "router" || !ifn) return null;
+    const c = d.cfg.intfs[ifn];
+    return (c && c.vrf) || null;
+  },
+
+  // Does dn own ip in this routing table? HSRP virtual addresses live in the global table.
+  ownsIpIn(dn, ip, vrf) {
+    vrf = vrf || null;
+    if (this.upIfs(dn).some((n) => this.vrfOf(dn, n) === vrf && this.ifAddrs(dn, n).some((a) => a.ip === ip))) return true;
+    return !vrf && this.vipIf(dn, ip) !== null;
+  },
+
+  // A VRF's routing table: its connected networks, its static routes and its OSPF process.
+  vrfRoutes(dn, vrf) {
+    this.c.vrfRt = this.c.vrfRt || {};
+    const key = vrfKey(dn, vrf);
+    if (this.c.vrfRt[key]) return this.c.vrfRt[key];
+    const d = this.devs[dn];
+    if (d.type !== "router") return [];
+    const cands = [];
+    for (const ifn of this.upIfs(dn)) {
+      if (this.vrfOf(dn, ifn) !== vrf) continue;
+      for (const { ip, mask } of this.ifAddrs(dn, ifn)) {
+        const len = maskLen(mask);
+        cands.push({ code: "C", net: and(ip, mask), len, ad: 0, metric: 0, ifn });
+        if (len < 32) cands.push({ code: "L", net: ip, len: 32, ad: 0, metric: 0, ifn });
+      }
+    }
+    const o = this.ospfVrf()[key];
+    if (o) for (const r of o.routes) cands.push({ ...r, ad: 110 });
+    const select = (list) => {
+      const best = {};
+      for (const r of list) {
+        const k = r.net + "/" + r.len, b = best[k];
+        if (!b || r.ad < b[0].ad) best[k] = [r];
+        else if (r.ad === b[0].ad && r.code === b[0].code) b.push(r);
+      }
+      return Object.values(best).map((rs) => (rs.length === 1 ? rs[0] : { ...rs[0], paths: rs.flatMap((r) => r.paths || []) }));
+    };
+    let table = select(cands);
+    const statics = (d.cfg.vrfRoutes || []).filter((r) => r.vrf === vrf);
+    const pending = new Set(statics.map((_, i) => i));
+    for (let pass = 0; pass < 5 && pending.size; pass++) {
+      let added = false;
+      for (const i of [...pending]) {
+        const s = statics[i];
+        const ok = s.ifn ? this.ifUp(dn, s.ifn) && this.vrfOf(dn, s.ifn) === vrf
+          : (() => { const r = lpm(table, s.nh); return !!r && !(r.net === s.net && r.len === s.len); })();
+        if (!ok) continue;
+        pending.delete(i);
+        cands.push({ code: s.net === 0 && s.len === 0 ? "S*" : "S", net: s.net, len: s.len, ad: s.ad, metric: 0, paths: [{ ip: s.nh, ifn: s.ifn }] });
+        added = true;
+      }
+      if (!added) break;
+      table = select(cands);
+    }
+    table.sort((a, b) => a.net - b.net || a.len - b.len);
+    this.c.vrfRt[key] = table;
+    return table;
+  },
+
+  vrfOspfIfs(dn, o) {
+    const d = this.devs[dn], out = [];
+    const nets = [...o.networks].sort((a, b) => bitCount(a.wild) - bitCount(b.wild));
+    for (const ifn of this.upIfs(dn)) {
+      if (this.vrfOf(dn, ifn) !== o.vrf) continue;
+      const c = d.cfg.intfs[ifn], { ip, mask } = this.ifAddr(dn, ifn), oc = c.ospf || {};
+      let area = null;
+      if (oc.pid === o.pid && oc.area !== undefined && oc.area !== null) area = oc.area;
+      else {
+        const hit = nets.find((n) => wildMatch(ip, n.addr, n.wild));
+        if (hit) area = hit.area;
+      }
+      if (area === null) continue;
+      const passive = o.passiveDefault ? !o.noPassive.includes(ifn) : o.passive.includes(ifn);
+      const hello = oc.hello ?? 10;
+      out.push({ ifn, ip, mask, area, passive, hello, dead: oc.dead ?? hello * 4, prio: oc.prio ?? 1,
+        ptp: oc.ptp !== undefined ? !!oc.ptp : isTun(ifn), loop: ifn.startsWith("Loopback"),
+        cost: oc.cost ?? Math.max(1, Math.floor((o.refBw * 1000) / this.bandwidth(d, ifn))) });
+    }
+    return out;
+  },
+
+  vrfOspfRid(dn, o) {
+    if (o.rid !== null) return o.rid;
+    const ips = (lo) => this.upIfs(dn).filter((n) => this.vrfOf(dn, n) === o.vrf && lo === n.startsWith("Loopback"))
+      .map((n) => this.ifAddr(dn, n).ip);
+    const lo = ips(true), all = ips(false);
+    return lo.length ? Math.max(...lo) : all.length ? Math.max(...all) : null;
+  },
+
+  // OSPF processes bound to VRFs ("router ospf N vrf X"), keyed "device|vrf". Same rules as the
+  // global process; neighbours must be in the same VRF on both ends.
+  ospfVrf() {
+    if (this.c.ospfVrf) return this.c.ospfVrf;
+    const per = {};
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      for (const o of Object.values(d.cfg.ospfVrf || {})) {
+        const rid = this.vrfOspfRid(d.name, o);
+        if (rid === null) continue;
+        per[vrfKey(d.name, o.vrf)] = { dev: d.name, vrf: o.vrf, rid, pid: o.pid, o, ifs: this.vrfOspfIfs(d.name, o), nbrs: [], routes: [] };
+      }
+    }
+    for (const me of Object.values(per)) {
+      for (const oi of me.ifs) {
+        oi.nbrs = [];
+        if (oi.passive || oi.loop) continue;
+        for (const e of this.flood(me.dev, oi.ifn)) {
+          const ek = vrfKey(e.dev, this.vrfOf(e.dev, e.ifn));
+          const them = per[ek];
+          const oj = them && them.ifs.find((x) => x.ifn === e.ifn);
+          if (!oj || oj.passive || oj.loop || e.dev === me.dev) continue;
+          if (oj.area !== oi.area || oj.mask !== oi.mask || !sameNet(oj.ip, oi.ip, oi.mask)) continue;
+          if (oj.hello !== oi.hello || oj.dead !== oi.dead || oj.ptp !== oi.ptp || them.rid === me.rid) continue;
+          oi.nbrs.push({ dev: ek, ifn: e.ifn, rid: them.rid, ip: oj.ip, prio: oj.prio });
+        }
+      }
+    }
+    ospfElect(per);
+    for (const [src, me] of Object.entries(per)) {
+      const { dist, hops } = ospfSpf(per, src);
+      const myAreas = new Set(me.ifs.map((x) => x.area));
+      const best = {};
+      const offer = (key, r) => {
+        const cur = best[key];
+        if (!cur || r.metric < cur.metric || (r.metric === cur.metric && (r.dist ?? 0) < (cur.dist ?? 0))) best[key] = r;
+        else if (r.metric === cur.metric && (r.dist ?? 0) === (cur.dist ?? 0)) {
+          for (const h of r.paths) if (!cur.paths.some((p) => p.ip === h.ip)) cur.paths.push(h);
+        }
+      };
+      for (const [x, them] of Object.entries(per)) {
+        if (x === src || dist[x] === undefined) continue;
+        for (const oi of them.ifs) {
+          const host = oi.loop && !oi.ptp;
+          const len = host ? 32 : maskLen(oi.mask);
+          const net = host ? oi.ip : and(oi.ip, oi.mask);
+          offer(net + "/" + len, { code: myAreas.has(oi.area) ? "O" : "O IA", net, len, metric: dist[x] + oi.cost, paths: [...hops[x]] });
+        }
+        const o = them.o;
+        if (o.defaultOriginate && (o.defaultAlways || (this.devs[them.dev].cfg.vrfRoutes || []).some((r) => r.vrf === o.vrf && r.net === 0 && r.len === 0))) {
+          offer("0/0", { code: "O*E2", net: 0, len: 0, metric: 1, dist: dist[x], paths: [...hops[x]] });
+        }
+      }
+      me.routes = Object.values(best);
+    }
+    this.c.ospfVrf = per;
+    return per;
+  },
+
+  // Neighbours of dn's VRF OSPF processes, as `show ip ospf neighbor` lists them.
+  vrfOspfNbrs(dn) {
+    return Object.values(this.ospfVrf()).filter((p) => p.dev === dn).flatMap((p) => p.nbrs);
+  },
+
+  // -- tunnels -------------------------------------------------------------------------
+  // The address a tunnel's packets are sourced from, or null while its source can't be used.
+  tunSrcIp(dn, ifn) {
+    const t = tunOf(this.devs[dn].cfg.intfs[ifn]);
+    if (t.src) {
+      if (!this.devs[dn].cfg.intfs[t.src] || !this.ifUp(dn, t.src)) return null;
+      const a = this.ifAddr(dn, t.src);
+      return a ? a.ip : null;
+    }
+    if (t.srcIp !== undefined && t.srcIp !== null) return this.ownsIpIn(dn, t.srcIp, null) ? t.srcIp : null;
+    return null;
+  },
+
+  // Is each tunnel's line protocol up? Worked out in three steps so a tunnel never depends on itself:
+  // 1) with every tunnel down, which ones have a usable source and a route to their destination;
+  // 2) with those up, any whose destination is now reached through a tunnel is recursive routing;
+  // 3) the rest are up. Step 1's "underlay" view is kept for everything that asks whether two tunnel
+  // endpoints can reach each other (adjacencies, NHRP, IKE), so routing over tunnels can't loop back.
+  tun() {
+    if (this.c.tun) return this.c.tun;
+    const keep = this.c, all = [];
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      for (const n of Object.keys(d.cfg.intfs)) if (isTun(n)) all.push([d.name, n]);
+    }
+    // Without tunnels the underlay is simply the network as it is.
+    if (!all.length) { keep.tun = {}; keep.tunRec = {}; keep.base = keep; return keep.tun; }
+    this.touch();
+    const base = this.c;
+    base.tun = {};
+    base.isBase = true;
+    const cand = {};
+    for (const [dn, n] of all) if (this.tunCan(dn, n)) cand[dn + "|" + n] = true;
+    this.touch();
+    const mid = this.c;
+    mid.tun = { ...cand };
+    mid.base = base;
+    const rec = {};
+    for (const [dn, n] of all) {
+      const t = tunOf(this.devs[dn].cfg.intfs[n]);
+      if (!cand[dn + "|" + n] || tunMode(t) === "gre-mp" || t.dst === undefined || t.dst === null) continue;
+      const e = this.routerEgress(dn, t.dst);
+      if (!e.fail && isTun(e.ifn)) rec[dn + "|" + n] = true;
+    }
+    const fin = {};
+    for (const k of Object.keys(cand)) if (!rec[k]) fin[k] = true;
+    this.c = keep;
+    keep.tun = fin;
+    keep.tunRec = rec;
+    keep.base = base;
+    return fin;
+  },
+
+  tunUp(dn, ifn) { return !!this.tun()[dn + "|" + ifn]; },
+
+  // Step 1 for one tunnel (run with every tunnel down).
+  tunCan(dn, ifn) {
+    const i = this.devs[dn].cfg.intfs[ifn], t = tunOf(i), mode = tunMode(t);
+    if (i.shut) return false;
+    if (this.tunSrcIp(dn, ifn) === null) return false;
+    if (mode === "gre-mp") return true;
+    if (t.dst === undefined || t.dst === null) return false;
+    const e = this.routerEgress(dn, t.dst);
+    if (e.fail) return false;
+    // With keepalives the far end has to answer; an IPsec tunnel (VTI) is only up with an SA.
+    if ((i.ka || mode === "ipsec") && !this.tunPeer(dn, ifn, true)) return false;
+    return true;
+  },
+
+  // Run fn in the underlay view: the network as it is with every tunnel down.
+  inBase(fn) {
+    if (this.c.isBase) return fn();
+    if (!this.c.base) this.tun();
+    const keep = this.c;
+    this.c = keep.base;
+    try { return fn(); } finally { this.c = keep; }
+  },
+
+  // Can dn send a packet from src to dst across the underlay (protocol proto, UDP port)?
+  underlay(dn, src, dst, proto, port) {
+    return this.inBase(() => {
+      const r = this.deliver(dn, { src, dst, proto, port, id: 1 }, { natTmp: {} });
+      return r.ok ? r.at : null;
+    });
+  },
+
+  // The router and tunnel interface whose tunnel source is nbma (and, when given, whose tunnel
+  // address is ip), with a matching tunnel key.
+  tunEndAt(nbma, ip, key, notDev) {
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router" || d.name === notDev) continue;
+      for (const [n, i] of Object.entries(d.cfg.intfs)) {
+        if (!isTun(n) || i.shut) continue;
+        const t = tunOf(i);
+        if ((t.key ?? null) !== (key ?? null)) continue;
+        if (this.tunSrcIpRaw(d.name, n) !== nbma) continue;
+        if (ip !== undefined && ip !== null && (i.ip !== ip)) continue;
+        return { dev: d.name, ifn: n };
+      }
+    }
+    return null;
+  },
+
+  // A tunnel's configured source address, whether or not that interface is up.
+  tunSrcIpRaw(dn, ifn) {
+    const t = tunOf(this.devs[dn].cfg.intfs[ifn]);
+    if (t.src) { const a = this.devs[dn].cfg.intfs[t.src] && this.ifAddr(dn, t.src); return a ? a.ip : null; }
+    return t.srcIp ?? null;
+  },
+
+  // The far end of a point-to-point tunnel. strict: it must also be reachable, agree on protection
+  // and (towards a DMVPN hub) have this spoke registered.
+  tunPeer(dn, ifn, strict) {
+    const i = this.devs[dn].cfg.intfs[ifn], t = tunOf(i), mode = tunMode(t);
+    const src = this.tunSrcIp(dn, ifn);
+    if (src === null || t.dst === undefined || t.dst === null) return null;
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router" || d.name === dn) continue;
+      for (const [n, j] of Object.entries(d.cfg.intfs)) {
+        if (!isTun(n) || j.shut) continue;
+        const u = tunOf(j), um = tunMode(u);
+        if ((u.key ?? null) !== (t.key ?? null) || this.tunSrcIpRaw(d.name, n) !== t.dst) continue;
+        const fits = um === "gre-mp" ? mode === "gre" : u.dst === src && um === mode;
+        if (!fits) continue;
+        const far = { dev: d.name, ifn: n, nbma: t.dst };
+        if (!strict) return far;
+        if (this.underlay(dn, src, t.dst, this.tunProt(dn, ifn) ? "esp" : "gre") !== d.name) return null;
+        if (!this.protMatch(dn, ifn, d.name, n).ok) return null;
+        if (um === "gre-mp" && !this.nhrpRegs(d.name, n).some((r) => r.dev === dn && r.ifn === ifn)) return null;
+        return far;
+      }
+    }
+    return null;
+  },
+
+  // The tunnel's adjacency partners (what OSPF and EIGRP hellos reach), for flood().
+  tunFlood(dn, ifn) {
+    if (!this.ifUp(dn, ifn) || !this.ifAddr(dn, ifn)) return [];
+    const t = tunOf(this.devs[dn].cfg.intfs[ifn]), out = [];
+    const add = (p) => { if (this.ifUp(p.dev, p.ifn) && this.ifAddr(p.dev, p.ifn)) out.push({ dev: p.dev, ifn: p.ifn, trail: [] }); };
+    if (tunMode(t) !== "gre-mp") {
+      const p = this.tunPeer(dn, ifn, true);
+      if (p) add(p);
+      return out;
+    }
+    // Multicast has to get through both ways for hellos to form a neighbour.
+    for (const p of this.mcastPeers(dn, ifn)) {
+      if (this.mcastPeers(p.dev, p.ifn).some((q) => q.dev === dn && q.ifn === ifn)) add(p);
+    }
+    return out;
+  },
+
+  // Who a tunnel sends multicast (routing protocol hellos) to.
+  mcastPeers(dn, ifn) {
+    const i = this.devs[dn].cfg.intfs[ifn], t = tunOf(i), nh = nhrpOf(i), out = [];
+    if (tunMode(t) !== "gre-mp") {
+      const p = this.tunPeer(dn, ifn, true);
+      return p ? [p] : [];
+    }
+    if (nh.mcastDynamic) for (const r of this.nhrpRegs(dn, ifn)) out.push({ dev: r.dev, ifn: r.ifn });
+    const nbmas = [...(nh.mcast || []), ...(nh.nhs || []).filter((x) => x.mcast && x.nbma !== null).map((x) => x.nbma)];
+    for (const nbma of nbmas) {
+      const far = this.tunEndAt(nbma, undefined, t.key, dn);
+      if (far && this.nhrpOn(far.dev, far.ifn) && this.reachTun(dn, ifn, far)) out.push(far);
+    }
+    return out.filter((p, k) => out.findIndex((q) => q.dev === p.dev && q.ifn === p.ifn) === k);
+  },
+
+  nhrpOn(dn, ifn) { const n = nhrpOf(this.devs[dn].cfg.intfs[ifn]); return n.nid !== undefined && n.nid !== null; },
+
+  // Can tunnel (dn, ifn) exchange packets with tunnel far = {dev, ifn}: underlay, protection, NHRP auth?
+  reachTun(dn, ifn, far) {
+    const src = this.tunSrcIp(dn, ifn), dst = this.tunSrcIp(far.dev, far.ifn);
+    if (src === null || dst === null || !this.ifUp(dn, ifn) || !this.ifUp(far.dev, far.ifn)) return false;
+    const a = nhrpOf(this.devs[dn].cfg.intfs[ifn]), b = nhrpOf(this.devs[far.dev].cfg.intfs[far.ifn]);
+    if ((a.auth ?? null) !== (b.auth ?? null)) return false;
+    if (this.underlay(dn, src, dst, this.tunProt(dn, ifn) ? "esp" : "gre") !== far.dev) return false;
+    return this.protMatch(dn, ifn, far.dev, far.ifn).ok;
+  },
+
+  // Spokes registered with the NHRP server on (hub, ifn): [{dev, ifn, ip, nbma}].
+  nhrpRegs(hub, ifn) {
+    this.c.nhrpRegs = this.c.nhrpRegs || {};
+    const key = hub + "|" + ifn;
+    if (this.c.nhrpRegs[key]) return this.c.nhrpRegs[key];
+    this.c.nhrpRegs[key] = [];
+    const hi = this.devs[hub].cfg.intfs[ifn], out = [];
+    const hubIp = hi.ip, hubNbma = this.tunSrcIp(hub, ifn);
+    if (tunMode(tunOf(hi)) === "gre-mp" && this.ifUp(hub, ifn) && hubIp !== null && hubNbma !== null && this.nhrpOn(hub, ifn)) {
+      for (const d of Object.values(this.devs)) {
+        if (d.type !== "router" || d.name === hub) continue;
+        for (const [n, i] of Object.entries(d.cfg.intfs)) {
+          if (!isTun(n) || i.ip === null || !this.ifUp(d.name, n) || !this.nhrpOn(d.name, n)) continue;
+          const nh = nhrpOf(i);
+          const nhs = (nh.nhs || []).find((x) => x.ip === hubIp);
+          if (!nhs) continue;
+          const nbma = nhs.nbma ?? ((nh.maps || []).find((m) => m.ip === hubIp) || {}).nbma ?? (tunOf(i).dst ?? null);
+          if (nbma !== hubNbma || (tunOf(i).key ?? null) !== (tunOf(hi).key ?? null)) continue;
+          if (!this.reachTun(d.name, n, { dev: hub, ifn })) continue;
+          out.push({ dev: d.name, ifn: n, ip: i.ip, nbma: this.tunSrcIp(d.name, n) });
+        }
+      }
+    }
+    this.c.nhrpRegs[key] = out;
+    return out;
+  },
+
+  // What (dn, ifn) knows about tunnel addresses: [{ip, nbma, type}] (static, NHS, registered spokes,
+  // and dynamic entries learned from resolutions and redirects).
+  nhrpMap(dn, ifn) {
+    const i = this.devs[dn].cfg.intfs[ifn], nh = nhrpOf(i), out = [];
+    for (const m of nh.maps || []) out.push({ ip: m.ip, nbma: m.nbma, type: "static" });
+    for (const s of nh.nhs || []) if (s.nbma !== null && !out.some((x) => x.ip === s.ip)) out.push({ ip: s.ip, nbma: s.nbma, type: "static" });
+    for (const r of this.nhrpRegs(dn, ifn)) out.push({ ip: r.ip, nbma: r.nbma, type: "dynamic", registered: true });
+    for (const [k, e] of Object.entries(this.devs[dn].rt.nhrp || {})) {
+      const [n, ip] = k.split("|");
+      if (n === ifn && !out.some((x) => x.ip === +ip)) out.push({ ip: +ip, nbma: e.nbma, type: "dynamic" });
+    }
+    return out;
+  },
+
+  // The NHS a spoke uses, as a reachable tunnel end.
+  nhsPeer(dn, ifn) {
+    const i = this.devs[dn].cfg.intfs[ifn], nh = nhrpOf(i);
+    for (const s of nh.nhs || []) {
+      const nbma = s.nbma ?? ((nh.maps || []).find((m) => m.ip === s.ip) || {}).nbma;
+      if (nbma === undefined || nbma === null) continue;
+      const far = this.tunEndAt(nbma, s.ip, tunOf(i).key, dn);
+      if (far && this.nhrpRegs(far.dev, far.ifn).some((r) => r.dev === dn && r.ifn === ifn)) return { ...far, nbma };
+    }
+    return null;
+  },
+
+  tunProt(dn, ifn) { return tunOf(this.devs[dn].cfg.intfs[ifn]).prot || null; },
+
+  // -- crossing a tunnel or a crypto map --------------------------------------------------
+  // Called by deliver() once it has picked the egress: returns null for ordinary forwarding, or
+  // {dev, ifn} where the packet comes out at the far end, or {fail}.
+  vpnHop(cur, eg, pkt, opts, res, ctx) {
+    const d = this.devs[cur];
+    if (isTun(eg.ifn)) {
+      if (!ctx.originated && ctx.inIf === eg.ifn && opts.record) this.nhrpRedirect(cur, eg, ctx.prev, pkt);
+      return this.tunHop(cur, eg, pkt, opts, res);
+    }
+    if (d.cfg.intfs[eg.ifn].cmap && !ikeOrEsp(pkt)) return this.cryptoHop(cur, eg, pkt, opts, res);
+    return null;
+  },
+
+  // Split horizon and next-hop-self for EIGRP on a tunnel (both on unless turned off).
+  eigrpTunSH(dn, ifn) { return !this.devs[dn].cfg.intfs[ifn].eigrpNoSH; },
+  eigrpTunNHS(dn, ifn) { return !this.devs[dn].cfg.intfs[ifn].eigrpNoNHS; },
+
+  tunHop(cur, eg, pkt, opts, res) {
+    const i = this.devs[cur].cfg.intfs[eg.ifn], t = tunOf(i), src = this.tunSrcIp(cur, eg.ifn);
+    if (src === null) return { fail: "drop" };
+    let far = null;
+    if (tunMode(t) === "gre-mp") {
+      const known = this.nhrpMap(cur, eg.ifn).find((m) => m.ip === eg.nh);
+      if (known) far = this.tunEndAt(known.nbma, eg.nh, t.key, cur);
+      if (far) far.nbma = known.nbma;
+      else {
+        // Not resolved yet: send it via the hub, and (when really sent) resolve for next time.
+        far = this.nhsPeer(cur, eg.ifn);
+        if (!far) return { fail: "encap" };
+        if (opts.record) this.nhrpResolve(cur, eg.ifn, eg.nh, far);
+      }
+    } else {
+      far = this.tunPeer(cur, eg.ifn, false);
+      if (!far) {
+        // Nobody terminates the tunnel at the destination: the GRE packet is dropped there.
+        const r = this.deliver(cur, { src, dst: t.dst, proto: "gre", id: pkt.id }, { ...opts, vrf: null });
+        res.links.push(...r.links);
+        return { fail: "drop" };
+      }
+    }
+    if (!this.ifAddr(far.dev, far.ifn)) return { fail: "drop" };
+    const prot = this.tunProt(cur, eg.ifn);
+    if (prot || this.tunProt(far.dev, far.ifn)) {
+      const m = this.protMatch(cur, eg.ifn, far.dev, far.ifn);
+      if (opts.record) this.ikeNote(cur, src, far.nbma, m, far.dev);
+      if (!m.ok) return { fail: "crypto" };
+    }
+    const outer = this.deliver(cur, { src, dst: far.nbma, proto: prot ? "esp" : "gre", id: pkt.id }, { ...opts, vrf: null });
+    res.links.push(...outer.links);
+    res.arpMiss = res.arpMiss || outer.arpMiss;
+    if (!outer.ok || outer.at !== far.dev || !this.ifUp(far.dev, far.ifn)) return { fail: "drop" };
+    if (prot) {
+      res.crypto = true;
+      if (opts.record) this.ipsecCount(cur, src, far.dev, far.nbma);
+    }
+    return { dev: far.dev, ifn: far.ifn };
+  },
+
+  // A crypto map entry whose ACL matches the packet encrypts it to that entry's peer.
+  cryptoHop(cur, eg, pkt, opts, res) {
+    const d = this.devs[cur], ci = d.cfg.intfs[eg.ifn], map = cryptoOf(d.cfg).maps[ci.cmap];
+    const local = this.ifAddr(cur, eg.ifn);
+    if (!map || !local) return null;
+    const e = Object.values(map).sort((a, b) => a.seq - b.seq)
+      .find((x) => x.acl && d.cfg.acls[x.acl] && x.peer !== null && x.tsets.length && this.aclPermits(cur, x.acl, pkt, false));
+    if (!e) return null;
+    const m = this.mapMatch(cur, local.ip, e, pkt);
+    if (opts.record) this.ikeNote(cur, local.ip, e.peer, m, m.dev);
+    if (!m.ok) return { fail: "crypto" };
+    const outer = this.deliver(cur, { src: local.ip, dst: e.peer, proto: "esp", id: pkt.id }, { ...opts, vrf: null });
+    res.links.push(...outer.links);
+    res.arpMiss = res.arpMiss || outer.arpMiss;
+    if (!outer.ok || outer.at !== m.dev) return { fail: "drop" };
+    res.crypto = true;
+    if (opts.record) this.ipsecCount(cur, local.ip, m.dev, e.peer);
+    return { dev: m.dev, ifn: m.ifn };
+  },
+
+  // Cleartext arriving on a crypto-map interface that its ACL says should have been encrypted.
+  cryptoWantsEncrypted(dn, ifn, pkt) {
+    const d = this.devs[dn], ci = d.cfg.intfs[ifn];
+    if (!ci || !ci.cmap || ikeOrEsp(pkt)) return false;
+    const map = cryptoOf(d.cfg).maps[ci.cmap];
+    if (!map) return false;
+    const back = { ...pkt, src: pkt.dst, dst: pkt.src };
+    const hit = Object.values(map).some((e) => e.acl && d.cfg.acls[e.acl] && e.peer !== null && this.aclPermits(dn, e.acl, back, false));
+    if (hit) this.note(dn, `%CRYPTO-4-RECVD_PKT_NOT_IPSEC: Rec'd packet not an IPSEC packet.\n\t(ip) vrf/dest_addr= /${n2ip(pkt.dst)}, src_addr= ${n2ip(pkt.src)}, prot= ${pkt.proto === "icmp" ? 1 : pkt.proto === "udp" ? 17 : 47}`);
+    return hit;
+  },
+
+  // -- IKE and IPsec negotiation ------------------------------------------------------------
+  policies(c) {
+    const ps = Object.values(cryptoOf(c).policies).sort((a, b) => a.prio - b.prio);
+    return ps.length ? ps : DEFAULT_POLICIES;
+  },
+
+  psk(c, addr) {
+    let best = null;
+    for (const k of cryptoOf(c).keys) {
+      if (!sameNet(addr, k.addr, k.mask)) continue;
+      if (!best || maskLen(k.mask) > maskLen(best.mask)) best = k;
+    }
+    return best ? best.key : null;
+  },
+
+  // Phase 1 between a (address aAddr) and b (address bAddr): {ok, why}.
+  ikeMatch(a, aAddr, b, bAddr) {
+    const ca = this.devs[a].cfg, cb = this.devs[b].cfg;
+    if (this.underlay(a, aAddr, bAddr, "udp", 500) !== b) return { ok: false, why: "unreachable" };
+    const common = this.policies(ca).find((p) => this.policies(cb).some((q) => policySig(p) === policySig(q)));
+    if (!common) return { ok: false, why: "policy" };
+    if (common.auth !== "pre-share") return { ok: false, why: "auth" };
+    const ka = this.psk(ca, bAddr), kb = this.psk(cb, aAddr);
+    if (ka === null) return { ok: false, why: "nokey" };
+    if (kb === null || ka !== kb) return { ok: false, why: "key" };
+    return { ok: true, policy: common };
+  },
+
+  // Phase 2: a transform set both ends offer.
+  tsetMatch(ca, namesA, cb, namesB) {
+    const sa = namesA.map((n) => cryptoOf(ca).tsets[n]).filter(Boolean).map(tsetSig);
+    const sb = namesB.map((n) => cryptoOf(cb).tsets[n]).filter(Boolean).map(tsetSig);
+    return sa.some((x) => sb.includes(x));
+  },
+
+  // Do two tunnel ends agree on protection? Unprotected on both ends is fine.
+  protMatch(a, aIf, b, bIf) {
+    const pa = this.tunProt(a, aIf), pb = this.tunProt(b, bIf);
+    if (!pa && !pb) return { ok: true, none: true };
+    if (!pa || !pb) return { ok: false, why: "one-sided", dev: b };
+    const ca = this.devs[a].cfg, cb = this.devs[b].cfg;
+    const fa = cryptoOf(ca).profiles[pa], fb = cryptoOf(cb).profiles[pb];
+    if (!fa || !fb) return { ok: false, why: "profile", dev: b };
+    const aAddr = this.tunSrcIp(a, aIf), bAddr = this.tunSrcIp(b, bIf);
+    if (aAddr === null || bAddr === null) return { ok: false, why: "unreachable", dev: b };
+    const ike = this.ikeMatch(a, aAddr, b, bAddr);
+    if (!ike.ok) return { ...ike, dev: b };
+    if (!this.tsetMatch(ca, fa.tsets, cb, fb.tsets)) return { ok: false, phase1: true, why: "tset", dev: b };
+    if (fa.pfs && fb.pfs && fa.pfs !== fb.pfs) return { ok: false, phase1: true, why: "pfs", dev: b };
+    return { ok: true, phase1: true, dev: b };
+  },
+
+  // A crypto map entry and its peer: the peer must have a map on the interface that owns the peer
+  // address, with an entry pointing back at us, a mirrored ACL and a common transform set.
+  mapMatch(a, aAddr, e, pkt) {
+    const b = this.ownerOf(e.peer);
+    const bIf = b && this.devs[b].type === "router" ? this.upIfs(b).find((n) => this.ifAddrs(b, n).some((x) => x.ip === e.peer)) : null;
+    if (!b || !bIf) return { ok: false, why: "unreachable" };
+    const base = { dev: b, ifn: bIf };
+    const ike = this.ikeMatch(a, aAddr, b, e.peer);
+    if (!ike.ok) return { ...ike, ...base };
+    const cb = this.devs[b].cfg, mb = cryptoOf(cb).maps[cb.intfs[bIf].cmap];
+    const back = { ...pkt, src: pkt.dst, dst: pkt.src };
+    const eb = mb && Object.values(mb).find((x) => x.peer === aAddr && x.acl && cb.acls[x.acl] && this.aclPermits(b, x.acl, back, false));
+    if (!eb) return { ok: false, phase1: true, why: "proxy", ...base };
+    if (!this.tsetMatch(this.devs[a].cfg, e.tsets, cb, eb.tsets)) return { ok: false, phase1: true, why: "tset", ...base };
+    if (e.pfs && eb.pfs && e.pfs !== eb.pfs) return { ok: false, phase1: true, why: "pfs", ...base };
+    return { ok: true, phase1: true, ...base };
+  },
+
+  // Record the IKE outcome the first time (and whenever it changes), with the log messages IOS gives.
+  ikeNote(a, aAddr, bAddr, m, b) {
+    const rt = this.devs[a].rt;
+    rt.ike = rt.ike || {};
+    const key = aAddr + "|" + bAddr, state = m.ok ? "QM_IDLE" : m.phase1 ? "QM_IDLE" : "MM_NO_STATE";
+    const prev = rt.ike[key];
+    const sig = state + "/" + !!m.ok;
+    if (prev && prev.sig === sig) return;
+    rt.ike[key] = { local: aAddr, peer: bAddr, state, ok: !!m.ok, sig, id: prev ? prev.id : 1000 + Object.keys(rt.ike).length + 1 };
+    const peer = n2ip(bAddr), dbg = rt.debug && rt.debug.isakmp;
+    if (dbg) this.note(a, `ISAKMP:(0):Old State = IKE_READY  New State = IKE_I_MM1`);
+    if (m.ok) {
+      if (dbg) this.note(a, `ISAKMP:(1001):Old State = IKE_QM_I_QM1  New State = IKE_QM_PHASE2_COMPLETE`);
+      this.note(a, `%CRYPTO-5-SESSION_STATUS: Crypto tunnel is UP  .  Peer ${peer}:500       Id: ${peer}`);
+      return;
+    }
+    if (m.why === "policy" || m.why === "auth") {
+      if (dbg) { this.note(a, "ISAKMP:(0):atts are not acceptable. Next payload is 0"); this.note(a, "ISAKMP:(0):no offers accepted!"); }
+      this.note(a, `%CRYPTO-6-IKMP_MODE_FAILURE: Processing of Main mode failed with peer at ${peer}`);
+    } else if (m.why === "nokey") {
+      this.note(a, `%CRYPTO-4-IKMP_NO_SA: IKE message from ${peer} has no SA and is not an initialization offer`);
+      if (dbg) this.note(a, `ISAKMP:(0):No pre-shared key with ${peer}!`);
+    } else if (m.why === "key") {
+      this.note(a, `%CRYPTO-4-IKMP_BAD_MESSAGE: IKE message from ${peer} failed its sanity check or is malformed`);
+    } else if (m.why === "tset" || m.why === "proxy" || m.why === "pfs") {
+      if (dbg) this.note(a, "ISAKMP:(1001):IPSec policy invalidated proposal with error 32");
+      this.note(a, `%CRYPTO-6-IKMP_MODE_FAILURE: Processing of Quick mode failed with peer at ${peer}`);
+    }
+    if (b && this.devs[b] && m.why === "key") this.note(b, `%CRYPTO-4-IKMP_BAD_MESSAGE: IKE message from ${n2ip(aAddr)} failed its sanity check or is malformed`);
+  },
+
+  ipsecCount(a, aAddr, b, bAddr) {
+    for (const [dn, key, k] of [[a, aAddr + "|" + bAddr, "encaps"], [b, bAddr + "|" + aAddr, "decaps"]]) {
+      const rt = this.devs[dn].rt;
+      rt.ipsec = rt.ipsec || {};
+      const c = rt.ipsec[key] = rt.ipsec[key] || { encaps: 0, decaps: 0 };
+      c[k]++;
+    }
+  },
+
+  // -- NHRP ------------------------------------------------------------------------------------
+  // Phase 2: a spoke resolving another spoke through the hub learns its NBMA address (and the other
+  // spoke learns ours from the request), so later packets go direct.
+  nhrpResolve(dn, ifn, ip, hub) {
+    const reg = this.nhrpRegs(hub.dev, hub.ifn).find((r) => r.ip === ip);
+    if (!reg) return;
+    if (!this.reachTun(dn, ifn, { dev: reg.dev, ifn: reg.ifn })) return;
+    const me = this.devs[dn].cfg.intfs[ifn];
+    this.nhrpLearn(dn, ifn, ip, reg.nbma);
+    this.nhrpLearn(reg.dev, reg.ifn, me.ip, this.tunSrcIp(dn, ifn));
+  },
+
+  nhrpLearn(dn, ifn, ip, nbma) {
+    const rt = this.devs[dn].rt;
+    rt.nhrp = rt.nhrp || {};
+    rt.nhrp[ifn + "|" + ip] = { nbma };
+  },
+
+  // Phase 3: the hub sends a packet back out the tunnel it arrived on, so it redirects the sending
+  // spoke; the spokes resolve each other and install shortcuts to each other's networks.
+  nhrpRedirect(hub, eg, prevDev, pkt) {
+    if (!nhrpOf(this.devs[hub].cfg.intfs[eg.ifn]).redirect || !prevDev) return;
+    const regs = this.nhrpRegs(hub, eg.ifn);
+    const from = regs.find((r) => r.dev === prevDev), to = regs.find((r) => r.ip === eg.nh);
+    if (!from || !to || from.dev === to.dev || !this.reachTun(from.dev, from.ifn, { dev: to.dev, ifn: to.ifn })) return;
+    const prefix = (dn, ip) => {
+      const r = lpm(this.routes(dn), ip);
+      return r && (r.code === "C") ? { net: r.net, len: r.len } : { net: ip, len: 32 };
+    };
+    const install = (a, b, ip) => {
+      if (!nhrpOf(this.devs[a.dev].cfg.intfs[a.ifn]).shortcut) return;
+      this.nhrpLearn(a.dev, a.ifn, b.ip, b.nbma);
+      const p = prefix(b.dev, ip), rt = this.devs[a.dev].rt;
+      rt.nhrpShort = (rt.nhrpShort || []).filter((s) => !(s.net === p.net && s.len === p.len));
+      rt.nhrpShort.push({ ifn: a.ifn, net: p.net, len: p.len, nh: b.ip });
+    };
+    install(from, to, pkt.dst);
+    install(to, from, pkt.src);
+  },
+
+  // NHRP shortcuts on top of the routing table: an H route, or an override of the same prefix.
+  nhrpOverlay(dn, table) {
+    const d = this.devs[dn];
+    if (d.type !== "router" || !d.rt.nhrpShort || !d.rt.nhrpShort.length) return table;
+    const out = [...table];
+    for (const s of d.rt.nhrpShort) {
+      if (!this.ifUp(dn, s.ifn) || !this.nhrpMap(dn, s.ifn).some((m) => m.ip === s.nh)) continue;
+      const path = { ip: s.nh, ifn: s.ifn };
+      const k = out.findIndex((r) => r.net === s.net && r.len === s.len);
+      if (k >= 0) {
+        if (out[k].code === "C" || out[k].code === "L") continue;
+        out[k] = { ...out[k], paths: [{ ...path, metric: out[k].metric }], nho: true };
+      } else out.push({ code: "H", net: s.net, len: s.len, ad: 250, metric: 255, paths: [{ ...path, metric: 255 }] });
+    }
+    return out;
+  },
+
+  // -- log messages and the diagram -----------------------------------------------------------
+  // %TUN-5-RECURDOWN when a tunnel is pulled down for recursive routing.
+  tunLog(log) {
+    this.tun();
+    const rec = this.c.tunRec || {};
+    this.recSeen = this.recSeen || {};
+    for (const k of Object.keys(rec)) {
+      if (this.recSeen[k]) continue;
+      const [dn, ifn] = k.split("|");
+      log(dn, `%TUN-5-RECURDOWN: ${ifn} temporarily disabled due to recursive routing`);
+    }
+    this.recSeen = { ...rec };
+  },
+
+  // Logical links for the topology diagram: point-to-point tunnels, DMVPN hub-spoke registrations
+  // and spoke-spoke dynamic tunnels, and crypto map peerings.
+  tunnelInfo() {
+    const out = [], seen = new Set();
+    const add = (x) => {
+      const k = [x.a + "|" + x.aIf, x.b + "|" + x.bIf].sort().join("~");
+      if (!seen.has(k)) { seen.add(k); out.push(x); }
+    };
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      for (const [n, i] of Object.entries(d.cfg.intfs)) {
+        if (!isTun(n)) continue;
+        const t = tunOf(i), prot = !!this.tunProt(d.name, n);
+        if (tunMode(t) !== "gre-mp") {
+          const p = this.tunPeer(d.name, n, false);
+          if (p) add({ a: d.name, aIf: n, b: p.dev, bIf: p.ifn, up: this.ifUp(d.name, n) && this.ifUp(p.dev, p.ifn) && !!this.tunPeer(d.name, n, true),
+            kind: tunMode(this.devs[p.dev].cfg.intfs[p.ifn].tun || {}) === "gre-mp" ? "dmvpn" : prot ? "ipsec" : "gre", protected: prot });
+          continue;
+        }
+        for (const r of this.nhrpRegs(d.name, n)) add({ a: r.dev, aIf: r.ifn, b: d.name, bIf: n, up: true, kind: "dmvpn", protected: prot });
+        for (const m of this.nhrpMap(d.name, n)) {
+          if (m.type !== "dynamic" || m.registered) continue;
+          const far = this.tunEndAt(m.nbma, m.ip, t.key, d.name);
+          if (far) add({ a: d.name, aIf: n, b: far.dev, bIf: far.ifn, up: this.reachTun(d.name, n, far), kind: "dmvpn", dynamic: true, protected: prot });
+        }
+      }
+      for (const [n, i] of Object.entries(d.cfg.intfs)) {
+        const map = i.cmap && cryptoOf(d.cfg).maps[i.cmap];
+        if (!map) continue;
+        for (const e of Object.values(map)) {
+          if (e.peer === null) continue;
+          const b = this.ownerOf(e.peer);
+          const bIf = b && this.upIfs(b).find((x) => this.ifAddrs(b, x).some((a) => a.ip === e.peer));
+          const local = this.ifAddr(d.name, n);
+          if (!bIf || !local) continue;
+          const ike = this.devs[d.name].rt.ike && this.devs[d.name].rt.ike[local.ip + "|" + e.peer];
+          add({ a: d.name, aIf: n, b, bIf, up: !!ike && ike.ok, kind: "ipsec", protected: true });
+        }
+      }
+    }
+    return out;
+  },
+
+  // -- lab checks for this section ---------------------------------------------------------
+  vpnCheck(c, d, intf) {
+    switch (c.type) {
+      case "vrf": {
+        const v = vrfsOf(d.cfg)[c.vrf];
+        return !!v && (!c.rd || v.rd === c.rd) && (c.ipv4 === undefined || !!(v.legacy || v.af4) === c.ipv4);
+      }
+      case "vrf-if": return this.vrfOf(d.name, intf) === c.vrf;
+      case "tunnel": {
+        const i = d.cfg.intfs[intf];
+        if (!i || !isTun(intf)) return false;
+        return (!c.state || (this.tunUp(d.name, intf) ? "up" : "down") === c.state) && (!c.mode || tunMode(tunOf(i)) === c.mode);
+      }
+      case "ipsec-sa": {
+        const peer = ip2n(c.peer);
+        for (const [n, i] of Object.entries(d.cfg.intfs)) {
+          if (isTun(n) && this.tunProt(d.name, n)) {
+            const far = tunMode(tunOf(i)) === "gre-mp" ? null : this.tunPeer(d.name, n, false);
+            if (far && far.nbma === peer && this.protMatch(d.name, n, far.dev, far.ifn).ok) return true;
+          }
+          const map = i.cmap && cryptoOf(d.cfg).maps[i.cmap], local = this.ifAddr(d.name, n);
+          if (!map || !local) continue;
+          for (const e of Object.values(map)) {
+            if (e.peer !== peer || !e.acl || !d.cfg.acls[e.acl]) continue;
+            const acl = d.cfg.acls[e.acl].entries.find((x) => x.remark === undefined && x.action === "permit");
+            if (!acl) continue;
+            const probe = { src: acl.src.addr, dst: acl.dst ? acl.dst.addr : 0, proto: acl.proto === "ip" ? "icmp" : acl.proto, icmp: "echo", id: 1 };
+            if (this.mapMatch(d.name, local.ip, e, probe).ok) return true;
+          }
+        }
+        return false;
+      }
+      case "nhrp-peer": {
+        const ifs = intf ? [intf] : Object.keys(d.cfg.intfs).filter(isTun);
+        return ifs.some((n) => this.nhrpMap(d.name, n).some((m) => m.ip === ip2n(c.peer) && (!c.registered || m.registered)));
+      }
+      case "trace-avoids": {
+        const hops = this.trace(c.from, ip2n(c.to), 30);
+        const last = hops[hops.length - 1];
+        return !!last && last.last && last.ip !== null && !hops.some((h) => h.ip === ip2n(c.avoid));
+      }
+      case "nhrp-shortcut": {
+        const [net, len] = c.prefix.split("/");
+        const r = this.routes(d.name).find((x) => x.net === ip2n(net) && x.len === +len);
+        return !!r && (r.code === "H" || !!r.nho);
+      }
+      default: return undefined;
+    }
+  },
+});
+
+// -- running-config pieces ---------------------------------------------------------------
+function vrfFwdLine(c, i) {
+  const v = vrfsOf(c)[i.vrf];
+  return (v && v.legacy ? " ip vrf forwarding " : " vrf forwarding ") + i.vrf;
+}
+
+function vpnIntfLines(c, n, i) {
+  const L = [], t = tunOf(i), nh = nhrpOf(i);
+  if (i.mtu) L.push(" ip mtu " + i.mtu);
+  if (nh.auth) L.push(" ip nhrp authentication " + nh.auth);
+  for (const m of nh.maps || []) L.push(` ip nhrp map ${n2ip(m.ip)} ${n2ip(m.nbma)}`);
+  for (const m of nh.mcast || []) L.push(" ip nhrp map multicast " + n2ip(m));
+  if (nh.mcastDynamic) L.push(" ip nhrp map multicast dynamic");
+  if (nh.nid !== undefined && nh.nid !== null) L.push(" ip nhrp network-id " + nh.nid);
+  if (nh.hold) L.push(" ip nhrp holdtime " + nh.hold);
+  for (const s of nh.nhs || []) L.push(` ip nhrp nhs ${n2ip(s.ip)}${s.nbma !== null ? " nbma " + n2ip(s.nbma) : ""}${s.mcast ? " multicast" : ""}`);
+  if (nh.redirect) L.push(" ip nhrp redirect");
+  if (nh.shortcut) L.push(" ip nhrp shortcut");
+  if (i.mss) L.push(" ip tcp adjust-mss " + i.mss);
+  if (i.eigrpNoSH) L.push(" no ip split-horizon eigrp " + i.eigrpNoSH);
+  if (i.eigrpNoNHS) L.push(" no ip next-hop-self eigrp " + i.eigrpNoNHS);
+  if (i.ka) L.push(" keepalive" + (i.ka[0] !== 10 || i.ka[1] !== 3 ? ` ${i.ka[0]} ${i.ka[1]}` : ""));
+  if (isTun(n)) {
+    if (t.src) L.push(" tunnel source " + t.src);
+    else if (t.srcIp !== undefined && t.srcIp !== null) L.push(" tunnel source " + n2ip(t.srcIp));
+    if (t.dst !== undefined && t.dst !== null) L.push(" tunnel destination " + n2ip(t.dst));
+    if (tunMode(t) === "gre-mp") L.push(" tunnel mode gre multipoint");
+    if (tunMode(t) === "ipsec") L.push(" tunnel mode ipsec ipv4");
+    if (t.key !== undefined && t.key !== null) L.push(" tunnel key " + t.key);
+    if (t.prot) L.push(" tunnel protection ipsec profile " + t.prot);
+  }
+  if (i.cmap) L.push(" crypto map " + i.cmap);
+  return L;
+}
+
+function vpnGlobalLines(c) {
+  const L = [];
+  for (const [name, v] of Object.entries(vrfsOf(c)).sort()) {
+    if (v.legacy) {
+      L.push("ip vrf " + name);
+      if (v.desc) L.push(" description " + v.desc);
+      if (v.rd) L.push(" rd " + v.rd);
+      for (const rt of v.rts || []) L.push(` route-target ${rt.dir} ${rt.val}`);
+    } else {
+      L.push("vrf definition " + name);
+      if (v.desc) L.push(" description " + v.desc);
+      if (v.rd) L.push(" rd " + v.rd);
+      for (const rt of v.rts || []) L.push(` route-target ${rt.dir} ${rt.val}`);
+      if (v.af4) L.push(" !", " address-family ipv4", " exit-address-family");
+      if (v.af6) L.push(" !", " address-family ipv6", " exit-address-family");
+    }
+    L.push("!");
+  }
+  const k = cryptoOf(c);
+  const pols = Object.values(k.policies).sort((a, b) => a.prio - b.prio);
+  for (const p of pols) {
+    L.push("crypto isakmp policy " + p.prio);
+    if (p.encr !== "des") L.push(" encr " + p.encr + (p.bits ? " " + p.bits : ""));
+    if (p.hash !== "sha") L.push(" hash " + p.hash);
+    if (p.auth !== "rsa-sig") L.push(" authentication " + p.auth);
+    if (p.group !== 1) L.push(" group " + p.group);
+    if (p.life !== 86400) L.push(" lifetime " + p.life);
+  }
+  for (const x of k.keys) L.push(`crypto isakmp key ${x.key} address ${n2ip(x.addr)}${x.mask !== 0xffffffff ? " " + n2ip(x.mask) : ""}`);
+  if (pols.length || k.keys.length) L.push("!");
+  for (const [name, t] of Object.entries(k.tsets)) {
+    L.push(`crypto ipsec transform-set ${name} ${t.transforms.join(" ")}`);
+    L.push(" mode " + (t.mode || "tunnel"));
+  }
+  if (Object.keys(k.tsets).length) L.push("!");
+  for (const [name, p] of Object.entries(k.profiles)) {
+    L.push("crypto ipsec profile " + name);
+    if (p.tsets.length) L.push(" set transform-set " + p.tsets.join(" "));
+    if (p.pfs) L.push(" set pfs " + p.pfs);
+    L.push("!");
+  }
+  for (const [name, m] of Object.entries(k.maps)) {
+    for (const e of Object.values(m).sort((a, b) => a.seq - b.seq)) {
+      L.push(`crypto map ${name} ${e.seq} ipsec-isakmp`);
+      if (e.peer !== null) L.push(" set peer " + n2ip(e.peer));
+      if (e.tsets.length) L.push(" set transform-set " + e.tsets.join(" "));
+      if (e.pfs) L.push(" set pfs " + e.pfs);
+      if (e.acl) L.push(" match address " + e.acl);
+    }
+    L.push("!");
+  }
+  return L;
+}
+
+function vpnRoutingLines(c) {
+  const L = [];
+  for (const r of c.vrfRoutes || []) {
+    L.push(["ip route vrf", r.vrf, n2ip(r.net), n2ip(lenMask(r.len)), r.ifn, r.nh !== null ? n2ip(r.nh) : null, r.ad !== 1 ? r.ad : null]
+      .filter((x) => x !== null && x !== undefined).join(" "));
+  }
+  for (const o of Object.values(c.ospfVrf || {}).sort((a, b) => a.pid - b.pid)) {
+    L.push(`router ospf ${o.pid} vrf ${o.vrf}`);
+    if (o.rid !== null) L.push(" router-id " + n2ip(o.rid));
+    if (o.passiveDefault) {
+      L.push(" passive-interface default");
+      for (const n of o.noPassive) L.push(" no passive-interface " + n);
+    } else for (const n of o.passive) L.push(" passive-interface " + n);
+    for (const n of o.networks) L.push(` network ${n2ip(n.addr)} ${n2ip(n.wild)} area ${n.area}`);
+    if (o.defaultOriginate) L.push(" default-information originate" + (o.defaultAlways ? " always" : ""));
+    L.push("!");
+  }
+  return L;
+}
+
+// The code column of `show ip route`, with "%" for a next hop NHRP has overridden.
+const routeCode = (r) => (r.nho ? r.code + "   %" : r.code);
+
+// -- show commands ------------------------------------------------------------------------
+function showTunnelIf(net, dn, n) {
+  const d = net.devs[dn], i = d.cfg.intfs[n], s = net.ifState(dn, n), t = tunOf(i), mode = tunMode(t);
+  const src = net.tunSrcIpRaw(dn, n);
+  const L = [`${n} is ${s.status}, line protocol is ${s.proto}`, "  Hardware is Tunnel"];
+  if (i.desc) L.push("  Description: " + i.desc);
+  if (i.ip !== null) L.push(`  Internet address is ${n2ip(i.ip)}/${maskLen(i.mask)}`);
+  L.push(`  MTU 17916 bytes, BW ${net.bandwidth(d, n)} Kbit/sec, DLY ${net.delay(d, n) * 10} usec,`,
+    "     reliability 255/255, txload 1/255, rxload 1/255", "  Encapsulation TUNNEL, loopback not set",
+    i.ka ? `  Keepalive set (${i.ka[0]} sec), retries ${i.ka[1]}` : "  Keepalive not set",
+    `  Tunnel linestate evaluation ${s.proto}${s.proto === "down" && !i.shut ? (net.c.tunRec && net.c.tunRec[dn + "|" + n] ? " - recursive routing" : src === null ? " - source down" : "") : ""}`,
+    `  Tunnel source ${src === null ? "UNKNOWN" : n2ip(src)}${t.src ? ` (${t.src})` : ""}${mode === "gre-mp" ? "" : `, destination ${t.dst !== undefined && t.dst !== null ? n2ip(t.dst) : "UNKNOWN"}`}`,
+    `  Tunnel protocol/transport ${mode === "gre-mp" ? "multi-GRE/IP" : mode === "ipsec" ? "IPSEC/IP" : "GRE/IP"}`,
+    `    Key ${t.key !== undefined && t.key !== null ? t.key : "disabled"}, sequencing disabled`,
+    "    Checksumming of packets disabled", "  Tunnel TTL 255, Fast tunneling enabled",
+    `  Tunnel transport MTU ${mode === "ipsec" ? 1438 : t.prot ? 1438 : 1476} bytes`,
+    "  Tunnel transmit bandwidth 8000 (kbps)", "  Tunnel receive bandwidth 8000 (kbps)");
+  if (t.prot) L.push(`  Tunnel protection via IPSec (profile "${t.prot}")`);
+  return L;
+}
+
+function showVrf(net, dn, legacyView) {
+  const d = net.devs[dn], vs = vrfsOf(d.cfg);
+  const ifsOf = (v) => Object.keys(d.cfg.intfs).filter((n) => d.cfg.intfs[n].vrf === v).sort(ifSort).map(shortIf);
+  if (legacyView) {
+    const L = ["  Name                             Default RD            Interfaces"];
+    for (const [name, v] of Object.entries(vs).sort()) {
+      const ifs = ifsOf(name);
+      L.push("  " + pad(name, 33) + pad(v.rd || "<not set>", 22) + (ifs[0] || ""));
+      for (const x of ifs.slice(1)) L.push("".padEnd(57) + x);
+    }
+    return L.join("\n");
+  }
+  const L = ["  Name                             Default RD            Protocols   Interfaces"];
+  for (const [name, v] of Object.entries(vs).sort()) {
+    const ifs = ifsOf(name), protos = v.legacy ? "ipv4" : [v.af4 && "ipv4", v.af6 && "ipv6"].filter(Boolean).join(",") || "<not set>";
+    L.push("  " + pad(name, 33) + pad(v.rd || "<not set>", 22) + pad(protos, 12) + (ifs[0] || ""));
+    for (const x of ifs.slice(1)) L.push("".padEnd(69) + x);
+  }
+  return L.join("\n");
+}
+
+function showVrfInterfaces(net, dn) {
+  const d = net.devs[dn];
+  const L = ["Interface              IP-Address      VRF                              Protocol"];
+  for (const n of Object.keys(d.cfg.intfs).sort(ifSort)) {
+    const i = d.cfg.intfs[n];
+    if (!i.vrf) continue;
+    L.push(pad(shortIf(n), 23) + pad(i.ip === null ? "unassigned" : n2ip(i.ip), 16) + pad(i.vrf, 33) + net.ifState(dn, n).proto);
+  }
+  return L.join("\n");
+}
+
+const ENCR_NAME = { des: "DES - Data Encryption Standard (56 bit keys).", "3des": "Three key triple DES",
+  aes: "AES - Advanced Encryption Standard" };
+const HASH_NAME = { sha: "Secure Hash Standard", md5: "Message Digest 5", sha256: "Secure Hash Standard 2 (256 bit)",
+  sha384: "Secure Hash Standard 2 (384 bit)", sha512: "Secure Hash Standard 2 (512 bit)" };
+const AUTH_NAME = { "pre-share": "Pre-Shared Key", "rsa-sig": "Rivest-Shamir-Adleman Signature", "rsa-encr": "Rivest-Shamir-Adleman Encryption" };
+const GROUP_BITS = { 1: 768, 2: 1024, 5: 1536, 14: 2048, 15: 3072, 16: 4096, 19: "256 bit ECP", 20: "384 bit ECP", 21: "521 bit ECP", 24: 2048 };
+
+function showIsakmpPolicy(net, dn) {
+  const c = net.devs[dn].cfg, mine = Object.values(cryptoOf(c).policies).sort((a, b) => a.prio - b.prio);
+  const L = ["", "Global IKE policy"];
+  const show = (p, dflt) => {
+    L.push(`${dflt ? "Default protection suite of priority " : "Protection suite of priority "}${p.prio}`,
+      `\tencryption algorithm:\t${p.encr === "aes" ? `AES - Advanced Encryption Standard (${p.bits || 128} bit keys).` : ENCR_NAME[p.encr]}`,
+      `\thash algorithm:\t\t${HASH_NAME[p.hash]}`, `\tauthentication method:\t${AUTH_NAME[p.auth]}`,
+      `\tDiffie-Hellman group:\t#${p.group} (${GROUP_BITS[p.group]}${typeof GROUP_BITS[p.group] === "number" ? " bit" : ""})`,
+      `\tlifetime:\t\t${p.life || 86400} seconds, no volume limit`);
+  };
+  for (const p of mine) show(p, false);
+  if (!mine.length) for (const p of DEFAULT_POLICIES) show(p, true);
+  return L.join("\n");
+}
+
+// IKE SAs: crypto-map peers seen in traffic, plus protected tunnels (which negotiate as they come up).
+function ikeRows(net, dn) {
+  const d = net.devs[dn], rows = {};
+  for (const e of Object.values(d.rt.ike || {})) rows[e.local + "|" + e.peer] = { local: e.local, peer: e.peer, state: e.state, ok: e.ok, id: e.id };
+  for (const [n, i] of Object.entries(d.cfg.intfs)) {
+    if (!isTun(n) || !net.tunProt(dn, n) || !net.ifUp(dn, n)) continue;
+    const local = net.tunSrcIp(dn, n);
+    const fars = tunMode(tunOf(i)) === "gre-mp" ? [...net.nhrpRegs(dn, n).map((r) => ({ dev: r.dev, ifn: r.ifn, nbma: r.nbma })),
+      ...[net.nhsPeer(dn, n)].filter(Boolean)] : [net.tunPeer(dn, n, false)].filter(Boolean);
+    for (const far of fars) {
+      const m = net.protMatch(dn, n, far.dev, far.ifn);
+      const k = local + "|" + far.nbma;
+      rows[k] = { local, peer: far.nbma, state: m.ok || m.phase1 ? "QM_IDLE" : "MM_NO_STATE", ok: m.ok, id: rows[k] ? rows[k].id : 1001 + Object.keys(rows).length };
+    }
+  }
+  return Object.values(rows);
+}
+
+function showIsakmpSa(net, dn) {
+  const L = ["IPv4 Crypto ISAKMP SA", "dst             src             state          conn-id status"];
+  for (const r of ikeRows(net, dn)) {
+    L.push(pad(n2ip(r.peer), 16) + pad(n2ip(r.local), 16) + pad(r.state, 15) + lpad(r.id, 7) + " " + (r.state === "QM_IDLE" ? "ACTIVE" : "ACTIVE (deleted)"));
+  }
+  L.push("", "IPv6 Crypto ISAKMP SA", "");
+  return L.join("\n");
+}
+
+function aclIdent(acl) {
+  const e = acl && acl.entries.find((x) => x.remark === undefined && x.action === "permit");
+  if (!e) return ["(0.0.0.0/0.0.0.0/0/0)", "(0.0.0.0/0.0.0.0/0/0)"];
+  const id = (a) => `(${n2ip(a.addr)}/${n2ip((~a.wild) >>> 0)}/${e.proto === "icmp" ? 1 : e.proto === "gre" ? 47 : 0}/0)`;
+  return [id(e.src), e.dst ? id(e.dst) : "(0.0.0.0/0.0.0.0/0/0)"];
+}
+
+function showIpsecSa(net, dn) {
+  const d = net.devs[dn], k = cryptoOf(d.cfg), L = [];
+  const counters = (local, peer) => (d.rt.ipsec || {})[local + "|" + peer] || { encaps: 0, decaps: 0 };
+  const block = (ifn, tag, local, peer, ids, active) => {
+    const c = counters(local, peer);
+    L.push("", `interface: ${ifn}`, `    ${tag}, local addr ${n2ip(local)}`, "", "   protected vrf: (none)",
+      `   local  ident (addr/mask/prot/port): ${ids[0]}`, `   remote ident (addr/mask/prot/port): ${ids[1]}`,
+      `   current_peer ${n2ip(peer)} port 500`, "     PERMIT, flags={origin_is_acl,}",
+      `    #pkts encaps: ${c.encaps}, #pkts encrypt: ${c.encaps}, #pkts digest: ${c.encaps}`,
+      `    #pkts decaps: ${c.decaps}, #pkts decrypt: ${c.decaps}, #pkts verify: ${c.decaps}`,
+      "    #pkts compressed: 0, #pkts decompressed: 0", "    #pkts not compressed: 0, #pkts compr. failed: 0",
+      "    #pkts not decompressed: 0, #pkts decompress failed: 0", "    #send errors 0, #recv errors 0", "",
+      `     local crypto endpt.: ${n2ip(local)}, remote crypto endpt.: ${n2ip(peer)}`,
+      `     plaintext mtu 1438, path mtu 1500, ip mtu 1500, ip mtu idb ${ifn}`,
+      `     current outbound spi: ${active ? "0x" + hex(spi(local, peer), 8).toUpperCase() + "(" + spi(local, peer) + ")" : "0x0(0)"}`,
+      `     PFS (Y/N): N, DH group: none`, "", "     inbound esp sas:", ...(active ? ["      spi: active", "        status: ACTIVE"] : []),
+      "", "     outbound esp sas:", ...(active ? ["      spi: active", "        status: ACTIVE"] : []));
+  };
+  for (const [n, i] of Object.entries(d.cfg.intfs).sort((a, b) => ifSort(a[0], b[0]))) {
+    if (i.cmap && k.maps[i.cmap]) {
+      const local = net.ifAddr(dn, n);
+      if (!local) continue;
+      for (const e of Object.values(k.maps[i.cmap]).sort((a, b) => a.seq - b.seq)) {
+        if (e.peer === null) continue;
+        const ike = (d.rt.ike || {})[local.ip + "|" + e.peer];
+        block(n, `Crypto map tag: ${i.cmap}`, local.ip, e.peer, aclIdent(d.cfg.acls[e.acl]), !!ike && ike.ok);
+      }
+    }
+    if (isTun(n) && net.tunProt(dn, n)) {
+      const local = net.tunSrcIp(dn, n);
+      if (local === null) continue;
+      const fars = tunMode(tunOf(i)) === "gre-mp" ? net.nhrpMap(dn, n).map((m) => ({ nbma: m.nbma, far: net.tunEndAt(m.nbma, m.ip, tunOf(i).key, dn) }))
+        : [net.tunPeer(dn, n, false)].filter(Boolean).map((p) => ({ nbma: p.nbma, far: p }));
+      for (const f of fars) {
+        if (!f.far) continue;
+        const ok = net.protMatch(dn, n, f.far.dev, f.far.ifn).ok;
+        // GRE over IPsec protects the GRE packets between the endpoints; a VTI protects everything.
+        const ids = tunMode(tunOf(i)) === "ipsec" ? ["(0.0.0.0/0.0.0.0/0/0)", "(0.0.0.0/0.0.0.0/0/0)"]
+          : [`(${n2ip(local)}/255.255.255.255/47/0)`, `(${n2ip(f.nbma)}/255.255.255.255/47/0)`];
+        block(n, `Crypto map tag: ${n}-head-0`, local, f.nbma, ids, ok);
+      }
+    }
+  }
+  return L.join("\n");
+}
+
+function showTransformSets(net, dn) {
+  const k = cryptoOf(net.devs[dn].cfg), L = [];
+  L.push("Transform set default: { esp-aes esp-sha-hmac  } ", "   will negotiate = { Transport,  }, ", "   ");
+  for (const [name, t] of Object.entries(k.tsets)) {
+    L.push(`Transform set ${name}: { ${t.transforms.join(" ")}  } `, `   will negotiate = { ${(t.mode || "tunnel") === "tunnel" ? "Tunnel" : "Transport"},  }, `, "   ");
+  }
+  return L.join("\n");
+}
+
+function showCryptoMap(net, dn) {
+  const d = net.devs[dn], k = cryptoOf(d.cfg), L = [];
+  for (const [name, m] of Object.entries(k.maps)) {
+    for (const e of Object.values(m).sort((a, b) => a.seq - b.seq)) {
+      L.push(`Crypto Map IPv4 "${name}" ${e.seq} ipsec-isakmp`);
+      L.push(e.peer !== null ? `\tPeer = ${n2ip(e.peer)}` : "\tNo matching address list set.");
+      const acl = e.acl && d.cfg.acls[e.acl];
+      if (acl) {
+        L.push(`\tExtended IP access list ${e.acl}`);
+        for (const x of acl.entries) if (x.remark === undefined) L.push(`\t    access-list ${e.acl} ${x.action} ${aceStr(acl.type, x)}`);
+      } else if (e.acl) L.push(`\tExtended IP access list ${e.acl} (not defined)`);
+      if (e.peer !== null) L.push(`\tCurrent peer: ${n2ip(e.peer)}`);
+      L.push("\tSecurity association lifetime: 4608000 kilobytes/3600 seconds", "\tResponder-Only (Y/N): N",
+        `\tPFS (Y/N): ${e.pfs ? "Y" : "N"}`, "\tMixed-mode : Disabled", "\tTransform sets={ ",
+        ...e.tsets.map((t) => `\t\t${t}:  { ${(k.tsets[t] ? k.tsets[t].transforms : []).join(" ")}  } , `), "\t}");
+    }
+    const ifs = Object.keys(d.cfg.intfs).filter((n) => d.cfg.intfs[n].cmap === name);
+    L.push(`\tInterfaces using crypto map ${name}:`, ...ifs.map((n) => "\t\t" + n), "");
+  }
+  return L.join("\n");
+}
+
+function showCryptoSession(net, dn) {
+  const d = net.devs[dn], L = ["Crypto session current status", ""];
+  for (const r of ikeRows(net, dn)) {
+    const ifn = Object.keys(d.cfg.intfs).find((n) => (net.ifAddr(dn, n) || {}).ip === r.local && d.cfg.intfs[n].cmap)
+      || Object.keys(d.cfg.intfs).find((n) => isTun(n) && net.tunSrcIp(dn, n) === r.local) || "";
+    L.push(`Interface: ${ifn}`, `Session status: ${r.ok ? "UP-ACTIVE" : r.state === "QM_IDLE" ? "UP-IDLE" : "DOWN-NEGOTIATING"}     `,
+      `Peer: ${n2ip(r.peer)} port 500 `, `  IKEv1 SA: local ${n2ip(r.local)}/500 remote ${n2ip(r.peer)}/500 ${r.state === "QM_IDLE" ? "Active" : "Inactive"} `,
+      `        Active SAs: ${r.ok ? 2 : 0}, origin: ${isTun(ifn) ? "crypto map" : "crypto map"}`, "");
+  }
+  return L.join("\n");
+}
+
+function showDmvpn(net, dn, detail) {
+  const d = net.devs[dn];
+  const L = ["Legend: Attrb --> S - Static, D - Dynamic, I - Incomplete", "\tN - NATed, L - Local, X - No Socket",
+    "\tT1 - Route Installed, T2 - Nexthop-override", "\tC - CTS Capable, I2 - Temporary",
+    "\t# Ent --> Number of NHRP entries with same NBMA peer", "\tNHS Status: E --> Expecting Replies, R --> Responding, W --> Waiting",
+    "\tUpDn Time --> Up or Down Time for a Tunnel", "=========================================================================="];
+  for (const n of Object.keys(d.cfg.intfs).filter(isTun).sort(ifSort)) {
+    if (!net.nhrpOn(dn, n)) continue;
+    const i = d.cfg.intfs[n], peers = net.nhrpMap(dn, n);
+    const hub = net.nhrpRegs(dn, n).length > 0 || nhrpOf(i).mcastDynamic;
+    L.push("", `Interface: ${n}, IPv4 NHRP Details `, `Type:${hub ? "Hub" : "Spoke"}, NHRP Peers:${peers.length},`, "");
+    if (detail) {
+      L.push(`IPv4 NHS: ${(nhrpOf(i).nhs || []).map((s) => n2ip(s.ip) + (net.nhsPeer(dn, n) ? " RE" : " E")).join(" ") || "None"}`);
+    }
+    L.push(" # Ent  Peer NBMA Addr Peer Tunnel Add State  UpDn Tm Attrb", " ----- --------------- --------------- ----- -------- -----");
+    for (const p of peers) {
+      const far = net.tunEndAt(p.nbma, p.ip, tunOf(i).key, dn);
+      const up = !!far && net.reachTun(dn, n, far);
+      L.push("     1 " + pad(n2ip(p.nbma), 16) + pad(n2ip(p.ip), 16) + pad(up ? "UP" : p.type === "static" ? "NHRP" : "IKE", 6)
+        + pad("00:01:12", 9) + (p.type === "static" ? "S" : "D"));
+    }
+  }
+  return L.join("\n");
+}
+
+function showNhrp(net, dn, brief) {
+  const d = net.devs[dn], L = [];
+  if (brief) L.push("   Target             Via            NBMA           Mode   Intfc   Claimed");
+  for (const n of Object.keys(d.cfg.intfs).filter(isTun).sort(ifSort)) {
+    const i = d.cfg.intfs[n];
+    for (const p of net.nhrpMap(dn, n)) {
+      if (brief) {
+        L.push("     " + pad(n2ip(p.ip) + "/32", 19) + pad(n2ip(p.ip), 15) + pad(n2ip(p.nbma), 15) + pad(p.type === "static" ? "static" : "dynamic", 7) + pad(shortIf(n), 8) + "   >");
+        continue;
+      }
+      L.push(`${n2ip(p.ip)}/32 via ${n2ip(p.ip)}`, `   ${n} created 00:01:12, ${p.type === "static" ? "never expire " : "expire 01:58:47"}`,
+        `   Type: ${p.type}, Flags: ${p.registered ? "registered nhop" : p.type === "static" ? "used" : "router nhop rib"}`,
+        `   NBMA address: ${n2ip(p.nbma)} `);
+    }
+    for (const s of d.rt.nhrpShort || []) {
+      if (s.ifn !== n || brief) continue;
+      L.push(`${n2ip(s.net)}/${s.len} via ${n2ip(s.nh)}`, `   ${n} created 00:00:12, expire 01:59:47`, "   Type: dynamic, Flags: router rib nho",
+        `   NBMA address: ${n2ip((net.nhrpMap(dn, n).find((m) => m.ip === s.nh) || { nbma: 0 }).nbma)} `);
+    }
+    void i;
+  }
+  return L.join("\n");
+}
+
+// -- configuration commands -------------------------------------------------------------------
+Object.assign(HELP, {
+  vrf: "VPN Routing/Forwarding parameters on the interface", definition: "VRF definition", rd: "Specify Route Distinguisher",
+  "route-target": "Specify Target VPN Extended Communities", import: "Import Target-VPN community", export: "Export Target-VPN community",
+  both: "Both import and export Target-VPN community", forwarding: "Configure forwarding table",
+  "exit-address-family": "Exit from Address Family configuration mode", tunnel: "protocol-over-protocol tunneling",
+  destination: "destination of tunnel", gre: "generic route encapsulation protocol",
+  multipoint: "over IPv4 (multipoint)", ipsec: "IPSec tunnel encapsulation", ipv4: "over IPv4", key: "security or selector key",
+  protection: "Enable tunneling protection", profile: "Determine the ipsec policy profile to use.", keepalive: "Enable keepalive",
+  mtu: "Set IP Maximum Transmission Unit", tcp: "TCP header compression and/or Adjust MSS parameters", "adjust-mss": "Adjust the mss of transit packets",
+  nhrp: "NHRP interface subcommands", "network-id": "NBMA network identifier", map: "Map dest IP addresses to NBMA addresses",
+  multicast: "Use this NBMA mapping for broadcasts/multicasts", nhs: "Specify a next hop server",
+  nbma: "Specify NBMA address/FQDN", redirect: "Enable NHRP redirect", shortcut: "Enable shortcut switching", holdtime: "Advertised holdtime",
+  "split-horizon": "Perform split horizon", "next-hop-self": "Use own IP address as next hop when advertising",
+  crypto: "Encryption module", isakmp: "Configure ISAKMP policy", policy: "Set policy for an ISAKMP protection suite",
+  encryption: "Set encryption algorithm for protection suite", hash: "Set hash algorithm for protection suite",
+  group: "Set the Diffie-Hellman group", lifetime: "Set lifetime for ISAKMP security association", "pre-share": "Pre-Shared Key",
+  "rsa-sig": "Rivest-Shamir-Adleman Signature", "rsa-encr": "Rivest-Shamir-Adleman Encryption", des: "Data Encryption Standard (56 bit keys).",
+  "3des": "Three key triple DES (168 bit keys).", aes: "AES - Advanced Encryption Standard.", sha: "Secure Hash Standard",
+  md5: "Message Digest 5", sha256: "Secure Hash Standard 2 (256 bit)", sha384: "Secure Hash Standard 2 (384 bit)",
+  sha512: "Secure Hash Standard 2 (512 bit)", "transform-set": "Define transform and settings", "esp-aes": "ESP transform using AES cipher",
+  "esp-3des": "ESP transform using 3DES(EDE) cipher (168 bits)", "esp-des": "ESP transform using DES cipher (56 bits)",
+  "esp-null": "ESP transform w/o cipher", "esp-gcm": "ESP transform using GCM cipher", "esp-sha-hmac": "ESP transform using HMAC-SHA auth",
+  "esp-md5-hmac": "ESP transform using HMAC-MD5 auth", "esp-sha256-hmac": "ESP transform using HMAC-SHA256 auth",
+  "esp-sha384-hmac": "ESP transform using HMAC-SHA384 auth", "esp-sha512-hmac": "ESP transform using HMAC-SHA512 auth",
+  "ah-sha-hmac": "AH-HMAC-SHA transform", "ah-md5-hmac": "AH-HMAC-MD5 transform",
+  "ipsec-isakmp": "IPSEC w/ISAKMP", peer: "Allowed Encryption/Decryption peer.", pfs: "Specify pfs settings",
+  group2: "D-H Group2 (1024-bit modulus)", group5: "D-H Group5 (1536-bit modulus)", group14: "D-H Group14 (2048-bit modulus)",
+  sa: "Show all current IKE SAs", session: "crypto session", dmvpn: "DMVPN information",
+});
+Object.assign(HELP_PATH, { "esp-aes 128": "128 bit keys.", "esp-aes 192": "192 bit keys.", "esp-aes 256": "256 bit keys.",
+  "mode tunnel": "tunnel (datagram encapsulation)", "mode transport": "transport (payload encapsulation)",
+  "aes 128": "128 bit keys.", "aes 192": "192 bit keys.", "aes 256": "256 bit keys.",
+  "group 1": "Diffie-Hellman group 1 (768 bit)", "group 2": "Diffie-Hellman group 2 (1024 bit)", "group 5": "Diffie-Hellman group 5 (1536 bit)",
+  "group 14": "Diffie-Hellman group 14 (2048 bit)", "group 15": "Diffie-Hellman group 15 (3072 bit)", "group 16": "Diffie-Hellman group 16 (4096 bit)",
+  "group 19": "Diffie-Hellman group 19 (256 bit ecp)", "group 20": "Diffie-Hellman group 20 (384 bit ecp)", "group 21": "Diffie-Hellman group 21 (521 bit ecp)",
+  "group 24": "Diffie-Hellman group 24 (2048 bit, 256 bit subgroup)" });
+HELP_MODE.config.vrf = "Configure a VRF";
+HELP_MODE.tset = { mode: "encapsulation mode (transport/tunnel)" };
+HELP_MODE.vrfdef = { description: "VRF specific description", "address-family ipv4": "Address family", "address-family ipv6": "Address family" };
+HELP_MODE.ipvrf = { description: "VRF specific description" };
+HELP_MODE.cmap = { set: "Set values for encryption/decryption", match: "Match values." };
+HELP_MODE.ipsecprof = { set: "Specify parameter settings" };
+HELP_MODE.isakmp = { authentication: "Set authentication method for protection suite" };
+for (const m of ["if", "subif", "range", "tunif"]) HELP_MODE[m] = { ...(HELP_MODE[m] || {}), crypto: "Encryption/Decryption commands" };
+Object.assign(HELP_PATH, {
+  "vrf definition": "VRF definition", "ip vrf": "Configure an IP VPN Routing/Forwarding instance", "vrf forwarding": "Configure forwarding table",
+  "ip vrf forwarding": "Configure forwarding table", "route vrf": "Configure static route for a VPN Routing/Forwarding instance",
+  "ping vrf": "Select VPN Routing/Forwarding instance", "traceroute vrf": "Select VPN Routing/Forwarding instance",
+  "show ip route vrf": "Display routes from a VPN Routing/Forwarding instance", "show ip arp vrf": "Show entries in VPN Routing/Forwarding instance",
+  "show vrf": "VPN Routing/Forwarding instance information", "show ip vrf": "VPN Routing/Forwarding instance information",
+  "show ip vrf brief": "Brief VPN Routing/Forwarding instance information", "show ip vrf interfaces": "Show VPN Routing/Forwarding interface information",
+  "ospf vrf": "VPN Routing/Forwarding Instance", "address-family ipv6": "Address family", "tunnel mode": "tunnel encapsulation method",
+  "tunnel source": "source of tunnel packets", "tunnel destination": "destination of tunnel", "tunnel mode gre": "generic route encapsulation protocol",
+  "mode gre ip": "over IP", "mode gre multipoint": "over IPv4 (multipoint)", "mode ipsec": "IPSec tunnel encapsulation",
+  "mode ipsec ipv4": "over IPv4", "tunnel key": "security or selector key", "tunnel protection": "Enable tunneling protection",
+  "protection ipsec": "Determine the ipsec policy profile to use.", "ipsec profile": "Determine the ipsec policy profile to use.",
+  "ip mtu": "Set IP Maximum Transmission Unit", "ip tcp": "TCP header compression and/or Adjust MSS parameters",
+  "ip nhrp": "NHRP interface subcommands", "nhrp map": "Map dest IP addresses to NBMA addresses",
+  "map multicast": "Use this NBMA mapping for broadcasts/multicasts", "multicast dynamic": "IP NBMA address dynamically learnt",
+  "nhrp authentication": "Authentication string", "nhrp nhs": "Specify a next hop server", "nhs nbma": "Specify NBMA address/FQDN",
+  "nbma multicast": "Map this NBMA for multicast traffic", "split-horizon eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)",
+  "next-hop-self eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)", "crypto isakmp": "Configure ISAKMP policy",
+  "isakmp policy": "Set policy for an ISAKMP protection suite", "isakmp key": "Set pre-shared key for remote peer",
+  "key address": "define shared key with IP address", "crypto ipsec": "Configure IPSEC policy",
+  "ipsec transform-set": "Define transform and settings", "crypto map": "Enter a crypto map", "map ipsec-isakmp": "IPSEC w/ISAKMP",
+  "set peer": "Allowed Encryption/Decryption peer.", "set transform-set": "Specify list of transform sets in priority order",
+  "match address": "Match address of packets to encrypt.", "set pfs": "Specify pfs settings", "authentication pre-share": "Pre-Shared Key",
+  "show crypto": "Encryption module", "show crypto isakmp": "Show ISAKMP", "show crypto isakmp sa": "Show all current IKE SAs",
+  "show crypto isakmp policy": "Show ISAKMP protection suite policy", "show crypto ipsec": "Show IPSEC policy",
+  "show crypto ipsec sa": "IPSEC SA table", "show crypto ipsec transform-set": "Crypto transform sets", "show crypto map": "Crypto maps",
+  "show crypto session": "Show crypto sessions (tunnels)", "clear crypto": "Encryption module", "clear crypto sa": "Clear all IPSEC security associations",
+  "clear crypto isakmp": "Flush the ISAKMP database", "show dmvpn": "DMVPN information", "show dmvpn detail": "detailed DMVPN information",
+  "show ip nhrp": "NHRP information", "show ip nhrp brief": "Brief display", "show ip nhrp nhs": "Next Hop Server information",
+  "clear ip nhrp": "Clear NHRP cache", "debug crypto": "Cryptographic subsystem", "debug crypto isakmp": "ISAKMP Key Management",
+  "debug crypto ipsec": "IPSEC processing", "debug nhrp": "NHRP protocol",
+});
+
+const vrfName = (c, name) => vrfsOf(c)[name];
+const newVrf = (legacy) => ({ legacy, rd: null, desc: "", af4: legacy, af6: false, rts: [] });
+const RD_RE = /^(\d{1,10}:\d{1,10}|\d+\.\d+\.\d+\.\d+:\d{1,5})$/;
+
+def("R", "config", "vrf definition <word|VRF name>", (c, [name]) => {
+  const v = vrfName(c.cfg, name);
+  if (v && v.legacy) { c.print(`% VRF ${name} was configured with "ip vrf"; remove it or use "ip vrf ${name}"`); return; }
+  if (!v) (c.cfg.vrfs = c.cfg.vrfs || {})[name] = newVrf(false);
+  c.s.enter("vrfdef", name);
+});
+def("R", "config", "ip vrf <word|VRF name>", (c, [name]) => {
+  const v = vrfName(c.cfg, name);
+  if (v && !v.legacy) { c.print(`% VRF ${name} was configured with "vrf definition"; use "vrf definition ${name}"`); return; }
+  if (!v) (c.cfg.vrfs = c.cfg.vrfs || {})[name] = newVrf(true);
+  c.s.enter("ipvrf", name);
+});
+const dropVrf = (c, name) => {
+  if (!vrfName(c.cfg, name)) { c.print(`% VRF ${name} not configured`); return; }
+  let moved = false;
+  for (const i of Object.values(c.cfg.intfs)) {
+    if (i.vrf !== name) continue;
+    delete i.vrf;
+    i.ip = null; i.mask = null; i.secondary = [];
+    moved = true;
+  }
+  if (moved) c.print(`% IPv4 addresses from all interfaces in VRF ${name} have been removed`);
+  delete c.cfg.vrfs[name];
+  if (c.cfg.vrfRoutes) c.cfg.vrfRoutes = c.cfg.vrfRoutes.filter((r) => r.vrf !== name);
+  for (const [pid, o] of Object.entries(c.cfg.ospfVrf || {})) if (o.vrf === name) delete c.cfg.ospfVrf[pid];
+};
+def("R", "config", "no vrf definition <word|VRF name>", (c, [name]) => dropVrf(c, name));
+def("R", "config", "no ip vrf <word|VRF name>", (c, [name]) => dropVrf(c, name));
+for (const m of ["vrfdef", "ipvrf"]) {
+  def("R", m, "rd <word|VPN Route Distinguisher (ASN:nn or IP-address:nn)>", (c, [rd]) => {
+    const v = vrfName(c.cfg, c.target);
+    if (!RD_RE.test(rd)) { c.print("% Invalid RD format"); return; }
+    if (v.rd && v.rd !== rd) { c.print(`% Can not change existing RD ${v.rd}; remove it with "no rd ${v.rd}" first`); return; }
+    v.rd = rd;
+  });
+  def("R", m, "no rd", (c) => { vrfName(c.cfg, c.target).rd = null; });
+  def("R", m, "no rd <word|VPN Route Distinguisher (ASN:nn or IP-address:nn)>", (c) => { vrfName(c.cfg, c.target).rd = null; });
+  def("R", m, "description <line|Up to 244 characters describing this VRF>", (c, [t]) => { vrfName(c.cfg, c.target).desc = t; });
+  def("R", m, "no description", (c) => { vrfName(c.cfg, c.target).desc = ""; });
+  def("R", m, "route-target {export|import|both} <word|Target VPN Extended Community (ASN:nn or IP-address:nn)>", (c, [dir, val]) => {
+    const v = vrfName(c.cfg, c.target);
+    v.rts = v.rts || [];
+    const dirs = dir === "both" ? ["export", "import"] : [dir];
+    for (const x of dirs) if (!v.rts.some((r) => r.dir === x && r.val === val)) v.rts.push({ dir: x, val });
+  });
+}
+def("R", "vrfdef", "address-family {ipv4|ipv6}", (c, [af]) => {
+  vrfName(c.cfg, c.target)[af === "ipv4" ? "af4" : "af6"] = true;
+  c.s.enter("vrfaf", c.target);
+});
+def("R", "vrfdef", "no address-family {ipv4|ipv6}", (c, [af]) => { vrfName(c.cfg, c.target)[af === "ipv4" ? "af4" : "af6"] = false; });
+def("R", "vrfaf", "exit-address-family", (c) => c.s.enter("vrfdef", c.target));
+
+// Moving an interface into (or out of) a VRF removes its addresses, as IOS warns.
+const setVrf = (c, name, legacy) => eachIf(c, (n, i) => {
+  if (name !== null) {
+    const v = vrfName(c.cfg, name);
+    if (!v || v.legacy !== legacy) { c.print(`% VRF ${name} not configured.`); return false; }
+  }
+  const was = i.vrf || null;
+  if (was === name) return;
+  if (i.ip !== null || (i.secondary || []).length) {
+    c.print(`% Interface ${n} IPv4 disabled and address(es) removed due to ${name !== null ? "enabling" : "disabling"} VRF ${name ?? was}`);
+    i.ip = null; i.mask = null; i.secondary = [];
+  }
+  if (name === null) delete i.vrf; else i.vrf = name;
+});
+def("R", IF_MODES, "vrf forwarding <word|Table name>", (c, [name]) => setVrf(c, name, false));
+def("R", IF_MODES, "ip vrf forwarding <word|Table name>", (c, [name]) => setVrf(c, name, true));
+def("R", IF_MODES, "no vrf forwarding", (c) => setVrf(c, null, false));
+def("R", IF_MODES, "no vrf forwarding <word|Table name>", (c) => setVrf(c, null, false));
+def("R", IF_MODES, "no ip vrf forwarding", (c) => setVrf(c, null, true));
+def("R", IF_MODES, "no ip vrf forwarding <word|Table name>", (c) => setVrf(c, null, true));
+
+const addVrfRoute = (c, vrf, net, mask, ifn, nh, ad) => {
+  if (!vrfName(c.cfg, vrf)) { c.print(`% VRF ${vrf} does not exist`); return; }
+  if (ifn === null) { c.print("% Incomplete command."); return; }
+  const len = maskLen(mask);
+  if (len < 0 || and(net, mask) !== net) { c.print("%Inconsistent address and mask"); return; }
+  if (ifn && !c.cfg.intfs[ifn]) { c.print("%Invalid interface " + ifn); return; }
+  const list = c.cfg.vrfRoutes = c.cfg.vrfRoutes || [];
+  const ex = list.find((r) => r.vrf === vrf && r.net === net && r.len === len && r.ifn === (ifn || null) && r.nh === nh);
+  if (ex) ex.ad = ad;
+  else list.push({ vrf, net, len, ifn: ifn || null, nh, ad });
+};
+const VR = "ip route vrf <word|Destination VRF> <ip|Destination prefix> <ip|Destination prefix mask>";
+def("R", "config", `${VR} <ip|Forwarding router's address>`, (c, [v, n, m, nh]) => addVrfRoute(c, v, n, m, undefined, nh, 1));
+def("R", "config", `${VR} <ip|Forwarding router's address> <num:1-255|Distance metric for this route>`, (c, [v, n, m, nh, ad]) => addVrfRoute(c, v, n, m, undefined, nh, ad));
+def("R", "config", `${VR} <intf>`, (c, [v, n, m, i]) => addVrfRoute(c, v, n, m, i, null, 1));
+def("R", "config", `${VR} <intf> <ip|Forwarding router's address>`, (c, [v, n, m, i, nh]) => addVrfRoute(c, v, n, m, i, nh, 1));
+def("R", "config", `${VR} <intf> <ip|Forwarding router's address> <num:1-255|Distance metric for this route>`, (c, [v, n, m, i, nh, ad]) => addVrfRoute(c, v, n, m, i, nh, ad));
+def("R", "config", `no ${VR}`, (c, [v, n, m]) => {
+  const len = maskLen(m), before = (c.cfg.vrfRoutes || []).length;
+  c.cfg.vrfRoutes = (c.cfg.vrfRoutes || []).filter((r) => !(r.vrf === v && r.net === n && r.len === len));
+  if (c.cfg.vrfRoutes.length === before) c.print("%No matching route to delete");
+});
+def("R", "config", `no ${VR} <ip|Forwarding router's address>`, (c, [v, n, m, nh]) => {
+  const len = maskLen(m), before = (c.cfg.vrfRoutes || []).length;
+  c.cfg.vrfRoutes = (c.cfg.vrfRoutes || []).filter((r) => !(r.vrf === v && r.net === n && r.len === len && r.nh === nh));
+  if (c.cfg.vrfRoutes.length === before) c.print("%No matching route to delete");
+});
+
+// OSPF in a VRF: its own process, configured like the global one.
+def("R", "config", "router ospf <num:1-65535|Process ID> vrf <word|VPN Routing/Forwarding Instance (VRF) name>", (c, [pid, vrf]) => {
+  if (!vrfName(c.cfg, vrf)) { c.print(`%VRF ${vrf} not configured`); return; }
+  if (c.cfg.ospf && c.cfg.ospf.pid === pid) { c.print(`% OSPF: process ${pid} is already running in the global table`); return; }
+  const all = c.cfg.ospfVrf || {};
+  if (all[pid] && all[pid].vrf !== vrf) { c.print(`% OSPF: process ${pid} is already running in VRF ${all[pid].vrf}`); return; }
+  const other = Object.values(all).find((o) => o.vrf === vrf && o.pid !== pid);
+  if (other) { c.print(`% This simulator runs one OSPF process per VRF; VRF ${vrf} already has process ${other.pid}`); return; }
+  if (!all[pid]) {
+    (c.cfg.ospfVrf = all)[pid] = { pid, vrf, rid: null, networks: [], passive: [], noPassive: [], passiveDefault: false,
+      defaultOriginate: false, defaultAlways: false, refBw: 100 };
+  }
+  c.s.enter("vrfospf", pid);
+});
+const vo = (c) => c.cfg.ospfVrf[c.target];
+def("R", "vrfospf", "network <ip|Network number> <ip|OSPF wild card bits> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [addr, wild, a]) => {
+  const area = parseArea(a);
+  if (area === null) { c.invalid(4); return; }
+  const o = vo(c), base = and(addr, ~wild);
+  if (!o.networks.some((n) => n.addr === base && n.wild === wild)) o.networks.push({ addr: base, wild, area });
+});
+def("R", "vrfospf", "no network <ip|Network number> <ip|OSPF wild card bits> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [addr, wild]) => {
+  const o = vo(c), base = and(addr, ~wild), before = o.networks.length;
+  o.networks = o.networks.filter((n) => !(n.addr === base && n.wild === wild));
+  if (before === o.networks.length) c.print("% OSPF: Specified network not found");
+});
+def("R", "vrfospf", "router-id <ip|OSPF router-id in IP address format>", (c, [rid]) => { vo(c).rid = rid; });
+def("R", "vrfospf", "no router-id", (c) => { vo(c).rid = null; });
+def("R", "vrfospf", "passive-interface <intf>", (c, [n]) => c.s.withIf(n, 1, (ifn) => {
+  const o = vo(c);
+  if (o.passiveDefault) o.noPassive = o.noPassive.filter((x) => x !== ifn);
+  else if (!o.passive.includes(ifn)) o.passive.push(ifn);
+}));
+def("R", "vrfospf", "no passive-interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => {
+  const o = vo(c);
+  if (o.passiveDefault) { if (!o.noPassive.includes(ifn)) o.noPassive.push(ifn); } else o.passive = o.passive.filter((x) => x !== ifn);
+}));
+def("R", "vrfospf", "passive-interface default", (c) => Object.assign(vo(c), { passiveDefault: true, noPassive: [], passive: [] }));
+def("R", "vrfospf", "no passive-interface default", (c) => Object.assign(vo(c), { passiveDefault: false, noPassive: [], passive: [] }));
+def("R", "vrfospf", "default-information originate", (c) => Object.assign(vo(c), { defaultOriginate: true, defaultAlways: false }));
+def("R", "vrfospf", "default-information originate always", (c) => Object.assign(vo(c), { defaultOriginate: true, defaultAlways: true }));
+def("R", "vrfospf", "no default-information originate", (c) => Object.assign(vo(c), { defaultOriginate: false, defaultAlways: false }));
+
+// Tunnel interfaces.
+const eachTun = (c, fn) => eachIf(c, (n, i) => { i.tun = i.tun || {}; return fn(n, i, i.tun); });
+const tunTidy = (i) => { if (i.tun && !Object.keys(i.tun).length) delete i.tun; };
+def("R", "tunif", "tunnel source <intf>", (c, [s]) => c.s.withIf(s, 2, (src) => eachTun(c, (n, i, t) => {
+  if (src === n) { c.print("% Tunnel source cannot be the tunnel itself"); return false; }
+  t.src = src;
+  delete t.srcIp;
+})));
+def("R", "tunif", "tunnel source <ip|ip address>", (c, [ip]) => eachTun(c, (n, i, t) => { t.srcIp = ip; delete t.src; }));
+def("R", "tunif", "no tunnel source", (c) => eachTun(c, (n, i, t) => { delete t.src; delete t.srcIp; tunTidy(i); }));
+def("R", "tunif", "tunnel destination <ip|ip address or host name>", (c, [ip]) => eachTun(c, (n, i, t) => {
+  if (tunMode(t) === "gre-mp") { c.print("% Tunnel destination can not be configured for multipoint tunnels"); return false; }
+  t.dst = ip;
+}));
+def("R", "tunif", "no tunnel destination", (c) => eachTun(c, (n, i, t) => { delete t.dst; tunTidy(i); }));
+def("R", "tunif", "tunnel mode gre ip", (c) => eachTun(c, (n, i, t) => { delete t.mode; tunTidy(i); }));
+def("R", "tunif", "tunnel mode gre multipoint", (c) => eachTun(c, (n, i, t) => {
+  if (t.dst !== undefined && t.dst !== null) {
+    c.print("Tunnel destination must be removed before setting tunnel mode to multipoint");
+    return false;
+  }
+  t.mode = "gre-mp";
+}));
+def("R", "tunif", "tunnel mode ipsec ipv4", (c) => eachTun(c, (n, i, t) => { t.mode = "ipsec"; }));
+def("R", "tunif", "no tunnel mode", (c) => eachTun(c, (n, i, t) => { delete t.mode; tunTidy(i); }));
+def("R", "tunif", "tunnel key <num:0-4294967295|key>", (c, [k]) => eachTun(c, (n, i, t) => { t.key = k; }));
+def("R", "tunif", "no tunnel key", (c) => eachTun(c, (n, i, t) => { delete t.key; tunTidy(i); }));
+def("R", "tunif", "tunnel protection ipsec profile <word|Determine the ipsec policy profile to use.>", (c, [p]) => eachTun(c, (n, i, t) => {
+  if (!cryptoOf(c.cfg).profiles[p]) { c.print(`% ipsec profile ${p} not found`); return false; }
+  t.prot = p;
+}));
+def("R", "tunif", "no tunnel protection ipsec profile", (c) => eachTun(c, (n, i, t) => { delete t.prot; tunTidy(i); }));
+def("R", "tunif", "no tunnel protection ipsec profile <word|Determine the ipsec policy profile to use.>", (c) => eachTun(c, (n, i, t) => { delete t.prot; tunTidy(i); }));
+def("R", "tunif", "keepalive", (c) => eachIf(c, (n, i) => { i.ka = [10, 3]; }));
+def("R", "tunif", "keepalive <num:0-32767|Keepalive period (default 10 seconds)>", (c, [p]) => eachIf(c, (n, i) => { if (p === 0) delete i.ka; else i.ka = [p, 3]; }));
+def("R", "tunif", "keepalive <num:0-32767|Keepalive period (default 10 seconds)> <num:1-255|Keepalive retries>", (c, [p, r]) => eachIf(c, (n, i) => { if (p === 0) delete i.ka; else i.ka = [p, r]; }));
+def("R", "tunif", "no keepalive", (c) => eachIf(c, (n, i) => { delete i.ka; }));
+def("R", IF_MODES, "ip mtu <num:68-1500|MTU (bytes)>", (c, [m]) => eachIf(c, (n, i) => { i.mtu = m; }));
+def("R", IF_MODES, "no ip mtu", (c) => eachIf(c, (n, i) => { delete i.mtu; }));
+def("R", IF_MODES, "ip tcp adjust-mss <num:500-1460|Maximum segment size in bytes>", (c, [m]) => eachIf(c, (n, i) => { i.mss = m; }));
+def("R", IF_MODES, "no ip tcp adjust-mss", (c) => eachIf(c, (n, i) => { delete i.mss; }));
+def("R", IF_MODES, "no ip split-horizon eigrp <num:1-65535|Autonomous system number>", (c, [as]) => eachIf(c, (n, i) => { i.eigrpNoSH = as; }));
+def("R", IF_MODES, "ip split-horizon eigrp <num:1-65535|Autonomous system number>", (c) => eachIf(c, (n, i) => { delete i.eigrpNoSH; }));
+def("R", IF_MODES, "no ip next-hop-self eigrp <num:1-65535|Autonomous system number>", (c, [as]) => eachIf(c, (n, i) => { i.eigrpNoNHS = as; }));
+def("R", IF_MODES, "ip next-hop-self eigrp <num:1-65535|Autonomous system number>", (c) => eachIf(c, (n, i) => { delete i.eigrpNoNHS; }));
+
+// NHRP on a tunnel.
+const eachNhrp = (c, fn) => eachIf(c, (n, i) => { i.nhrp = i.nhrp || {}; const r = fn(n, i, i.nhrp); if (!Object.keys(i.nhrp).length) delete i.nhrp; return r; });
+const listDel = (o, k, keep) => { o[k] = (o[k] || []).filter(keep); if (!o[k].length) delete o[k]; };
+def("R", "tunif", "ip nhrp network-id <num:1-4294967295|Network identifier>", (c, [id]) => eachNhrp(c, (n, i, h) => { h.nid = id; }));
+def("R", "tunif", "no ip nhrp network-id", (c) => eachNhrp(c, (n, i, h) => { delete h.nid; }));
+def("R", "tunif", "ip nhrp authentication <word|Authentication string>", (c, [a]) => eachNhrp(c, (n, i, h) => {
+  if (a.length > 8) { c.print("% NHRP authentication string truncated to 8 characters"); a = a.slice(0, 8); }
+  h.auth = a;
+}));
+def("R", "tunif", "no ip nhrp authentication", (c) => eachNhrp(c, (n, i, h) => { delete h.auth; }));
+def("R", "tunif", "ip nhrp map <ip|IP address of destination> <ip|IP NBMA address>", (c, [ip, nbma]) => eachNhrp(c, (n, i, h) => {
+  listDel(h, "maps", (m) => m.ip !== ip);
+  (h.maps = h.maps || []).push({ ip, nbma });
+}));
+def("R", "tunif", "no ip nhrp map <ip|IP address of destination> <ip|IP NBMA address>", (c, [ip]) => eachNhrp(c, (n, i, h) => listDel(h, "maps", (m) => m.ip !== ip)));
+def("R", "tunif", "ip nhrp map multicast <ip|IP NBMA address>", (c, [nbma]) => eachNhrp(c, (n, i, h) => {
+  if (!(h.mcast || []).includes(nbma)) (h.mcast = h.mcast || []).push(nbma);
+}));
+def("R", "tunif", "no ip nhrp map multicast <ip|IP NBMA address>", (c, [nbma]) => eachNhrp(c, (n, i, h) => listDel(h, "mcast", (m) => m !== nbma)));
+def("R", "tunif", "ip nhrp map multicast dynamic", (c) => eachNhrp(c, (n, i, h) => { h.mcastDynamic = true; }));
+def("R", "tunif", "no ip nhrp map multicast dynamic", (c) => eachNhrp(c, (n, i, h) => { delete h.mcastDynamic; }));
+const addNhs = (c, ip, nbma, mcast) => eachNhrp(c, (n, i, h) => {
+  listDel(h, "nhs", (s) => s.ip !== ip);
+  (h.nhs = h.nhs || []).push({ ip, nbma, mcast });
+});
+def("R", "tunif", "ip nhrp nhs <ip|Next hop server address>", (c, [ip]) => addNhs(c, ip, null, false));
+def("R", "tunif", "ip nhrp nhs <ip|Next hop server address> nbma <ip|NBMA address>", (c, [ip, nbma]) => addNhs(c, ip, nbma, false));
+def("R", "tunif", "ip nhrp nhs <ip|Next hop server address> nbma <ip|NBMA address> multicast", (c, [ip, nbma]) => addNhs(c, ip, nbma, true));
+def("R", "tunif", "no ip nhrp nhs <ip|Next hop server address>", (c, [ip]) => eachNhrp(c, (n, i, h) => listDel(h, "nhs", (s) => s.ip !== ip)));
+def("R", "tunif", "ip nhrp redirect", (c) => eachNhrp(c, (n, i, h) => { h.redirect = true; }));
+def("R", "tunif", "no ip nhrp redirect", (c) => eachNhrp(c, (n, i, h) => { delete h.redirect; }));
+def("R", "tunif", "ip nhrp shortcut", (c) => eachNhrp(c, (n, i, h) => { h.shortcut = true; }));
+def("R", "tunif", "no ip nhrp shortcut", (c) => eachNhrp(c, (n, i, h) => { delete h.shortcut; }));
+def("R", "tunif", "ip nhrp holdtime <num:1-65535|Number of seconds>", (c, [s]) => eachNhrp(c, (n, i, h) => { h.hold = s; }));
+def("R", "tunif", "no ip nhrp holdtime", (c) => eachNhrp(c, (n, i, h) => { delete h.hold; }));
+
+// Crypto: ISAKMP, transform sets, profiles and maps.
+const crypto = (c) => (c.cfg.crypto = c.cfg.crypto || { policies: {}, keys: [], tsets: {}, profiles: {}, maps: {} });
+def("R", "config", "crypto isakmp policy <num:1-10000|Priority of protection suite>", (c, [p]) => {
+  const k = crypto(c);
+  if (!k.policies[p]) k.policies[p] = newPolicy(p);
+  c.s.enter("isakmp", p);
+});
+def("R", "config", "no crypto isakmp policy <num:1-10000|Priority of protection suite>", (c, [p]) => { delete crypto(c).policies[p]; });
+const pol = (c) => crypto(c).policies[c.target];
+def("R", "isakmp", "encryption {des|3des|aes}", (c, [e]) => Object.assign(pol(c), { encr: e, bits: e === "aes" ? 128 : null }));
+def("R", "isakmp", "encryption aes {128|192|256}", (c, args) => Object.assign(pol(c), { encr: "aes", bits: +args[args.length - 1] }));
+def("R", "isakmp", "no encryption", (c) => Object.assign(pol(c), { encr: "des", bits: null }));
+def("R", "isakmp", "hash {sha|md5|sha256|sha384|sha512}", (c, [h]) => { pol(c).hash = h; });
+def("R", "isakmp", "no hash", (c) => { pol(c).hash = "sha"; });
+def("R", "isakmp", "authentication {pre-share|rsa-sig|rsa-encr}", (c, [a]) => { pol(c).auth = a; });
+def("R", "isakmp", "no authentication", (c) => { pol(c).auth = "rsa-sig"; });
+def("R", "isakmp", "group {1|2|5|14|15|16|19|20|21|24}", (c, [g]) => { pol(c).group = +g; });
+def("R", "isakmp", "no group", (c) => { pol(c).group = 1; });
+def("R", "isakmp", "lifetime <num:60-86400|lifetime in seconds>", (c, [s]) => { pol(c).life = s; });
+def("R", "isakmp", "no lifetime", (c) => { pol(c).life = 86400; });
+const addKey = (c, key, addr, mask) => {
+  const k = crypto(c);
+  k.keys = k.keys.filter((x) => !(x.addr === and(addr, mask) && x.mask === mask));
+  k.keys.push({ key, addr: and(addr, mask), mask });
+};
+def("R", "config", "crypto isakmp key <word|pre-shared key> address <ip|define shared key with IP address>", (c, [key, a]) => addKey(c, key, a, 0xffffffff));
+def("R", "config", "crypto isakmp key <word|pre-shared key> address <ip|define shared key with IP address> <ip|Peer's IP address mask>", (c, [key, a, m]) => addKey(c, key, a, m));
+def("R", "config", "no crypto isakmp key <word|pre-shared key> address <ip|define shared key with IP address>", (c, [, a]) => {
+  const k = crypto(c), before = k.keys.length;
+  k.keys = k.keys.filter((x) => x.addr !== a);
+  if (k.keys.length === before) c.print("% Key not found");
+});
+def("R", "config", "no crypto isakmp key <word|pre-shared key> address <ip|define shared key with IP address> <ip|Peer's IP address mask>", (c, [, a, m]) => {
+  const k = crypto(c);
+  k.keys = k.keys.filter((x) => !(x.addr === and(a, m) && x.mask === m));
+});
+
+const ENC_T = ["esp-aes", "esp-3des", "esp-des", "esp-null", "esp-gcm"];
+const AUTH_T = ["esp-sha-hmac", "esp-md5-hmac", "esp-sha256-hmac", "esp-sha384-hmac", "esp-sha512-hmac"];
+// The words after the name, as IOS prints them ("esp-aes 256 esp-sha-hmac").
+const setTset = (c, args) => {
+  const [name, ...transforms] = args;
+  if (/^\d/.test(transforms[0])) transforms.unshift("esp-aes");
+  const k = crypto(c), had = k.tsets[name];
+  k.tsets[name] = { transforms, mode: had ? had.mode : "tunnel" };
+  c.s.enter("tset", name);
+};
+const TS = "crypto ipsec transform-set <word|Transform set tag>";
+def("R", "config", `${TS} {${ENC_T.join("|")}|ah-sha-hmac|ah-md5-hmac}`, (c, args) => setTset(c, args));
+def("R", "config", `${TS} esp-aes {128|192|256}`, (c, args) => setTset(c, args));
+def("R", "config", `${TS} {esp-aes|esp-3des|esp-des|esp-null} {${AUTH_T.join("|")}}`, (c, args) => setTset(c, args));
+def("R", "config", `${TS} esp-aes {128|192|256} {${AUTH_T.join("|")}}`, (c, args) => setTset(c, args));
+def("R", "config", "no crypto ipsec transform-set <word|Transform set tag>", (c, [n]) => {
+  const k = crypto(c);
+  if (!k.tsets[n]) { c.print(`% Transform set ${n} not found`); return; }
+  delete k.tsets[n];
+});
+def("R", "tset", "mode {tunnel|transport}", (c, [m]) => { crypto(c).tsets[c.target].mode = m; });
+def("R", "tset", "no mode", (c) => { crypto(c).tsets[c.target].mode = "tunnel"; });
+
+def("R", "config", "crypto ipsec profile <word|Profile name>", (c, [n]) => {
+  const k = crypto(c);
+  if (!k.profiles[n]) k.profiles[n] = { tsets: [], pfs: null };
+  c.s.enter("ipsecprof", n);
+});
+def("R", "config", "no crypto ipsec profile <word|Profile name>", (c, [n]) => { delete crypto(c).profiles[n]; });
+const tsetList = (c, line) => {
+  const names = tokenize(line).map((t) => t.t);
+  const missing = names.find((n) => !crypto(c).tsets[n]);
+  if (missing) { c.print(`ERROR: transform set with tag "${missing}" does not exist.`); return null; }
+  if (names.length > 6) { c.print("% Too many transform sets (at most 6)"); return null; }
+  return names;
+};
+def("R", "ipsecprof", "set transform-set <line|Proposal tag(s)>", (c, [line]) => { const t = tsetList(c, line); if (t) crypto(c).profiles[c.target].tsets = t; });
+def("R", "ipsecprof", "no set transform-set", (c) => { crypto(c).profiles[c.target].tsets = []; });
+def("R", "ipsecprof", "set pfs {group2|group5|group14}", (c, [g]) => { crypto(c).profiles[c.target].pfs = g; });
+def("R", "ipsecprof", "no set pfs", (c) => { crypto(c).profiles[c.target].pfs = null; });
+
+def("R", "config", "crypto map <word|Crypto map tag> <num:1-65535|Sequence to insert into crypto map entry> ipsec-isakmp", (c, [name, seq]) => {
+  const k = crypto(c), m = k.maps[name] = k.maps[name] || {};
+  if (!m[seq]) {
+    m[seq] = { seq, peer: null, tsets: [], acl: null, pfs: null };
+    c.print("% NOTE: This new crypto map will remain disabled until a peer", "        and a valid access list have been configured.");
+  }
+  c.s.enter("cmap", [name, seq]);
+});
+def("R", "config", "no crypto map <word|Crypto map tag>", (c, [name]) => { delete crypto(c).maps[name]; });
+def("R", "config", "no crypto map <word|Crypto map tag> <num:1-65535|Sequence to delete>", (c, [name, seq]) => {
+  const m = crypto(c).maps[name];
+  if (m) { delete m[seq]; if (!Object.keys(m).length) delete crypto(c).maps[name]; }
+});
+const ent = (c) => crypto(c).maps[c.target[0]][c.target[1]];
+def("R", "cmap", "set peer <ip|IP address of peer>", (c, [ip]) => { ent(c).peer = ip; });
+def("R", "cmap", "no set peer <ip|IP address of peer>", (c) => { ent(c).peer = null; });
+def("R", "cmap", "set transform-set <line|Proposal tag(s)>", (c, [line]) => { const t = tsetList(c, line); if (t) ent(c).tsets = t; });
+def("R", "cmap", "no set transform-set", (c) => { ent(c).tsets = []; });
+def("R", "cmap", "match address <word|IP access-list number or name>", (c, [acl]) => { ent(c).acl = acl; });
+def("R", "cmap", "no match address", (c) => { ent(c).acl = null; });
+def("R", "cmap", "set pfs {group2|group5|group14}", (c, [g]) => { ent(c).pfs = g; });
+def("R", "cmap", "no set pfs", (c) => { ent(c).pfs = null; });
+def("R", IF_MODES, "crypto map <word|Crypto map tag>", (c, [name]) => eachIf(c, (n, i) => {
+  if (!cryptoOf(c.cfg).maps[name]) c.print(`% Crypto map ${name} does not exist: it will be applied when it is created`);
+  if (!i.cmap) c.net.note(c.d.name, "%CRYPTO-6-ISAKMP_ON_OFF: ISAKMP is ON");
+  i.cmap = name;
+}));
+def("R", IF_MODES, "no crypto map", (c) => eachIf(c, (n, i) => { delete i.cmap; }));
+def("R", IF_MODES, "no crypto map <word|Crypto map tag>", (c) => eachIf(c, (n, i) => { delete i.cmap; }));
+
+// -- exec commands -------------------------------------------------------------------------------
+def("R", ["user", "priv"], "ping vrf <word|VRF name> <ip|Ping destination address>", (c, [v, ip]) => c.s.pingVrf(v, ip, null, 5));
+def("R", ["user", "priv"], "ping vrf <word|VRF name> <ip|Ping destination address> repeat <num:1-100>", (c, [v, ip, n]) => c.s.pingVrf(v, ip, null, n));
+def("R", ["user", "priv"], "ping vrf <word|VRF name> <ip|Ping destination address> source <intf>", (c, [v, ip, ifn]) => c.s.withIf(ifn, 5, (n) => {
+  const a = c.net.ifAddr(c.d.name, n);
+  if (!a || !c.net.ifUp(c.d.name, n) || c.net.vrfOf(c.d.name, n) !== v) { c.print("% Invalid source interface - IP not enabled or interface is down"); return; }
+  c.s.pingVrf(v, ip, a.ip, 5);
+}));
+def("R", ["user", "priv"], "traceroute vrf <word|VRF name> <ip|Trace route to destination address>", (c, [v, ip]) => c.s.traceVrf(v, ip));
+def("R", both, "show ip route vrf <word|VPN Routing/Forwarding instance name>", (c, [v]) => {
+  if (!vrfName(c.cfg, v)) { c.print(`% IP routing table ${v} does not exist`); return; }
+  c.print(showIpRoute(c.net, c.d.name, null, v));
+});
+def("R", both, "show ip route vrf <word|VPN Routing/Forwarding instance name> {connected|static|ospf}", (c, [v, f]) => {
+  if (!vrfName(c.cfg, v)) { c.print(`% IP routing table ${v} does not exist`); return; }
+  c.print(showIpRoute(c.net, c.d.name, f[0].toUpperCase(), v));
+});
+def("R", both, "show ip arp vrf <word|VPN Routing/Forwarding instance name>", (c, [v]) => c.print(showArp(c.net, c.d.name, v)));
+def("R", both, "show vrf", (c) => c.print(showVrf(c.net, c.d.name, false)));
+def("R", both, "show ip vrf", (c) => c.print(showVrf(c.net, c.d.name, true)));
+def("R", both, "show ip vrf brief", (c) => c.print(showVrf(c.net, c.d.name, true)));
+def("R", both, "show ip vrf interfaces", (c) => c.print(showVrfInterfaces(c.net, c.d.name)));
+def("R", "priv", "show crypto isakmp sa", (c) => c.print(showIsakmpSa(c.net, c.d.name)));
+def("R", "priv", "show crypto isakmp policy", (c) => c.print(showIsakmpPolicy(c.net, c.d.name)));
+def("R", "priv", "show crypto ipsec sa", (c) => c.print(showIpsecSa(c.net, c.d.name)));
+def("R", "priv", "show crypto ipsec transform-set", (c) => c.print(showTransformSets(c.net, c.d.name)));
+def("R", "priv", "show crypto map", (c) => c.print(showCryptoMap(c.net, c.d.name)));
+def("R", "priv", "show crypto session", (c) => c.print(showCryptoSession(c.net, c.d.name)));
+def("R", "priv", "clear crypto sa", (c) => { c.d.rt.ipsec = {}; for (const e of Object.values(c.d.rt.ike || {})) e.sig = null; });
+def("R", "priv", "clear crypto isakmp", (c) => { c.d.rt.ike = {}; });
+def("R", "priv", "debug crypto isakmp", (c) => { c.d.rt.debug = { ...(c.d.rt.debug || {}), isakmp: true }; c.print("Crypto ISAKMP debugging is on"); });
+def("R", "priv", "debug crypto ipsec", (c) => { c.d.rt.debug = { ...(c.d.rt.debug || {}), ipsec: true }; c.print("Crypto IPSEC debugging is on"); });
+def("R", "priv", "debug nhrp", (c) => { c.d.rt.debug = { ...(c.d.rt.debug || {}), nhrp: true }; c.print("NHRP protocol debugging is on"); });
+def("R", "priv", "show dmvpn", (c) => c.print(showDmvpn(c.net, c.d.name, false)));
+def("R", "priv", "show dmvpn detail", (c) => c.print(showDmvpn(c.net, c.d.name, true)));
+def("R", both, "show ip nhrp", (c) => c.print(showNhrp(c.net, c.d.name, false)));
+def("R", both, "show ip nhrp brief", (c) => c.print(showNhrp(c.net, c.d.name, true)));
+def("R", both, "show ip nhrp nhs", (c) => {
+  const d = c.d, L = ["Legend: E=Expecting replies, R=Responding, W=Waiting"];
+  for (const n of Object.keys(d.cfg.intfs).filter(isTun).sort(ifSort)) {
+    const nhs = nhrpOf(d.cfg.intfs[n]).nhs || [];
+    if (!nhs.length) continue;
+    const up = c.net.nhsPeer(d.name, n);
+    L.push(`${n}:`, ...nhs.map((s, k) => `${k + 1} ${n2ip(s.ip)}${up ? "           RE" : "            E"}  priority = 0 cluster = 0`));
+  }
+  c.print(L.join("\n"));
+});
+def("R", "priv", "clear ip nhrp", (c) => { c.d.rt.nhrp = {}; c.d.rt.nhrpShort = []; });
+
+Object.assign(Session.prototype, {
+  pingVrf(vrf, dst, source, count) {
+    const net = this.net, dn = this.d.name;
+    if (!vrfName(this.d.cfg, vrf)) { this.print(`% VRF ${vrf} does not have a valid routing table`); return; }
+    this.print("Type escape sequence to abort.", `Sending ${count}, 100-byte ICMP Echos to ${n2ip(dst)}, timeout is 2 seconds:`);
+    if (source !== null) this.print(`Packet sent with a source address of ${n2ip(source)}`);
+    let marks = "", ok = 0, first = null;
+    for (let i = 0; i < count; i++) {
+      const r = net.ping(dn, dst, { source: source ?? undefined, record: true, vrf });
+      first = first || r;
+      if (r.ok && !(i === 0 && r.arpMiss)) { marks += "!"; ok++; continue; }
+      const unreachable = !r.ok && r.by !== null && r.by !== undefined && r.failAt !== dn && (r.fail === "noroute" || r.fail === "acl");
+      marks += unreachable && i % 2 === 0 ? "U" : ".";
+    }
+    this.print(marks, `Success rate is ${Math.floor((ok * 100) / count)} percent (${ok}/${count})${ok ? ", round-trip min/avg/max = 1/1/2 ms" : ""}`);
+    this.anim = { from: dn, links: first.links, ok: first.ok, failAt: first.failAt };
+  },
+
+  traceVrf(vrf, dst) {
+    const net = this.net, dn = this.d.name;
+    if (!vrfName(this.d.cfg, vrf)) { this.print(`% VRF ${vrf} does not have a valid routing table`); return; }
+    if (net.sourceIp(dn, dst, undefined, vrf) === null) { this.print("% No valid source address for destination"); return; }
+    this.print("Type escape sequence to abort.", `Tracing the route to ${n2ip(dst)}`, `VRF info: (vrf in name/id, vrf out name/id)`);
+    net.trace(dn, dst, 30, undefined, vrf).forEach((h, i) => {
+      const n = lpad(i + 1, 3);
+      if (h.ip === null) this.print(`${n}  *  *  * `);
+      else if (h.code) this.print(`${n} ${n2ip(h.ip)} !${h.code}  *  !${h.code} `);
+      else this.print(`${n} ${n2ip(h.ip)} ${i + 1} msec ${i} msec ${i + 1} msec`);
+    });
+    const r = net.ping(dn, dst, { vrf });
+    this.anim = { from: dn, links: r.links, ok: r.ok, failAt: r.failAt };
+  },
+});
+// ======== end of VRF, tunnels, IPsec, DMVPN ========
+
 // Apply a list of lines to a device as if typed at a fresh console, starting in
 // global configuration mode for IOS devices. Throws on any error so broken lab
 // definitions fail loudly in tests.
@@ -5535,7 +7259,7 @@ export function applyConfig(net, devName, lines) {
   if (net.devs[devName].type !== "pc") s.frames[0].mode = "config";
   for (const line of lines) {
     const out = s.input(line);
-    const notes = /^%\s?(Access VLAN does not exist|Login disabled|OSPF: Reference|OSPFv3: Reference|The key modulus|Generating|Warning: portfast|Warning: this command enables portfast|Portfast has been configured|Only classful|OSPFv3-4-NORTRID|This simulator doesn't summarise)/;
+    const notes = /^%\s?(Access VLAN does not exist|Login disabled|OSPF: Reference|OSPFv3: Reference|The key modulus|Generating|Warning: portfast|Warning: this command enables portfast|Portfast has been configured|Only classful|OSPFv3-4-NORTRID|This simulator doesn't summarise|Interface \S+ IPv[46] disabled and address|NOTE: This new crypto map)/;
     if (out.split("\n").some((l) => (l.startsWith("%") && !notes.test(l)) || /^(Bad mask|Bad command|Invalid address|Command rejected)/.test(l))) {
       throw new Error(`${devName}: "${line}" -> ${out}`);
     }
