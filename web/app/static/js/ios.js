@@ -661,31 +661,7 @@ export class Network {
     return null;
   }
 
-  // -- OSPF -------------------------------------------------------------------
-  ospfIfs(dn) {
-    const d = this.devs[dn], o = d.cfg.ospf, out = [];
-    if (!o) return out;
-    const nets = [...o.networks].sort((a, b) => bitCount(a.wild) - bitCount(b.wild));
-    for (const ifn of this.upIfs(dn)) {
-      const c = d.cfg.intfs[ifn], { ip, mask } = this.ifAddr(dn, ifn), oc = c.ospf || {};
-      let area = null;
-      if (oc.pid === o.pid && oc.area !== undefined && oc.area !== null) area = oc.area;
-      else {
-        const hit = nets.find((n) => wildMatch(ip, n.addr, n.wild));
-        if (hit) area = hit.area;
-      }
-      if (area === null) continue;
-      const passive = o.passiveDefault ? !o.noPassive.includes(ifn) : o.passive.includes(ifn);
-      const hello = oc.hello ?? 10;
-      out.push({
-        ifn, ip, mask, area, passive, hello, dead: oc.dead ?? hello * 4, prio: oc.prio ?? 1,
-        ptp: !!oc.ptp, loop: ifn.startsWith("Loopback"),
-        cost: oc.cost ?? Math.max(1, Math.floor((o.refBw * 1000) / this.bandwidth(d, ifn))),
-      });
-    }
-    return out;
-  }
-
+  // -- OSPF: see the CCNP routing sections below the class -------------------
   bandwidth(d, ifn) {
     const c = d.cfg.intfs[ifn];
     if (c.bw) return c.bw;
@@ -698,140 +674,11 @@ export class Network {
     return t === "FastEthernet" ? 100000 : t === "Loopback" ? 8000000 : 1000000;
   }
 
-  routerId(dn) {
-    const d = this.devs[dn], o = d.cfg.ospf;
-    if (!o) return null;
-    if (o.ridHeld !== null && o.ridHeld !== undefined) return o.ridHeld;
-    if (o.rid !== null) return o.rid;
-    const ips = (pref) => this.upIfs(dn).filter((n) => pref === n.startsWith("Loopback")).map((n) => this.ifAddr(dn, n).ip);
-    const lo = ips(true), all = ips(false);
-    if (lo.length) return Math.max(...lo);
-    return all.length ? Math.max(...all) : null;
-  }
-
-  ospf() {
-    if (this.c.ospf) return this.c.ospf;
-    const per = {};
-    for (const d of Object.values(this.devs)) {
-      if (d.type !== "router" || !d.cfg.ospf) continue;
-      const rid = this.routerId(d.name);
-      if (rid === null) continue;
-      per[d.name] = { rid, pid: d.cfg.ospf.pid, ifs: this.ospfIfs(d.name), nbrs: [], routes: [] };
-    }
-    // Adjacencies: who hears whom with matching parameters.
-    for (const [dn, me] of Object.entries(per)) {
-      for (const oi of me.ifs) {
-        oi.nbrs = [];
-        if (oi.passive || oi.loop) continue;
-        for (const e of this.flood(dn, oi.ifn)) {
-          const them = per[e.dev];
-          const oj = them && them.ifs.find((x) => x.ifn === e.ifn);
-          if (!oj || oj.passive || oj.loop || e.dev === dn) continue;
-          if (oj.area !== oi.area || oj.mask !== oi.mask || !sameNet(oj.ip, oi.ip, oi.mask)) continue;
-          if (oj.hello !== oi.hello || oj.dead !== oi.dead || oj.ptp !== oi.ptp || them.rid === me.rid) continue;
-          oi.nbrs.push({ dev: e.dev, ifn: e.ifn, rid: them.rid, ip: oj.ip, prio: oj.prio });
-        }
-      }
-    }
-    ospfElect(per);
-    for (const [src, me] of Object.entries(per)) {
-      const { dist, hops } = ospfSpf(per, src);
-      const myAreas = new Set(me.ifs.map((x) => x.area));
-      const best = {};
-      const offer = (key, r) => {
-        const cur = best[key];
-        if (!cur || r.metric < cur.metric || (r.metric === cur.metric && (r.dist ?? 0) < (cur.dist ?? 0))) best[key] = r;
-        else if (r.metric === cur.metric && (r.dist ?? 0) === (cur.dist ?? 0)) {
-          for (const h of r.paths) if (!cur.paths.some((p) => p.ip === h.ip)) cur.paths.push(h);
-        }
-      };
-      for (const [x, them] of Object.entries(per)) {
-        if (x === src || dist[x] === undefined) continue;
-        for (const oi of them.ifs) {
-          const host = oi.loop && !oi.ptp;
-          const len = host ? 32 : maskLen(oi.mask);
-          const net = host ? oi.ip : and(oi.ip, oi.mask);
-          offer(net + "/" + len, { code: myAreas.has(oi.area) ? "O" : "O IA", net, len, metric: dist[x] + oi.cost, paths: [...hops[x]] });
-        }
-        const o = this.devs[x].cfg.ospf;
-        if (o.defaultOriginate && (o.defaultAlways || this.hasStaticDefault(x))) {
-          offer("0/0", { code: "O*E2", net: 0, len: 0, metric: 1, dist: dist[x], paths: [...hops[x]] });
-        }
-        // Redistributed static routes arrive as type-2 externals: the seed metric (20) doesn't grow.
-        if (o.redistStatic) {
-          for (const r of this.liveStatics(x)) {
-            if (r.len === 0 || (!o.redistSubnets && majorNet(r.net).len !== r.len)) continue;
-            offer(r.net + "/" + r.len, { code: "O E2", net: r.net, len: r.len, metric: 20, dist: dist[x], paths: [...hops[x]] });
-          }
-        }
-      }
-      me.routes = Object.values(best);
-    }
-    this.c.ospf = per;
-    return per;
-  }
-
-  // Static routes whose next hop is directly reachable (or exit interface up): what gets redistributed.
-  liveStatics(dn) {
-    const d = this.devs[dn];
-    return d.cfg.routes.filter((r) => (r.ifn ? this.ifUp(dn, r.ifn)
-      : this.upIfs(dn).some((n) => { const a = this.ifAddr(dn, n); return sameNet(a.ip, r.nh, a.mask); })));
-  }
-
-  hasStaticDefault(dn) { return this.liveStatics(dn).some((r) => r.net === 0 && r.len === 0); }
+  ospf() { return this.cp().ospf; }
 
   // -- routing ----------------------------------------------------------------
-  routes(dn) {
-    if (this.c.routes[dn]) return this.c.routes[dn];
-    const d = this.devs[dn], cands = [];
-    for (const ifn of this.upIfs(dn)) {
-      for (const { ip, mask } of this.ifAddrs(dn, ifn)) {
-        const len = maskLen(mask);
-        cands.push({ code: "C", net: and(ip, mask), len, ad: 0, metric: 0, ifn });
-        if (len < 32) cands.push({ code: "L", net: ip, len: 32, ad: 0, metric: 0, ifn });
-      }
-    }
-    const ospf = this.ospf()[dn];
-    if (ospf) for (const r of ospf.routes) cands.push({ ...r, ad: 110 });
-    const eigrp = this.eigrp()[dn];
-    if (eigrp) for (const r of eigrp.routes) cands.push(r);
-    const select = (list) => {
-      const best = {};
-      for (const r of list) {
-        const k = r.net + "/" + r.len, b = best[k];
-        if (!b || r.ad < b[0].ad) best[k] = [r];
-        else if (r.ad === b[0].ad && r.code === b[0].code) b.push(r);
-      }
-      return Object.values(best).map((rs) => rs.length === 1 ? rs[0]
-        : { ...rs[0], paths: rs.flatMap((r) => r.paths || []) });
-    };
-    // Static routes install once their next hop resolves (recursively) or their exit interface is up.
-    let table = select(cands);
-    const statics = d.type === "router" ? d.cfg.routes : [];
-    const pending = new Set(statics.map((_, i) => i));
-    for (let pass = 0; pass < 5 && pending.size; pass++) {
-      let added = false;
-      for (const i of [...pending]) {
-        const s = statics[i];
-        let ok;
-        if (s.ifn) ok = this.ifUp(dn, s.ifn);
-        else {
-          const r = lpm(table, s.nh);
-          ok = !!r && !(r.net === s.net && r.len === s.len);
-        }
-        if (!ok) continue;
-        pending.delete(i);
-        cands.push({ code: s.net === 0 && s.len === 0 ? "S*" : "S", net: s.net, len: s.len, ad: s.ad, metric: 0,
-          paths: [{ ip: s.nh, ifn: s.ifn }] });
-        added = true;
-      }
-      if (!added) break;
-      table = select(cands);
-    }
-    table.sort((a, b) => a.net - b.net || a.len - b.len);
-    this.c.routes[dn] = table;
-    return table;
-  }
+  // The routing table, from the control plane's fixed point (see the CCNP routing sections).
+  routes(dn) { return this.cp().ribs[dn] || []; }
 
   lookup(dn, ip) { return lpm(this.routes(dn), ip); }
 
@@ -841,6 +688,7 @@ export class Network {
     if (!r) return { fail: "noroute" };
     if (r.code === "C" || r.code === "L") return { ifn: r.ifn, nh: dst };
     const p = r.paths[0];
+    if (p.ifn === "Null0") return { fail: "null0" };
     if (p.ifn && p.ip === null) return { ifn: p.ifn, nh: dst, proxy: true };
     if (p.ifn) return { ifn: p.ifn, nh: p.ip };
     if (depth > 4) return { fail: "noroute" };
@@ -902,8 +750,17 @@ export class Network {
       if (!originated) {
         if (d.type !== "router") return { ...res, fail: "drop", failAt: cur };
         if (--ttl <= 0) return { ...res, fail: "ttl", failAt: cur };
+        // Unicast RPF drops packets whose source isn't reachable back through the arrival interface.
+        const u = d.cfg.intfs[inIf].urpf;
+        if (u && !this.urpfOk(cur, inIf, pkt.src, u)) {
+          if (opts.record) { const v = d.rt.urpf || (d.rt.urpf = {}); v[inIf] = (v[inIf] || 0) + 1; }
+          return { ...res, fail: "urpf", failAt: cur };
+        }
       }
-      const eg = d.type === "router" ? this.routerEgress(cur, pkt.dst) : this.hostEgress(cur, pkt.dst);
+      // Policy-based routing overrides the routing table for matching packets.
+      const pol = d.type === "router" ? (originated ? d.cfg.localPolicy : d.cfg.intfs[inIf].policy) : null;
+      const eg = (pol && this.pbrEgress(cur, pol, pkt, originated ? null : inIf, opts))
+        || (d.type === "router" ? this.routerEgress(cur, pkt.dst) : this.hostEgress(cur, pkt.dst));
       if (eg.fail) return { ...res, fail: eg.fail, failAt: cur };
       // NAT inside-to-outside happens after routing, before the outbound ACL.
       if (!originated && d.type === "router" && d.cfg.intfs[inIf].nat === "inside" && d.cfg.intfs[eg.ifn].nat === "outside"
@@ -1170,7 +1027,7 @@ export class Network {
         continue;
       }
       const by = this.ifFacing(r);
-      if ((r.fail === "noroute" || r.fail === "acl") && by !== null && r.failAt !== dn) {
+      if ((r.fail === "noroute" || r.fail === "acl" || r.fail === "null0") && by !== null && r.failAt !== dn) {
         out.push({ ip: by, code: r.fail === "acl" ? "A" : "H", last: true });
         return out;
       }
@@ -1228,11 +1085,6 @@ export class Network {
     const c = this.devs[dn].cfg.intfs[ifn];
     const g = Object.keys(c.standby).find((k) => this.devs[dn].rt.hsrp[ifn + "|" + k]?.vip === vip);
     return hsrpMac(c, g);
-  }
-
-  trackUp(dn, obj) {
-    const t = this.devs[dn].cfg.tracks[obj];
-    return t ? this.ifUp(dn, t.ifn) : true;
   }
 
   hsrpPrio(dn, sc) {
@@ -1336,6 +1188,7 @@ export class Network {
       }
       if (changed) this.touch();
       if (this.hsrpSettle(log)) { changed = true; this.touch(); }
+      if (this.routingSettle(log)) changed = true;
       if (!changed) break;
     }
     return logs;
@@ -1347,26 +1200,6 @@ export class Network {
     if (c.delay) return c.delay;
     const t = ifType(ifn);
     return t === "Loopback" ? 500 : t === "FastEthernet" ? 10 : 1; // tens of microseconds
-  }
-
-  eigrpRid(dn) {
-    const e = this.devs[dn].cfg.eigrp;
-    if (e.rid !== null) return e.rid;
-    const ips = (lo) => this.upIfs(dn).filter((n) => lo === n.startsWith("Loopback")).map((n) => this.ifAddr(dn, n).ip);
-    const lo = ips(true), all = ips(false);
-    return lo.length ? Math.max(...lo) : all.length ? Math.max(...all) : null;
-  }
-
-  eigrpIfs(dn) {
-    const d = this.devs[dn], e = d.cfg.eigrp, out = [];
-    for (const ifn of this.upIfs(dn)) {
-      const { ip, mask } = this.ifAddr(dn, ifn);
-      const hit = e.networks.some((n) => (n.wild === null ? majorNet(ip).net === n.addr : wildMatch(ip, n.addr, n.wild)));
-      if (!hit) continue;
-      const passive = e.passiveDefault ? !e.noPassive.includes(ifn) : e.passive.includes(ifn);
-      out.push({ ifn, ip, mask, passive, loop: ifn.startsWith("Loopback"), bw: this.bandwidth(d, ifn), dly: this.delay(d, ifn) });
-    }
-    return out;
   }
 
   // Composite metric: classic 32-bit, or the 64-bit wide metric named mode uses.
@@ -1382,96 +1215,6 @@ export class Network {
     let m = k1 * bw + Math.floor((k2 * bw) / 255) + k3 * vec.dly;
     if (k5) m = Math.floor((m * k5) / (255 + k4));
     return m * 256;
-  }
-
-  // Neighbours, then DUAL: each router's feasible distance per prefix, its successors and
-  // feasible successors (neighbours whose reported distance is below the feasible distance).
-  eigrp() {
-    if (this.c.eigrp) return this.c.eigrp;
-    const per = {};
-    for (const d of Object.values(this.devs)) {
-      if (d.type !== "router" || !d.cfg.eigrp) continue;
-      const e = d.cfg.eigrp, rid = this.eigrpRid(d.name);
-      if (rid === null) continue;
-      per[d.name] = { asn: e.asn, name: e.name, wide: !!e.name, k: e.k, rid, variance: e.variance, ifs: this.eigrpIfs(d.name), nbrs: [] };
-    }
-    for (const [dn, me] of Object.entries(per)) {
-      for (const oi of me.ifs) {
-        if (oi.passive || oi.loop) continue;
-        for (const x of this.flood(dn, oi.ifn)) {
-          const them = per[x.dev], oj = them && them.ifs.find((i) => i.ifn === x.ifn);
-          if (!oj || oj.passive || x.dev === dn || them.asn !== me.asn || them.k.join() !== me.k.join()) continue;
-          if (!sameNet(oj.ip, oi.ip, oi.mask) || !sameNet(oi.ip, oj.ip, oj.mask)) continue;
-          me.nbrs.push({ dev: x.dev, ifn: x.ifn, ip: oj.ip, local: oi.ifn, li: oi });
-        }
-      }
-    }
-    // What each router originates: its EIGRP-enabled connected networks, plus redistributed statics.
-    const own = {};
-    for (const [dn, me] of Object.entries(per)) {
-      own[dn] = {};
-      for (const oi of me.ifs) {
-        const len = maskLen(oi.mask), net = and(oi.ip, oi.mask);
-        own[dn][net + "/" + len] = { net, len, vec: { bw: oi.bw, dly: oi.dly }, ext: false, conn: true, ifn: oi.ifn };
-      }
-      if (!this.devs[dn].cfg.eigrp.redistStatic) continue;
-      for (const r of this.liveStatics(dn)) {
-        const k = r.net + "/" + r.len;
-        if (own[dn][k]) continue;
-        const exit = r.ifn || this.upIfs(dn).find((n) => { const a = this.ifAddr(dn, n); return sameNet(a.ip, r.nh, a.mask); });
-        const d = this.devs[dn];
-        own[dn][k] = { net: r.net, len: r.len, vec: { bw: this.bandwidth(d, exit), dly: this.delay(d, exit) }, ext: true, conn: false };
-      }
-    }
-    let tab = {};
-    for (const [dn, me] of Object.entries(per)) {
-      tab[dn] = {};
-      for (const [k, o] of Object.entries(own[dn])) tab[dn][k] = { ...o, own: true, metric: this.eigrpMetric(me, o.vec), via: [], cands: [] };
-    }
-    for (let round = 0; round < 64; round++) {
-      const next = {};
-      for (const [dn, me] of Object.entries(per)) {
-        const t = next[dn] = {};
-        for (const [k, o] of Object.entries(own[dn])) t[k] = { ...o, own: true, metric: this.eigrpMetric(me, o.vec), via: [], cands: [] };
-        const cands = {};
-        for (const n of me.nbrs) {
-          for (const [k, en] of Object.entries(tab[n.dev])) {
-            if (en.via.some((v) => v.dev === dn)) continue; // split horizon
-            const vec = { bw: Math.min(en.vec.bw, n.li.bw), dly: en.vec.dly + n.li.dly };
-            (cands[k] = cands[k] || []).push({ metric: this.eigrpMetric(me, vec), rd: en.metric, vec, ext: en.ext,
-              net: en.net, len: en.len, ip: n.ip, ifn: n.local, dev: n.dev });
-          }
-        }
-        for (const [k, cs] of Object.entries(cands)) {
-          cs.sort((a, b) => a.metric - b.metric || a.ip - b.ip);
-          if (t[k]) { t[k].cands = cs; continue; }
-          const fd = cs[0].metric;
-          t[k] = { net: cs[0].net, len: cs[0].len, vec: cs[0].vec, ext: cs[0].ext, conn: false, metric: fd,
-            via: cs.filter((c) => c.metric === fd).slice(0, 4).map((c) => ({ ip: c.ip, ifn: c.ifn, dev: c.dev })), cands: cs };
-        }
-      }
-      const sig = (tb) => JSON.stringify(Object.keys(tb).sort().map((dn) => Object.keys(tb[dn]).sort()
-        .map((k) => [k, tb[dn][k].metric, tb[dn][k].via.map((v) => v.ip), tb[dn][k].cands.map((c) => c.metric + "/" + c.rd)])));
-      const done = sig(next) === sig(tab);
-      tab = next;
-      if (done) break;
-    }
-    for (const [dn, me] of Object.entries(per)) {
-      me.topo = tab[dn];
-      me.routes = [];
-      for (const [k, en] of Object.entries(tab[dn])) {
-        en.fs = en.own ? [] : en.cands.filter((c) => c.rd < en.metric && !en.via.some((v) => v.ip === c.ip));
-        if (en.own) continue;
-        // Variance installs feasible successors whose metric is within variance x FD.
-        const metricOf = (m) => (me.wide ? Math.floor(m / 128) : m);
-        const extra = me.variance > 1 ? en.fs.filter((c) => c.metric <= en.metric * me.variance)
-          .map((c) => ({ ip: c.ip, ifn: c.ifn, dev: c.dev, metric: metricOf(c.metric) })) : [];
-        me.routes.push({ code: en.ext ? "D EX" : "D", net: en.net, len: en.len, ad: en.ext ? 170 : 90, metric: metricOf(en.metric),
-          paths: [...en.via.map((v) => ({ ...v, metric: metricOf(en.metric) })), ...extra].slice(0, 4), key: k });
-      }
-    }
-    this.c.eigrp = per;
-    return per;
   }
 
   // -- IPv6 -----------------------------------------------------------------------------
@@ -1627,6 +1370,7 @@ export class Network {
     }
     const o6 = !noOspf && this.ospf6()[dn];
     if (o6) for (const r of o6.routes) cands.push({ ...r, ad: 110 });
+    if (!noOspf) cands.push(...this.routes6Extra(dn));
     const select = (list) => {
       const best = {};
       for (const r of list) {
@@ -1699,8 +1443,11 @@ export class Network {
       else if (originated && opts.ifn) eg = { ifn: opts.ifn, nh: pkt.dst };
       else eg = this.routerEgress6(cur, pkt.dst);
       if (eg.fail) return { ...res, fail: eg.fail, failAt: cur };
+      const out6 = d.type === "router" && !originated && (d.cfg.intfs[eg.ifn].filter6 || {}).out;
+      if (out6 && !this.acl6Permits(cur, out6, pkt, opts.record)) return { ...res, fail: "acl", failAt: cur };
       const tgt = this.flood(cur, eg.ifn).find((e) => this.ifOwns6(e.dev, e.ifn, eg.nh));
-      if (!tgt) return { ...res, fail: "arp", failAt: cur };
+      // Neighbour discovery has to work at both ends of the hop.
+      if (!tgt || !this.ndOk(cur, eg.ifn) || !this.ndOk(tgt.dev, tgt.ifn)) return { ...res, fail: "arp", failAt: cur };
       const blocked = this.psecBlock(tgt.trail, this.mac(cur, eg.ifn), opts);
       if (blocked) {
         res.links.push(...tgt.trail.slice(0, blocked.at + 1));
@@ -1715,6 +1462,8 @@ export class Network {
       cur = tgt.dev;
       originated = false;
       res.hops.push({ dev: cur, ifn: tgt.ifn });
+      const in6 = this.devs[cur].type === "router" && (this.devs[cur].cfg.intfs[tgt.ifn].filter6 || {}).in;
+      if (in6 && !this.acl6Permits(cur, in6, pkt, opts.record)) return { ...res, fail: "acl", failAt: cur };
     }
     return { ...res, fail: "ttl", failAt: cur };
   }
@@ -1740,9 +1489,9 @@ export class Network {
       const eg = d.type === "pc" ? this.hostEgress6(dn, dst) : this.routerEgress6(dn, dst);
       return { ok: false, fail: eg.fail || "noip", failAt: dn, links: [] };
     }
-    const there = this.deliver6(dn, { src, dst }, opts);
+    const there = this.deliver6(dn, { src, dst, proto: "icmp", icmp: "echo-request" }, opts);
     if (!there.ok) return there;
-    const back = this.deliver6(there.at, { src: dst, dst: src }, { ...opts, ifn: isLL(src) ? this.v6Ifs(there.at).find((n) => this.ifOwns6(there.at, n, dst)) : undefined });
+    const back = this.deliver6(there.at, { src: dst, dst: src, proto: "icmp", icmp: "echo-reply" }, { ...opts, ifn: isLL(src) ? this.v6Ifs(there.at).find((n) => this.ifOwns6(there.at, n, dst)) : undefined });
     const ok = back.ok && back.at === dn;
     const routers = back.hops.filter((h) => this.devs[h.dev].type === "router").length;
     return { ok, fail: back.fail, failAt: back.failAt, links: there.links.concat(back.links), back: true,
@@ -1789,11 +1538,11 @@ export class Network {
       const ifs = {};
       for (const n of Object.keys(d.cfg.intfs)) ifs[n] = this.ifState(d.name, n);
       const nbrs = {}, nbrs6 = {}, enbrs = {};
-      for (const n of (ospf[d.name] ? ospf[d.name].nbrs : [])) if (n.state.startsWith("FULL")) nbrs[n.rid + "|" + n.local] = n;
+      for (const i of this.ospfInstsOf(d.name)) for (const n of i.nbrs) if (n.state.startsWith("FULL")) nbrs[n.rid + "|" + n.local] = n;
       for (const n of (ospf6[d.name] ? ospf6[d.name].nbrs : [])) if (n.state.startsWith("FULL")) nbrs6[n.rid + "|" + n.local] = n;
       for (const n of (eigrp[d.name] ? eigrp[d.name].nbrs : [])) enbrs[n.ip + "|" + n.local] = n;
       snap[d.name] = { ifs, nbrs, nbrs6, enbrs, pid: d.cfg.ospf && d.cfg.ospf.pid, pid6: d.cfg.ospf6 && d.cfg.ospf6.pid,
-        asn: d.cfg.eigrp && d.cfg.eigrp.asn };
+        asn: d.cfg.eigrp && d.cfg.eigrp.asn, ek: d.cfg.eigrp && d.cfg.eigrp.k.join() };
     }
     return snap;
   }
@@ -1817,12 +1566,12 @@ export class Network {
         for (const [k, n] of Object.entries(now)) if (!was[k]) msgs.push(up(n));
         for (const [k, n] of Object.entries(was)) if (!now[k]) msgs.push(down(n));
       };
-      diff(a.nbrs, b.nbrs, (n) => `%OSPF-5-ADJCHG: Process ${a.pid}, Nbr ${n2ip(n.rid)} on ${n.local} from LOADING to FULL, Loading Done`,
-        (n) => `%OSPF-5-ADJCHG: Process ${b.pid}, Nbr ${n2ip(n.rid)} on ${n.local} from FULL to DOWN, Neighbor Down: Interface down or detached`);
+      diff(a.nbrs, b.nbrs, (n) => `%OSPF-5-ADJCHG: Process ${n.pid ?? a.pid}, Nbr ${n2ip(n.rid)} on ${n.local} from LOADING to FULL, Loading Done`,
+        (n) => `%OSPF-5-ADJCHG: Process ${n.pid ?? b.pid}, Nbr ${n2ip(n.rid)} on ${n.local} from FULL to DOWN, Neighbor Down: ${this.ospfDownReason(dn, n)}`);
       diff(a.nbrs6 || {}, b.nbrs6 || {}, (n) => `%OSPFv3-5-ADJCHG: Process ${a.pid6}, Nbr ${n2ip(n.rid)} on ${n.local} from LOADING to FULL, Loading Done`,
         (n) => `%OSPFv3-5-ADJCHG: Process ${b.pid6}, Nbr ${n2ip(n.rid)} on ${n.local} from FULL to DOWN, Neighbor Down: Interface down or detached`);
       diff(a.enbrs || {}, b.enbrs || {}, (n) => `%DUAL-5-NBRCHANGE: EIGRP-IPv4 ${a.asn}: Neighbor ${n2ip(n.ip)} (${n.local}) is up: new adjacency`,
-        (n) => `%DUAL-5-NBRCHANGE: EIGRP-IPv4 ${b.asn}: Neighbor ${n2ip(n.ip)} (${n.local}) is down: interface down`);
+        (n) => `%DUAL-5-NBRCHANGE: EIGRP-IPv4 ${b.asn}: Neighbor ${n2ip(n.ip)} (${n.local}) is down: ${this.eigrpDownReason(dn, n, a, b)}`);
       if (msgs.length) out[dn] = msgs;
     }
     return out;
@@ -1978,10 +1727,1563 @@ export class Network {
         const t = e && e.topo[ip2n(net) + "/" + len];
         return !!t && t.fs.some((x) => x.ip === ip2n(c.via));
       }
-      default: throw new Error("unknown check type " + c.type);
+      default: return this.checkRouting(c);
     }
   }
 }
+
+// ======== route-maps & prefix-lists ========
+// Shared API for everything that filters or rewrites routes (redistribution, distribute-lists, OSPF
+// area filters, BGP policies) and for policy-based routing.
+//   cfg.prefixLists  {NAME: {desc, entries: [{seq, action, net, len, ge, le}]}}       (IPv4)
+//   cfg.prefixLists6 {NAME: {desc, entries: [{seq, action, net (string), len, ge, le}]}} (IPv6)
+//   cfg.routeMaps    {NAME: [{seq, action, desc, match: {...}, set: {...}}]}
+// match keys: ipAddress [acl names], ipPrefix [prefix-list names], ipv6Prefix [names], tag [n],
+//   metric n, routeType ["internal"|"external"|"type-1"|"type-2"|"local"|"nssa-external"],
+//   interface [ifn], nextHopPrefix [names], length [min, max], asPath [n], community [n]
+// set keys: metric (n, or [bw, dly, rel, load, mtu]), metricType ("type-1"|"type-2"), tag n,
+//   nextHop [ip], defaultNextHop [ip], interface [ifn], localPref n, weight n, prepend [asn],
+//   community [str], origin "igp"|"egp"|"incomplete"
+//
+// net.prefixListMatch(dn, name, net, len, v6) -> "permit" | "deny" | null (no entry matched)
+// net.prefixListPermits(dn, name, net, len, v6) -> bool; a list that doesn't exist permits all
+// net.routeMapEval(dn, name, subject, kind) -> {permit, set, seq} | null when the map doesn't exist
+//   kind "route": subject = {net, len, tag, metric, otype, ifn, nh, v6}
+//   kind "packet": subject = the packet being forwarded (match ip address uses ACLs on it)
+function plMatchEntry(e, net, len, v6) {
+  if (v6) {
+    const pn = parse6(e.net);
+    if (len < e.len || net6(net, e.len) !== pn) return false;
+  } else if (len < e.len || !sameNet(net, e.net, lenMask(e.len))) return false;
+  if (e.ge === null && e.le === null) return len === e.len;
+  const lo = e.ge ?? e.len, hi = e.le ?? (v6 ? 128 : 32);
+  return len >= lo && len <= hi;
+}
+
+const RMAP_ROUTE_TYPES = { intra: ["internal"], inter: ["internal"], e1: ["external", "type-1"], e2: ["external", "type-2"],
+  n1: ["nssa-external", "type-1"], n2: ["nssa-external", "type-2"], dint: ["internal"], dext: ["external"], local: ["local"] };
+
+Object.assign(Network.prototype, {
+  prefixListMatch(dn, name, net, len, v6) {
+    const pl = ((v6 ? this.devs[dn].cfg.prefixLists6 : this.devs[dn].cfg.prefixLists) || {})[name];
+    if (!pl) return null;
+    for (const e of pl.entries) {
+      if (plMatchEntry(e, net, len, v6)) {
+        const h = this.devs[dn].rt.plHits || (this.devs[dn].rt.plHits = {});
+        h[(v6 ? "6|" : "") + name + "|" + e.seq] = (h[(v6 ? "6|" : "") + name + "|" + e.seq] || 0) + 1;
+        return e.action;
+      }
+    }
+    return "deny"; // the implicit deny at the end of every prefix list
+  },
+
+  prefixListPermits(dn, name, net, len, v6) {
+    const r = this.prefixListMatch(dn, name, net, len, v6);
+    return r === null || r === "permit";
+  },
+
+  // A standard or extended ACL used to match a route: the route's network is the source address.
+  aclPermitsRoute(dn, name, net, len) {
+    const acl = this.devs[dn].cfg.acls[name];
+    if (!acl) return true;
+    const pkt = acl.type === "standard" ? { src: net } : { proto: "ip", src: net, dst: lenMask(len) };
+    return this.aclPermits(dn, name, pkt, false);
+  },
+
+  routeMapEval(dn, name, subj, kind = "route") {
+    const rm = (this.devs[dn].cfg.routeMaps || {})[name];
+    if (!rm) return null;
+    for (const cl of rm) {
+      const m = cl.match || {};
+      let ok = true;
+      if (m.ipAddress) {
+        ok = kind === "packet"
+          ? m.ipAddress.some((a) => !!this.devs[dn].cfg.acls[a] && this.aclPermits(dn, a, subj, false))
+          : m.ipAddress.some((a) => this.aclPermitsRoute(dn, a, subj.net, subj.len));
+      }
+      if (ok && m.ipPrefix) ok = kind === "route" && !subj.v6 && m.ipPrefix.some((p) => this.prefixListMatch(dn, p, subj.net, subj.len, false) === "permit");
+      if (ok && m.ipv6Prefix) ok = kind === "route" && !!subj.v6 && m.ipv6Prefix.some((p) => this.prefixListMatch(dn, p, subj.net, subj.len, true) === "permit");
+      if (ok && m.tag) ok = kind === "route" && m.tag.includes(subj.tag ?? 0);
+      if (ok && m.metric !== undefined && m.metric !== null) ok = kind === "route" && subj.metric === m.metric;
+      if (ok && m.routeType) ok = kind === "route" && m.routeType.every((t) => (RMAP_ROUTE_TYPES[subj.otype] || []).includes(t));
+      if (ok && m.interface) ok = m.interface.includes(kind === "route" ? subj.ifn : subj.inIf);
+      if (ok && m.nextHopPrefix) ok = kind === "route" && subj.nh !== null && subj.nh !== undefined
+        && m.nextHopPrefix.some((p) => this.prefixListMatch(dn, p, subj.nh, 32, false) === "permit");
+      if (ok && m.length) ok = kind === "packet" && (subj.size ?? 100) >= m.length[0] && (subj.size ?? 100) <= m.length[1];
+      if (!ok) continue;
+      const h = this.devs[dn].rt.rmHits || (this.devs[dn].rt.rmHits = {});
+      if (kind === "packet" && subj.record) h[name + "|" + cl.seq] = (h[name + "|" + cl.seq] || 0) + 1;
+      return { permit: cl.action === "permit", set: cl.set || {}, seq: cl.seq };
+    }
+    return { permit: false, set: {}, seq: null }; // implicit deny
+  },
+
+  // Run a route through an optional route-map; returns the (possibly rewritten) route or null.
+  applyRouteMap(dn, name, route, v6) {
+    if (!name) return route;
+    const r = this.routeMapEval(dn, name, { ...route, v6 }, "route");
+    if (!r || !r.permit) return null; // a missing route-map lets nothing through, as in redistribution
+    const out = { ...route, set: r.set };
+    if (r.set.tag !== undefined) out.tag = r.set.tag;
+    return out;
+  },
+
+  // distribute-list filtering: {kind: "acl"|"prefix"|"route-map", name}
+  distPermits(dn, f, route, v6) {
+    if (!f) return true;
+    if (f.kind === "prefix") return this.prefixListPermits(dn, f.name, route.net, route.len, v6);
+    if (f.kind === "route-map") { const r = this.routeMapEval(dn, f.name, { ...route, v6 }, "route"); return !r || r.permit; }
+    return v6 ? true : this.aclPermitsRoute(dn, f.name, route.net, route.len);
+  },
+});
+
+// ======== CCNP routing: the control plane ========
+// Every router's IPv4 routing table comes from one fixed point: OSPF, EIGRP and RIP are worked out from
+// the configuration plus the previous round's tables (which is where redistribution takes its routes
+// from), the tables are rebuilt, and that repeats until nothing changes. Mutual redistribution can keep
+// changing; after a fixed number of rounds the last result stands, as a real network keeps flapping.
+const pk = (net, len) => net + "/" + len;
+
+Object.assign(Network.prototype, {
+  cp() {
+    if (this.c.cp) return this.c.cp;
+    const routers = Object.values(this.devs).filter((d) => d.type !== "pc");
+    let ribs = {}, state = { ospf: { per: {}, insts: [], diag: [] }, eigrp: {}, rip: {} };
+    for (const d of routers) ribs[d.name] = this.buildRib(d.name, [], {});
+    this.c.cp = { ribs, ...state, ospfAll: {} }; // visible while computing (redistribution reads prev tables)
+    const sig = (rs) => JSON.stringify(Object.keys(rs).sort().map((k) => rs[k].map((r) => [r.code, r.net, r.len, r.ad, r.metric,
+      (r.paths || []).map((p) => p.ip + "|" + p.ifn), r.tag ?? null])));
+    let last = sig(ribs);
+    for (let round = 0; round < 12; round++) {
+      const ospf = this.ospfRun(ribs), eigrp = this.eigrpRun(ribs, false), rip = this.ripRun(ribs);
+      const next = {};
+      for (const d of routers) {
+        const cands = [];
+        for (const inst of ospf.byDev[d.name] || []) cands.push(...inst.routes);
+        if (eigrp[d.name]) cands.push(...eigrp[d.name].routes);
+        if (rip[d.name]) cands.push(...rip[d.name].routes);
+        next[d.name] = this.buildRib(d.name, cands, ribs);
+      }
+      state = { ospf, eigrp, rip };
+      ribs = next;
+      const s = sig(ribs);
+      if (s === last) break;
+      last = s;
+    }
+    this.c.cp = { ribs, ospf: state.ospf.per, ospfAll: state.ospf.byDev, ospfInsts: state.ospf.insts, ospfDiag: state.ospf.diag,
+      ospfDomains: state.ospf.domains, eigrp: state.eigrp, rip: state.rip };
+    return this.c.cp;
+  },
+
+  // Connected and local routes, the protocol candidates, and static routes whose next hop resolves.
+  buildRib(dn, protoCands, prev) {
+    const d = this.devs[dn], cands = [];
+    for (const ifn of this.upIfs(dn)) {
+      for (const { ip, mask } of this.ifAddrs(dn, ifn)) {
+        const len = maskLen(mask);
+        cands.push({ code: "C", net: and(ip, mask), len, ad: 0, metric: 0, ifn, src: { proto: "connected" } });
+        if (len < 32) cands.push({ code: "L", net: ip, len: 32, ad: 0, metric: 0, ifn, src: { proto: "connected" } });
+      }
+    }
+    cands.push(...protoCands.filter((r) => r.ad < 255));
+    const select = (list) => {
+      const best = {};
+      for (const r of list) {
+        const k = pk(r.net, r.len), b = best[k];
+        if (!b || r.ad < b[0].ad || (r.ad === b[0].ad && rankOf(r) < rankOf(b[0]))
+          || (r.ad === b[0].ad && rankOf(r) === rankOf(b[0]) && r.metric < b[0].metric)) best[k] = [r];
+        else if (r.ad === b[0].ad && r.code === b[0].code && r.metric === b[0].metric && r !== b[0]) b.push(r);
+      }
+      return Object.values(best).map((rs) => {
+        if (rs.length === 1) return rs[0];
+        const paths = [];
+        for (const p of rs.flatMap((r) => r.paths || [])) if (!paths.some((x) => x.ip === p.ip && x.ifn === p.ifn)) paths.push(p);
+        return { ...rs[0], paths: paths.slice(0, 4) };
+      });
+    };
+    let table = select(cands);
+    const statics = d.type === "router" ? d.cfg.routes : [];
+    const pending = new Set(statics.map((_, i) => i));
+    for (let pass = 0; pass < 5 && pending.size; pass++) {
+      let added = false;
+      for (const i of [...pending]) {
+        const s = statics[i];
+        if (s.track && !this.trackUp(dn, s.track)) { pending.delete(i); continue; }
+        let ok;
+        if (s.ifn === "Null0") ok = true;
+        else if (s.ifn) ok = this.ifUp(dn, s.ifn);
+        else {
+          const r = lpm(table.filter((x) => !x.discard), s.nh);
+          ok = !!r && !(r.net === s.net && r.len === s.len);
+        }
+        if (!ok) continue;
+        pending.delete(i);
+        cands.push({ code: s.net === 0 && s.len === 0 ? "S*" : "S", net: s.net, len: s.len, ad: s.ad, metric: 0, tag: s.tag ?? undefined,
+          paths: [{ ip: s.ifn === "Null0" ? null : s.nh, ifn: s.ifn }], src: { proto: "static" }, discard: s.ifn === "Null0" || undefined });
+        added = true;
+      }
+      if (!added) break;
+      table = select(cands);
+    }
+    table.sort((a, b) => a.net - b.net || a.len - b.len);
+    return table;
+  },
+
+  // The routes `redistribute <entry.src>` picks up from a router's table, with the source's metric and tag.
+  // e: {src: "static"|"connected"|"ospf"|"eigrp"|"rip", id, match: [...] (ospf route types), routeMap}
+  redistSources(dn, rib, e) {
+    const out = [];
+    const add = (r, extra) => out.push({ net: r.net, len: r.len, metric: r.metric ?? 0, tag: r.tag ?? 0, otype: r.otype || "local",
+      ifn: r.ifn || (r.paths && r.paths[0] && r.paths[0].ifn), nh: r.paths && r.paths[0] ? r.paths[0].ip : null, vec: r.vec, ...extra });
+    for (const r of rib || []) {
+      // A protocol's own summary (discard) route isn't redistributed; a static route to Null0 is.
+      if ((r.discard && !(r.src && r.src.proto === "static")) || r.code === "L") continue;
+      const p = r.src && r.src.proto;
+      if (e.src === "static" && p === "static") add(r);
+      else if (e.src === "connected" && p === "connected") add(r, { otype: "local" });
+      else if (e.src === p && (e.id === undefined || e.id === null || r.src.id === e.id)) {
+        if (e.src === "ospf" && e.match && e.match.length && !e.match.some((m) => (m === "internal" ? ["intra", "inter"].includes(r.otype)
+          : m === "external" ? ["e1", "e2"].includes(r.otype) : m === "external-1" ? r.otype === "e1" : m === "external-2" ? r.otype === "e2"
+            : m === "nssa-external" ? ["n1", "n2"].includes(r.otype) : false))) continue;
+        add(r);
+      }
+    }
+    // Redistributing a routing protocol also brings in the connected networks it runs on.
+    if (["ospf", "eigrp", "rip"].includes(e.src)) {
+      for (const n of this.protoConnected(dn, e.src, e.id)) {
+        const r = (rib || []).find((x) => x.code === "C" && x.net === n.net && x.len === n.len);
+        if (r && !out.some((x) => x.net === r.net && x.len === r.len)) add(r, { otype: e.src === "ospf" ? "intra" : "local" });
+      }
+    }
+    const kept = [];
+    for (const r of out) {
+      const m = this.applyRouteMap(dn, e.routeMap, r, false);
+      if (m) kept.push(m);
+    }
+    return kept;
+  },
+
+  // Connected networks a protocol instance runs on (for redistribution and `show ip protocols`).
+  protoConnected(dn, proto, id) {
+    const out = [];
+    if (proto === "ospf") {
+      // From configuration: this runs while the OSPF state itself is being worked out.
+      for (const [ifn, w] of Object.entries(this.ospfIfOwners(dn))) {
+        if (id !== undefined && id !== null && w.pid !== id) continue;
+        const a = this.ifAddr(dn, ifn);
+        out.push({ net: and(a.ip, a.mask), len: maskLen(a.mask) });
+      }
+    } else if (proto === "eigrp") {
+      const e = this.devs[dn].cfg.eigrp;
+      if (e && (id === undefined || id === null || e.asn === id)) for (const i of this.eigrpIfs(dn)) out.push({ net: and(i.ip, i.mask), len: maskLen(i.mask) });
+    } else if (proto === "rip") {
+      for (const i of this.ripIfs(dn)) out.push({ net: and(i.ip, i.mask), len: maskLen(i.mask) });
+    }
+    return out;
+  },
+});
+
+// Route preference inside one administrative distance: OSPF intra < inter < E1 < N1 < E2 < N2.
+function rankOf(r) {
+  return { intra: 0, inter: 1, e1: 2, n1: 3, e2: 4, n2: 5 }[r.otype] ?? 0;
+}
+
+// ======== CCNP routing: OSPF ========
+// Processes: cfg.ospf (the first) and cfg.ospfMore (any others). Beyond the CCNA fields each process has:
+//   areas {id: {type: "stub"|"nssa", noSummary, nssaDefault, defaultCost, ranges: [{net, len, advertise, cost}],
+//               auth: "text"|"md5", filterIn, filterOut (prefix-list names), vlinks: [rid]}}
+//   summaries [{net, len, advertise, tag}], redist [{src, id, metric, metricType, subnets, tag, routeMap, match}],
+//   distance {all, intra, inter, ext}, distIn {kind, name}, nbma [{ip}], defaultMetric, defaultMetricType
+// Interface c.ospf adds: ntype ("broadcast"|"point-to-point"|"point-to-multipoint"|"non-broadcast"),
+//   auth ("null"|"text"|"md5"), authKey, md5 {id: key}, mtuIgnore; and c.mtu (ip mtu).
+function ospfProcs(cfg) { return [cfg.ospf, ...(cfg.ospfMore || [])].filter(Boolean); }
+function ospfAreaCfg(o, a) { return (o.areas || {})[a] || {}; }
+const OSPF_HELLO = { broadcast: 10, "point-to-point": 10, "point-to-multipoint": 30, "non-broadcast": 30, loopback: 10 };
+const areaStr = (a) => (a === 0 ? "0" : String(a));
+
+Object.assign(Network.prototype, {
+  ospfInstsOf(dn) { return (this.cp().ospfAll || {})[dn] || []; },
+
+  // Which process and area every interface of a router runs: "ip ospf N area A" first, then each
+  // process's network statements, most specific wildcard first.
+  ospfIfOwners(dn) {
+    const d = this.devs[dn], procs = ospfProcs(d.cfg), out = {};
+    for (const ifn of this.upIfs(dn)) {
+      const oc = d.cfg.intfs[ifn].ospf || {}, { ip } = this.ifAddr(dn, ifn);
+      if (oc.pid !== undefined && oc.area !== undefined && oc.area !== null && procs.some((o) => o.pid === oc.pid)) {
+        out[ifn] = { pid: oc.pid, area: oc.area };
+        continue;
+      }
+      for (const o of procs) {
+        const hit = [...o.networks].sort((a, b) => bitCount(a.wild) - bitCount(b.wild)).find((n) => wildMatch(ip, n.addr, n.wild));
+        if (hit) { out[ifn] = { pid: o.pid, area: hit.area }; break; }
+      }
+    }
+    return out;
+  },
+
+  ospfRidFor(dn, o, used) {
+    if (o.ridHeld !== null && o.ridHeld !== undefined) return o.ridHeld;
+    if (o.rid !== null && o.rid !== undefined) return o.rid;
+    const ips = (lo) => this.upIfs(dn).filter((n) => lo === n.startsWith("Loopback")).map((n) => this.ifAddr(dn, n).ip).filter((x) => !used.has(x));
+    const lo = ips(true), all = ips(false);
+    if (lo.length) return Math.max(...lo);
+    return all.length ? Math.max(...all) : null;
+  },
+
+  routerId(dn, pid) {
+    const d = this.devs[dn], procs = ospfProcs(d.cfg), used = new Set();
+    for (const o of procs) {
+      const rid = this.ospfRidFor(dn, o, used);
+      if (pid === undefined ? o === procs[0] : o.pid === pid) return rid;
+      if (rid !== null) used.add(rid);
+    }
+    return null;
+  },
+
+  ospfIfRecord(dn, o, ifn, area) {
+    const d = this.devs[dn], c = d.cfg.intfs[ifn], oc = c.ospf || {}, { ip, mask } = this.ifAddr(dn, ifn);
+    const loop = ifn.startsWith("Loopback");
+    const ntype = oc.ntype || (oc.ptp ? "point-to-point" : loop ? "loopback" : "broadcast");
+    const passive = o.passiveDefault ? !o.noPassive.includes(ifn) : o.passive.includes(ifn);
+    const hello = oc.hello ?? OSPF_HELLO[ntype];
+    const ac = ospfAreaCfg(o, area);
+    const authType = oc.auth === "null" ? 0 : oc.auth === "text" ? 1 : oc.auth === "md5" ? 2 : ac.auth === "text" ? 1 : ac.auth === "md5" ? 2 : 0;
+    const ids = Object.keys(oc.md5 || {}).map(Number).sort((a, b) => a - b);
+    return {
+      ifn, ip, mask, area, passive, hello, dead: oc.dead ?? hello * 4, prio: oc.prio ?? 1, ntype,
+      ptp: ntype === "point-to-point" || ntype === "point-to-multipoint", loop: ntype === "loopback",
+      cost: oc.cost ?? Math.max(1, Math.floor((o.refBw * 1000) / this.bandwidth(d, ifn))),
+      auth: { type: authType, key: oc.authKey ?? "", md5: oc.md5 || {}, youngest: ids.length ? ids[ids.length - 1] : null },
+      mtu: c.mtu || 1500, mtuIgnore: !!oc.mtuIgnore, nbrs: [],
+    };
+  },
+
+  // One OSPF computation over every router: adjacencies, then the link-state database per area,
+  // then each router's routes. prev = the routing tables redistribution reads from.
+  ospfRun(prev) {
+    const insts = [], byDev = {}, diag = [];
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      const procs = ospfProcs(d.cfg);
+      if (!procs.length) continue;
+      const owners = this.ospfIfOwners(d.name), used = new Set();
+      for (const o of procs) {
+        const rid = this.ospfRidFor(d.name, o, used);
+        if (rid === null) continue;
+        used.add(rid);
+        const ifs = Object.entries(owners).filter(([, w]) => w.pid === o.pid).map(([ifn, w]) => this.ospfIfRecord(d.name, o, ifn, w.area))
+          .sort((a, b) => ifSort(a.ifn, b.ifn));
+        const inst = { key: d.name + "#" + o.pid, dn: d.name, pid: o.pid, o, rid, ifs, nbrs: [], routes: [], areas: [...new Set(ifs.map((i) => i.area))] };
+        insts.push(inst);
+        (byDev[d.name] = byDev[d.name] || []).push(inst);
+      }
+    }
+    const instOf = (dn, ifn) => (byDev[dn] || []).find((x) => x.ifs.some((i) => i.ifn === ifn));
+    // -- adjacencies
+    for (const me of insts) {
+      for (const oi of me.ifs) {
+        if (oi.passive || oi.loop) continue;
+        for (const e of this.flood(me.dn, oi.ifn)) {
+          if (e.dev === me.dn) continue;
+          const them = instOf(e.dev, e.ifn), oj = them && them.ifs.find((x) => x.ifn === e.ifn);
+          if (!oj || oj.passive || oj.loop) continue;
+          const why = ospfMismatch(me, oi, them, oj);
+          if (why) { diag.push({ dn: me.dn, pid: me.pid, ifn: oi.ifn, from: oj.ip, ...why }); continue; }
+          if (oi.ntype === "non-broadcast" && !(me.o.nbma || []).some((n) => n.ip === oj.ip) && !(them.o.nbma || []).some((n) => n.ip === oi.ip)) continue;
+          // The side with the smaller MTU rejects the other's database descriptions (unless it ignores MTU).
+          const stuck = (oi.mtu < oj.mtu && !oi.mtuIgnore) || (oj.mtu < oi.mtu && !oj.mtuIgnore);
+          if (stuck && oi.mtu < oj.mtu) diag.push({ dn: me.dn, pid: me.pid, ifn: oi.ifn, from: oj.ip, kind: "mtu", msg: `Nbr ${n2ip(them.rid)} has larger interface MTU` });
+          oi.nbrs.push({ dev: e.dev, ifn: e.ifn, rid: them.rid, ip: oj.ip, prio: oj.prio, stuck, inst: them });
+        }
+      }
+    }
+    ospfElect2(insts);
+    // -- routing domains: instances joined by full adjacencies
+    const root = new Map(insts.map((i) => [i, i]));
+    const find = (x) => (root.get(x) === x ? x : find(root.get(x)));
+    for (const me of insts) for (const n of me.nbrs) if (n.full) root.set(find(me), find(n.inst));
+    const domains = new Map();
+    for (const i of insts) { const r = find(i); if (!domains.has(r)) domains.set(r, []); domains.get(r).push(i); }
+    for (const members of domains.values()) this.ospfDomain(members, prev);
+    const per = {};
+    for (const [dn, list] of Object.entries(byDev)) per[dn] = list[0];
+    return { insts, byDev, per, diag, domains: [...domains.values()] };
+  },
+
+  // Link state and routes inside one OSPF routing domain.
+  ospfDomain(insts, prev) {
+    const areaOf = (i, a) => i.areas.includes(a);
+    // Shortest paths inside one area: {dist, hops} from src, over full adjacencies on interfaces in that area.
+    const extraEdges = {}; // area 0 virtual links: inst -> [{to, cost, hops}]
+    const spfCache = new Map();
+    const spf = (src, a) => {
+      const key = src.key + "|" + a;
+      if (spfCache.has(key)) return spfCache.get(key);
+      const dist = new Map([[src, 0]]), hops = new Map([[src, []]]), done = new Set();
+      for (;;) {
+        let u = null;
+        for (const [n, dv] of dist) if (!done.has(n) && (u === null || dv < dist.get(u))) u = n;
+        if (u === null) break;
+        done.add(u);
+        const edges = [];
+        for (const oi of u.ifs) {
+          if (oi.area !== a) continue;
+          for (const n of oi.nbrs) if (n.full) edges.push({ to: n.inst, cost: oi.cost, first: [{ ip: n.ip, ifn: oi.ifn }] });
+        }
+        if (a === 0) for (const v of extraEdges[u.key] || []) edges.push({ to: v.to, cost: v.cost, first: v.hops });
+        for (const ed of edges) {
+          if (!areaOf(ed.to, a) && !(a === 0 && ed.to.vlinkUp)) continue;
+          const nd = dist.get(u) + ed.cost, via = u === src ? ed.first : hops.get(u);
+          if (!dist.has(ed.to) || nd < dist.get(ed.to)) { dist.set(ed.to, nd); hops.set(ed.to, [...via]); }
+          else if (nd === dist.get(ed.to) && !done.has(ed.to)) {
+            for (const h of via) if (!hops.get(ed.to).some((x) => x.ip === h.ip)) hops.get(ed.to).push(h);
+          }
+        }
+      }
+      const out = { dist, hops };
+      spfCache.set(key, out);
+      return out;
+    };
+    // -- virtual links: both ends configured with each other's router ID through a transit area
+    for (const me of insts) {
+      for (const [a, ac] of Object.entries(me.o.areas || {})) {
+        for (const rid of ac.vlinks || []) {
+          const area = +a, them = insts.find((x) => x.rid === rid);
+          if (!them || !areaOf(me, area) || !areaOf(them, area) || ospfAreaCfg(me.o, area).type) continue;
+          if (!(ospfAreaCfg(them.o, area).vlinks || []).includes(me.rid)) continue;
+          const r = spf(me, area);
+          if (!r.dist.has(them)) continue;
+          (extraEdges[me.key] = extraEdges[me.key] || []).push({ to: them, cost: r.dist.get(them), hops: r.hops.get(them), area });
+          me.vlinkUp = true;
+          (me.vlinks = me.vlinks || []).push({ rid, area, cost: r.dist.get(them), peer: them });
+        }
+      }
+    }
+    spfCache.clear();
+    // A router reaching the backbone over a virtual link is in area 0 too.
+    for (const i of insts) if (i.vlinkUp && !i.areas.includes(0)) i.areas.push(0);
+    const backbone = (i) => areaOf(i, 0) || !!i.vlinkUp;
+    for (const i of insts) i.abr = backbone(i) && new Set(i.areas.filter((a) => a !== 0)).size >= (areaOf(i, 0) ? 1 : 2);
+    // -- externals each ASBR originates (type 5, or type 7 inside an NSSA)
+    const ext5 = [], ext7 = {};
+    for (const i of insts) {
+      i.asbr = false;
+      const list = this.ospfExternals(i, prev[i.dn] || []);
+      if (!list.length) continue;
+      const nssa = i.areas.find((a) => ospfAreaCfg(i.o, a).type === "nssa");
+      const normal = i.areas.some((a) => !ospfAreaCfg(i.o, a).type);
+      if (!nssa && !normal) continue; // a router only in stub areas can't be an ASBR
+      i.asbr = true;
+      for (const x of list) {
+        if (normal) ext5.push({ ...x, adv: i, origin: i });
+        if (nssa !== undefined && !(normal && i.abr)) (ext7[nssa] = ext7[nssa] || []).push({ ...x, adv: i, origin: i });
+        else if (nssa !== undefined) (ext7[nssa] = ext7[nssa] || []).push({ ...x, adv: i, origin: i, local: true });
+      }
+    }
+    // NSSA default from the ABR, and type-7 to type-5 translation by the NSSA ABR with the highest router ID.
+    const allAreas = [...new Set(insts.flatMap((i) => i.areas))];
+    for (const a of allAreas) {
+      const abrs = insts.filter((i) => i.abr && areaOf(i, a) && ospfAreaCfg(i.o, a).type === "nssa");
+      if (!abrs.length) continue;
+      for (const b of abrs) {
+        const ac = ospfAreaCfg(b.o, a);
+        if (ac.nssaDefault && !ac.noSummary) (ext7[a] = ext7[a] || []).push({ net: 0, len: 0, metric: 1, type: 2, tag: 0, adv: b, origin: b, nssaDefault: true });
+      }
+      const tr = [...abrs].sort((x, y) => y.rid - x.rid)[0];
+      const translated = (ext7[a] || []).filter((x) => !x.nssaDefault && x.origin !== tr);
+      if (translated.length) tr.asbr = true;
+      for (const x of this.ospfSummarise(tr, translated.map((x) => ({ net: x.net, len: x.len, metric: x.metric, type: x.type, tag: x.tag })))) {
+        ext5.push({ ...x, adv: tr, origin: tr, translated: true });
+      }
+    }
+    // -- intra-area destinations from each router's point of view, per area
+    const intra = new Map();
+    const intraOf = (src, a) => {
+      const key = src.key + "|" + a;
+      if (intra.has(key)) return intra.get(key);
+      const { dist, hops } = spf(src, a), out = {};
+      const offer = (k, e) => {
+        const cur = out[k];
+        if (!cur || e.cost < cur.cost) out[k] = e;
+        else if (e.cost === cur.cost) for (const h of e.paths) if (!cur.paths.some((p) => p.ip === h.ip)) cur.paths.push(h);
+      };
+      for (const [x, dx] of dist) {
+        const paths = x === src ? [] : hops.get(x);
+        for (const oi of x.ifs) {
+          if (oi.area !== a) continue;
+          const host = oi.loop || oi.ntype === "point-to-multipoint";
+          const len = host ? 32 : maskLen(oi.mask), net = host ? oi.ip : and(oi.ip, oi.mask);
+          offer(pk(net, len), { net, len, cost: dx + oi.cost, paths: [...paths], own: x === src, by: x });
+        }
+        if (x !== src && x.asbr) offer("R:" + x.rid, { rid: x.rid, cost: dx, paths: [...paths], router: x });
+        if (x !== src && x.abr) offer("B:" + x.rid, { rid: x.rid, cost: dx, paths: [...paths], router: x });
+      }
+      intra.set(key, out);
+      return out;
+    };
+    // -- summary LSAs (types 3 and 4) an ABR originates into an area
+    const sumCache = new Map();
+    const summariesInto = (b, a) => {
+      const key = b.key + "|" + a;
+      if (sumCache.has(key)) return sumCache.get(key);
+      sumCache.set(key, []);
+      const ac = ospfAreaCfg(b.o, a), out = [];
+      const t3 = (e) => out.push({ ...e, kind: 3 });
+      if (ac.type && ac.noSummary) {
+        t3({ net: 0, len: 0, cost: ac.defaultCost ?? 1, def: true });
+        sumCache.set(key, out);
+        return out;
+      }
+      if (ac.type === "stub") t3({ net: 0, len: 0, cost: ac.defaultCost ?? 1, def: true });
+      const seen = new Set();
+      for (const x of b.areas) {
+        if (x === a) continue;
+        const xc = ospfAreaCfg(b.o, x), comps = Object.values(intraOf(b, x)).filter((e) => e.net !== undefined);
+        const ranges = (xc.ranges || []).map((r) => ({ ...r, cost: null, any: false }));
+        for (const e of comps) {
+          const r = ranges.find((g) => e.len >= g.len && sameNet(e.net, g.net, lenMask(g.len)));
+          if (r) { r.any = true; r.cost = Math.max(r.cost ?? 0, e.cost); continue; }
+          if (!this.ospfAreaFilter(b, x, a, e)) continue;
+          if (!seen.has(pk(e.net, e.len))) { seen.add(pk(e.net, e.len)); t3({ net: e.net, len: e.len, cost: e.cost }); }
+        }
+        for (const r of ranges) {
+          if (!r.any || !r.advertise) continue;
+          const e = { net: r.net, len: r.len, cost: r.fixedCost ?? r.cost };
+          if (!this.ospfAreaFilter(b, x, a, e) || seen.has(pk(e.net, e.len))) continue;
+          seen.add(pk(e.net, e.len));
+          t3(e);
+        }
+        if (!ac.type) {
+          for (const e of Object.values(intraOf(b, x))) if (e.rid !== undefined && e.router && e.router.asbr && !seen.has("R:" + e.rid)) {
+            seen.add("R:" + e.rid);
+            out.push({ rid: e.rid, cost: e.cost, kind: 4, router: e.router });
+          }
+        }
+      }
+      if (a !== 0 && backbone(b)) {
+        // Inter-area routes learned over the backbone go on into non-backbone areas.
+        for (const e of interVia(b, 0)) {
+          if (e.rid !== undefined) {
+            if (!ac.type && e.router.asbr && !seen.has("R:" + e.rid) && !areaOf(e.router, a)) { seen.add("R:" + e.rid); out.push({ rid: e.rid, cost: e.cost, kind: 4, router: e.router }); }
+            continue;
+          }
+          if (e.def || seen.has(pk(e.net, e.len))) continue;
+          if (Object.values(intraOf(b, a)).some((x) => x.net === e.net && x.len === e.len)) continue;
+          if (!this.ospfAreaFilter(b, null, a, e)) continue;
+          seen.add(pk(e.net, e.len));
+          t3({ net: e.net, len: e.len, cost: e.cost });
+        }
+      }
+      sumCache.set(key, out);
+      return out;
+    };
+    // Inter-area destinations a router learns from summaries in area a: [{net,len|rid, cost, paths, abr}]
+    const interVia = (src, a) => {
+      const { dist, hops } = spf(src, a), out = [];
+      for (const [b, db] of dist) {
+        if (b === src || !b.abr) continue;
+        for (const s of (a === 0 ? summariesInto0(b) : summariesInto(b, a))) {
+          out.push({ ...s, cost: db + s.cost, paths: [...hops.get(b)], abr: b });
+        }
+      }
+      return out;
+    };
+    const summariesInto0 = (b) => summariesInto(b, 0);
+    // -- each router's OSPF routes
+    for (const me of insts) {
+      const best = {};
+      const o = me.o, dist = o.distance || {};
+      const adFor = (t) => dist[t] ?? dist.all ?? 110;
+      const offer = (k, r) => {
+        const cur = best[k];
+        const better = !cur || rankOf(r) < rankOf(cur) || (rankOf(r) === rankOf(cur) && (r.metric < cur.metric
+          || (r.metric === cur.metric && (r.fwd ?? 0) < (cur.fwd ?? 0))));
+        if (better) best[k] = r;
+        else if (rankOf(r) === rankOf(cur) && r.metric === cur.metric && (r.fwd ?? 0) === (cur.fwd ?? 0)) {
+          for (const h of r.paths) if (!cur.paths.some((p) => p.ip === h.ip)) cur.paths.push(h);
+        }
+      };
+      for (const a of me.areas) {
+        for (const e of Object.values(intraOf(me, a))) {
+          if (e.net === undefined || e.own) continue;
+          offer(pk(e.net, e.len), { code: "O", otype: "intra", net: e.net, len: e.len, metric: e.cost, paths: [...e.paths], area: a });
+        }
+      }
+      const interAreas = me.abr ? [0] : me.areas;
+      const reachR = {};
+      for (const a of me.areas) for (const e of Object.values(intraOf(me, a))) if (e.rid !== undefined) {
+        const k = e.rid;
+        if (!reachR[k] || e.cost < reachR[k].cost) reachR[k] = { cost: e.cost, paths: [...e.paths], area: a };
+      }
+      for (const a of interAreas) {
+        for (const e of interVia(me, a)) {
+          if (e.rid !== undefined) {
+            if (!reachR[e.rid] || e.cost < reachR[e.rid].cost) reachR[e.rid] = { cost: e.cost, paths: [...e.paths], area: a, inter: true };
+            continue;
+          }
+          offer(pk(e.net, e.len), { code: e.def ? "O*IA" : "O IA", otype: "inter", net: e.net, len: e.len, metric: e.cost, paths: [...e.paths] });
+        }
+      }
+      // Externals: type 5 everywhere except stub and NSSA areas; type 7 only inside its NSSA.
+      const inNormal = me.areas.some((a) => !ospfAreaCfg(me.o, a).type);
+      if (inNormal) {
+        for (const x of ext5) {
+          if (x.adv === me) continue;
+          const r = reachR[x.adv.rid];
+          if (!r) continue;
+          const t = x.type === 1 ? "e1" : "e2";
+          offer(pk(x.net, x.len), { code: (x.len === 0 ? "O*" : "O ") + (x.type === 1 ? "E1" : "E2"), otype: t, net: x.net, len: x.len,
+            metric: x.type === 1 ? x.metric + r.cost : x.metric, fwd: r.cost, paths: [...r.paths], tag: x.tag });
+        }
+      }
+      for (const a of me.areas) {
+        if (ospfAreaCfg(me.o, a).type !== "nssa") continue;
+        for (const x of ext7[a] || []) {
+          if (x.adv === me) continue;
+          const r = Object.values(intraOf(me, a)).find((e) => e.rid === x.adv.rid) || (() => {
+            const { dist, hops } = spf(me, a);
+            return dist.has(x.adv) ? { cost: dist.get(x.adv), paths: hops.get(x.adv) } : null;
+          })();
+          if (!r) continue;
+          const t = x.type === 1 ? "n1" : "n2";
+          offer(pk(x.net, x.len), { code: (x.len === 0 ? "O*" : "O ") + (x.type === 1 ? "N1" : "N2"), otype: t, net: x.net, len: x.len,
+            metric: x.type === 1 ? x.metric + r.cost : x.metric, fwd: r.cost, paths: [...r.paths], tag: x.tag });
+        }
+      }
+      // Discard routes for area ranges (on ABRs) and summary-addresses (on ASBRs).
+      const discards = [];
+      if (me.abr) {
+        for (const a of me.areas) {
+          for (const r of ospfAreaCfg(me.o, a).ranges || []) {
+            if (!r.advertise) continue;
+            const any = Object.values(intraOf(me, a)).some((e) => e.net !== undefined && e.len > r.len && sameNet(e.net, r.net, lenMask(r.len)));
+            if (any) discards.push({ code: "O", otype: "intra", net: r.net, len: r.len, metric: 1, ad: 110, discard: true, paths: [{ ip: null, ifn: "Null0" }] });
+          }
+        }
+      }
+      for (const s of me.o.summaries || []) {
+        if (!s.advertise) continue;
+        const mine = [...ext5, ...Object.values(ext7).flat()].some((x) => x.adv === me && x.summary && x.net === s.net && x.len === s.len);
+        if (mine) discards.push({ code: "O", otype: "intra", net: s.net, len: s.len, metric: 1, ad: 254, discard: true, paths: [{ ip: null, ifn: "Null0" }] });
+      }
+      const routes = [];
+      for (const r of Object.values(best)) {
+        if (o.distIn && !this.distPermits(me.dn, o.distIn, { ...r, ifn: r.paths[0] && r.paths[0].ifn, nh: r.paths[0] && r.paths[0].ip }, false)) continue;
+        const t = r.otype === "intra" ? "intra" : r.otype === "inter" ? "inter" : "ext";
+        routes.push({ ...r, ad: adFor(t), src: { proto: "ospf", id: me.pid } });
+      }
+      for (const r of discards) routes.push({ ...r, src: { proto: "ospf", id: me.pid } });
+      me.routes = routes;
+      me.reachR = reachR;
+    }
+    // Keep what `show ip ospf database` and `show ip ospf border-routers` need.
+    for (const me of insts) {
+      me.db = { ext5, ext7, summariesInto, intraOf, members: insts, spf };
+    }
+  },
+
+  // What an ASBR process redistributes, after summary-address: [{net, len, metric, type, tag, summary}]
+  ospfExternals(inst, rib) {
+    const o = inst.o, out = [];
+    for (const e of o.redist || []) {
+      if (e.src === "ospf" && e.id === o.pid) continue;
+      for (const r of this.redistSources(inst.dn, rib, e)) {
+        if (r.len === 0) continue;
+        if (!e.subnets && majorNet(r.net).len !== r.len) continue;
+        if (out.some((x) => x.net === r.net && x.len === r.len)) continue;
+        const set = r.set || {};
+        const metric = typeof set.metric === "number" ? set.metric : e.metric ?? o.defaultMetric ?? (e.src === "bgp" ? 1 : 20);
+        const type = set.metricType === "type-1" ? 1 : set.metricType === "type-2" ? 2 : e.metricType ?? 2;
+        out.push({ net: r.net, len: r.len, metric, type, tag: set.tag ?? e.tag ?? r.tag ?? 0 });
+      }
+    }
+    if (o.defaultOriginate) {
+      const has = rib.some((r) => r.net === 0 && r.len === 0 && !(r.src && r.src.proto === "ospf" && r.src.id === o.pid));
+      if (o.defaultAlways || has) out.push({ net: 0, len: 0, metric: o.defaultOrigMetric ?? 1, type: o.defaultOrigType ?? 2, tag: 0 });
+    }
+    return this.ospfSummarise(inst, out);
+  },
+
+  // summary-address on an ASBR (or NSSA translator): matching externals become one, or vanish.
+  ospfSummarise(inst, list) {
+    const sums = (inst.o.summaries || []).map((s) => ({ ...s, hit: null }));
+    const out = [];
+    for (const x of list) {
+      const s = sums.find((g) => x.len > g.len && sameNet(x.net, g.net, lenMask(g.len)));
+      if (!s) { out.push(x); continue; }
+      if (!s.hit) s.hit = { net: s.net, len: s.len, metric: x.metric, type: x.type, tag: s.tag ?? x.tag, summary: true };
+      else s.hit.metric = Math.min(s.hit.metric, x.metric);
+    }
+    for (const s of sums) if (s.hit && s.advertise) out.push(s.hit);
+    return out;
+  },
+
+  // area X filter-list prefix NAME out / area A filter-list prefix NAME in, on the ABR.
+  ospfAreaFilter(b, from, into, e) {
+    if (from !== null) {
+      const f = ospfAreaCfg(b.o, from).filterOut;
+      if (f && !this.prefixListPermits(b.dn, f, e.net, e.len, false)) return false;
+    }
+    const f = ospfAreaCfg(b.o, into).filterIn;
+    return !f || this.prefixListPermits(b.dn, f, e.net, e.len, false);
+  },
+});
+
+// Why two OSPF interfaces can't become neighbours, as `debug ip ospf adj/hello` reports it; null if they can.
+function ospfMismatch(me, oi, them, oj) {
+  if (oj.area !== oi.area) return { kind: "area", msg: `Rcv pkt from ${n2ip(oj.ip)}, ${oi.ifn}, area ${areaStr(oi.area)} : src not on the same network, mismatched area ID` };
+  const nonPtp = (i) => !["point-to-point", "point-to-multipoint"].includes(i.ntype);
+  if (nonPtp(oi) && nonPtp(oj) && (oj.mask !== oi.mask || !sameNet(oj.ip, oi.ip, oi.mask))) {
+    return { kind: "mask", msg: `Rcv hello from ${n2ip(them.rid)} area ${areaStr(oi.area)} ${oi.ifn} ${n2ip(oj.ip)}`, msg2: `Mismatched hello parameters from ${n2ip(oj.ip)}`, detail: `Dead R ${oj.dead} C ${oi.dead}, Hello R ${oj.hello} C ${oi.hello}  Mask R ${n2ip(oj.mask)} C ${n2ip(oi.mask)}` };
+  }
+  if (!sameNet(oj.ip, oi.ip, oi.mask)) return { kind: "net", msg: `Rcv pkt from ${n2ip(oj.ip)}, ${oi.ifn} : src not on the same network` };
+  if (oj.hello !== oi.hello || oj.dead !== oi.dead) {
+    return { kind: "hello", msg: `Rcv hello from ${n2ip(them.rid)} area ${areaStr(oi.area)} ${oi.ifn} ${n2ip(oj.ip)}`, msg2: `Mismatched hello parameters from ${n2ip(oj.ip)}`, detail: `Dead R ${oj.dead} C ${oi.dead}, Hello R ${oj.hello} C ${oi.hello}  Mask R ${n2ip(oj.mask)} C ${n2ip(oi.mask)}` };
+  }
+  if ((oi.ntype === "point-to-point") !== (oj.ntype === "point-to-point")) return { kind: "ntype", msg: `Rcv hello from ${n2ip(them.rid)} area ${areaStr(oi.area)} ${oi.ifn} ${n2ip(oj.ip)}: network type mismatch` };
+  const t1 = ospfAreaCfg(me.o, oi.area).type || null, t2 = ospfAreaCfg(them.o, oj.area).type || null;
+  if (t1 !== t2) return { kind: "stub", msg: `Rcv pkt from ${n2ip(oj.ip)}, ${oi.ifn} : Mismatched Stub/Transit area option bit` };
+  if (oi.auth.type !== oj.auth.type) return { kind: "auth", msg: `Rcv pkt from ${n2ip(oj.ip)}, ${oi.ifn} : Mismatched Authentication type. Input packet specified type ${oj.auth.type}, we use type ${oi.auth.type}` };
+  if (oi.auth.type === 1 && oi.auth.key !== oj.auth.key) return { kind: "auth", msg: `Rcv pkt from ${n2ip(oj.ip)}, ${oi.ifn} : Mismatched Authentication Key - Clear Text` };
+  if (oi.auth.type === 2) {
+    const k = oj.auth.youngest;
+    if (k === null) return { kind: "auth", msg: `Send with youngest Key ${oi.auth.youngest ?? 0}` };
+    if (oi.auth.md5[k] === undefined) return { kind: "auth", msg: `Rcv pkt from ${n2ip(oj.ip)}, ${oi.ifn} : Mismatched Authentication Key - No message digest key ${k} on interface` };
+    if (oi.auth.md5[k] !== oj.auth.md5[k]) return { kind: "auth", msg: `Rcv pkt from ${n2ip(oj.ip)}, ${oi.ifn} : Mismatched Authentication Key - Message Digest Key ${k}` };
+  }
+  if (them.rid === me.rid) return { kind: "rid", msg: `Rcv pkt from ${n2ip(oj.ip)}, ${oi.ifn}: Duplicate router ID ${n2ip(me.rid)}`, log: `%OSPF-4-DUP_RTRID_NBR: OSPF detected duplicate router-id ${n2ip(me.rid)} from ${n2ip(oj.ip)} on interface ${oi.ifn}` };
+  return null;
+}
+
+// DR/BDR election and neighbour states for OSPFv2 instances. A neighbour whose MTU differs stays in
+// EXSTART and never carries routes.
+function ospfElect2(insts) {
+  for (const me of insts) {
+    for (const oi of me.ifs) {
+      if (oi.loop) { oi.role = "LOOP"; continue; }
+      if (oi.ptp) { oi.role = "P2P"; oi.dr = null; oi.bdr = null; continue; }
+      if (oi.passive) { oi.role = "DR"; oi.dr = { rid: me.rid, ip: oi.ip }; oi.bdr = null; continue; }
+      const cands = [{ rid: me.rid, ip: oi.ip, prio: oi.prio }, ...oi.nbrs].filter((x) => x.prio > 0).sort((a, b) => b.prio - a.prio || b.rid - a.rid);
+      oi.dr = cands[0] || null;
+      oi.bdr = cands[1] || null;
+      oi.role = oi.dr && oi.dr.rid === me.rid ? "DR" : oi.bdr && oi.bdr.rid === me.rid ? "BDR" : "DROTHER";
+    }
+  }
+  for (const me of insts) {
+    me.nbrs = [];
+    for (const oi of me.ifs) {
+      for (const n of oi.nbrs) {
+        let state, full;
+        const role = oi.ptp ? "  -" : oi.dr && oi.dr.rid === n.rid ? "DR" : oi.bdr && oi.bdr.rid === n.rid ? "BDR" : "DROTHER";
+        if (n.stuck) { state = "EXSTART/" + role; full = false; }
+        else if (oi.ptp) { state = "FULL/  -"; full = true; }
+        else {
+          full = oi.role !== "DROTHER" || role !== "DROTHER";
+          state = (full ? "FULL/" : "2WAY/") + role;
+        }
+        n.full = full;
+        n.state = state;
+        me.nbrs.push({ ...n, state, full, local: oi.ifn, dead: oi.dead, pid: me.pid });
+      }
+    }
+  }
+}
+
+// ======== CCNP routing: EIGRP (IPv4 and IPv6) ========
+// cfg.eigrp (one IPv4 instance, classic or named) gains: stub (null | ["connected","summary",...] |
+//   ["receive-only"]), redist [{src, id, metric: [bw,dly,rel,load,mtu], routeMap}], defaultMetric,
+//   distance {int, ext}, dist [{dir, kind, name, ifn}], offsets [{acl, dir, offset, ifn}],
+//   afIfs {ifn|"default": {summary: [{net, len}], authMode, authKey, authChain, splitHorizon, shutdown}},
+//   af6 (named-mode IPv6 address family: {asn, rid, stub, redist, variance, passive...}).
+// Classic interface settings: i.eigrpSum [{asn, net, len}], i.eigrpAuth {asn: {mode, chain}},
+//   i.eigrpSH {asn: false}; classic IPv6: cfg.eigrp6 {asn, rid, ..., shutdown} and i.eigrp6 = asn.
+// Key chains: cfg.keyChains {NAME: {keys: {id: string}}}.
+function eigrpRedistList(e) {
+  const list = [...(e.redist || [])];
+  if (e.redistStatic && !list.some((r) => r.src === "static")) list.push({ src: "static" });
+  return list;
+}
+
+Object.assign(Network.prototype, {
+  eigrpRid(dn, e) {
+    e = e || this.devs[dn].cfg.eigrp;
+    if (e.rid !== null && e.rid !== undefined) return e.rid;
+    const ips = (lo) => this.upIfs(dn).filter((n) => lo === n.startsWith("Loopback")).map((n) => this.ifAddr(dn, n).ip);
+    const lo = ips(true), all = ips(false);
+    return lo.length ? Math.max(...lo) : all.length ? Math.max(...all) : null;
+  },
+
+  // Per-interface EIGRP settings, from the named-mode af-interface or the classic interface commands.
+  eigrpIfCfg(dn, e, ifn, v6) {
+    const d = this.devs[dn], i = d.cfg.intfs[ifn];
+    if (e.name) {
+      const base = v6 ? e.af6 || {} : e;
+      const af = { ...((base.afIfs || {}).default || {}), ...((base.afIfs || {})[ifn] || {}) };
+      return { summary: af.summary || [], authMode: af.authMode || null, authKey: af.authKey ?? null, authChain: af.authChain || null,
+        sh: af.splitHorizon !== false, shutdown: !!af.shutdown };
+    }
+    const asn = e.asn;
+    const auth = (i.eigrpAuth || {})[asn] || {};
+    return { summary: (i.eigrpSum || []).filter((s) => s.asn === asn && !!s.v6 === !!v6), authMode: auth.mode || null, authKey: null,
+      authChain: auth.chain || null, sh: ((v6 ? i.eigrp6SH : i.eigrpSH) || {})[asn] !== false, shutdown: false };
+  },
+
+  eigrpIfs(dn) {
+    const d = this.devs[dn], e = d.cfg.eigrp, out = [];
+    if (!e) return out;
+    for (const ifn of this.upIfs(dn)) {
+      const { ip, mask } = this.ifAddr(dn, ifn);
+      const hit = e.networks.some((n) => (n.wild === null ? majorNet(ip).net === n.addr : wildMatch(ip, n.addr, n.wild)));
+      if (!hit) continue;
+      const ic = this.eigrpIfCfg(dn, e, ifn, false);
+      if (ic.shutdown) continue;
+      const passive = e.passiveDefault ? !e.noPassive.includes(ifn) : e.passive.includes(ifn);
+      out.push({ ifn, ip, mask, key: ip, passive, loop: ifn.startsWith("Loopback"), bw: this.bandwidth(d, ifn), dly: this.delay(d, ifn), ...ic });
+    }
+    return out;
+  },
+
+  eigrpIfs6(dn, e, named) {
+    const d = this.devs[dn], out = [];
+    for (const ifn of this.v6Ifs(dn)) {
+      if (!this.ifUp(dn, ifn)) continue;
+      const i = d.cfg.intfs[ifn];
+      if (!named && i.eigrp6 !== e.asn) continue;
+      const ic = this.eigrpIfCfg(dn, named ? d.cfg.eigrp : e, ifn, true);
+      if (ic.shutdown) continue;
+      const passive = e.passiveDefault ? !(e.noPassive || []).includes(ifn) : (e.passive || []).includes(ifn);
+      out.push({ ifn, key: this.ll6(dn, ifn), passive, loop: ifn.startsWith("Loopback"), bw: this.bandwidth(d, ifn), dly: this.delay(d, ifn), ...ic });
+    }
+    return out;
+  },
+
+  // The authentication an EIGRP interface sends: {mode, secret} or null.
+  eigrpAuthOf(dn, ic) {
+    if (!ic.authMode) return null;
+    if (ic.authMode === "hmac-sha-256" && ic.authKey !== null) return { mode: "hmac-sha-256", keys: { 0: ic.authKey } };
+    const chain = ((this.devs[dn].cfg.keyChains || {})[ic.authChain] || {}).keys || {};
+    return { mode: ic.authMode, keys: chain };
+  },
+
+  // Do two EIGRP interfaces accept each other's packets? Returns null or the reason they don't.
+  eigrpAuthMismatch(dnA, a, dnB, b) {
+    const x = this.eigrpAuthOf(dnA, a), y = this.eigrpAuthOf(dnB, b);
+    if (!x && !y) return null;
+    if (!x || !y || x.mode !== y.mode) return "authentication off or key-chain missing";
+    // Each side sends with its lowest key; the other side must hold the same key ID and string.
+    const sends = (k) => { const ids = Object.keys(k.keys).map(Number).sort((p, q) => p - q); return ids.length ? ids[0] : null; };
+    for (const [s, r] of [[x, y], [y, x]]) {
+      const id = sends(s);
+      if (id === null || r.keys[id] === undefined || r.keys[id] !== s.keys[id]) return "authentication failed";
+    }
+    return null;
+  },
+
+  // EIGRP for IPv4 (v6 false) or IPv6 (v6 true). prev = routing tables redistribution reads from.
+  eigrpRun(prev, v6) {
+    const per = {}, diag = [];
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      let e, named = false;
+      if (!v6) { e = d.cfg.eigrp; if (!e || e.asn === null) continue; }
+      else if (d.cfg.eigrp && d.cfg.eigrp.name && d.cfg.eigrp.af6) { e = { ...d.cfg.eigrp.af6, name: d.cfg.eigrp.name, k: d.cfg.eigrp.af6.k || [1, 0, 1, 0, 0] }; named = true; }
+      else if (d.cfg.eigrp6 && !d.cfg.eigrp6.shutdown) e = d.cfg.eigrp6;
+      else continue;
+      if (v6 && !d.cfg.ipv6Routing) continue;
+      const rid = this.eigrpRid(d.name, e);
+      if (rid === null) continue;
+      per[d.name] = { asn: e.asn, name: e.name || null, wide: !!e.name, k: e.k || [1, 0, 1, 0, 0], rid, variance: e.variance || 1, cfg: e,
+        stub: e.stub || null, ifs: v6 ? this.eigrpIfs6(d.name, e, named) : this.eigrpIfs(d.name), nbrs: [], v6 };
+    }
+    for (const [dn, me] of Object.entries(per)) {
+      for (const oi of me.ifs) {
+        if (oi.passive || oi.loop) continue;
+        for (const x of this.flood(dn, oi.ifn)) {
+          const them = per[x.dev], oj = them && them.ifs.find((i) => i.ifn === x.ifn);
+          if (!oj || oj.passive || x.dev === dn || them.asn !== me.asn) continue;
+          if (!v6 && (!sameNet(oj.ip, oi.ip, oi.mask) || !sameNet(oi.ip, oj.ip, oj.mask))) continue;
+          if (them.k.join() !== me.k.join()) { diag.push({ dn, ifn: oi.ifn, ip: oj.key, kind: "k" }); continue; }
+          const why = this.eigrpAuthMismatch(dn, oi, x.dev, oj);
+          if (why) { diag.push({ dn, ifn: oi.ifn, ip: oj.key, kind: "auth", why }); continue; }
+          me.nbrs.push({ dev: x.dev, ifn: x.ifn, ip: oj.key, local: oi.ifn, li: oi, stub: them.stub });
+        }
+      }
+    }
+    // What each router originates: its EIGRP interfaces' networks, plus redistributed routes.
+    const own = {};
+    for (const [dn, me] of Object.entries(per)) {
+      const d = this.devs[dn];
+      own[dn] = {};
+      for (const oi of me.ifs) {
+        if (v6) {
+          for (const { a, len } of this.addrs6(dn, oi.ifn)) {
+            const net = net6(a, len);
+            own[dn][pk(net, len)] = { net, len, vec: { bw: oi.bw, dly: oi.dly }, ext: false, conn: true, kind: "connected", ifn: oi.ifn };
+          }
+        } else {
+          const len = maskLen(oi.mask), net = and(oi.ip, oi.mask);
+          own[dn][pk(net, len)] = { net, len, vec: { bw: oi.bw, dly: oi.dly }, ext: false, conn: true, kind: "connected", ifn: oi.ifn };
+        }
+      }
+      const cfgE = me.cfg;
+      for (const r of eigrpRedistList(cfgE)) {
+        const srcs = v6 ? this.redistSources6(dn, r) : this.redistSources(dn, prev[dn] || [], r);
+        for (const s of srcs) {
+          const k = pk(s.net, s.len);
+          if (own[dn][k]) continue;
+          let vec = null;
+          const set = s.set || {};
+          const m = Array.isArray(set.metric) ? set.metric : r.metric || cfgE.defaultMetric || null;
+          if (m) vec = { bw: m[0], dly: Math.max(1, m[1]) };
+          else if (r.src === "static" || r.src === "connected") {
+            const exit = s.ifn && d.cfg.intfs[s.ifn] ? s.ifn : null;
+            vec = exit ? { bw: this.bandwidth(d, exit), dly: this.delay(d, exit) } : { bw: 1e7, dly: 0 };
+          } else if (r.src === "eigrp" && s.vec) vec = s.vec;
+          if (!vec) continue; // no seed metric: IOS redistributes nothing from OSPF or RIP
+          own[dn][k] = { net: s.net, len: s.len, vec, ext: r.src !== "connected", conn: false, kind: r.src === "static" ? "static" : "redist",
+            tag: set.tag ?? s.tag ?? 0 };
+        }
+      }
+    }
+    const inside = (n, l, s) => (v6 ? l > s.len && net6(n, s.len) === s.net : l > s.len && sameNet(n, s.net, lenMask(s.len)));
+    const offsetFor = (dn, dir, ifn, en) => {
+      let off = 0;
+      for (const o of per[dn].cfg.offsets || []) {
+        if (o.dir !== dir || (o.ifn && o.ifn !== ifn)) continue;
+        if (o.acl && o.acl !== "0" && !(v6 ? true : this.aclPermitsRoute(dn, o.acl, en.net, en.len))) continue;
+        off += o.offset;
+      }
+      return off;
+    };
+    const distOk = (dn, dir, ifn, en) => (per[dn].cfg.dist || []).filter((f) => f.dir === dir && (!f.ifn || f.ifn === ifn))
+      .every((f) => this.distPermits(dn, f, { net: en.net, len: en.len, tag: en.tag, ifn }, v6));
+    // What dn tells neighbours out of interface outIf, from its current table.
+    const advertise = (dn, t, outIf) => {
+      const me = per[dn], oi = me.ifs.find((i) => i.ifn === outIf), out = [];
+      const stub = me.stub;
+      if (stub && stub.includes("receive-only")) return out;
+      const sums = oi ? oi.summary : [];
+      for (const en of Object.values(t)) {
+        if (en.kind === "summary" && !(en.ifs || []).includes(outIf)) continue;
+        if (stub && !en.own) continue;
+        if (stub && en.own && en.kind !== "summary" && !stub.includes(en.kind === "redist" ? "redistributed" : en.kind)) continue;
+        if (stub && en.kind === "summary" && !stub.includes("summary")) continue;
+        if (!en.own && oi && oi.sh && en.via.some((v) => v.ifn === outIf)) continue;
+        if (en.kind !== "summary" && sums.some((s) => inside(en.net, en.len, s))) continue;
+        if (!distOk(dn, "out", outIf, en)) continue;
+        out.push({ ...en, off: (en.off || 0) + offsetFor(dn, "out", outIf, en) });
+      }
+      return out;
+    };
+    const fresh = (dn) => {
+      const me = per[dn], t = {};
+      for (const [k, o] of Object.entries(own[dn])) t[k] = { ...o, own: true, metric: this.eigrpMetric(me, o.vec), via: [], cands: [] };
+      return t;
+    };
+    let tab = {};
+    for (const dn of Object.keys(per)) tab[dn] = fresh(dn);
+    for (let round = 0; round < 64; round++) {
+      const next = {};
+      for (const [dn, me] of Object.entries(per)) {
+        const t = next[dn] = fresh(dn);
+        const cands = {};
+        for (const n of me.nbrs) {
+          for (const en of advertise(n.dev, tab[n.dev], n.ifn)) {
+            if (!distOk(dn, "in", n.local, en)) continue;
+            const vec = { bw: Math.min(en.vec.bw, n.li.bw), dly: en.vec.dly + n.li.dly };
+            const offIn = offsetFor(dn, "in", n.local, en);
+            const rd = en.metric + (en.off || 0);
+            (cands[pk(en.net, en.len)] = cands[pk(en.net, en.len)] || []).push({ metric: this.eigrpMetric(me, vec) + (en.off || 0) + offIn, rd, vec,
+              ext: en.ext, tag: en.tag, net: en.net, len: en.len, ip: n.ip, ifn: n.local, dev: n.dev, off: (en.off || 0) + offIn });
+          }
+        }
+        for (const [k, cs] of Object.entries(cands)) {
+          cs.sort((a, b) => a.metric - b.metric || (a.ip < b.ip ? -1 : a.ip > b.ip ? 1 : 0));
+          if (t[k]) { t[k].cands = cs; continue; }
+          const fd = cs[0].metric;
+          t[k] = { net: cs[0].net, len: cs[0].len, vec: cs[0].vec, ext: cs[0].ext, tag: cs[0].tag, conn: false, metric: fd, off: cs[0].off,
+            via: cs.filter((c) => c.metric === fd).slice(0, 4).map((c) => ({ ip: c.ip, ifn: c.ifn, dev: c.dev })), cands: cs };
+        }
+        // Interface summaries: present while some component is in the table; metric is the best component's.
+        for (const oi of me.ifs) {
+          for (const s of oi.summary) {
+            const comps = Object.values(t).filter((en) => en.kind !== "summary" && inside(en.net, en.len, s));
+            if (!comps.length) continue;
+            const k = pk(s.net, s.len), best = comps.reduce((a, b) => (b.metric < a.metric ? b : a));
+            if (t[k] && t[k].kind === "summary") { if (!t[k].ifs.includes(oi.ifn)) t[k].ifs.push(oi.ifn); continue; }
+            t[k] = { net: s.net, len: s.len, vec: best.vec, ext: false, conn: false, own: true, kind: "summary", metric: best.metric,
+              via: [], cands: [], ifs: [oi.ifn] };
+          }
+        }
+      }
+      const sig = (tb) => JSON.stringify(Object.keys(tb).sort().map((dn) => Object.keys(tb[dn]).sort()
+        .map((k) => [k, tb[dn][k].metric, tb[dn][k].via.map((v) => String(v.ip)), tb[dn][k].cands.map((c) => c.metric + "/" + c.rd)])));
+      const done = sig(next) === sig(tab);
+      tab = next;
+      if (done) break;
+    }
+    for (const [dn, me] of Object.entries(per)) {
+      me.topo = tab[dn];
+      me.routes = [];
+      const dist = me.cfg.distance || {};
+      for (const [k, en] of Object.entries(tab[dn])) {
+        en.fs = en.own ? [] : en.cands.filter((c) => c.rd < en.metric && !en.via.some((v) => v.ip === c.ip));
+        const metricOf = (m) => (me.wide ? Math.floor(m / 128) : m);
+        if (en.kind === "summary") {
+          me.routes.push({ code: "D", net: en.net, len: en.len, ad: 5, metric: metricOf(en.metric), discard: true, otype: "dint",
+            paths: [{ ip: null, ifn: "Null0" }], key: k, src: { proto: "eigrp", id: me.asn } });
+          continue;
+        }
+        if (en.own) continue;
+        const extra = me.variance > 1 ? en.fs.filter((c) => c.metric <= en.metric * me.variance)
+          .map((c) => ({ ip: c.ip, ifn: c.ifn, dev: c.dev, metric: metricOf(c.metric) })) : [];
+        me.routes.push({ code: en.ext ? "D EX" : "D", net: en.net, len: en.len, ad: en.ext ? dist.ext ?? 170 : dist.int ?? 90, metric: metricOf(en.metric),
+          paths: [...en.via.map((v) => ({ ...v, metric: metricOf(en.metric) })), ...extra].slice(0, 4), key: k, tag: en.tag,
+          otype: en.ext ? "dext" : "dint", vec: en.vec, src: { proto: "eigrp", id: me.asn } });
+      }
+    }
+    if (!v6) this.c.eigrpDiag = diag; else this.c.eigrpDiag6 = diag;
+    return per;
+  },
+
+  eigrp() { return this.cp().eigrp; },
+  eigrp6() {
+    if (!this.c.eigrp6) this.c.eigrp6 = this.eigrpRun({}, true);
+    return this.c.eigrp6;
+  },
+});
+
+// ======== CCNP routing: RIP and RIPng ========
+// cfg.rip {version (null = send 1, receive 1 and 2), networks [classful], passive, noPassive, passiveDefault,
+//   autoSummary (true by default), defaultOriginate, redist, defaultMetric, distance, dist, offsets}
+// Interface: i.ripSend / i.ripRecv (version lists), i.ripSH (false = split horizon off).
+// cfg.ripng {NAME: {redist, distance, defaultOriginate}}; interface i.ripng = {name, defaultOriginate: "only"|"originate"|null}.
+Object.assign(Network.prototype, {
+  ripIfs(dn) {
+    const d = this.devs[dn], r = d.cfg.rip, out = [];
+    if (!r) return out;
+    for (const ifn of this.upIfs(dn)) {
+      const { ip, mask } = this.ifAddr(dn, ifn);
+      if (!r.networks.includes(majorNet(ip).net)) continue;
+      const i = d.cfg.intfs[ifn];
+      const passive = r.passiveDefault ? !(r.noPassive || []).includes(ifn) : (r.passive || []).includes(ifn);
+      const send = i.ripSend || (r.version ? [r.version] : [1]);
+      const recv = i.ripRecv || (r.version ? [r.version] : [1, 2]);
+      out.push({ ifn, ip, mask, key: ip, passive, sh: i.ripSH !== false, send, recv, loop: ifn.startsWith("Loopback") });
+    }
+    return out;
+  },
+
+  ripRun(prev) {
+    const per = {};
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router" || !d.cfg.rip) continue;
+      per[d.name] = { cfg: d.cfg.rip, ifs: this.ripIfs(d.name), nbrs: [] };
+    }
+    return this.distanceVector(per, prev, false);
+  },
+
+  ripng() {
+    if (this.c.ripng) return this.c.ripng;
+    const per = {};
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router" || !d.cfg.ipv6Routing || !d.cfg.ripng) continue;
+      for (const [name, rc] of Object.entries(d.cfg.ripng)) {
+        const ifs = [];
+        for (const ifn of this.v6Ifs(d.name)) {
+          const i = d.cfg.intfs[ifn];
+          if (!this.ifUp(d.name, ifn) || !i.ripng || i.ripng.name !== name) continue;
+          ifs.push({ ifn, key: this.ll6(d.name, ifn), passive: false, sh: i.ripSH6 !== false, send: [2], recv: [2], defOrig: i.ripng.defaultOriginate || null,
+            loop: ifn.startsWith("Loopback") });
+        }
+        if (ifs.length) per[d.name] = { cfg: rc, name, ifs, nbrs: [] };
+      }
+    }
+    this.c.ripng = this.distanceVector(per, {}, true);
+    return this.c.ripng;
+  },
+
+  // Bellman-Ford with split horizon, RIP's hop-count limit (16 is unreachable), auto-summary at major
+  // network boundaries (IPv4), version filtering, offset-lists and distribute-lists.
+  distanceVector(per, prev, v6) {
+    for (const [dn, me] of Object.entries(per)) {
+      for (const oi of me.ifs) {
+        if (oi.loop) continue;
+        for (const x of this.flood(dn, oi.ifn)) {
+          const them = per[x.dev], oj = them && them.ifs.find((i) => i.ifn === x.ifn);
+          if (!oj || x.dev === dn) continue;
+          if (!v6 && !sameNet(oj.ip, oi.ip, oi.mask)) continue;
+          if (v6 && them.name !== me.name && false) continue;
+          me.nbrs.push({ dev: x.dev, ifn: x.ifn, ip: oj.key, local: oi.ifn, li: oi, lj: oj });
+        }
+      }
+    }
+    const base = v6 ? 1 : 0;
+    const own = {};
+    for (const [dn, me] of Object.entries(per)) {
+      own[dn] = {};
+      for (const oi of me.ifs) {
+        if (v6) for (const { a, len } of this.addrs6(dn, oi.ifn)) own[dn][pk(net6(a, len), len)] = { net: net6(a, len), len, metric: base, kind: "connected" };
+        else own[dn][pk(and(oi.ip, oi.mask), maskLen(oi.mask))] = { net: and(oi.ip, oi.mask), len: maskLen(oi.mask), metric: base, kind: "connected" };
+      }
+      const rc = me.cfg;
+      for (const r of rc.redist || []) {
+        for (const s of v6 ? this.redistSources6(dn, r) : this.redistSources(dn, prev[dn] || [], r)) {
+          const k = pk(s.net, s.len);
+          if (own[dn][k]) continue;
+          const set = s.set || {};
+          const m = typeof set.metric === "number" ? set.metric : r.metric ?? rc.defaultMetric
+            ?? (r.src === "static" || r.src === "connected" ? 1 : null);
+          if (m === null || m >= 16) continue;
+          own[dn][k] = { net: s.net, len: s.len, metric: m, kind: "redist", tag: set.tag ?? s.tag ?? 0 };
+        }
+      }
+      if (!v6 && rc.defaultOriginate) own[dn][pk(0, 0)] = { net: 0, len: 0, metric: base, kind: "default" };
+    }
+    const offsetFor = (dn, dir, ifn, en) => (per[dn].cfg.offsets || []).filter((o) => o.dir === dir && (!o.ifn || o.ifn === ifn)
+      && (!o.acl || o.acl === "0" || v6 || this.aclPermitsRoute(dn, o.acl, en.net, en.len))).reduce((s, o) => s + o.offset, 0);
+    const distOk = (dn, dir, ifn, en) => (per[dn].cfg.dist || []).filter((f) => f.dir === dir && (!f.ifn || f.ifn === ifn))
+      .every((f) => this.distPermits(dn, f, { net: en.net, len: en.len, ifn }, v6));
+    const advertise = (dn, t, oi) => {
+      const me = per[dn], out = [];
+      if (oi.passive) return out;
+      const ver = Math.max(...oi.send);
+      const sumAt = !v6 && (me.cfg.autoSummary !== false || ver === 1);
+      const v6only = v6 && oi.defOrig === "only";
+      if (v6 && oi.defOrig) out.push({ net: 0n, len: 0, metric: base });
+      if (v6only) return out;
+      const seen = {};
+      for (const en of Object.values(t)) {
+        if (oi.sh && en.via && en.via.some((v) => v.ifn === oi.ifn)) continue;
+        let net = en.net, len = en.len;
+        if (sumAt && len > 0) {
+          const m = majorNet(net);
+          if (m.net !== majorNet(oi.ip).net && len > m.len) { net = m.net; len = m.len; }
+        }
+        if (!distOk(dn, "out", oi.ifn, { net, len })) continue;
+        const k = pk(net, len), metric = Math.min(16, en.metric + offsetFor(dn, "out", oi.ifn, en));
+        if (!seen[k] || metric < seen[k].metric) seen[k] = { net, len, metric, tag: en.tag, ver };
+      }
+      return Object.values(seen);
+    };
+    const fresh = (dn) => {
+      const t = {};
+      for (const [k, o] of Object.entries(own[dn])) t[k] = { ...o, own: true, via: [] };
+      return t;
+    };
+    let tab = {};
+    for (const dn of Object.keys(per)) tab[dn] = fresh(dn);
+    for (let round = 0; round < 40; round++) {
+      const next = {};
+      for (const [dn, me] of Object.entries(per)) {
+        const t = next[dn] = fresh(dn);
+        for (const n of me.nbrs) {
+          const them = per[n.dev];
+          for (const en of advertise(n.dev, tab[n.dev], n.lj)) {
+            if (!n.li.recv.includes(en.ver ?? 2) && !v6) continue;
+            let { net, len } = en;
+            if (!v6 && en.ver === 1) {
+              // RIPv1 carries no mask: the receiver assumes its own mask inside its major network, else the classful one.
+              const m = majorNet(net);
+              len = m.net === majorNet(n.li.ip).net ? maskLen(n.li.mask) : m.len;
+              net = and(net, lenMask(len));
+            }
+            if (!distOk(dn, "in", n.local, { net, len })) continue;
+            const metric = en.metric + 1 + offsetFor(dn, "in", n.local, { net, len });
+            if (metric >= 16) continue;
+            const k = pk(net, len), cur = t[k];
+            if (cur && cur.own) continue;
+            if (!cur || metric < cur.metric) t[k] = { net, len, metric, via: [{ ip: n.ip, ifn: n.local, dev: n.dev }], tag: en.tag };
+            else if (metric === cur.metric && cur.via.length < 4 && !cur.via.some((v) => v.ip === n.ip)) cur.via.push({ ip: n.ip, ifn: n.local, dev: n.dev });
+          }
+          void them;
+        }
+      }
+      const sig = (tb) => JSON.stringify(Object.keys(tb).sort().map((dn) => Object.keys(tb[dn]).sort().map((k) => [k, tb[dn][k].metric, tb[dn][k].via.map((v) => String(v.ip))])));
+      const done = sig(next) === sig(tab);
+      tab = next;
+      if (done) break;
+    }
+    for (const [dn, me] of Object.entries(per)) {
+      me.table = tab[dn];
+      const ad = (me.cfg.distance ?? 120);
+      me.routes = Object.values(tab[dn]).filter((en) => !en.own).map((en) => ({
+        code: en.len === 0 ? "R*" : "R", net: en.net, len: en.len, ad, metric: en.metric, tag: en.tag,
+        paths: en.via.map((v) => ({ ...v })), src: { proto: "rip", id: me.name || null }, otype: "local" }));
+    }
+    return per;
+  },
+});
+
+// ======== CCNP routing: the IPv6 table's routing protocols ========
+Object.assign(Network.prototype, {
+  // IPv6 redistribution reads configuration, not the table, so IPv6 needs no fixed point.
+  redistSources6(dn, e) {
+    const d = this.devs[dn], out = [];
+    if (e.src === "connected") {
+      for (const ifn of this.v6Ifs(dn)) {
+        if (!this.ifUp(dn, ifn)) continue;
+        for (const { a, len } of this.addrs6(dn, ifn)) out.push({ net: net6(a, len), len, metric: 0, tag: 0, ifn });
+      }
+    } else if (e.src === "static") {
+      for (const s of d.cfg.routes6) {
+        const up = s.ifn ? this.ifUp(dn, s.ifn) : true;
+        if (up) out.push({ net: parse6(s.net), len: s.len, metric: 0, tag: 0, ifn: s.ifn });
+      }
+    }
+    return out.map((r) => this.applyRouteMap(dn, e.routeMap, r, true)).filter(Boolean);
+  },
+
+  routes6Extra(dn) {
+    const out = [];
+    const e6 = this.eigrp6()[dn];
+    if (e6) out.push(...e6.routes);
+    const rn = this.ripng()[dn];
+    if (rn) out.push(...rn.routes);
+    return out;
+  },
+});
+
+// ======== CCNP routing: IP SLA, object tracking, PBR, uRPF ========
+// cfg.slas {N: {kind: "icmp-echo", dst, srcIf, srcIp, freq, threshold, timeout}}; cfg.slaSched {N: {life, start}}
+// cfg.tracks {N: {ifn} | {sla, kind: "reachability"|"state"}}; rt.sla {N: {ok, changes, rc}}
+// i.policy (ip policy route-map), cfg.localPolicy; i.urpf {mode: "rx"|"any", allowDefault}
+Object.assign(Network.prototype, {
+  trackUp(dn, obj) {
+    const t = this.devs[dn].cfg.tracks[obj];
+    if (!t) return true;
+    if (t.sla !== undefined) return !!((this.devs[dn].rt.sla || {})[t.sla] || {}).ok;
+    return this.ifUp(dn, t.ifn);
+  },
+
+  slaRunning(dn, n) { return !!(this.devs[dn].cfg.slaSched || {})[n] && !!(this.devs[dn].cfg.slas || {})[n]; },
+
+  // Probe every scheduled SLA operation; returns true when a result changed. Logs track changes.
+  slaSettle(log) {
+    let changed = false;
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      const slas = d.cfg.slas || {};
+      const rt = d.rt.sla || (d.rt.sla = {});
+      for (const n of Object.keys(rt)) if (!this.slaRunning(d.name, n)) { delete rt[n]; changed = true; }
+      for (const [n, s] of Object.entries(slas)) {
+        if (!this.slaRunning(d.name, n)) continue;
+        let source = s.srcIp ?? null;
+        if (s.srcIf) { const a = this.ifUp(d.name, s.srcIf) ? this.ifAddr(d.name, s.srcIf) : null; source = a ? a.ip : -1; }
+        const ok = source !== -1 && this.ping(d.name, s.dst, source !== null ? { source } : {}).ok;
+        const cur = rt[n];
+        if (!cur || cur.ok !== ok) {
+          const before = Object.entries(d.cfg.tracks).filter(([, t]) => t.sla === +n).map(([k]) => [k, this.trackUp(d.name, +k)]);
+          rt[n] = { ok, changes: (cur ? cur.changes : 0) + 1, rc: ok ? "OK" : "Timeout" };
+          for (const [k, was] of before) {
+            const now = this.trackUp(d.name, +k);
+            if (cur && was !== now) log(d.name, `%TRACK-6-STATE: ${k} ip sla ${n} ${d.cfg.tracks[k].kind || "state"} ${was ? "Up" : "Down"} -> ${now ? "Up" : "Down"}`);
+          }
+          changed = true;
+        }
+      }
+    }
+    return changed;
+  },
+
+  // Policy-based routing: where a matching packet goes instead of the routing table's choice, or null.
+  pbrEgress(dn, name, pkt, inIf, opts) {
+    const r = this.routeMapEval(dn, name, { ...pkt, inIf, record: opts.record }, "packet");
+    if (!r || !r.permit) return null;
+    const d = this.devs[dn], set = r.set;
+    const connected = (nh) => this.upIfs(dn).find((n) => this.ifAddrs(dn, n).some((a) => sameNet(a.ip, nh, a.mask) && a.ip !== nh));
+    const note = (how) => {
+      if (opts.record && (d.rt.debug || {}).policy) {
+        this.note(dn, `IP: s=${n2ip(pkt.src)} (${inIf || "local"}), d=${n2ip(pkt.dst)}, len ${pkt.size ?? 100}, FIB policy match`);
+        this.note(dn, `IP: s=${n2ip(pkt.src)} (${inIf || "local"}), d=${n2ip(pkt.dst)}, g=${how}, len ${pkt.size ?? 100}, FIB policy routed`);
+      }
+    };
+    for (const nh of set.nextHop || []) {
+      const ifn = connected(nh);
+      if (ifn) { note(n2ip(nh)); this.pbrCount(dn, true); return { ifn, nh }; }
+    }
+    for (const ifn of set.interface || []) {
+      if (ifn === "Null0") { this.pbrCount(dn, true); return { fail: "null0" }; }
+      if (this.ifUp(dn, ifn)) { note(ifn); this.pbrCount(dn, true); return { ifn, nh: pkt.dst, proxy: true }; }
+    }
+    if (set.defaultNextHop) {
+      const normal = this.routerEgress(dn, pkt.dst), r2 = this.lookup(dn, pkt.dst);
+      if (normal.fail || (r2 && r2.len === 0)) {
+        for (const nh of set.defaultNextHop) {
+          const ifn = connected(nh);
+          if (ifn) { note(n2ip(nh)); this.pbrCount(dn, true); return { ifn, nh }; }
+        }
+      }
+    }
+    return null;
+  },
+
+  pbrCount(dn, hit) {
+    const rt = this.devs[dn].rt;
+    rt.pbr = rt.pbr || { hits: 0 };
+    if (hit) rt.pbr.hits++;
+  },
+
+  // Unicast RPF: the source must be reachable (loose) or reachable back out of the arrival interface (strict).
+  urpfOk(dn, inIf, src, u) {
+    const r = this.lookup(dn, src);
+    if (!r || r.discard) return false;
+    if (r.len === 0 && !u.allowDefault) return false;
+    if (u.mode === "any") return true;
+    if (r.code === "C" || r.code === "L") return r.ifn === inIf;
+    return (r.paths || []).some((p) => {
+      if (p.ifn && p.ifn !== "Null0") return p.ifn === inIf;
+      const e = this.routerEgress(dn, p.ip);
+      return !e.fail && e.ifn === inIf;
+    });
+  },
+});
+
+// ======== CCNP routing: IPv6 ACLs and DHCPv6 ========
+// cfg.acls6 {NAME: {entries: [{seq, action, proto, src, dst, icmp, sport, dport, log}]}}  (src/dst: "any" |
+//   {host: "addr"} | {net: "addr", len}); i.filter6 {in, out}. Every IPv6 ACL ends with the implicit
+//   "permit icmp any any nd-na / nd-ns" then "deny ipv6 any any".
+// cfg.dhcp6Pools {NAME: {prefix: {a, len} | null, dns: [], domain}}; i.dhcp6 {server, relay: [{dst, ifn}],
+//   client (ipv6 address dhcp)}; i.nd {managed, other}. rt.dhcp6 {client: {ifn: {a, len, server}}, bindings: {key: {...}}}
+function acl6AddrMatch(spec, a) {
+  if (spec === "any") return true;
+  if (spec.host !== undefined) return parse6(spec.host) === a;
+  return net6(a, spec.len) === net6(parse6(spec.net), spec.len);
+}
+const ICMP6_TYPES = ["echo-request", "echo-reply", "nd-na", "nd-ns", "router-advertisement", "router-solicitation", "unreachable", "time-exceeded"];
+
+Object.assign(Network.prototype, {
+  acl6Permits(dn, name, pkt, record) {
+    const acl = (this.devs[dn].cfg.acls6 || {})[name];
+    if (!acl) return true;
+    for (const e of acl.entries) {
+      if (e.remark !== undefined) continue;
+      const proto = pkt.proto || "icmp";
+      if (e.proto !== "ipv6" && e.proto !== proto) continue;
+      if (!acl6AddrMatch(e.src, pkt.src) || !acl6AddrMatch(e.dst, pkt.dst)) continue;
+      if (e.icmp && e.icmp !== pkt.icmp) continue;
+      if (e.dport && !portMatch(e.dport, pkt.dport)) continue;
+      if (record) { const h = this.devs[dn].rt.hits6 || (this.devs[dn].rt.hits6 = {}); h[name + "|" + e.seq] = (h[name + "|" + e.seq] || 0) + 1; }
+      return e.action === "permit";
+    }
+    if (pkt.icmp === "nd-na" || pkt.icmp === "nd-ns") return true;
+    return false;
+  },
+
+  // Can neighbour discovery work on this interface? An inbound IPv6 ACL that denies NS/NA before the
+  // implicit permits (an explicit "deny ipv6 any any" does) breaks it.
+  ndOk(dn, ifn) {
+    const d = this.devs[dn];
+    if (d.type !== "router") return true;
+    const f = (d.cfg.intfs[ifn] || {}).filter6;
+    if (!f || !f.in) return true;
+    const any = parse6("fe80::1");
+    return this.acl6Permits(dn, f.in, { proto: "icmp", icmp: "nd-na", src: any, dst: any }, false)
+      && this.acl6Permits(dn, f.in, { proto: "icmp", icmp: "nd-ns", src: any, dst: any }, false);
+  },
+
+  // Stateful DHCPv6: give interfaces configured with "ipv6 address dhcp" an address from a server on the
+  // segment, or through a relay. Returns true when a lease changed.
+  dhcp6Settle(log) {
+    let changed = false;
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      for (const [ifn, i] of Object.entries(d.cfg.intfs)) {
+        const rt = d.rt.dhcp6 || (d.rt.dhcp6 = { client: {}, bindings: {} });
+        const want = !!(i.dhcp6 && i.dhcp6.client) && this.ifUp(d.name, ifn);
+        const cur = rt.client[ifn];
+        if (!want) { if (cur) { delete rt.client[ifn]; changed = true; } continue; }
+        const lease = this.dhcp6Find(d.name, ifn);
+        const same = cur && lease && cur.a === lease.a && cur.server === lease.server;
+        if (!lease && cur) { delete rt.client[ifn]; changed = true; }
+        else if (lease && !same) {
+          rt.client[ifn] = lease;
+          const srt = this.devs[lease.server].rt.dhcp6 || (this.devs[lease.server].rt.dhcp6 = { client: {}, bindings: {} });
+          srt.bindings[d.name + "|" + ifn] = { a: lease.a, len: lease.len, pool: lease.pool, client: d.name, ifn, duid: "00030001" + this.mac(d.name, ifn).replace(/\./g, "").toUpperCase() };
+          changed = true;
+        }
+      }
+    }
+    return changed;
+  },
+
+  dhcp6Find(dn, ifn) {
+    const pickPool = (srv, srvIf) => {
+      const sc = this.devs[srv].cfg, name = ((sc.intfs[srvIf] || {}).dhcp6 || {}).server;
+      const p = name && (sc.dhcp6Pools || {})[name];
+      return p && p.prefix ? { name, p } : null;
+    };
+    const host = BigInt("0x" + this.mac(dn, ifn).replace(/\./g, "")) & 0xffffffffffffn;
+    for (const e of this.flood(dn, ifn)) {
+      const t = this.devs[e.dev];
+      if (t.type !== "router" || !this.ifUp(e.dev, e.ifn)) continue;
+      const local = pickPool(e.dev, e.ifn);
+      if (local) return { a: net6(parse6(local.p.prefix.a), local.p.prefix.len) | (host + 0x1000n), len: 128, server: e.dev, pool: local.name };
+      for (const r of (((t.cfg.intfs[e.ifn] || {}).dhcp6 || {}).relay || [])) {
+        const dst = parse6(r.dst), owner = Object.keys(this.devs).find((x) => this.devs[x].type === "router" && this.owns6(x, dst));
+        if (!owner) continue;
+        const srvIf = this.v6Ifs(owner).find((n) => this.ifOwns6(owner, n, dst));
+        const pool = Object.keys(this.devs[owner].cfg.intfs).map((n) => pickPool(owner, n)).find(Boolean) || (srvIf && pickPool(owner, srvIf));
+        if (!pool || !this.ping6(e.dev, dst, {}).ok) continue;
+        return { a: net6(parse6(pool.p.prefix.a), pool.p.prefix.len) | (host + 0x1000n), len: 128, server: owner, pool: pool.name };
+      }
+    }
+    return null;
+  },
+});
+
+// ======== CCNP routing: settling, debugging and lab checks ========
+Object.assign(Network.prototype, {
+  // Run after every command (from settle): IP SLA probes, DHCPv6 leases, and debug output.
+  routingSettle(log) {
+    let changed = false;
+    if (this.slaSettle(log)) changed = true;
+    if (this.dhcp6Settle(log)) changed = true;
+    if (changed) this.touch();
+    this.routingDebug(log);
+    return changed;
+  },
+
+  // Debug and error messages for what changed since the last command: routing table changes
+  // (debug ip routing), OSPF adjacency problems (debug ip ospf adj / hello), EIGRP problems.
+  routingDebug(log) {
+    const last = this.dbgLast || (this.dbgLast = {});
+    const cp = this.cp();
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      const dbg = d.rt.debug || {}, dn = d.name;
+      const prev = last[dn] || { rib: null, ospf: [], eigrp: [], enbrs: [] };
+      const enbrs = ((cp.eigrp[dn] || {}).nbrs || []).map((n) => n.local + n.ip);
+      const rib = (cp.ribs[dn] || []).filter((r) => r.code !== "C" && r.code !== "L").map((r) => ({ k: pk(r.net, r.len), r }));
+      if (prev.rib && dbg.routing) {
+        const was = new Map(prev.rib.map((x) => [x.k, x.r])), now = new Map(rib.map((x) => [x.k, x.r]));
+        for (const [k, r] of now) {
+          const o = was.get(k);
+          const via = (r.paths || []).map((p) => (p.ip === null ? p.ifn : n2ip(p.ip))).join(", ");
+          const proto = r.src ? (r.src.proto === "ospf" ? "ospf" : r.src.proto === "eigrp" ? "eigrp" : r.src.proto === "rip" ? "rip" : "static") : "static";
+          if (!o) log(dn, `RT: updating ${proto} ${n2ip(r.net)}/${r.len} (0x0)  :\n    via ${via}  0 1048578\n\nRT: add ${n2ip(r.net)}/${r.len} via ${via}, ${proto} metric [${r.ad}/${r.metric}]`);
+          else if (o.metric !== r.metric || o.ad !== r.ad || JSON.stringify(o.paths) !== JSON.stringify(r.paths)) log(dn, `RT: updating ${proto} ${n2ip(r.net)}/${r.len} (0x0)  :\n    via ${via}  0 1048578`);
+        }
+        for (const [k, o] of was) if (!now.has(k)) log(dn, `RT: del ${n2ip(o.net)}/${o.len} via ${(o.paths || []).map((p) => (p.ip === null ? p.ifn : n2ip(p.ip))).join(", ")}, ${o.src ? o.src.proto : "static"} metric [${o.ad}/${o.metric}]\nRT: delete subnet route to ${n2ip(o.net)}/${o.len}`);
+      }
+      const od = (cp.ospfDiag || []).filter((x) => x.dn === dn), osig = od.map((x) => x.ifn + x.from + x.kind);
+      for (const x of od) {
+        if (prev.ospf.includes(x.ifn + x.from + x.kind)) continue;
+        if (x.log) log(dn, x.log);
+        if (x.kind === "area" && !x.log) log(dn, `%OSPF-4-ERRRCV: Received invalid packet: mismatched area ID from backbone area must be virtual-link but not found from ${n2ip(x.from)}, ${x.ifn}`);
+        if ((dbg.ospfAdj && ["auth", "mtu", "stub", "rid"].includes(x.kind)) || (dbg.ospfHello && ["hello", "mask", "ntype", "net", "area"].includes(x.kind))) {
+          log(dn, `OSPF-${x.pid} ${dbg.ospfHello ? "HELLO" : "ADJ  "} ${x.ifn}: ${x.msg}`);
+          if (x.msg2) log(dn, `OSPF-${x.pid} HELLO ${x.ifn}: ${x.msg2}`);
+          if (x.detail) log(dn, `OSPF-${x.pid} HELLO ${x.ifn}: ${x.detail}`);
+        }
+      }
+      const ed = [...(this.c.eigrpDiag || []), ...(this.c.eigrpDiag6 || [])].filter((x) => x.dn === dn), esig = ed.map((x) => x.ifn + x.ip + x.kind);
+      for (const x of ed) {
+        if (prev.eigrp.includes(x.ifn + x.ip + x.kind)) continue;
+        const ip = typeof x.ip === "bigint" ? fmt6(x.ip) : n2ip(x.ip), asn = (d.cfg.eigrp || d.cfg.eigrp6 || {}).asn;
+        // A neighbour that was up is reported by the adjacency change itself ("metric changed").
+        if (x.kind === "k" && !prev.enbrs.includes(x.ifn + x.ip)) log(dn, `%DUAL-5-NBRCHANGE: EIGRP-IPv4 ${asn}: Neighbor ${ip} (${x.ifn}) is down: K-value mismatch`);
+        if (x.kind === "auth" && dbg.eigrpPackets) log(dn, `EIGRP: ${x.ifn}: ignored packet from ${ip}, opcode = 5 (${x.why === "authentication failed" ? "invalid authentication" : "missing authentication or key-chain missing"})`);
+      }
+      last[dn] = { rib, ospf: osig, eigrp: esig, enbrs };
+    }
+  },
+
+  // Why an OSPF neighbour went away, as the %OSPF-5-ADJCHG message words it.
+  ospfDownReason(dn, n) {
+    const ifUp = this.ifUp(dn, n.local) && this.ifUp(n.dev, n.ifn);
+    if (!ifUp) return "Interface down or detached";
+    const why = (this.cp().ospfDiag || []).find((x) => x.dn === dn && x.ifn === n.local);
+    return why && ["hello", "mask", "area", "auth", "ntype", "stub"].includes(why.kind) ? "Dead timer expired" : "Interface down or detached";
+  },
+
+  // Why an EIGRP neighbour went away: "metric changed" on the router whose K values changed, "K-value
+  // mismatch" on its peer, "interface down" otherwise.
+  eigrpDownReason(dn, n, after, before) {
+    if (!this.ifUp(dn, n.local)) return "interface down";
+    const k = (this.c.eigrpDiag || []).some((x) => x.dn === dn && x.ifn === n.local && x.kind === "k");
+    if (k) return after.ek !== before.ek ? "metric changed" : "K-value mismatch";
+    const auth = (this.c.eigrpDiag || []).some((x) => x.dn === dn && x.ifn === n.local && x.kind === "auth");
+    if (auth) return "authentication mode changed";
+    return this.ifUp(n.dev, n.ifn) ? "holding time expired" : "holding time expired";
+  },
+
+  // New lab checks for the CCNP routing features (called from check()).
+  checkRouting(c) {
+    const d = this.devs[c.device || c.from];
+    const intf = c.intf ? canonIf(d, c.intf) : null;
+    const inst = (pid) => this.ospfInstsOf(d.name).find((i) => pid === undefined || i.pid === pid) || null;
+    switch (c.type) {
+      case "route-attr": {
+        const [net, len] = c.prefix.split("/");
+        const r = this.routes(d.name).find((x) => x.net === ip2n(net) && x.len === +len);
+        if (!r || (c.code && r.code !== c.code)) return false;
+        if (c.ad !== undefined && r.ad !== c.ad) return false;
+        if (c.metric !== undefined && r.metric !== c.metric) return false;
+        if (c.tag !== undefined && (r.tag ?? 0) !== c.tag) return false;
+        if (c.paths !== undefined && (r.paths || []).length !== c.paths) return false;
+        if (c.discard !== undefined && !!r.discard !== c.discard) return false;
+        return !c.via || (!!r.paths && r.paths.some((p) => p.ip === ip2n(c.via)));
+      }
+      case "ospf-nbr-state": {
+        const i = inst(c.pid);
+        return !!i && i.nbrs.some((n) => n.rid === ip2n(c.neighbor) && n.state.startsWith(c.state));
+      }
+      case "ospf-role": {
+        const i = inst(c.pid);
+        return !!i && (c.role === "abr" ? !!i.abr : c.role === "asbr" ? !!i.asbr : false) === (c.value !== false);
+      }
+      case "ospf-area-type": {
+        const i = inst(c.pid);
+        return !!i && (ospfAreaCfg(i.o, c.area).type || "normal") === c.areaType && (c.noSummary === undefined || !!ospfAreaCfg(i.o, c.area).noSummary === c.noSummary);
+      }
+      case "ospf-vlink": { const i = inst(c.pid); return !!i && (i.vlinks || []).some((v) => v.rid === ip2n(c.neighbor)); }
+      case "ospf-auth": {
+        const i = inst(c.pid), f = i && i.ifs.find((x) => x.ifn === intf);
+        return !!f && f.auth.type === ({ null: 0, text: 1, md5: 2 })[c.auth];
+      }
+      case "ospf-lsa": {
+        const i = inst(c.pid);
+        if (!i) return false;
+        const rows = ospfDbRows(this, i).filter((x) => x.type === c.lsa && (c.area === undefined || x.area === c.area));
+        if (!c.prefix) return rows.length >= (c.count || 1);
+        const [n, l] = c.prefix.split("/");
+        return rows.some((x) => x.id === ip2n(n) && (l === undefined || x.len === +l));
+      }
+      case "eigrp-stub": { const e = this.eigrp()[d.name]; return !!e && !!e.stub; }
+      case "eigrp-summary": {
+        const e = this.eigrp()[d.name], [n, l] = c.prefix.split("/");
+        const t = e && e.topo[pk(ip2n(n), +l)];
+        return !!t && t.kind === "summary";
+      }
+      case "eigrp6-nbrs": { const e = this.eigrp6()[d.name]; return !!e && e.nbrs.length >= c.count; }
+      case "rip-nbrs": { const r = this.cp().rip[d.name]; return !!r && new Set(r.nbrs.map((n) => n.dev)).size >= c.count; }
+      case "ripng-route": {
+        const [p, l] = c.prefix.split("/");
+        return this.routes6(d.name).some((x) => x.net === parse6(p) && x.len === +l && x.code[0] === "R");
+      }
+      case "track": return this.trackUp(d.name, c.object) === (c.state === "up");
+      case "sla": return !!((d.rt.sla || {})[c.op] || {}).ok === (c.ok !== false);
+      case "trace-via": {
+        const hops = this.trace(c.from, c.to, 15);
+        return hops.some((h) => h.ip === ip2n(c.via)) === (c.present !== false);
+      }
+      case "pbr": return !!d.cfg.intfs[intf] && d.cfg.intfs[intf].policy === c.routeMap;
+      case "urpf": { const u = d.cfg.intfs[intf] && d.cfg.intfs[intf].urpf; return !!u && (!c.mode || u.mode === c.mode); }
+      case "acl6-applied": { const f = d.cfg.intfs[intf] && d.cfg.intfs[intf].filter6; return !!f && !!f[c.dir] && !!(d.cfg.acls6 || {})[f[c.dir]]; }
+      case "dhcp6-lease": {
+        const l = ((d.rt.dhcp6 || {}).client || {})[intf];
+        return !!l && (!c.prefix || net6(l.a, +c.prefix.split("/")[1]) === parse6(c.prefix.split("/")[0]));
+      }
+      case "prefix-list": {
+        const pl = (d.cfg.prefixLists || {})[c.name];
+        return !!pl && pl.entries.length >= (c.count || 1);
+      }
+      default: throw new Error("unknown check type " + c.type);
+    }
+  },
+});
 
 // Port-channel members must match the bundle's layer-2 settings or they are suspended.
 const L2_KEYS = ["mode", "accessVlan", "native", "allowed", "noneg"];
@@ -2243,6 +3545,7 @@ export function runningConfig(net, dn, onlyIf) {
       if (o6.prio !== undefined) L.push(" ipv6 ospf priority " + o6.prio);
       if (o6.cost !== undefined) L.push(" ipv6 ospf cost " + o6.cost);
       if (o6.pid !== undefined) L.push(` ipv6 ospf ${o6.pid} area ${o6.area}`);
+      L.push(...routingIfLines(c, n, i));
       const o = i.ospf;
       if (o.ptp) L.push(" ip ospf network point-to-point");
       if (o.hello !== undefined) L.push(" ip ospf hello-interval " + o.hello);
@@ -2320,26 +3623,19 @@ export function runningConfig(net, dn, onlyIf) {
     for (const [p, vs] of Object.entries(byPrio)) L.push(`spanning-tree vlan ${vlanStr(vs.sort((a, b) => a - b))} priority ${p}`);
     L.push("!");
   }
+  if (d.type === "router") L.push(...routingHeadLines(c));
   if (d.type === "router" && Object.keys(c.tracks).length) {
-    for (const [n, t] of Object.entries(c.tracks).sort((a, b) => a[0] - b[0])) L.push(`track ${n} interface ${t.ifn} line-protocol`);
+    for (const [n, t] of Object.entries(c.tracks).sort((a, b) => a[0] - b[0])) {
+      if (t.sla !== undefined) L.push(`track ${n} ip sla ${t.sla} ${t.kind || "state"}`);
+      else L.push(`track ${n} interface ${t.ifn} line-protocol`);
+      if (t.delay) L.push(` delay${t.delay.down !== undefined ? " down " + t.delay.down : ""}${t.delay.up !== undefined ? " up " + t.delay.up : ""}`.replace(/^ delay down (\d+) up (\d+)$/, " delay down $1 up $2"));
+    }
     L.push("!");
   }
   for (const n of Object.keys(c.intfs).sort(ifSort)) L.push(...intfBlock(n), "!");
   if (d.type === "router" && c.eigrp) L.push(...eigrpConfig(c.eigrp), "!");
-  if (d.type === "router" && c.ospf) {
-    const o = c.ospf;
-    L.push("router ospf " + o.pid);
-    if (o.rid !== null) L.push(" router-id " + n2ip(o.rid));
-    if (o.refBw !== 100) L.push(" auto-cost reference-bandwidth " + o.refBw);
-    if (o.passiveDefault) {
-      L.push(" passive-interface default");
-      for (const n of o.noPassive) L.push(" no passive-interface " + n);
-    } else for (const n of o.passive) L.push(" passive-interface " + n);
-    for (const n of o.networks) L.push(` network ${n2ip(n.addr)} ${n2ip(n.wild)} area ${n.area}`);
-    if (o.redistStatic) L.push(" redistribute static" + (o.redistSubnets ? " subnets" : ""));
-    if (o.defaultOriginate) L.push(" default-information originate" + (o.defaultAlways ? " always" : ""));
-    L.push("!");
-  }
+  if (d.type === "router") for (const o of ospfProcs(c)) L.push(...ospfConfig(o), "!");
+  if (d.type === "router") L.push(...routingTailLines(c));
   if (d.type === "switch" && c.gateway !== null) L.push("ip default-gateway " + n2ip(c.gateway));
   if (d.type === "router") {
     for (const p of Object.values(c.nat.pools)) L.push(`ip nat pool ${p.name} ${n2ip(p.start)} ${n2ip(p.end)} netmask ${n2ip(p.mask)}`);
@@ -2349,7 +3645,7 @@ export function runningConfig(net, dn, onlyIf) {
     for (const s of c.nat.statics) L.push(`ip nat inside source static ${n2ip(s.local)} ${n2ip(s.global)}`);
     for (const r of c.routes) {
       L.push(["ip route", n2ip(r.net), n2ip(lenMask(r.len)), r.ifn, r.nh !== null ? n2ip(r.nh) : null, r.ad !== 1 ? r.ad : null]
-        .filter((x) => x !== null && x !== undefined).join(" "));
+        .filter((x) => x !== null && x !== undefined).join(" ") + staticSuffix(r));
     }
     const names = Object.keys(c.acls);
     const numbered = names.filter((n) => /^\d+$/.test(n)).sort((a, b) => a - b);
@@ -2405,37 +3701,6 @@ export function runningConfig(net, dn, onlyIf) {
   return wrap(L);
 }
 
-function eigrpConfig(e) {
-  const net = (n) => (n.wild === null ? "network " + n2ip(n.addr) : `network ${n2ip(n.addr)} ${n2ip(n.wild)}`);
-  const kDefault = e.k.join() === "1,0,1,0,0";
-  if (!e.name) {
-    const L = ["router eigrp " + e.asn];
-    if (!kDefault) L.push(" metric weights 0 " + e.k.join(" "));
-    if (e.variance > 1) L.push(" variance " + e.variance);
-    for (const n of e.networks) L.push(" " + net(n));
-    if (e.redistStatic) L.push(" redistribute static");
-    if (e.passiveDefault) {
-      L.push(" passive-interface default");
-      for (const n of e.noPassive) L.push(" no passive-interface " + n);
-    } else for (const n of e.passive) L.push(" passive-interface " + n);
-    if (e.rid !== null) L.push(" eigrp router-id " + n2ip(e.rid));
-    return L;
-  }
-  const L = ["router eigrp " + e.name, " !", ` address-family ipv4 unicast autonomous-system ${e.asn}`];
-  if (e.passiveDefault) L.push("  !", "  af-interface default", "   passive-interface", "  exit-af-interface");
-  for (const n of e.passiveDefault ? e.noPassive : e.passive) {
-    L.push("  !", "  af-interface " + n, e.passiveDefault ? "   no passive-interface" : "   passive-interface", "  exit-af-interface");
-  }
-  L.push("  !", "  topology base");
-  if (e.variance > 1) L.push("   variance " + e.variance);
-  if (e.redistStatic) L.push("   redistribute static");
-  L.push("  exit-af-topology");
-  for (const n of e.networks) L.push("  " + net(n));
-  if (!kDefault) L.push("  metric weights 0 " + e.k.join(" ") + " 0");
-  if (e.rid !== null) L.push("  eigrp router-id " + n2ip(e.rid));
-  L.push(" exit-address-family");
-  return L;
-}
 
 // ---------------------------------------------------------------- show commands
 const ROUTE_CODES = `Codes: L - local, C - connected, S - static, R - RIP, M - mobile, B - BGP
@@ -2467,6 +3732,7 @@ function showIpRoute(net, dn, filter) {
   const text = (r, showLen) => {
     const pfx = n2ip(r.net) + (showLen ? "/" + r.len : "");
     if (r.code === "C" || r.code === "L") return [`${pfx} is directly connected, ${r.ifn}`];
+    if (r.discard && r.code[0] !== "S") return [`${pfx} is a summary, 00:00:12, Null0`];
     if (r.code[0] === "S") {
       const p = r.paths[0];
       if (p.ip === null) return [`${pfx} is directly connected, ${p.ifn}`];
@@ -2661,81 +3927,9 @@ function showAcls(net, dn, only) {
   return L.join("\n");
 }
 
-function showOspfNbr(net, dn) {
-  const o = net.ospf()[dn];
-  const L = ["", "Neighbor ID     Pri   State           Dead Time   Address         Interface"];
-  for (const n of o ? o.nbrs : []) {
-    L.push(pad(n2ip(n.rid), 16) + lpad(n.prio, 3) + "   " + pad(n.state, 16) + pad("00:00:" + String(n.dead - 5).padStart(2, "0"), 12) + pad(n2ip(n.ip), 16) + n.local);
-  }
-  return L.join("\n");
-}
 
-function showOspfIntBrief(net, dn) {
-  const o = net.ospf()[dn];
-  const L = ["Interface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C"];
-  for (const i of o ? o.ifs : []) {
-    const full = (i.nbrs || []).filter((n) => o.nbrs.some((x) => x.rid === n.rid && x.local === i.ifn && x.state.startsWith("FULL"))).length;
-    L.push(pad(shortIf(i.ifn), 13) + pad(o.pid, 6) + pad(i.area, 16) + pad(`${n2ip(i.ip)}/${maskLen(i.mask)}`, 19) + pad(i.cost, 6)
-      + pad(i.role, 6) + `${full}/${(i.nbrs || []).length}`);
-  }
-  return L.join("\n");
-}
 
-function showOspfInt(net, dn, only) {
-  const o = net.ospf()[dn], L = [];
-  for (const i of o ? o.ifs : []) {
-    if (only && i.ifn !== only) continue;
-    L.push(`${i.ifn} is up, line protocol is up`, `  Internet Address ${n2ip(i.ip)}/${maskLen(i.mask)}, Area ${i.area}`,
-      `  Process ID ${o.pid}, Router ID ${n2ip(o.rid)}, Network Type ${i.loop ? "LOOPBACK" : i.ptp ? "POINT_TO_POINT" : "BROADCAST"}, Cost: ${i.cost}`);
-    if (i.loop) { L.push("  Loopback interface is treated as a stub Host"); continue; }
-    L.push(`  Transmit Delay is 1 sec, State ${i.role === "P2P" ? "POINT_TO_POINT" : i.role}${i.ptp ? "" : `, Priority ${i.prio}`}`);
-    if (!i.ptp && i.dr) L.push(`  Designated Router (ID) ${n2ip(i.dr.rid)}, Interface address ${n2ip(i.dr.ip)}`);
-    if (!i.ptp && i.bdr) L.push(`  Backup Designated router (ID) ${n2ip(i.bdr.rid)}, Interface address ${n2ip(i.bdr.ip)}`);
-    L.push(`  Timer intervals configured, Hello ${i.hello}, Dead ${i.dead}, Wait ${i.dead}, Retransmit 5`);
-    if (i.passive) L.push("    No Hellos (Passive interface)");
-    else L.push("    Hello due in 00:00:0" + Math.min(9, i.hello - 1));
-    const nb = o.nbrs.filter((n) => n.local === i.ifn);
-    L.push(`  Neighbor Count is ${nb.length}, Adjacent neighbor count is ${nb.filter((n) => n.state.startsWith("FULL")).length}`);
-    for (const n of nb) if (n.state.startsWith("FULL")) L.push(`    Adjacent with neighbor ${n2ip(n.rid)}`);
-  }
-  if (only && !L.length) return `%OSPF: OSPF not enabled on ${only}`;
-  return L.join("\n");
-}
 
-function showIpProtocols(net, dn) {
-  const d = net.devs[dn], o = d.cfg.ospf, e = d.cfg.eigrp;
-  const L = ['*** IP Routing is NSF aware ***', ""];
-  if (e) {
-    const per = net.eigrp()[dn], rid = per ? per.rid : null;
-    L.push(`Routing Protocol is "eigrp ${e.asn}"`, "  Outgoing update filter list for all interfaces is not set",
-      "  Incoming update filter list for all interfaces is not set", "  Default networks flagged in outgoing updates",
-      "  Default networks accepted from incoming updates", `  EIGRP-IPv4${e.name ? ` VR(${e.name}) Address-Family` : ""} Protocol for AS(${e.asn})`,
-      `    Metric weight K1=${e.k[0]}, K2=${e.k[1]}, K3=${e.k[2]}, K4=${e.k[3]}, K5=${e.k[4]}`,
-      `    Router-ID: ${rid === null ? "0.0.0.0" : n2ip(rid)}`, "    Topology : 0 (base)", "      Active Timer: 3 min",
-      "      Distance: internal 90 external 170", "      Maximum path: 4", "      Maximum hopcount 100",
-      `      Maximum metric variance ${e.variance}`, "", "  Automatic Summarization: disabled", "  Maximum path: 4", "  Routing for Networks:");
-    for (const n of e.networks) L.push("    " + n2ip(n.addr) + (n.wild === null ? "" : "/" + (32 - bitCount(n.wild))));
-    const passive = per ? per.ifs.filter((i) => i.passive).map((i) => i.ifn) : [];
-    if (passive.length) { L.push("  Passive Interface(s):"); for (const p of passive) L.push("    " + p); }
-    L.push("  Routing Information Sources:", "    Gateway         Distance      Last Update");
-    for (const n of per ? per.nbrs : []) L.push("    " + pad(n2ip(n.ip), 16) + lpad("90", 8) + "      00:00:12");
-    L.push("  Distance: internal 90 external 170", "");
-  }
-  if (!o) return L.join("\n");
-  const rid = net.routerId(dn);
-  L.push(`Routing Protocol is "ospf ${o.pid}"`, "  Outgoing update filter list for all interfaces is not set",
-    "  Incoming update filter list for all interfaces is not set", `  Router ID ${rid === null ? "0.0.0.0" : n2ip(rid)}`);
-  if (o.redistStatic) L.push("  It is an autonomous system boundary router", "  Redistributing External Routes from,", "    static" + (o.redistSubnets ? ", includes subnets in redistribution" : ""));
-  L.push("  Maximum path: 4", "  Routing for Networks:");
-  for (const n of o.networks) L.push(`    ${n2ip(n.addr)} ${n2ip(n.wild)} area ${n.area}`);
-  const per = net.ospf()[dn];
-  const passive = per ? per.ifs.filter((i) => i.passive).map((i) => i.ifn) : [];
-  if (passive.length) { L.push("  Passive Interface(s):"); for (const p of passive) L.push("    " + p); }
-  L.push("  Routing Information Sources:", "    Gateway         Distance      Last Update");
-  for (const n of per ? per.nbrs : []) L.push("    " + pad(n2ip(n.rid), 16) + pad("110", 14) + "00:00:12");
-  L.push("  Distance: (default is 110)");
-  return L.join("\n");
-}
 
 // ---- spanning tree, EtherChannel, port security
 function showSpanningTree(net, dn, only) {
@@ -3039,18 +4233,6 @@ function showStandby(net, dn, brief) {
   return L.join("\n");
 }
 
-function showTrack(net, dn) {
-  const d = net.devs[dn], L = [];
-  for (const [n, t] of Object.entries(d.cfg.tracks).sort((a, b) => a[0] - b[0])) {
-    L.push(`Track ${n}`, `  Interface ${t.ifn} line-protocol`, `  Line protocol is ${net.ifUp(dn, t.ifn) ? "Up" : "Down"}`, "    1 change, last change 00:00:21");
-    const by = [];
-    for (const [ifn, i] of Object.entries(d.cfg.intfs)) {
-      for (const [g, s] of Object.entries(i.standby)) if (s.tracks.some((x) => x.obj === +n)) by.push(`    HSRP ${ifn} ${g}`);
-    }
-    if (by.length) L.push("  Tracked by:", ...by);
-  }
-  return L.join("\n");
-}
 
 // ---- IPv6
 function showIpv6IntBrief(net, dn) {
@@ -3141,47 +4323,9 @@ function showIpv6Neighbors(net, dn) {
 }
 
 // ---- EIGRP
-function eigrpTitle(e, what) {
-  return e.name ? `EIGRP-IPv4 VR(${e.name}) Address-Family ${what} for AS(${e.asn})` : `EIGRP-IPv4 ${what} for AS(${e.asn})`;
-}
 
-function showEigrpNbrs(net, dn) {
-  const e = net.devs[dn].cfg.eigrp, per = net.eigrp()[dn];
-  const L = [eigrpTitle(e, "Neighbors"), "H   Address                 Interface              Hold Uptime   SRTT   RTO  Q  Seq",
-    "                                                   (sec)         (ms)       Cnt Num"];
-  (per ? per.nbrs : []).forEach((n, i) => L.push(pad(i, 4) + pad(n2ip(n.ip), 24) + pad(shortIf(n.local), 23) + lpad(13, 4) + " 00:02:11" + lpad(1, 5) + lpad(100, 6) + "  0  " + (4 + i)));
-  return L.join("\n");
-}
 
-function showEigrpTopo(net, dn) {
-  const e = net.devs[dn].cfg.eigrp, per = net.eigrp()[dn];
-  if (!per) return "";
-  const L = [`${eigrpTitle(e, "Topology Table")}/ID(${n2ip(per.rid)})`, "Codes: P - Passive, A - Active, U - Update, Q - Query, R - Reply,",
-    "       r - reply Status, s - sia Status ", ""];
-  const keys = Object.keys(per.topo).sort((a, b) => { const [na, la] = a.split("/").map(Number), [nb, lb] = b.split("/").map(Number); return na - nb || la - lb; });
-  for (const k of keys) {
-    const t = per.topo[k];
-    L.push(`P ${n2ip(t.net)}/${t.len}, ${t.own ? 1 : t.via.length} successors, FD is ${t.metric}`);
-    if (t.conn) L.push(`        via Connected, ${t.ifn}`);
-    else if (t.own) L.push(`        via Rstatic (${t.metric}/0)`);
-    for (const v of t.via) {
-      const c = t.cands.find((x) => x.ip === v.ip);
-      L.push(`        via ${n2ip(v.ip)} (${c.metric}/${c.rd}), ${v.ifn}`);
-    }
-    for (const c of t.fs) L.push(`        via ${n2ip(c.ip)} (${c.metric}/${c.rd}), ${c.ifn}`);
-  }
-  return L.join("\n");
-}
 
-function showEigrpIfs(net, dn) {
-  const e = net.devs[dn].cfg.eigrp, per = net.eigrp()[dn];
-  const L = [eigrpTitle(e, "Interfaces"), "                              Xmit Queue   PeerQ        Mean   Pacing Time   Multicast    Pending",
-    "Interface              Peers  Un/Reliable  Un/Reliable  SRTT   Un/Reliable   Flow Timer   Routes"];
-  for (const i of per ? per.ifs.filter((x) => !x.passive) : []) {
-    L.push(pad(shortIf(i.ifn), 23) + lpad(per.nbrs.filter((n) => n.local === i.ifn).length, 5) + "        0/0       0/0           1       0/0           50           0");
-  }
-  return L.join("\n");
-}
 
 function showArp(net, dn) {
   const d = net.devs[dn];
@@ -3239,6 +4383,908 @@ function showVersion(net, dn) {
     `${d.cfg.hostname} uptime is 1 hour, 12 minutes`, `System image file is "flash:netlab-${d.type}"`, "",
     `${d.ports.length} ${d.type === "router" ? "Gigabit Ethernet" : "Ethernet"} interfaces`,
     "Configuration register is 0x2102"].join("\n");
+}
+
+// ======== CCNP routing: running-config sections ========
+function ospfConfig(o) {
+  const L = ["router ospf " + o.pid];
+  if (o.rid !== null && o.rid !== undefined) L.push(" router-id " + n2ip(o.rid));
+  if (o.refBw !== 100) L.push(" auto-cost reference-bandwidth " + o.refBw);
+  const areas = Object.entries(o.areas || {}).map(([a, ac]) => [+a, ac]).sort((x, y) => x[0] - y[0]);
+  for (const [a, ac] of areas) {
+    if (ac.auth) L.push(` area ${a} authentication${ac.auth === "md5" ? " message-digest" : ""}`);
+    if (ac.defaultCost !== undefined) L.push(` area ${a} default-cost ${ac.defaultCost}`);
+    if (ac.type === "stub") L.push(` area ${a} stub${ac.noSummary ? " no-summary" : ""}`);
+    if (ac.type === "nssa") L.push(` area ${a} nssa${ac.noSummary ? " no-summary" : ""}${ac.nssaDefault ? " default-information-originate" : ""}`);
+    for (const r of ac.ranges || []) L.push(` area ${a} range ${n2ip(r.net)} ${n2ip(lenMask(r.len))}${r.advertise ? "" : " not-advertise"}${r.fixedCost !== undefined ? " cost " + r.fixedCost : ""}`);
+    for (const v of ac.vlinks || []) L.push(` area ${a} virtual-link ${n2ip(v)}`);
+    if (ac.filterIn) L.push(` area ${a} filter-list prefix ${ac.filterIn} in`);
+    if (ac.filterOut) L.push(` area ${a} filter-list prefix ${ac.filterOut} out`);
+  }
+  for (const s of o.summaries || []) L.push(` summary-address ${n2ip(s.net)} ${n2ip(lenMask(s.len))}${s.advertise ? "" : " not-advertise"}${s.tag !== null && s.tag !== undefined ? " tag " + s.tag : ""}`);
+  if (o.redistStatic) L.push(" redistribute static" + (o.redistSubnets ? " subnets" : ""));
+  for (const e of o.redist || []) {
+    L.push(" redistribute " + redistKey(e) + (e.metric !== null && e.metric !== undefined ? " metric " + e.metric : "")
+      + (e.metricType ? " metric-type " + e.metricType : "") + (e.subnets ? " subnets" : "") + (e.tag !== null && e.tag !== undefined ? " tag " + e.tag : "")
+      + (e.routeMap ? " route-map " + e.routeMap : ""));
+  }
+  if (o.passiveDefault) {
+    L.push(" passive-interface default");
+    for (const n of o.noPassive) L.push(" no passive-interface " + n);
+  } else for (const n of o.passive) L.push(" passive-interface " + n);
+  for (const n of o.networks) L.push(` network ${n2ip(n.addr)} ${n2ip(n.wild)} area ${n.area}`);
+  for (const n of o.nbma || []) L.push(` neighbor ${n2ip(n.ip)}${n.prio ? " priority " + n.prio : ""}`);
+  if (o.defaultOriginate) L.push(" default-information originate" + (o.defaultAlways ? " always" : "") + (o.defaultOrigMetric !== undefined ? " metric " + o.defaultOrigMetric : "")
+    + (o.defaultOrigType !== undefined ? " metric-type " + o.defaultOrigType : ""));
+  if (o.defaultMetric !== undefined) L.push(" default-metric " + o.defaultMetric);
+  const ds = o.distance || {};
+  if (ds.all !== undefined) L.push(" distance " + ds.all);
+  if (ds.intra !== undefined || ds.inter !== undefined || ds.ext !== undefined) {
+    L.push(" distance ospf" + (ds.intra !== undefined ? " intra-area " + ds.intra : "") + (ds.inter !== undefined ? " inter-area " + ds.inter : "") + (ds.ext !== undefined ? " external " + ds.ext : ""));
+  }
+  if (o.distIn) L.push(` distribute-list ${o.distIn.kind === "acl" ? "" : o.distIn.kind + " "}${o.distIn.name} in`);
+  return L;
+}
+
+// Filters and policy lines shared by EIGRP (classic and named topology) and RIP: indent is the prefix.
+function routingExtras(h, ind, metricKind) {
+  const L = [];
+  for (const e of h.redist || []) {
+    let m = "";
+    if (e.metric !== null && e.metric !== undefined) m = " metric " + (Array.isArray(e.metric) ? e.metric.join(" ") : e.metric);
+    L.push(ind + "redistribute " + redistKey(e) + m + (e.routeMap ? " route-map " + e.routeMap : ""));
+  }
+  if (h.defaultMetric !== undefined) L.push(ind + "default-metric " + (Array.isArray(h.defaultMetric) ? h.defaultMetric.join(" ") : h.defaultMetric));
+  if (h.distance !== undefined && metricKind === "eigrp") L.push(`${ind}distance eigrp ${h.distance.int} ${h.distance.ext}`);
+  if (h.distance !== undefined && metricKind === "rip") L.push(`${ind}distance ${h.distance}`);
+  for (const f of h.dist || []) L.push(`${ind}distribute-list ${f.kind === "acl" ? "" : f.kind + " "}${f.name} ${f.dir}${f.ifn ? " " + f.ifn : ""}`);
+  for (const o of h.offsets || []) L.push(`${ind}offset-list ${o.acl} ${o.dir} ${o.offset}${o.ifn ? " " + o.ifn : ""}`);
+  return L;
+}
+
+const stubStr = (s) => (s.includes("receive-only") ? "eigrp stub receive-only" : "eigrp stub " + s.join(" "));
+
+function eigrpConfig(e) {
+  const net = (n) => (n.wild === null ? "network " + n2ip(n.addr) : `network ${n2ip(n.addr)} ${n2ip(n.wild)}`);
+  const kDefault = e.k.join() === "1,0,1,0,0";
+  if (!e.name) {
+    const L = ["router eigrp " + e.asn];
+    if (!kDefault) L.push(" metric weights 0 " + e.k.join(" "));
+    if (e.variance > 1) L.push(" variance " + e.variance);
+    for (const n of e.networks) L.push(" " + net(n));
+    if (e.redistStatic) L.push(" redistribute static");
+    L.push(...routingExtras(e, " ", "eigrp"));
+    if (e.passiveDefault) {
+      L.push(" passive-interface default");
+      for (const n of e.noPassive) L.push(" no passive-interface " + n);
+    } else for (const n of e.passive) L.push(" passive-interface " + n);
+    if (e.rid !== null) L.push(" eigrp router-id " + n2ip(e.rid));
+    if (e.stub) L.push(" " + stubStr(e.stub));
+    return L;
+  }
+  const L = ["router eigrp " + e.name];
+  const afIfLines = (afIfs, passiveDefault, passiveList, noPassive, v6) => {
+    const out = [];
+    const names = new Set([...Object.keys(afIfs || {}), ...(passiveDefault ? ["default"] : []), ...(passiveDefault ? noPassive : passiveList)]);
+    const order = [...names].sort((a, b) => (a === "default" ? -1 : b === "default" ? 1 : ifSort(a, b)));
+    for (const n of order) {
+      const a = (afIfs || {})[n] || {}, body = [];
+      if (n === "default" ? passiveDefault : passiveDefault ? noPassive.includes(n) : passiveList.includes(n)) body.push(n !== "default" && passiveDefault ? "   no passive-interface" : "   passive-interface");
+      for (const s of a.summary || []) body.push(v6 ? `   summary-address ${fmt6(BigInt(s.net))}/${s.len}` : `   summary-address ${n2ip(s.net)} ${n2ip(lenMask(s.len))}`);
+      if (a.authMode === "md5") body.push("   authentication mode md5");
+      if (a.authMode === "hmac-sha-256") body.push("   authentication mode hmac-sha-256 " + a.authKey);
+      if (a.authChain) body.push("   authentication key-chain " + a.authChain);
+      if (a.splitHorizon === false) body.push("   no split-horizon");
+      if (a.shutdown) body.push("   shutdown");
+      if (body.length) out.push("  !", "  af-interface " + n, ...body, "  exit-af-interface");
+    }
+    return out;
+  };
+  if (e.asn !== null) {
+    L.push(" !", ` address-family ipv4 unicast autonomous-system ${e.asn}`);
+    L.push(...afIfLines(e.afIfs, e.passiveDefault, e.passive, e.noPassive, false));
+    L.push("  !", "  topology base");
+    if (e.variance > 1) L.push("   variance " + e.variance);
+    if (e.redistStatic) L.push("   redistribute static");
+    L.push(...routingExtras(e, "   ", "eigrp"));
+    L.push("  exit-af-topology");
+    for (const n of e.networks) L.push("  " + net(n));
+    if (!kDefault) L.push("  metric weights 0 " + e.k.join(" ") + " 0");
+    if (e.rid !== null) L.push("  eigrp router-id " + n2ip(e.rid));
+    if (e.stub) L.push("  " + stubStr(e.stub));
+    L.push(" exit-address-family");
+  }
+  const a6 = e.af6;
+  if (a6) {
+    L.push(" !", ` address-family ipv6 unicast autonomous-system ${a6.asn}`);
+    L.push(...afIfLines(a6.afIfs, a6.passiveDefault, a6.passive || [], a6.noPassive || [], true));
+    const top = [];
+    if ((a6.variance || 1) > 1) top.push("   variance " + a6.variance);
+    top.push(...routingExtras(a6, "   ", "eigrp"));
+    if (top.length) L.push("  !", "  topology base", ...top, "  exit-af-topology");
+    if (a6.rid !== null && a6.rid !== undefined) L.push("  eigrp router-id " + n2ip(a6.rid));
+    if (a6.stub) L.push("  " + stubStr(a6.stub));
+    L.push(" exit-address-family");
+  }
+  return L;
+}
+
+// Interface lines for the CCNP routing features (after the CCNA ones).
+function routingIfLines(c, n, i) {
+  const L = [];
+  const o = i.ospf || {};
+  if (o.ntype) L.push(" ip ospf network " + o.ntype);
+  if (o.auth) L.push(" ip ospf authentication" + (o.auth === "md5" ? " message-digest" : o.auth === "null" ? " null" : ""));
+  if (o.authKey !== undefined) L.push(" ip ospf authentication-key " + o.authKey);
+  for (const [id, k] of Object.entries(o.md5 || {}).sort((a, b) => a[0] - b[0])) L.push(` ip ospf message-digest-key ${id} md5 ${k}`);
+  if (o.mtuIgnore) L.push(" ip ospf mtu-ignore");
+  if (i.mtu) L.push(" ip mtu " + i.mtu);
+  for (const [asn, a] of Object.entries(i.eigrpAuth || {})) {
+    if (a.mode) L.push(` ip authentication mode eigrp ${asn} ${a.mode}`);
+    if (a.chain) L.push(` ip authentication key-chain eigrp ${asn} ${a.chain}`);
+  }
+  for (const s of i.eigrpSum || []) L.push(s.v6 ? ` ipv6 summary-address eigrp ${s.asn} ${fmt6(BigInt(s.net))}/${s.len}` : ` ip summary-address eigrp ${s.asn} ${n2ip(s.net)} ${n2ip(lenMask(s.len))}`);
+  for (const [asn, v] of Object.entries(i.eigrpSH || {})) if (v === false) L.push(" no ip split-horizon eigrp " + asn);
+  for (const [asn, v] of Object.entries(i.eigrp6SH || {})) if (v === false) L.push(" no ipv6 split-horizon eigrp " + asn);
+  if (i.ripSend) L.push(" ip rip send version " + i.ripSend.join(" "));
+  if (i.ripRecv) L.push(" ip rip receive version " + i.ripRecv.join(" "));
+  if (i.ripSH === false) L.push(" no ip split-horizon");
+  if (i.policy) L.push(" ip policy route-map " + i.policy);
+  if (i.urpf) L.push(` ip verify unicast source reachable-via ${i.urpf.mode}${i.urpf.allowDefault ? " allow-default" : ""}`);
+  const d6 = i.dhcp6;
+  if (d6 && d6.client) L.push(" ipv6 address dhcp");
+  if (i.nd && i.nd.managed) L.push(" ipv6 nd managed-config-flag");
+  if (i.nd && i.nd.other) L.push(" ipv6 nd other-config-flag");
+  if (d6 && d6.server) L.push(" ipv6 dhcp server " + d6.server);
+  for (const r of (d6 && d6.relay) || []) L.push(` ipv6 dhcp relay destination ${r.dst}${r.ifn ? " " + r.ifn : ""}`);
+  if (i.eigrp6 !== undefined) L.push(" ipv6 eigrp " + i.eigrp6);
+  if (i.ripng) {
+    L.push(` ipv6 rip ${i.ripng.name} enable`);
+    if (i.ripng.defaultOriginate) L.push(` ipv6 rip ${i.ripng.name} default-information ${i.ripng.defaultOriginate}`);
+  }
+  if (i.filter6 && i.filter6.in) L.push(` ipv6 traffic-filter ${i.filter6.in} in`);
+  if (i.filter6 && i.filter6.out) L.push(` ipv6 traffic-filter ${i.filter6.out} out`);
+  return L;
+}
+
+// Global lines before the interfaces: IPv6 DHCP pools and key chains.
+function routingHeadLines(c) {
+  const L = [];
+  for (const [n, p] of Object.entries(c.dhcp6Pools || {})) {
+    L.push("ipv6 dhcp pool " + n);
+    if (p.prefix) L.push(` address prefix ${p.prefix.a}/${p.prefix.len}`);
+    for (const d of p.dns) L.push(" dns-server " + d);
+    if (p.domain) L.push(" domain-name " + p.domain);
+    L.push("!");
+  }
+  for (const [n, ch] of Object.entries(c.keyChains || {})) {
+    L.push("key chain " + n);
+    for (const [id, s] of Object.entries(ch.keys).sort((a, b) => a[0] - b[0])) {
+      L.push(" key " + id);
+      if (s !== null) L.push("  key-string " + s);
+    }
+    L.push("!");
+  }
+  return L;
+}
+
+// Global lines after the routing protocols: RIP, prefix lists, IP SLA, route maps, IPv6 ACLs and routing.
+function routingTailLines(c) {
+  const L = [];
+  if (c.rip) {
+    const r = c.rip;
+    L.push("router rip");
+    if (r.version) L.push(" version " + r.version);
+    if (r.timers) L.push(" timers basic " + r.timers.join(" "));
+    L.push(...routingExtras(r, " ", "rip"));
+    if (r.passiveDefault) {
+      L.push(" passive-interface default");
+      for (const n of r.noPassive) L.push(" no passive-interface " + n);
+    } else for (const n of r.passive) L.push(" passive-interface " + n);
+    for (const n of r.networks) L.push(" network " + n2ip(n));
+    if (r.defaultOriginate) L.push(" default-information originate");
+    if (r.autoSummary === false) L.push(" no auto-summary");
+    L.push("!");
+  }
+  if (c.localPolicy) L.push("ip local policy route-map " + c.localPolicy);
+  for (const [n, pl] of Object.entries(c.prefixLists || {})) {
+    if (pl.desc) L.push(`ip prefix-list ${n} description ${pl.desc}`);
+    for (const e of pl.entries) L.push(`ip prefix-list ${n} seq ${e.seq} ${e.action} ${n2ip(e.net)}/${e.len}${e.ge !== null ? " ge " + e.ge : ""}${e.le !== null ? " le " + e.le : ""}`);
+  }
+  for (const [n, s] of Object.entries(c.slas || {})) {
+    L.push("!", "ip sla " + n);
+    if (s.kind === "icmp-echo") {
+      L.push(` icmp-echo ${n2ip(s.dst)}${s.srcIf ? " source-interface " + s.srcIf : s.srcIp !== null ? " source-ip " + n2ip(s.srcIp) : ""}`);
+      if (s.threshold !== null) L.push("  threshold " + s.threshold);
+      if (s.timeout !== null) L.push("  timeout " + s.timeout);
+      if (s.freq !== null) L.push("  frequency " + s.freq);
+    }
+  }
+  for (const [n, sc] of Object.entries(c.slaSched || {})) L.push(`ip sla schedule ${n} life ${sc.life} start-time ${sc.start}`);
+  for (const [n, p] of Object.entries(c.prefixLists6 || {})) {
+    if (p.desc) L.push(`ipv6 prefix-list ${n} description ${p.desc}`);
+    for (const e of p.entries) L.push(`ipv6 prefix-list ${n} seq ${e.seq} ${e.action} ${e.net}/${e.len}${e.ge !== null ? " ge " + e.ge : ""}${e.le !== null ? " le " + e.le : ""}`);
+  }
+  for (const [n, entries] of Object.entries(c.routeMaps || {})) {
+    for (const e of entries) {
+      L.push("!", `route-map ${n} ${e.action} ${e.seq}`);
+      if (e.desc) L.push(" description " + e.desc);
+      const m = e.match || {}, s = e.set || {};
+      if (m.ipAddress) L.push(" match ip address " + m.ipAddress.join(" "));
+      if (m.ipPrefix) L.push(" match ip address prefix-list " + m.ipPrefix.join(" "));
+      if (m.ipv6Prefix) L.push(" match ipv6 address prefix-list " + m.ipv6Prefix.join(" "));
+      if (m.nextHopPrefix) L.push(" match ip next-hop prefix-list " + m.nextHopPrefix.join(" "));
+      if (m.interface) for (const x of m.interface) L.push(" match interface " + x);
+      if (m.metric !== undefined) L.push(" match metric " + m.metric);
+      if (m.routeType) L.push(" match route-type " + m.routeType.join(" "));
+      if (m.tag) L.push(" match tag " + m.tag.join(" "));
+      if (m.length) L.push(" match length " + m.length.join(" "));
+      if (m.asPath) for (const x of m.asPath) L.push(" match as-path " + x);
+      if (m.community) for (const x of m.community) L.push(" match community " + x);
+      if (s.metric !== undefined) L.push(" set metric " + (Array.isArray(s.metric) ? s.metric.join(" ") : s.metric));
+      if (s.metricType) L.push(" set metric-type " + s.metricType);
+      if (s.tag !== undefined) L.push(" set tag " + s.tag);
+      if (s.nextHop) L.push(" set ip next-hop " + s.nextHop.map(n2ip).join(" "));
+      if (s.defaultNextHop) L.push(" set ip default next-hop " + s.defaultNextHop.map(n2ip).join(" "));
+      if (s.interface) for (const x of s.interface) L.push(" set interface " + x);
+      if (s.localPref !== undefined) L.push(" set local-preference " + s.localPref);
+      if (s.weight !== undefined) L.push(" set weight " + s.weight);
+      if (s.prepend) L.push(" set as-path prepend " + s.prepend.join(" "));
+      if (s.community) L.push(" set community " + s.community.join(" "));
+      if (s.origin) L.push(" set origin " + s.origin);
+    }
+  }
+  for (const [n, a] of Object.entries(c.acls6 || {})) {
+    L.push("!", "ipv6 access-list " + n);
+    for (const e of a.entries) L.push(e.remark !== undefined ? " remark " + e.remark : ` ${e.action} ${ace6Str(e)}`);
+  }
+  if (c.eigrp6) {
+    const e = c.eigrp6;
+    L.push("!", "ipv6 router eigrp " + e.asn);
+    if (e.variance > 1) L.push(" variance " + e.variance);
+    L.push(...routingExtras(e, " ", "eigrp"));
+    for (const n of e.passive) L.push(" passive-interface " + n);
+    if (e.rid !== null) L.push(" eigrp router-id " + n2ip(e.rid));
+    if (e.stub) L.push(" " + stubStr(e.stub));
+    if (e.shutdown) L.push(" shutdown");
+  }
+  for (const [n, r] of Object.entries(c.ripng || {})) {
+    L.push("!", "ipv6 router rip " + n);
+    for (const e of r.redist || []) L.push(" redistribute " + e.src + (e.metric !== null && e.metric !== undefined ? " metric " + e.metric : "") + (e.routeMap ? " route-map " + e.routeMap : ""));
+    if (r.distance !== undefined) L.push(" distance " + r.distance);
+  }
+  return L;
+}
+
+// Extra words after a static route: tag, name, permanent, track.
+const staticSuffix = (r) => (r.tag !== undefined && r.tag !== null ? " tag " + r.tag : "") + (r.name ? " name " + r.name : "") + (r.permanent ? " permanent" : "")
+  + (r.track ? " track " + r.track : "");
+
+// ======== CCNP routing: show commands ========
+const lsAge = (k) => 100 + (k % 900);
+const lsSeq = (k) => "0x800000" + hex(1 + (k % 0x9e), 2).toUpperCase();
+const cksum = (k) => "0x00" + hex((k * 2654435761) >>> 16 & 0xffff, 4).toUpperCase();
+
+// The LSAs one router holds, per area (types 1-4 and 7) and AS-wide (type 5): [{type, area, id, adv, len, metric, tag}]
+function ospfDbRows(net, inst) {
+  const db = inst.db, rows = [];
+  if (!db) return rows;
+  for (const a of inst.areas) {
+    const members = db.members.filter((x) => x.areas.includes(a) || (a === 0 && x.vlinkUp));
+    const { dist } = db.spf(inst, a);
+    for (const m of members) {
+      if (!dist.has(m)) continue;
+      rows.push({ type: "router", area: a, id: m.rid, adv: m.rid, links: m.ifs.filter((i) => i.area === a).length + (a === 0 ? (m.vlinks || []).length : 0), flags: { abr: m.abr, asbr: m.asbr } });
+      for (const oi of m.ifs) {
+        if (oi.area !== a || oi.role !== "DR" || oi.passive || !oi.nbrs.some((n) => n.full)) continue;
+        rows.push({ type: "network", area: a, id: oi.ip, adv: m.rid, len: maskLen(oi.mask), attached: [m.rid, ...oi.nbrs.filter((n) => n.full).map((n) => n.rid)] });
+      }
+    }
+    for (const b of members) {
+      if (!b.abr || !dist.has(b)) continue;
+      for (const s of db.summariesInto(b, a)) {
+        if (s.kind === 3) rows.push({ type: "summary", area: a, id: s.net, len: s.len, adv: b.rid, metric: s.cost });
+        else rows.push({ type: "asbr-summary", area: a, id: s.rid, adv: b.rid, metric: s.cost });
+      }
+    }
+    if (ospfAreaCfg(inst.o, a).type === "nssa") for (const x of db.ext7[a] || []) rows.push({ type: "nssa-external", area: a, id: x.net, len: x.len, adv: x.adv.rid, metric: x.metric, mtype: x.type, tag: x.tag });
+  }
+  if (inst.areas.some((a) => !ospfAreaCfg(inst.o, a).type)) {
+    for (const x of db.ext5) rows.push({ type: "external", area: null, id: x.net, len: x.len, adv: x.adv.rid, metric: x.metric, mtype: x.type, tag: x.tag });
+  }
+  return rows;
+}
+
+function showOspfDb(net, dn, only) {
+  const L = [];
+  const titles = { router: "Router Link States", network: "Net Link States", summary: "Summary Net Link States", "asbr-summary": "Summary ASB Link States",
+    "nssa-external": "Type-7 AS External Link States", external: "Type-5 AS External Link States" };
+  for (const inst of net.ospfInstsOf(dn)) {
+    L.push("", `            OSPF Router with ID (${n2ip(inst.rid)}) (Process ID ${inst.pid})`);
+    const rows = ospfDbRows(net, inst);
+    const groups = [];
+    for (const a of [...inst.areas].sort((x, y) => x - y)) {
+      for (const t of ["router", "network", "summary", "asbr-summary", "nssa-external"]) groups.push([t, a]);
+    }
+    groups.push(["external", null]);
+    for (const [t, a] of groups) {
+      if (only && only !== t) continue;
+      const rs = rows.filter((r) => r.type === t && r.area === a);
+      if (!rs.length) continue;
+      if (only) {
+        for (const r of rs) {
+          L.push("", `\t\t${titles[t]}${a === null ? "" : ` (Area ${a})`}`, "", `  LS age: ${lsAge(r.id)}`, "  Options: (No TOS-capability, DC)",
+            `  LS Type: ${{ router: "Router Links", network: "Network Links", summary: "Summary Links(Network)", "asbr-summary": "Summary Links(AS Boundary Router)", external: "AS External Link", "nssa-external": "AS External Link" }[t]}`,
+            `  Link State ID: ${n2ip(r.id)}${t === "network" ? " (address of Designated Router)" : t === "router" ? "" : t === "asbr-summary" ? " (AS Boundary Router address)" : t === "summary" ? " (summary Network Number)" : " (External Network Number )"}`,
+            `  Advertising Router: ${n2ip(r.adv)}`, `  LS Seq Number: ${lsSeq(r.adv)}`, `  Checksum: ${cksum(r.id + r.adv)}`);
+          if (t === "router") {
+            if (r.flags.abr) L.push("  Area Border Router");
+            if (r.flags.asbr) L.push("  AS Boundary Router");
+            L.push(`   Number of Links: ${r.links}`);
+          } else if (t === "network") {
+            L.push(`  Network Mask: /${r.len}`, ...r.attached.map((x) => `\tAttached Router: ${n2ip(x)}`));
+          } else {
+            if (r.len !== undefined) L.push(`  Network Mask: /${r.len}`);
+            if (t === "external" || t === "nssa-external") L.push(`\tMetric Type: ${r.mtype} (${r.mtype === 2 ? "Larger than any link state path" : "Comparable directly to link state metric"})`, "\tMTID: 0", `\tMetric: ${r.metric}`, "\tForward Address: 0.0.0.0", `\tExternal Route Tag: ${r.tag || 0}`);
+            else L.push("\tMTID: 0 \tMetric: " + r.metric);
+          }
+        }
+        continue;
+      }
+      L.push("", `\t\t${titles[t]}${a === null ? "" : ` (Area ${a})`}`, "");
+      if (t === "router") {
+        L.push("Link ID         ADV Router      Age         Seq#       Checksum Link count");
+        for (const r of rs) L.push(pad(n2ip(r.id), 16) + pad(n2ip(r.adv), 16) + pad(lsAge(r.id), 12) + pad(lsSeq(r.adv), 11) + pad(cksum(r.id + r.adv), 9) + r.links);
+      } else if (t === "network") {
+        L.push("Link ID         ADV Router      Age         Seq#       Checksum");
+        for (const r of rs) L.push(pad(n2ip(r.id), 16) + pad(n2ip(r.adv), 16) + pad(lsAge(r.id), 12) + pad(lsSeq(r.adv), 11) + cksum(r.id + r.adv));
+      } else if (t === "external" || t === "nssa-external") {
+        L.push("Link ID         ADV Router      Age         Seq#       Checksum Tag");
+        for (const r of rs) L.push(pad(n2ip(r.id), 16) + pad(n2ip(r.adv), 16) + pad(lsAge(r.id), 12) + pad(lsSeq(r.adv), 11) + pad(cksum(r.id + r.adv), 9) + (r.tag || 0));
+      } else {
+        L.push("Link ID         ADV Router      Age         Seq#       Checksum");
+        for (const r of rs) L.push(pad(n2ip(r.id), 16) + pad(n2ip(r.adv), 16) + pad(lsAge(r.id), 12) + pad(lsSeq(r.adv), 11) + cksum(r.id + r.adv));
+      }
+    }
+  }
+  return L.join("\n");
+}
+
+function showOspfBorder(net, dn) {
+  const L = [];
+  for (const inst of net.ospfInstsOf(dn)) {
+    L.push("", `            OSPF Router with ID (${n2ip(inst.rid)}) (Process ID ${inst.pid})`, "", "", "\t\tBase Topology (MTID 0)", "", "Internal Router Routing Table",
+      "Codes: i - Intra-area route, I - Inter-area route", "");
+    const seen = new Set();
+    for (const a of inst.areas) {
+      const t = inst.db ? inst.db.intraOf(inst, a) : {};
+      for (const e of Object.values(t)) {
+        if (e.rid === undefined || seen.has(e.rid + "|" + a)) continue;
+        seen.add(e.rid + "|" + a);
+        const kinds = [e.router.abr ? "ABR" : null, e.router.asbr ? "ASBR" : null].filter(Boolean).join("/");
+        for (const p of e.paths) L.push(`i ${n2ip(e.rid)} [${e.cost}] via ${n2ip(p.ip)}, ${p.ifn}, ${kinds}, Area ${a}, SPF 3`);
+      }
+    }
+    for (const [rid, r] of Object.entries(inst.reachR || {})) {
+      if (!r.inter) continue;
+      for (const p of r.paths) L.push(`I ${n2ip(+rid)} [${r.cost}] via ${n2ip(p.ip)}, ${p.ifn}, ASBR, Area ${r.area}, SPF 3`);
+    }
+  }
+  return L.join("\n");
+}
+
+function showOspfVlinks(net, dn) {
+  const L = [];
+  for (const inst of net.ospfInstsOf(dn)) {
+    for (const [a, ac] of Object.entries(inst.o.areas || {})) {
+      for (const rid of ac.vlinks || []) {
+        const up = (inst.vlinks || []).find((v) => v.rid === rid);
+        L.push(`Virtual Link OSPF_VL0 to router ${n2ip(rid)} is ${up ? "up" : "down"}`, `  Run as demand circuit`, `  DoNotAge LSA allowed.`,
+          `  Transit area ${a}${up ? `, via interface ${up.peer ? (inst.db.spf(inst, +a).hops.get(up.peer) || [{}])[0].ifn || "" : ""}` : ""}`);
+        if (up) L.push(`  Topology-MTID    Cost    Disabled     Shutdown      Topology Name`, `        0           ${up.cost}         no          no            Base`,
+          "  Transmit Delay is 1 sec, State POINT_TO_POINT,", "  Timer intervals configured, Hello 10, Dead 40, Wait 40, Retransmit 5", "    Hello due in 00:00:04",
+          `    Adjacency State FULL (Hello suppressed)`);
+      }
+    }
+  }
+  return L.join("\n") || "";
+}
+
+const deadTime = (dead) => { const t = Math.max(0, dead - 5); return `00:${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
+function showOspfNbr(net, dn) {
+  const L = [];
+  const insts = net.ospfInstsOf(dn);
+  L.push("", "Neighbor ID     Pri   State           Dead Time   Address         Interface");
+  for (const o of insts) {
+    for (const n of o.nbrs) {
+      L.push(pad(n2ip(n.rid), 16) + lpad(n.prio, 3) + "   " + pad(n.state, 16) + pad(deadTime(n.dead), 12) + pad(n2ip(n.ip), 16) + n.local);
+    }
+    for (const v of o.vlinks || []) L.push(pad(n2ip(v.rid), 16) + lpad(0, 3) + "   " + pad("FULL/  -", 16) + pad("-", 12) + pad(n2ip(v.peer.ifs.find((i) => i.area === v.area).ip), 16) + "OSPF_VL0");
+  }
+  return L.join("\n");
+}
+
+function showOspfIntBrief(net, dn) {
+  const L = ["Interface    PID   Area            IP Address/Mask    Cost  State Nbrs F/C"];
+  for (const o of net.ospfInstsOf(dn)) {
+    for (const i of o.ifs) {
+      const full = i.nbrs.filter((n) => n.full).length;
+      L.push(pad(shortIf(i.ifn), 13) + pad(o.pid, 6) + pad(i.area, 16) + pad(`${n2ip(i.ip)}/${maskLen(i.mask)}`, 19) + pad(i.cost, 6) + pad(i.role, 6) + `${full}/${i.nbrs.length}`);
+    }
+  }
+  return L.join("\n");
+}
+
+const NTYPE_SHOW = { broadcast: "BROADCAST", "point-to-point": "POINT_TO_POINT", "point-to-multipoint": "POINT_TO_MULTIPOINT", "non-broadcast": "NON_BROADCAST", loopback: "LOOPBACK" };
+function showOspfInt(net, dn, only) {
+  const L = [];
+  for (const o of net.ospfInstsOf(dn)) {
+    for (const i of o.ifs) {
+      if (only && i.ifn !== only) continue;
+      L.push(`${i.ifn} is up, line protocol is up`, `  Internet Address ${n2ip(i.ip)}/${maskLen(i.mask)}, Area ${i.area}, Attached via ${o.o.networks.length ? "Network Statement" : "Interface Enable"}`,
+        `  Process ID ${o.pid}, Router ID ${n2ip(o.rid)}, Network Type ${NTYPE_SHOW[i.ntype]}, Cost: ${i.cost}`);
+      if (i.loop) { L.push("  Loopback interface is treated as a stub Host"); continue; }
+      L.push(`  Transmit Delay is 1 sec, State ${i.role === "P2P" ? (i.ntype === "point-to-multipoint" ? "POINT_TO_MULTIPOINT" : "POINT_TO_POINT") : i.role}${i.ptp ? "" : `, Priority ${i.prio}`}`);
+      if (!i.ptp && i.dr) L.push(`  Designated Router (ID) ${n2ip(i.dr.rid)}, Interface address ${n2ip(i.dr.ip)}`);
+      if (!i.ptp && i.bdr) L.push(`  Backup Designated router (ID) ${n2ip(i.bdr.rid)}, Interface address ${n2ip(i.bdr.ip)}`);
+      L.push(`  Timer intervals configured, Hello ${i.hello}, Dead ${i.dead}, Wait ${i.dead}, Retransmit 5`);
+      if (i.passive) L.push("    No Hellos (Passive interface)");
+      else L.push("    Hello due in 00:00:0" + Math.min(9, i.hello - 1));
+      const nb = o.nbrs.filter((n) => n.local === i.ifn);
+      L.push(`  Neighbor Count is ${nb.length}, Adjacent neighbor count is ${nb.filter((n) => n.full).length}`);
+      for (const n of nb) if (n.full) L.push(`    Adjacent with neighbor ${n2ip(n.rid)}${i.dr && i.dr.rid === n.rid ? "  (Designated Router)" : i.bdr && i.bdr.rid === n.rid ? "  (Backup Designated Router)" : ""}`);
+      L.push("  Suppress hello for 0 neighbor(s)");
+      if (i.auth.type === 1) L.push("  Simple password authentication enabled");
+      if (i.auth.type === 2) {
+        L.push("  Cryptographic authentication enabled");
+        if (i.auth.youngest !== null) L.push(`    Youngest key id is ${i.auth.youngest}`);
+      }
+    }
+  }
+  if (only && !L.length) return `%OSPF: OSPF not enabled on ${only}`;
+  return L.join("\n");
+}
+
+function showOspfSummary(net, dn) {
+  const insts = net.ospfInstsOf(dn), d = net.devs[dn];
+  if (!insts.length) return ospfProcs(d.cfg).length ? "%OSPF: Router process has no router-id; configure one or bring up an interface with an IP address" : "%OSPF: No router process is configured";
+  const L = [];
+  for (const o of insts) {
+    const types = o.areas.map((a) => ospfAreaCfg(o.o, a).type || "normal");
+    L.push(` Routing Process "ospf ${o.pid}" with ID ${n2ip(o.rid)}`, " Start time: 00:00:15.123, Time elapsed: 00:12:34.567", " Supports only single TOS(TOS0) routes",
+      " Supports opaque LSA", " Supports Link-local Signaling (LLS)", " Supports area transit capability", " Supports NSSA (compatible with RFC 3101)");
+    if (o.abr) L.push(" It is an area border router");
+    if (o.asbr) L.push(` It is an${o.abr ? "" : ""} autonomous system boundary router`, " Redistributing External Routes from,",
+      ...(o.o.redist || []).map((e) => "    " + redistKey(e) + (e.subnets ? ", includes subnets in redistribution" : "")));
+    L.push(" Router is not originating router-LSAs with maximum metric", " Initial SPF schedule delay 5000 msecs", " Minimum hold time between two consecutive SPFs 10000 msecs",
+      ` Reference bandwidth unit is ${o.o.refBw} mbps`,
+      ` Number of areas in this router is ${o.areas.length}. ${types.filter((t) => t === "normal").length} normal ${types.filter((t) => t === "stub").length} stub ${types.filter((t) => t === "nssa").length} nssa`);
+    for (const a of [...o.areas].sort((x, y) => x - y)) {
+      const ac = ospfAreaCfg(o.o, a);
+      L.push(`    Area ${a === 0 ? "BACKBONE(0)" : a}`, `        Number of interfaces in this area is ${o.ifs.filter((i) => i.area === a).length}`);
+      if (ac.type === "stub") L.push(`        It is a stub area${ac.noSummary ? ", no summary LSA in this area" : ""}`);
+      if (ac.type === "nssa") L.push(`        It is a NSSA area${ac.noSummary ? ", no summary LSA in this area" : ""}`);
+      L.push(`        Area has ${ac.auth === "md5" ? "message digest" : ac.auth === "text" ? "simple password" : "no"} authentication`, "        SPF algorithm last executed 00:00:12.345 ago",
+        "        SPF algorithm executed 4 times");
+      for (const r of ac.ranges || []) L.push(`        Area ranges are`, `           ${n2ip(r.net)}/${r.len} ${r.advertise ? "Active" : "Passive"} ${r.advertise ? "Advertise" : "DoNotAdvertise"}`);
+    }
+  }
+  return L.join("\n");
+}
+
+function showIpProtocols(net, dn) {
+  const d = net.devs[dn], e = d.cfg.eigrp;
+  const L = ['*** IP Routing is NSF aware ***', ""];
+  const filterLines = (h) => {
+    const g = (dir) => (h.dist || []).find((f) => f.dir === dir && !f.ifn);
+    const out = g("out"), inn = g("in") || h.distIn;
+    return [`  Outgoing update filter list for all interfaces is ${out ? out.name : "not set"}`, `  Incoming update filter list for all interfaces is ${inn ? inn.name : "not set"}`];
+  };
+  const redistLines = (h) => {
+    const list = h.redist ? [...h.redist] : [];
+    if (h.redistStatic && !list.some((x) => x.src === "static")) list.push({ src: "static" });
+    return list.length ? ["  Redistributing: " + list.map((x) => redistKey(x)).join(", ")] : [];
+  };
+  if (e && e.asn !== null) {
+    const per = net.eigrp()[dn], rid = per ? per.rid : null, ds = e.distance || { int: 90, ext: 170 };
+    L.push(`Routing Protocol is "eigrp ${e.asn}"`, ...filterLines(e), "  Default networks flagged in outgoing updates",
+      "  Default networks accepted from incoming updates", ...redistLines(e), `  EIGRP-IPv4${e.name ? ` VR(${e.name}) Address-Family` : ""} Protocol for AS(${e.asn})`,
+      `    Metric weight K1=${e.k[0]}, K2=${e.k[1]}, K3=${e.k[2]}, K4=${e.k[3]}, K5=${e.k[4]}`,
+      `    Router-ID: ${rid === null ? "0.0.0.0" : n2ip(rid)}`);
+    if (e.stub) L.push(`    Stub, ${e.stub.includes("receive-only") ? "receive-only" : e.stub.join(", ")}`, "    Topologies : 0(base)");
+    L.push("    Topology : 0 (base)", "      Active Timer: 3 min", `      Distance: internal ${ds.int} external ${ds.ext}`, "      Maximum path: 4", "      Maximum hopcount 100",
+      `      Maximum metric variance ${e.variance}`, "", "  Automatic Summarization: disabled");
+    const sums = per ? per.ifs.flatMap((i) => i.summary.map((s) => `    ${n2ip(s.net)}/${s.len} for ${shortIf(i.ifn)}`)) : [];
+    if (sums.length) L.push("  Address Summarization:", ...sums.map((s) => s + "\n      Summarizing with metric " + (Object.values(per.topo).find((t) => t.kind === "summary") || {}).metric));
+    L.push("  Maximum path: 4", "  Routing for Networks:");
+    for (const n of e.networks) L.push("    " + n2ip(n.addr) + (n.wild === null ? "" : "/" + (32 - bitCount(n.wild))));
+    const passive = per ? per.ifs.filter((i) => i.passive).map((i) => i.ifn) : [];
+    if (passive.length) { L.push("  Passive Interface(s):"); for (const p of passive) L.push("    " + p); }
+    L.push("  Routing Information Sources:", "    Gateway         Distance      Last Update");
+    for (const n of per ? per.nbrs : []) L.push("    " + pad(n2ip(n.ip), 16) + lpad(ds.int, 8) + "      00:00:12");
+    L.push(`  Distance: internal ${ds.int} external ${ds.ext}`, "");
+  }
+  for (const inst of net.ospfInstsOf(dn).length ? net.ospfInstsOf(dn) : ospfProcs(d.cfg).map((o) => ({ o, pid: o.pid, rid: null, ifs: [], nbrs: [] }))) {
+    const o = inst.o;
+    L.push(`Routing Protocol is "ospf ${o.pid}"`, ...filterLines(o), `  Router ID ${inst.rid === null ? "0.0.0.0" : n2ip(inst.rid)}`);
+    if (inst.abr) L.push("  It is an area border router");
+    if (inst.asbr) L.push(`  It is an autonomous system boundary router`, "  Redistributing External Routes from,",
+      ...[...(o.redist || []), ...(o.redistStatic ? [{ src: "static", subnets: o.redistSubnets }] : [])].map((x) => "    " + redistKey(x) + (x.subnets ? ", includes subnets in redistribution" : "")));
+    const types = inst.areas ? inst.areas.map((a) => ospfAreaCfg(o, a).type || "normal") : [];
+    L.push(`  Number of areas in this router is ${types.length}. ${types.filter((t) => t === "normal").length} normal ${types.filter((t) => t === "stub").length} stub ${types.filter((t) => t === "nssa").length} nssa`,
+      "  Maximum path: 4", "  Routing for Networks:");
+    for (const n of o.networks) L.push(`    ${n2ip(n.addr)} ${n2ip(n.wild)} area ${n.area}`);
+    const ifEnabled = inst.ifs.filter((i) => (d.cfg.intfs[i.ifn].ospf || {}).pid === o.pid);
+    if (ifEnabled.length) { L.push("  Routing on Interfaces Configured Explicitly (Area " + ifEnabled[0].area + "):"); for (const i of ifEnabled) L.push("    " + i.ifn); }
+    const passive = inst.ifs.filter((i) => i.passive).map((i) => i.ifn);
+    if (passive.length) { L.push("  Passive Interface(s):"); for (const p of passive) L.push("    " + p); }
+    L.push("  Routing Information Sources:", "    Gateway         Distance      Last Update");
+    const ds = o.distance || {};
+    for (const n of inst.nbrs) L.push("    " + pad(n2ip(n.rid), 16) + pad(String(ds.all ?? 110), 14) + "00:00:12");
+    L.push(`  Distance: (default is ${ds.all ?? 110})${ds.intra || ds.inter || ds.ext ? `\n    Intra-area ${ds.intra ?? ds.all ?? 110} Inter-area ${ds.inter ?? ds.all ?? 110} External ${ds.ext ?? ds.all ?? 110}` : ""}`, "");
+  }
+  const r = d.cfg.rip;
+  if (r) {
+    const per = net.cp().rip[dn];
+    L.push('Routing Protocol is "rip"', ...filterLines(r), "  Sending updates every 30 seconds, next due in 12 seconds", "  Invalid after 180 seconds, hold down 180, flushed after 240",
+      ...redistLines(r), `  Default version control: send version ${r.version || 1}, receive ${r.version ? "version " + r.version : "any version"}`,
+      "    Interface             Send  Recv  Triggered RIP  Key-chain");
+    for (const i of per ? per.ifs : []) if (!i.passive) L.push("    " + pad(i.ifn, 22) + pad(i.send.join(" "), 6) + pad(i.recv.join(" "), 6));
+    L.push(`  Automatic network summarization is ${r.autoSummary !== false ? "in effect" : "not in effect"}`, "  Maximum path: 4", "  Routing for Networks:");
+    for (const n of r.networks) L.push("    " + n2ip(n));
+    const passive = per ? per.ifs.filter((i) => i.passive).map((i) => i.ifn) : [];
+    if (passive.length) { L.push("  Passive Interface(s):"); for (const p of passive) L.push("    " + p); }
+    L.push("  Routing Information Sources:", "    Gateway         Distance      Last Update");
+    for (const n of per ? [...new Map(per.nbrs.map((x) => [x.ip, x])).values()] : []) L.push("    " + pad(n2ip(n.ip), 16) + pad(String(r.distance ?? 120), 14) + "00:00:12");
+    L.push(`  Distance: (default is ${r.distance ?? 120})`, "");
+  }
+  return L.join("\n");
+}
+
+function showRipDb(net, dn) {
+  const per = net.cp().rip[dn];
+  if (!per) return "";
+  const L = [];
+  const keys = Object.keys(per.table).sort((a, b) => { const [x, l] = a.split("/").map(Number), [y, m] = b.split("/").map(Number); return x - y || l - m; });
+  const majors = new Set();
+  for (const k of keys) {
+    const t = per.table[k], m = majorNet(t.net);
+    if (t.len > m.len && !majors.has(m.net) && per.cfg.autoSummary !== false) { majors.add(m.net); L.push(`${n2ip(m.net)}/${m.len}    auto-summary`); }
+    if (t.own) L.push(`${n2ip(t.net)}/${t.len}    ${t.kind === "connected" ? "directly connected, " + (per.ifs.find((i) => sameNet(i.ip, t.net, lenMask(t.len))) || {}).ifn : t.kind === "default" ? "redistributed\n    [0] via 0.0.0.0," : "redistributed\n    [" + t.metric + "] via 0.0.0.0,"}`);
+    else {
+      L.push(`${n2ip(t.net)}/${t.len}`);
+      for (const v of t.via) L.push(`    [${t.metric}] via ${n2ip(v.ip)}, 00:00:12, ${v.ifn}`);
+    }
+  }
+  return L.join("\n");
+}
+
+function showRipng(net, dn, db) {
+  const per = net.ripng()[dn];
+  const d = net.devs[dn];
+  if (!d.cfg.ripng || !Object.keys(d.cfg.ripng).length) return "";
+  const L = [];
+  for (const name of Object.keys(d.cfg.ripng)) {
+    if (!db) {
+      L.push(`RIP VRF "Default VRF", port 521, multicast-group FF02::9, pid 268`, "     Administrative distance is " + (d.cfg.ripng[name].distance ?? 120) + ". Maximum paths is 16",
+        "     Updates every 30 seconds, expire after 180", "     Holddown lasts 0 seconds, garbage collect after 120", "     Split horizon is on; poison reverse is off",
+        "     Default routes are not generated", "     Periodic updates 54, trigger updates 2", "     Full Advertisement 0, Delayed Events 0", "  Interfaces:");
+      for (const i of per && per.name === name ? per.ifs : []) L.push("    " + i.ifn);
+      L.push("  Redistribution:", ...(d.cfg.ripng[name].redist || []).map((r) => "    Redistributing protocol " + r.src));
+      continue;
+    }
+    L.push(`RIP VRF "Default VRF", local RIB`);
+    for (const t of per && per.name === name ? Object.values(per.table) : []) {
+      if (t.own) continue;
+      L.push(` ${fmt6(t.net)}/${t.len}, metric ${t.metric}, installed`);
+      for (const v of t.via) L.push(`     ${v.ifn}/${fmt6(v.ip)}, expires in 172 secs`);
+    }
+  }
+  return L.join("\n");
+}
+
+function eigrpTitle(e, what, v6) {
+  return e.name ? `EIGRP-IPv${v6 ? 6 : 4} VR(${e.name}) Address-Family ${what} for AS(${e.asn})` : `EIGRP-IPv${v6 ? 6 : 4} ${what} for AS(${e.asn})`;
+}
+
+function showEigrpNbrs(net, dn, detail, v6) {
+  const per = (v6 ? net.eigrp6() : net.eigrp())[dn];
+  const e = per ? { name: per.name, asn: per.asn } : (v6 ? net.devs[dn].cfg.eigrp6 || {} : net.devs[dn].cfg.eigrp);
+  const L = [eigrpTitle(e, "Neighbors", v6), "H   Address                 Interface              Hold Uptime   SRTT   RTO  Q  Seq",
+    "                                                   (sec)         (ms)       Cnt Num"];
+  (per ? per.nbrs : []).forEach((n, i) => {
+    const addr = v6 ? "Link-local address:" : n2ip(n.ip);
+    L.push(pad(i, 4) + pad(addr, 24) + pad(shortIf(n.local), 23) + lpad(13, 4) + " 00:02:11" + lpad(1, 5) + lpad(100, 6) + "  0  " + (4 + i));
+    if (v6) L.push("    " + fmt6(n.ip));
+    if (detail) {
+      L.push("   Version 23.0/2.0, Retrans: 0, Retries: 0, Prefixes: " + Object.values(per.topo).filter((t) => t.via.some((x) => x.ip === n.ip)).length);
+      L.push("   Topology-ids from peer - 0 ");
+      if (n.stub) L.push(`   Stub Peer Advertising (${n.stub.includes("receive-only") ? "RECEIVE-ONLY" : n.stub.map((s) => s.toUpperCase()).join(" ")} ) Routes`, "   Suppressing queries");
+    }
+  });
+  return L.join("\n");
+}
+
+function showEigrpTopo(net, dn, allLinks, v6) {
+  const per = (v6 ? net.eigrp6() : net.eigrp())[dn];
+  if (!per) return "";
+  const fmt = (x) => (v6 ? fmt6(x) : n2ip(x));
+  const L = [`${eigrpTitle(per, "Topology Table", v6)}/ID(${n2ip(per.rid)})`, "Codes: P - Passive, A - Active, U - Update, Q - Query, R - Reply,",
+    "       r - reply Status, s - sia Status ", ""];
+  const keys = Object.keys(per.topo).sort((a, b) => {
+    const [na, la] = a.split("/"), [nb, lb] = b.split("/");
+    const x = BigInt(na), y = BigInt(nb);
+    return x < y ? -1 : x > y ? 1 : +la - +lb;
+  });
+  for (const k of keys) {
+    const t = per.topo[k];
+    L.push(`P ${fmt(t.net)}/${t.len}, ${t.own ? 1 : t.via.length} successors, FD is ${t.metric}${t.tag ? ", tag is " + t.tag : ""}`);
+    if (t.kind === "summary") L.push(`        via Summary (${t.metric}/0), Null0`);
+    else if (t.conn) L.push(`        via Connected, ${t.ifn}`);
+    else if (t.own) L.push(`        via Redistributed (${t.metric}/0)`);
+    for (const v of t.via) {
+      const c = t.cands.find((x) => x.ip === v.ip);
+      L.push(`        via ${fmt(v.ip)} (${c.metric}/${c.rd}), ${v.ifn}`);
+    }
+    const extra = allLinks ? t.cands.filter((c) => !t.via.some((v) => v.ip === c.ip)) : t.fs;
+    for (const c of extra) L.push(`        via ${fmt(c.ip)} (${c.metric}/${c.rd}), ${c.ifn}`);
+  }
+  return L.join("\n");
+}
+
+function showEigrpTopoOne(net, dn, text) {
+  const per = net.eigrp()[dn];
+  const m = /^(\d+\.\d+\.\d+\.\d+)\/(\d+)$/.exec(text);
+  if (!per || !m) return "% Route not in topology table";
+  const t = per.topo[pk(ip2n(m[1]), +m[2])];
+  if (!t) return "% Route not in topology table";
+  const L = [`${eigrpTitle(per, "Topology Entry", false)}/ID(${n2ip(per.rid)}) for ${text}`,
+    `  State is Passive, Query origin flag is 1, ${t.own ? 1 : t.via.length} Successor(s), FD is ${t.metric}`, "  Descriptor Blocks:"];
+  const rows = t.own ? [{ ip: null, ifn: t.ifn || "Null0", metric: t.metric, rd: 0, vec: t.vec }] : t.cands;
+  for (const c of rows) {
+    const bwShow = c.vec ? c.vec.bw : 0, dl = c.vec ? c.vec.dly * 10 : 0;
+    L.push(`  ${c.ip === null ? (t.conn ? "0.0.0.0 (" + c.ifn + ")" : "0.0.0.0 (Null0)") : n2ip(c.ip) + " (" + c.ifn + ")"}, from ${c.ip === null ? (t.kind === "summary" ? "0.0.0.0" : "Rstatic") : n2ip(c.ip)}, Send flag is 0x0`,
+      `      Composite metric is (${c.metric}/${c.rd}), route is ${t.ext ? "External" : "Internal"}`, "      Vector metric:", `        Minimum bandwidth is ${bwShow} Kbit`,
+      `        Total delay is ${dl} microseconds`, "        Reliability is 255/255", "        Load is 1/255", "        Minimum MTU is 1500", "        Hop count is 1",
+      `        Originating router is ${n2ip(per.rid)}`);
+    if (t.ext || t.tag) L.push(`      External data:`, `        Originating router is ${n2ip(per.rid)}`, `        AS number of route is 0`, `        External protocol is Static, external metric is 0`, `        Administrator tag is ${t.tag || 0} (0x${hex(t.tag || 0, 8)})`);
+  }
+  return L.join("\n");
+}
+
+function showEigrp6Nbrs(net, dn) { return showEigrpNbrs(net, dn, false, true); }
+function showEigrp6Topo(net, dn) { return showEigrpTopo(net, dn, false, true); }
+function showEigrp6Ifs(net, dn) {
+  const per = net.eigrp6()[dn];
+  if (!per) return "";
+  const L = [eigrpTitle(per, "Interfaces", true), "                              Xmit Queue   PeerQ        Mean   Pacing Time   Multicast    Pending",
+    "Interface              Peers  Un/Reliable  Un/Reliable  SRTT   Un/Reliable   Flow Timer   Routes"];
+  for (const i of per.ifs.filter((x) => !x.passive)) L.push(pad(shortIf(i.ifn), 23) + lpad(per.nbrs.filter((n) => n.local === i.ifn).length, 5) + "        0/0       0/0           1       0/0           50           0");
+  return L.join("\n");
+}
+
+function showEigrpIfs(net, dn) {
+  const e = net.devs[dn].cfg.eigrp, per = net.eigrp()[dn];
+  const L = [eigrpTitle(e, "Interfaces"), "                              Xmit Queue   PeerQ        Mean   Pacing Time   Multicast    Pending",
+    "Interface              Peers  Un/Reliable  Un/Reliable  SRTT   Un/Reliable   Flow Timer   Routes"];
+  for (const i of per ? per.ifs.filter((x) => !x.passive) : []) {
+    L.push(pad(shortIf(i.ifn), 23) + lpad(per.nbrs.filter((n) => n.local === i.ifn).length, 5) + "        0/0       0/0           1       0/0           50           0");
+  }
+  return L.join("\n");
+}
+
+function showKeyChain(net, dn) {
+  const L = [];
+  for (const [n, ch] of Object.entries(net.devs[dn].cfg.keyChains || {})) {
+    L.push(`Key-chain ${n}:`);
+    for (const [id, s] of Object.entries(ch.keys)) L.push(`    key ${id} -- text "${s === null ? "" : s}"`, "        accept lifetime (always valid) - (always valid) [valid now]",
+      "        send lifetime (always valid) - (always valid) [valid now]");
+  }
+  return L.join("\n");
+}
+
+function showPrefixLists(net, dn, v6, only, detail) {
+  const d = net.devs[dn], lists = (v6 ? d.cfg.prefixLists6 : d.cfg.prefixLists) || {}, hits = d.rt.plHits || {}, L = [];
+  for (const [n, pl] of Object.entries(lists)) {
+    if (only && n !== only) continue;
+    L.push(`ip${v6 ? "v6" : ""} prefix-list ${n}: ${pl.entries.length} entries`);
+    if (detail) {
+      if (pl.desc) L.push("   Description: " + pl.desc);
+      L.push(`   count: ${pl.entries.length}, range entries: ${pl.entries.filter((e) => e.ge !== null || e.le !== null).length}, sequences: ${pl.entries.length ? pl.entries[0].seq : 0} - ${pl.entries.length ? pl.entries[pl.entries.length - 1].seq : 0}, refcount: 2`);
+    }
+    for (const e of pl.entries) {
+      const h = hits[(v6 ? "6|" : "") + n + "|" + e.seq] || 0;
+      L.push(`   seq ${e.seq} ${e.action} ${v6 ? e.net : n2ip(e.net)}/${e.len}${e.ge !== null ? " ge " + e.ge : ""}${e.le !== null ? " le " + e.le : ""}${detail ? ` (hit count: ${h}, refcount: 1)` : ""}`);
+    }
+  }
+  return L.join("\n");
+}
+
+function showRouteMaps(net, dn, only) {
+  const d = net.devs[dn], hits = d.rt.rmHits || {}, L = [];
+  for (const [n, entries] of Object.entries(d.cfg.routeMaps || {})) {
+    if (only && n !== only) continue;
+    for (const e of entries) {
+      const m = e.match || {}, s = e.set || {};
+      L.push(`route-map ${n}, ${e.action}, sequence ${e.seq}`, "  Match clauses:");
+      if (m.ipAddress) L.push("    ip address (access-lists): " + m.ipAddress.join(" "));
+      if (m.ipPrefix) L.push("    ip address prefix-lists: " + m.ipPrefix.join(" "));
+      if (m.ipv6Prefix) L.push("    ipv6 address prefix-list: " + m.ipv6Prefix.join(" "));
+      if (m.nextHopPrefix) L.push("    ip next-hop prefix-lists: " + m.nextHopPrefix.join(" "));
+      if (m.interface) L.push("    interface " + m.interface.join(" "));
+      if (m.metric !== undefined) L.push("    metric " + m.metric);
+      if (m.routeType) L.push("    route-type " + m.routeType.join(" "));
+      if (m.tag) L.push("    tag " + m.tag.join(" "));
+      if (m.length) L.push(`    length ${m.length[0]} ${m.length[1]}`);
+      L.push("  Set clauses:");
+      if (s.metric !== undefined) L.push("    metric " + (Array.isArray(s.metric) ? s.metric.join(" ") : s.metric));
+      if (s.metricType) L.push("    metric-type " + s.metricType);
+      if (s.tag !== undefined) L.push("    tag " + s.tag);
+      if (s.nextHop) L.push("    ip next-hop " + s.nextHop.map(n2ip).join(" "));
+      if (s.defaultNextHop) L.push("    ip default next-hop " + s.defaultNextHop.map(n2ip).join(" "));
+      if (s.interface) L.push("    interface " + s.interface.join(" "));
+      if (s.localPref !== undefined) L.push("    local-preference " + s.localPref);
+      if (s.weight !== undefined) L.push("    weight " + s.weight);
+      if (s.prepend) L.push("    as-path prepend " + s.prepend.join(" "));
+      if (s.community) L.push("    community " + s.community.join(" "));
+      if (s.origin) L.push("    origin " + s.origin);
+      const h = hits[n + "|" + e.seq] || 0;
+      L.push(`  Policy routing matches: ${h} packets, ${h * 100} bytes`);
+    }
+  }
+  return L.join("\n");
+}
+
+function showIpPolicy(net, dn) {
+  const d = net.devs[dn], L = ["Interface      Route map"];
+  if (d.cfg.localPolicy) L.push(pad("local", 15) + d.cfg.localPolicy);
+  for (const n of Object.keys(d.cfg.intfs).sort(ifSort)) if (d.cfg.intfs[n].policy) L.push(pad(shortIf(n), 15) + d.cfg.intfs[n].policy);
+  return L.join("\n");
+}
+
+function showSlaStats(net, dn, only) {
+  const d = net.devs[dn], L = ["IPSLAs Latest Operation Statistics", ""];
+  for (const [n, s] of Object.entries(d.cfg.slas || {})) {
+    if (only && +n !== only) continue;
+    const r = (d.rt.sla || {})[n], run = net.slaRunning(dn, n);
+    L.push(`IPSLA operation id: ${n}`, `        Latest RTT: ${r && r.ok ? "1 milliseconds" : "NoConnection/Busy/Timeout"}`,
+      `Latest operation start time: ${clock()}`, `Latest operation return code: ${!run ? "Unknown" : r && r.ok ? "OK" : "Timeout"}`,
+      `Number of successes: ${r && r.ok ? 12 : 0}`, `Number of failures: ${r && !r.ok ? 3 : 0}`, `Operation time to live: ${run ? ((d.cfg.slaSched[n] || {}).life === "forever" ? "Forever" : "3599 sec") : "0"}`, "");
+    void s;
+  }
+  return L.join("\n");
+}
+
+function showSlaConfig(net, dn, only) {
+  const d = net.devs[dn], L = ["IP SLAs Infrastructure Engine-III"];
+  for (const [n, s] of Object.entries(d.cfg.slas || {})) {
+    if (only && +n !== only) continue;
+    const sc = (d.cfg.slaSched || {})[n];
+    L.push(`Entry number: ${n}`, "Owner: ", "Tag: ", `Operation timeout (milliseconds): ${s.timeout ?? 5000}`, `Type of operation to perform: ${s.kind || "none"}`,
+      `Target address/Source interface: ${s.dst !== null ? n2ip(s.dst) : "0.0.0.0"}/${s.srcIf || "Not specified"}`,
+      `Target address/Source address: ${s.dst !== null ? n2ip(s.dst) : "0.0.0.0"}/${s.srcIp !== null ? n2ip(s.srcIp) : "0.0.0.0"}`, "Type Of Service parameter: 0x0",
+      "Request size (ARR data portion): 28", "Verify data: No", "Vrf Name: ", "Schedule:", `   Operation frequency (seconds): ${s.freq ?? 60}  (not considered if randomly scheduled)`,
+      `   Next Scheduled Start Time: ${sc ? "Start Time already passed" : "Pending trigger"}`, "   Group Scheduled : FALSE", "   Randomly Scheduled : FALSE",
+      `   Life (seconds): ${sc ? (sc.life === "forever" ? "Forever" : sc.life) : 3600}`, "   Entry Ageout (seconds): never", "   Recurring (Starting Everyday): FALSE",
+      `   Status of entry (SNMP RowStatus): ${sc ? "Active" : "Not in service"}`, `Threshold (milliseconds): ${s.threshold ?? 5000}`, "");
+  }
+  return L.join("\n");
+}
+
+function showSlaSummary(net, dn) {
+  const d = net.devs[dn];
+  const L = ["IPSLAs Latest Operation Summary", "Codes: * active, ^ inactive, ~ pending", "", "ID           Type        Destination       Stats       Return      Last",
+    "                                             (ms)        Code        Run ", "-----------------------------------------------------------------------"];
+  for (const [n, s] of Object.entries(d.cfg.slas || {})) {
+    const r = (d.rt.sla || {})[n], run = net.slaRunning(dn, n);
+    L.push(pad((run ? "*" : "~") + n, 13) + pad(s.kind || "", 12) + pad(s.dst !== null ? n2ip(s.dst) : "", 18) + pad(r && r.ok ? "RTT=1" : "-", 12)
+      + pad(!run ? "Unknown" : r && r.ok ? "OK" : "Timeout", 12) + (run ? "4 seconds ago" : "never"));
+  }
+  return L.join("\n");
+}
+
+function showTrack(net, dn) {
+  const d = net.devs[dn], L = [];
+  for (const [n, t] of Object.entries(d.cfg.tracks).sort((a, b) => a[0] - b[0])) {
+    if (t.sla !== undefined) {
+      const up = net.trackUp(dn, +n), r = (d.rt.sla || {})[t.sla];
+      L.push(`Track ${n}`, `  IP SLA ${t.sla} ${t.kind || "state"}`, `  ${t.kind === "reachability" ? "Reachability" : "State"} is ${up ? "Up" : "Down"}`,
+        `    ${r ? r.changes : 0} change${r && r.changes === 1 ? "" : "s"}, last change 00:00:21`, `  Latest operation return code: ${r ? (r.ok ? "OK" : "Timeout") : "Unknown"}`);
+      if (r && r.ok) L.push("  Latest RTT (millisecs) 1");
+      if (t.delay) L.push(`  Delay up ${t.delay.up || 0} secs, down ${t.delay.down || 0} secs`);
+    } else {
+      L.push(`Track ${n}`, `  Interface ${t.ifn} line-protocol`, `  Line protocol is ${net.ifUp(dn, t.ifn) ? "Up" : "Down"}`, "    1 change, last change 00:00:21");
+    }
+    const by = [];
+    for (const [ifn, i] of Object.entries(d.cfg.intfs)) {
+      for (const [g, s] of Object.entries(i.standby)) if (s.tracks.some((x) => x.obj === +n)) by.push(`    HSRP ${ifn} ${g}`);
+    }
+    for (const r of d.cfg.routes) if (r.track === +n) by.push(`    Static IP Routing 0`);
+    if (by.length) L.push("  Tracked by:", ...[...new Set(by)]);
+  }
+  return L.join("\n");
+}
+
+function showAcls6(net, dn, only) {
+  const d = net.devs[dn], hits = d.rt.hits6 || {}, L = [];
+  for (const [n, a] of Object.entries(d.cfg.acls6 || {})) {
+    if (only && n !== only) continue;
+    L.push(`IPv6 access list ${n}`);
+    for (const e of a.entries) {
+      if (e.remark !== undefined) continue;
+      const h = hits[n + "|" + e.seq];
+      L.push(`    ${e.action} ${ace6Str(e)}${h ? ` (${h} match${h > 1 ? "es" : ""})` : ""} sequence ${e.seq}`);
+    }
+  }
+  return L.join("\n");
+}
+
+function showDhcp6Pool(net, dn) {
+  const d = net.devs[dn], L = [];
+  const binds = Object.values(((d.rt.dhcp6 || {}).bindings) || {});
+  for (const [n, p] of Object.entries(d.cfg.dhcp6Pools || {})) {
+    L.push(`DHCPv6 pool: ${n}`);
+    if (p.prefix) L.push(`  Address allocation prefix: ${p.prefix.a}/${p.prefix.len} valid 172800 preferred 86400 (${binds.filter((b) => b.pool === n).length} in use, 0 conflicts)`);
+    for (const x of p.dns) L.push("  DNS server: " + x);
+    if (p.domain) L.push("  Domain name: " + p.domain);
+    const users = Object.entries(d.cfg.intfs).filter(([, i]) => i.dhcp6 && i.dhcp6.server === n).length;
+    L.push(`  Active clients: ${binds.filter((b) => b.pool === n).length}`);
+    void users;
+  }
+  return L.join("\n");
+}
+
+function showDhcp6Binding(net, dn) {
+  const d = net.devs[dn], L = [];
+  for (const b of Object.values(((d.rt.dhcp6 || {}).bindings) || {})) {
+    L.push(`Client: ${fmt6(net.ll6(b.client, b.ifn))}`, `  DUID: ${b.duid}`, `  Username : unassigned`, `  VRF : default`, `  Interface : ${Object.keys(d.cfg.intfs).find((n) => d.cfg.intfs[n].dhcp6 && d.cfg.intfs[n].dhcp6.server === b.pool) || "relay"}`,
+      `  IA NA: IA ID 0x00060001, T1 43200, T2 69120`, `    Address: ${fmt6(b.a)}`, `            preferred lifetime 86400, valid lifetime 172800`, `            expires at ${clock()} (172797 seconds)`);
+  }
+  return L.join("\n");
+}
+
+function showDhcp6If(net, dn) {
+  const d = net.devs[dn], L = [];
+  for (const [n, i] of Object.entries(d.cfg.intfs)) {
+    const v = i.dhcp6;
+    if (!v || (!v.server && !v.relay.length && !v.client)) continue;
+    if (v.server) L.push(`${n} is in server mode`, `  Using pool: ${v.server}`, "  Preference value: 0", "  Hint from client: ignored", "  Rapid-Commit: disabled");
+    if (v.relay.length) L.push(`${n} is in relay mode`, ...v.relay.map((r) => `  Relay destinations:\n    ${r.dst}${r.ifn ? " via " + r.ifn : ""}`));
+    if (v.client) {
+      const l = ((d.rt.dhcp6 || {}).client || {})[n];
+      L.push(`${n} is in client mode`, `  Prefix State is IDLE`, `  Address State is ${l ? "OPEN" : "SOLICIT"}`);
+      if (l) L.push(`  Known servers:`, `    Reachable via address: ${fmt6(net.v6Ifs(l.server).map((x) => net.ll6(l.server, x))[0] || 0n)}`, `    DUID: 00030001${net.mac(l.server, net.devs[l.server].ports[0]).replace(/\./g, "").toUpperCase()}`,
+        `    Preference: 0`, `    Configuration parameters:`, `      IA NA: IA ID 0x00060001, T1 43200, T2 69120`, `        Address: ${fmt6(l.a)}/128`);
+    }
+  }
+  return L.join("\n");
+}
+
+function showIpInterface(net, dn, only) {
+  const d = net.devs[dn], L = [];
+  for (const n of Object.keys(d.cfg.intfs).sort(ifSort)) {
+    if (only && n !== only) continue;
+    const i = d.cfg.intfs[n], s = net.ifState(dn, n), a = net.ifAddr(dn, n);
+    L.push(`${n} is ${s.status}, line protocol is ${s.proto}`);
+    if (!a) { L.push("  Internet protocol processing disabled"); continue; }
+    L.push(`  Internet address is ${n2ip(a.ip)}/${maskLen(a.mask)}`, "  Broadcast address is 255.255.255.255", "  Address determined by setup command", `  MTU is ${i.mtu || 1500} bytes`);
+    for (const x of i.secondary || []) L.push(`  Secondary address ${n2ip(x.ip)}/${maskLen(x.mask)}`);
+    L.push(`  Helper address is ${i.helpers.length ? i.helpers.map(n2ip).join(" ") : "not set"}`, "  Directed broadcast forwarding is disabled",
+      `  Outgoing Common access list is not set `, `  Outgoing access list is ${i.aclOut || "not set"}`, `  Inbound Common access list is not set `, `  Inbound  access list is ${i.aclIn || "not set"}`,
+      "  Proxy ARP is enabled", "  Local Proxy ARP is disabled", "  Security level is default", "  Split horizon is enabled", "  ICMP redirects are always sent",
+      "  ICMP unreachables are always sent", "  ICMP mask replies are never sent", "  IP fast switching is enabled", "  IP Flow switching is disabled", "  IP CEF switching is enabled",
+      "  IP CEF switching turbo vector", "  IP Null turbo vector", "  Associated unicast routing topologies:", "        Topology \"base\", operation state is UP",
+      "  IP multicast fast switching is enabled", "  IP multicast distributed fast switching is disabled", "  IP route-cache flags are Fast, CEF",
+      "  Router Discovery is disabled", "  IP output packet accounting is disabled", "  IP access violation accounting is disabled", "  TCP/IP header compression is disabled",
+      "  RTP/IP header compression is disabled", `  Policy routing is ${i.policy ? "enabled, using route map " + i.policy : "disabled"}`,
+      `  Network address translation is ${i.nat ? "enabled, interface in domain " + i.nat : "disabled"}`, "  BGP Policy Mapping is disabled", "  Input features: MCI Check",
+      `  IPv4 WCCP Redirect outbound is disabled`, `  IPv4 WCCP Redirect inbound is disabled`, `  IPv4 WCCP Redirect exclude is disabled`);
+    if (i.urpf) {
+      const drops = (d.rt.urpf || {})[n] || 0;
+      L.push(`  IP verify source reachable-via ${i.urpf.mode.toUpperCase()}${i.urpf.allowDefault ? ", allow default" : ""}`, `   ${drops} verification drops`, "   0 suppressed verification drops", "   0 verification drop-rate");
+    }
+  }
+  return L.join("\n");
 }
 
 export function clock(offset = 0) {
@@ -3355,6 +5401,8 @@ Object.assign(HELP_PATH, {
 });
 
 // Keywords that mean something else depending on the mode they're typed in.
+// Help that depends on a command word anywhere earlier in the line (see the CCNP routing commands).
+const HELP_CTX = {};
 const HELP_MODE = {
   priv: { clock: "Manage the system clock" },
   user: {},
@@ -3494,6 +5542,7 @@ function keywordHelp(path, kw, mode) {
   const key = path.filter((t) => !t.startsWith("<")).map((t) => t.replace(/^~/, "").toLowerCase()).concat([kw]).join(" ");
   const bare = key.replace(/^no /, "");
   if (HELP_MODE[mode] && HELP_MODE[mode][bare]) return HELP_MODE[mode][bare];
+  for (const [w, t] of HELP_CTX[kw] || []) if (key.split(" ").slice(0, -1).includes(w)) return t;
   for (let i = 0; i < key.split(" ").length; i++) {
     const tail = key.split(" ").slice(i).join(" ");
     if (HELP_PATH[tail] && tail.includes(" ")) return HELP_PATH[tail];
@@ -3609,7 +5658,7 @@ def("RS", ["user", "priv"], "ssh -l <word|Login name> <ip|IP address of the remo
 def("RS", ["user", "priv"], "telnet <ip|IP address of a remote system>", (c, [ip]) => c.s.remote("telnet", ip, null));
 def("R", "priv", "clear ip ospf process", (c) => c.s.ask("Reset ALL OSPF processes? [no]: ", {}, (ans) => {
   if (!/^y(es?)?$/i.test(ans.trim())) return;
-  if (c.cfg.ospf) c.cfg.ospf.ridHeld = null;
+  for (const o of ospfProcs(c.cfg)) o.ridHeld = null;
 }));
 def("RS", "priv", "clear arp-cache", (c) => { c.d.rt.arp = {}; });
 def("S", "priv", "clear mac address-table dynamic", (c) => { c.d.rt.mac = {}; });
@@ -3636,11 +5685,14 @@ def("R", both, "show ip route eigrp", (c) => c.print(showIpRoute(c.net, c.d.name
 def("RS", both, "show ip route <ip|Network to display information about or hostname>", (c, [ip]) => {
   const r = lpm(c.net.routes(c.d.name), ip);
   if (!r) { c.print("% Network not in table"); return; }
-  const via = { C: "connected", L: "connected", S: "static", O: `ospf ${c.cfg.ospf && c.cfg.ospf.pid}`, D: `eigrp ${c.cfg.eigrp && c.cfg.eigrp.asn}` }[r.code[0]];
-  const L = [`Routing entry for ${n2ip(r.net)}/${r.len}`, `  Known via "${via}", distance ${r.ad}, metric ${r.metric}${r.code === "C" ? " (connected, via interface)" : ""}`];
-  if (r.code[0] === "D") L.push(`  Redistributing via eigrp ${c.cfg.eigrp.asn}`);
+  const via = { C: "connected", L: "connected", S: "static", O: `ospf ${r.src && r.src.id}`, D: `eigrp ${r.src && r.src.id}`, R: "rip" }[r.code[0]];
+  const kind = { intra: "intra area", inter: "inter area", e1: "type extern 1", e2: "type extern 2", n1: "type NSSA extern 1", n2: "type NSSA extern 2" }[r.otype];
+  const L = [`Routing entry for ${n2ip(r.net)}/${r.len}`, `  Known via "${via}", distance ${r.ad}, metric ${r.metric}${r.code === "C" ? " (connected, via interface)" : ""}${r.code[0] === "O" && kind ? ", " + kind : r.code === "D EX" ? ", type external" : r.code === "D" ? ", type internal" : ""}`];
+  if (r.tag) L.push(`  Tag ${r.tag}, type ${r.otype === "e1" ? "extern 1" : "extern 2"}`);
+  if (r.code[0] === "D") L.push(`  Redistributing via eigrp ${r.src && r.src.id}`);
   L.push("  Routing Descriptor Blocks:");
   if (r.code === "C" || r.code === "L") L.push(`  * directly connected, via ${r.ifn}`, "      Route metric is 0, traffic share count is 1");
+  else if (r.discard) L.push("  * directly connected, via Null0", "      Route metric is 0, traffic share count is 1");
   else r.paths.forEach((p, i) => L.push(`  ${i ? " " : "*"} ${p.ip === null ? "directly connected" : n2ip(p.ip)}${p.ip !== null ? ", from " + n2ip(p.ip) + ", 00:00:12 ago" : ""}${p.ifn ? ", via " + p.ifn : ""}`,
     `      Route metric is ${p.metric ?? r.metric}, traffic share count is 1`));
   c.print(L.join("\n"));
@@ -3668,14 +5720,7 @@ def("R", "priv", "show ip ospf neighbor", (c) => c.print(showOspfNbr(c.net, c.d.
 def("R", "priv", "show ip ospf interface", (c) => c.print(showOspfInt(c.net, c.d.name)));
 def("R", "priv", "show ip ospf interface brief", (c) => c.print(showOspfIntBrief(c.net, c.d.name)));
 def("R", "priv", "show ip ospf interface <intf>", (c, [n]) => c.s.withIf(n, 4, (ifn) => c.print(showOspfInt(c.net, c.d.name, ifn))));
-def("R", "priv", "show ip ospf", (c) => {
-  const o = c.net.ospf()[c.d.name];
-  if (!o) { c.print("%OSPF: No router process is configured"); return; }
-  const areas = [...new Set(o.ifs.map((i) => i.area))];
-  c.print([` Routing Process "ospf ${o.pid}" with ID ${n2ip(o.rid)}`, ` Reference bandwidth unit is ${c.cfg.ospf.refBw} mbps`,
-    ` Number of areas in this router is ${areas.length}. ${areas.length} normal 0 stub 0 nssa`,
-    ...areas.map((a) => `    Area ${a === 0 ? "BACKBONE(0)" : a}\n        Number of interfaces in this area is ${o.ifs.filter((i) => i.area === a).length}`)].join("\n"));
-});
+def("R", "priv", "show ip ospf", (c) => c.print(showOspfSummary(c.net, c.d.name)));
 def("R", "priv", "show ip protocols", (c) => c.print(showIpProtocols(c.net, c.d.name)));
 def("R", "priv", "show access-lists", (c) => c.print(showAcls(c.net, c.d.name)));
 def("R", "priv", "show access-lists <word|ACL name or number>", (c, [n]) => c.print(showAcls(c.net, c.d.name, n)));
@@ -3807,22 +5852,25 @@ def("R", "config", "no ip route <ip|Destination prefix> <ip|Destination prefix m
 def("R", "config", "no ip route <ip|Destination prefix> <ip|Destination prefix mask> <intf> <ip|Forwarding router's address>", (c, [n, m, i, nh]) => delRoute(c, n, m, i, nh));
 
 def("R", "config", "router ospf <num:1-65535|Process ID>", (c, [pid]) => {
-  const o = c.cfg.ospf;
-  if (o && o.pid !== pid) { c.print(`% This simulator runs one OSPF process per router; this router already runs "router ospf ${o.pid}".`); return; }
-  if (!o) {
-    c.cfg.ospf = { pid, rid: null, ridHeld: null, networks: [], passive: [], noPassive: [], passiveDefault: false,
-      defaultOriginate: false, defaultAlways: false, refBw: 100 };
+  if (!ospfProcs(c.cfg).some((o) => o.pid === pid)) {
+    const o = newOspf(pid);
+    if (!c.cfg.ospf) c.cfg.ospf = o; else c.cfg.ospfMore = [...(c.cfg.ospfMore || []), o];
   }
-  c.s.enter("ospf", null);
+  c.s.enter("ospf", pid);
 });
 def("R", "config", "no router ospf <num:1-65535|Process ID>", (c, [pid]) => {
-  if (c.cfg.ospf && c.cfg.ospf.pid === pid) c.cfg.ospf = null;
+  if (c.cfg.ospf && c.cfg.ospf.pid === pid) {
+    const more = c.cfg.ospfMore || [];
+    c.cfg.ospf = more.length ? more[0] : null;
+    if (more.length) c.cfg.ospfMore = more.slice(1);
+  } else if (c.cfg.ospfMore) c.cfg.ospfMore = c.cfg.ospfMore.filter((o) => o.pid !== pid);
+  if (c.cfg.ospfMore && !c.cfg.ospfMore.length) delete c.cfg.ospfMore;
 });
 const parseArea = (w) => (isIp(w) ? ip2n(w) : /^\d{1,10}$/.test(w) && +w <= 4294967295 ? +w : null);
 def("R", "ospf", "network <ip|Network number> <ip|OSPF wild card bits> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [addr, wild, a]) => {
   const area = parseArea(a);
   if (area === null) { c.invalid(4); return; }
-  const o = c.cfg.ospf, base = and(addr, ~wild);
+  const o = ospfCur(c), base = and(addr, ~wild);
   const ex = o.networks.find((n) => n.addr === base && n.wild === wild);
   if (ex && ex.area !== area) {
     c.print(`% OSPF: "network ${n2ip(base)} ${n2ip(wild)} area ${ex.area}" is already configured; remove it before using area ${area}`);
@@ -3831,7 +5879,7 @@ def("R", "ospf", "network <ip|Network number> <ip|OSPF wild card bits> area <wor
   if (!ex) o.networks.push({ addr: base, wild, area });
 });
 def("R", "ospf", "no network <ip|Network number> <ip|OSPF wild card bits> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [addr, wild, a]) => {
-  const o = c.cfg.ospf, area = parseArea(a), base = and(addr, ~wild);
+  const o = ospfCur(c), area = parseArea(a), base = and(addr, ~wild);
   const before = o.networks.length;
   o.networks = o.networks.filter((n) => !(n.addr === base && n.wild === wild && n.area === area));
   if (before === o.networks.length) c.print("% OSPF: Specified network not found");
@@ -3839,25 +5887,24 @@ def("R", "ospf", "no network <ip|Network number> <ip|OSPF wild card bits> area <
 def("R", "ospf", "router-id <ip|OSPF router-id in IP address format>", (c, [rid]) => c.s.setRid(rid));
 def("R", "ospf", "no router-id", (c) => c.s.setRid(null));
 def("R", "ospf", "passive-interface <intf>", (c, [n]) => c.s.withIf(n, 1, (ifn) => {
-  const o = c.cfg.ospf;
+  const o = ospfCur(c);
   if (o.passiveDefault) o.noPassive = o.noPassive.filter((x) => x !== ifn);
   else if (!o.passive.includes(ifn)) o.passive.push(ifn);
 }));
 def("R", "ospf", "no passive-interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => {
-  const o = c.cfg.ospf;
+  const o = ospfCur(c);
   if (o.passiveDefault) { if (!o.noPassive.includes(ifn)) o.noPassive.push(ifn); }
   else o.passive = o.passive.filter((x) => x !== ifn);
 }));
-def("R", "ospf", "passive-interface default", (c) => Object.assign(c.cfg.ospf, { passiveDefault: true, noPassive: [], passive: [] }));
-def("R", "ospf", "no passive-interface default", (c) => Object.assign(c.cfg.ospf, { passiveDefault: false, noPassive: [], passive: [] }));
-def("R", "ospf", "default-information originate", (c) => Object.assign(c.cfg.ospf, { defaultOriginate: true, defaultAlways: false }));
-def("R", "ospf", "default-information originate always", (c) => Object.assign(c.cfg.ospf, { defaultOriginate: true, defaultAlways: true }));
-def("R", "ospf", "no default-information originate", (c) => Object.assign(c.cfg.ospf, { defaultOriginate: false, defaultAlways: false }));
+def("R", "ospf", "passive-interface default", (c) => Object.assign(ospfCur(c), { passiveDefault: true, noPassive: [], passive: [] }));
+def("R", "ospf", "no passive-interface default", (c) => Object.assign(ospfCur(c), { passiveDefault: false, noPassive: [], passive: [] }));
+def("R", "ospf", "no default-information originate", (c) => Object.assign(ospfCur(c), { defaultOriginate: false, defaultAlways: false,
+  defaultOrigMetric: undefined, defaultOrigType: undefined }));
 def("R", "ospf", "auto-cost reference-bandwidth <num:1-4294967|The reference bandwidth in terms of Mbits per second>", (c, [bw]) => {
-  c.cfg.ospf.refBw = bw;
+  ospfCur(c).refBw = bw;
   c.print("% OSPF: Reference bandwidth is changed.\n        Please ensure reference bandwidth is consistent across all routers.");
 });
-def("R", "ospf", "no auto-cost reference-bandwidth", (c) => { c.cfg.ospf.refBw = 100; });
+def("R", "ospf", "no auto-cost reference-bandwidth", (c) => { ospfCur(c).refBw = 100; });
 
 def("R", "config", "ip dhcp excluded-address <ip|Low IP address>", (c, [lo]) => c.cfg.dhcp.excluded.push([lo, lo]));
 def("R", "config", "ip dhcp excluded-address <ip|Low IP address> <ip|High IP address>", (c, [lo, hi]) => {
@@ -4022,11 +6069,15 @@ def("R", IF_MODES, "no ip ospf dead-interval", ospfDel("dead"));
 def("R", IF_MODES, "ip ospf priority <num:0-255|Priority>", ospfSet("prio"));
 def("R", IF_MODES, "no ip ospf priority", ospfDel("prio"));
 def("R", IF_MODES, "ip ospf network point-to-point", ospfSet("ptp", true));
-def("R", IF_MODES, "ip ospf network broadcast", ospfDel("ptp"));
-def("R", IF_MODES, "no ip ospf network", ospfDel("ptp"));
+def("R", IF_MODES, "ip ospf network broadcast", (c) => eachIf(c, (n, i) => { delete i.ospf.ptp; delete i.ospf.ntype; }));
+def("R", IF_MODES, "no ip ospf network", (c) => eachIf(c, (n, i) => { delete i.ospf.ptp; delete i.ospf.ntype; }));
 def("R", IF_MODES, "ip ospf <num:1-65535|Process ID> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [pid, a]) => {
   const area = parseArea(a);
   if (area === null) { c.invalid(4); return; }
+  // IOS starts the process if it isn't running yet.
+  if (!ospfProcs(c.cfg).some((o) => o.pid === pid)) {
+    if (!c.cfg.ospf) c.cfg.ospf = newOspf(pid); else c.cfg.ospfMore = [...(c.cfg.ospfMore || []), newOspf(pid)];
+  }
   eachIf(c, (n, i) => { i.ospf.pid = pid; i.ospf.area = area; });
 });
 def("R", IF_MODES, "no ip ospf <num:1-65535|Process ID> area <word|OSPF area ID as a decimal value or in IP address format>", (c) => eachIf(c, (n, i) => {
@@ -4489,8 +6540,6 @@ for (const m of ["eigrp", "eigrpaf"]) {
   def("R", m, "no metric weights", (c) => { c.cfg.eigrp.k = [1, 0, 1, 0, 0]; });
 }
 for (const m of ["eigrp", "aftop"]) {
-  def("R", m, "redistribute static", (c) => { c.cfg.eigrp.redistStatic = true; });
-  def("R", m, "no redistribute static", (c) => { c.cfg.eigrp.redistStatic = false; });
   def("R", m, "variance <num:1-128|Metric variance multiplier>", (c, [v]) => { c.cfg.eigrp.variance = v; });
   def("R", m, "no variance", (c) => { c.cfg.eigrp.variance = 1; });
 }
@@ -4506,13 +6555,6 @@ def("R", "priv", "show ip eigrp neighbors", (c) => c.cfg.eigrp && c.print(showEi
 def("R", "priv", "show ip eigrp topology", (c) => c.cfg.eigrp && c.print(showEigrpTopo(c.net, c.d.name)));
 def("R", "priv", "show ip eigrp interfaces", (c) => c.cfg.eigrp && c.print(showEigrpIfs(c.net, c.d.name)));
 def("R", "priv", "clear ip eigrp neighbors", () => {});
-// OSPF redistribution of static routes.
-def("R", "ospf", "redistribute static", (c) => {
-  Object.assign(c.cfg.ospf, { redistStatic: true, redistSubnets: false });
-  c.print("% Only classful networks will be redistributed");
-});
-def("R", "ospf", "redistribute static subnets", (c) => Object.assign(c.cfg.ospf, { redistStatic: true, redistSubnets: true }));
-def("R", "ospf", "no redistribute static", (c) => Object.assign(c.cfg.ospf, { redistStatic: false, redistSubnets: false }));
 
 // ---- IPv6 and OSPFv3 ---------------------------------------------------------------------------
 def("R", "config", "ipv6 unicast-routing", (c) => { c.cfg.ipv6Routing = true; });
@@ -4701,8 +6743,14 @@ const debugOff = (c) => { c.d.rt.debug = {}; c.print("All possible debugging has
 def("RS", "priv", "undebug all", debugOff);
 def("RS", "priv", "no debug all", debugOff);
 def("RS", "priv", "show debugging", (c) => {
-  const on = c.d.rt.debug && c.d.rt.debug.icmp;
-  c.print(on ? "IP:\n  ICMP packet debugging is on" : "");
+  const dbg = c.d.rt.debug || {}, L = [];
+  const ip = [["icmp", "ICMP packet debugging is on"], ["routing", "IP routing debugging is on"], ["policy", "Policy routing debugging is on"], ["rip", "RIP protocol debugging is on"]]
+    .filter(([k]) => dbg[k]).map(([, t]) => "  " + t);
+  if (ip.length) L.push("IP:", ...ip);
+  const ospf = [["ospfAdj", "OSPF adjacency debugging is on"], ["ospfHello", "OSPF hello debugging is on"]].filter(([k]) => dbg[k]).map(([, t]) => "  " + t);
+  if (ospf.length) L.push("OSPF:", ...ospf);
+  if (dbg.eigrpPackets) L.push("EIGRP:", "  EIGRP Packet debugging is on");
+  c.print(L.join("\n"));
 });
 def("RS", both, "terminal monitor", (c) => { if (!c.s.f.via) c.print("% Console already monitors"); });
 def("RS", both, "terminal no monitor", () => {});
@@ -4719,6 +6767,987 @@ def("RS", ["user", "priv"], "traceroute <ip|Trace route to destination address> 
   const a = c.net.ifAddr(c.d.name, ifn);
   if (!a || !c.net.ifUp(c.d.name, ifn)) { c.print("% Invalid source interface - IP not enabled or interface is down"); return; }
   c.s.traceroute(ip, a.ip);
+}));
+
+// ======== CCNP routing: commands ========
+Object.assign(MODES, {
+  rmap: "(config-route-map)#", kchain: "(config-keychain)#", kckey: "(config-keychain-key)#", rip: "(config-router)#",
+  ripng: "(config-rtr)#", eigrp6: "(config-rtr)#", eigrpaf6: "(config-router-af)#", afif6: "(config-router-af-interface)#",
+  aftop6: "(config-router-af-topology)#", sla: "(config-ip-sla)#", slaecho: "(config-ip-sla-echo)#", acl6: "(config-ipv6-acl)#",
+  dhcp6: "(config-dhcpv6)#",
+});
+const NEW_MODES = ["rmap", "kchain", "kckey", "rip", "ripng", "eigrp6", "eigrpaf6", "afif6", "aftop6", "sla", "slaecho", "acl6", "dhcp6"];
+SUBMODES.push(...NEW_MODES);
+CONFIG_MODES.push(...NEW_MODES);
+Object.assign(PARENT, { kckey: "kchain", afif6: "eigrpaf6", aftop6: "eigrpaf6", eigrpaf6: "eigrpn", slaecho: "config" });
+def("R", NEW_MODES, "end", (c) => c.s.endConfig());
+def("R", NEW_MODES, "exit", (c) => c.s.enter(PARENT[c.mode] || "config", null));
+// Keywords new to the simulator; ones it already had keep their text, and the CCNP meaning comes from context.
+const NEW_HELP = {
+  "prefix-list": "Build a prefix list", "route-map": "Create route-map or enter route-map command mode", seq: "sequence number of an entry",
+  ge: "Minimum prefix length to be matched", le: "Maximum prefix length to be matched", match: "Match values from routing table",
+  set: "Set values in destination routing protocol", "next-hop": "Next hop address", "metric-type": "Type of metric for destination routing protocol",
+  tag: "Set tag value for destination routing protocol", "route-type": "Match route-type of route", "local-preference": "BGP local preference path attribute",
+  weight: "BGP weight for routing table", "as-path": "Match BGP AS path list", prepend: "Prepend to the as-path", community: "BGP community attribute",
+  origin: "BGP origin code", length: "Packet length", stub: "Set config stub flag", "receive-only": "Set receive only neighbor",
+  redistributed: "Do advertise redistributed routes", summary: "Do advertise summary routes", nssa: "Specify a NSSA area",
+  "no-summary": "Do not send summary LSA into stub area", "default-information-originate": "Originate Type 7 default into NSSA area",
+  range: "Summarize routes matching address/mask (border routers only)", "virtual-link": "Define a virtual link and its parameters",
+  advertise: "Advertise this range (default)", "not-advertise": "DoNotAdvertise this range", "default-cost": "Set the summary default-cost of a NSSA/stub area",
+  "filter-list": "Filter networks between OSPF areas", "summary-address": "Configure IP address summaries", "distribute-list": "Filter networks in routing updates",
+  "offset-list": "Add or subtract offset from RIP or EIGRP metrics", "default-metric": "Set metric of redistributed routes", key: "Configure a key",
+  "key-string": "Set key string", "key-chain": "Set key-chain", authentication: "Authentication", "message-digest": "Use message-digest authentication",
+  "authentication-key": "Authentication password (key)", "message-digest-key": "Message digest authentication password (key)", md5: "Use MD5 algorithm",
+  "mtu-ignore": "Ignores the MTU in DBD packets", mtu: "Set IP Maximum Transmission Unit", "split-horizon": "Perform split horizon",
+  version: "Set routing protocol version", sla: "IP Service Level Agreement", "icmp-echo": "ICMP Echo Operation", schedule: "Schedule an IP SLAs operation",
+  frequency: "Frequency of an IP SLAs operation", threshold: "Operation threshold in milliseconds", "source-interface": "Source Interface (ingress icmp packet interface)",
+  "source-ip": "Source Address", life: "Length of time to execute in seconds", "start-time": "Start time of the operation", forever: "continue running forever",
+  now: "Start now", reachability: "Reachability", policy: "Enable policy routing", verify: "Enable per packet validation", unicast: "Enable per packet validation for unicast",
+  "reachable-via": "Specify reachability check to apply to the source address", rx: "Source is reachable via interface on which packet was received",
+  "allow-default": "Allow default route to match when checking source address", "traffic-filter": "Access control list for packets", sequence: "Sequence number for this entry",
+  "managed-config-flag": "Hosts should use DHCP for address config", "other-config-flag": "Hosts should use DHCP for non-address config", relay: "Act as a relay agent",
+  destination: "Configure relay destination", prefix: "Configure IPv6 address prefix", "dns-server": "DNS servers", rip: "Routing Information Protocol (RIP)",
+  "auto-summary": "Enable automatic network number summarization", "virtual-links": "Virtual link information", "border-routers": "Border and Boundary Router Information",
+  database: "Database summary", "asbr-summary": "ASBR summary link states", external: "External link states", "nssa-external": "NSSA External link states",
+  router: "Router link states", "Null0": "Null interface", hmac: "HMAC", "hmac-sha-256": "HMAC-SHA-256 Authentication", "local-policy": "Enable local policy routing",
+  "ip-address": "IP address", null: "Null interface", null0: "Null interface",
+};
+for (const [k, v] of Object.entries(NEW_HELP)) if (!(k in HELP)) HELP[k] = v;
+// A keyword whose text depends on a command word anywhere before it (for clauses that come in any order).
+Object.assign(HELP_CTX, {
+  summary: [["stub", "Do advertise summary routes"]], connected: [["stub", "Do advertise connected routes"]],
+  static: [["stub", "Do advertise static routes"]], "receive-only": [["stub", "Set receive only neighbor"]],
+  metric: [["redistribute", "Metric for redistributed routes"], ["default-information", "OSPF default metric"]],
+  "metric-type": [["redistribute", "OSPF/IS-IS exterior metric type for redistributed routes"], ["default-information", "OSPF metric type for default routes"]],
+  subnets: [["redistribute", "Consider subnets for redistribution into OSPF"]],
+  tag: [["redistribute", "Set tag for routes redistributed into OSPF"], ["summary-address", "Set tag"], ["route", "Set tag for this route"]],
+  "route-map": [["redistribute", "Route map reference"], ["distribute-list", "Filter connected routes"]], always: [["default-information", "Always advertise default route"]],
+  "not-advertise": [["summary-address", "Do not advertise when translating OSPF type-7 LSA"]], track: [["route", "Install route depending on tracked item"]],
+  name: [["route", "Specify name of the next hop"]], permanent: [["route", "permanent route"]],
+});
+Object.assign(HELP_PATH, {
+  "ip prefix-list": "Build a prefix list", "ipv6 prefix-list": "Build a prefix list", "prefix-list description": "Prefix-list specific description",
+  "match ip address": "Match address of route or match packet", "address prefix-list": "Match entries of prefix-lists", "match ip": "IP specific information",
+  "match ipv6": "IPv6 specific information", "match tag": "Match tag of route", "match metric": "Match metric of route", "match interface": "Match first hop interface of route",
+  "match length": "Packet length", "match community": "Match BGP community list", "set metric": "Metric value for destination routing protocol",
+  "set ip": "IP specific information", "ip next-hop": "Next hop address", "ip default": "Set default information", "set interface": "Output interface",
+  "default next-hop": "Default next hop IP address", "route-type external": "external route (BGP, EIGRP and OSPF type 1/2)",
+  "route-type internal": "internal route (including OSPF intra/inter area)", "route-type local": "locally generated route",
+  "route-type nssa-external": "nssa-external route (OSPF type 1/2)", "external type-1": "OSPF external type 1 route", "external type-2": "OSPF external type 2 route",
+  "metric-type type-1": "OSPF external type 1 metric", "metric-type type-2": "OSPF external type 2 metric", "redistribute static": "Static routes",
+  "redistribute connected": "Connected", "redistribute ospf": "Open Shortest Path First (OSPF)", "redistribute eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)",
+  "redistribute rip": "Routing Information Protocol (RIP)", "redistribute bgp": "Border Gateway Protocol (BGP)", "area stub": "Specify a stub area",
+  "stub no-summary": "Do not send summary LSA into stub area", "nssa no-summary": "Do not send summary LSA into NSSA", "area authentication": "Enable authentication",
+  "authentication message-digest": "Use message-digest authentication", "ospf authentication": "Enable authentication", "ospf network": "Network type",
+  "network point-to-multipoint": "Specify OSPF point-to-multipoint network", "network non-broadcast": "Specify OSPF NBMA network", "network broadcast": "Specify OSPF broadcast multi-access network",
+  "authentication null": "Use no authentication", "summary-address eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)",
+  "authentication mode": "authentication mode", "mode eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)", "key-chain eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)",
+  "split-horizon eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)", "key chain": "Key-chain management", "rip send": "Advertisement transmission",
+  "rip receive": "Advertisement reception", "send version": "version control", "receive version": "version control", "ipv6 rip": "Configure RIP routing protocol",
+  "ipv6 eigrp": "Enable eigrp on IPv6", "router eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)", "router rip": "Routing Information Protocol (RIP)",
+  "ip sla": "IP Service Level Agreement", "sla schedule": "Schedule an IP SLAs operation", "track ip": "IP protocol", "ip policy": "Enable policy routing",
+  "policy route-map": "Policy route map", "local policy": "Enable local policy routing", "ip local": "Specify local options",
+  "ipv6 access-list": "Configure access lists", "ipv6 dhcp": "IPv6 DHCP interface subcommands", "dhcp pool": "Configure IPv6 DHCP pool",
+  "dhcp server": "Configure IPv6 DHCP server on this interface", "address dhcp": "Obtain IPv6 address from DHCP server", "ipv6 nd": "IPv6 interface Neighbor Discovery subcommands",
+  "ip ospf database": "Database summary", "ospf database router": "Router link states", "database network": "Network link states",
+  "database summary": "Network summary link states", "database external": "External link states", "ospf border-routers": "Border and Boundary Router Information",
+  "show route-map": "route-map information", "show key": "Key information", "show ip sla": "IP Service Level Agreement", "sla statistics": "IP SLAs Statistics",
+  "sla configuration": "IP SLAs configuration", "sla summary": "IP SLAs summary", "ip rip": "IP RIP show commands", "rip database": "IPv4 RIP database",
+  "show ip interface": "IP interface status and configuration", "debug ip ospf": "OSPF information", "ospf adj": "OSPF adjacency events", "ospf hello": "OSPF hello events",
+  "debug ip routing": "Routing table events", "debug ip rip": "RIP protocol transactions", "debug ip policy": "Policy routing", "debug eigrp": "EIGRP Protocol information",
+  "eigrp packets": "EIGRP packets", "route rip": "Routing Information Protocol (RIP)", "distance eigrp": "IP-EIGRP distance", "distance ospf": "OSPF distance",
+  "ospf intra-area": "Intra-area routes", "ospf inter-area": "Inter-area routes", "ospf external": "External type 5 and type 7 routes",
+});
+Object.assign(HELP_PATH, {
+  "area range": "Summarize routes matching address/mask (border routers only)", "message-digest-key md5": "Use MD5 algorithm",
+  "eigrp md5": "Keyed message digest", "mode md5": "Keyed message digest", "verify unicast": "Enable per packet validation for unicast",
+  "rip send": "Advertisement transmission", "ospf database summary": "Network summary link states", "ip sla summary": "IP SLAs summary",
+  "database router": "Router link states", "match length": "Packet length", "match community": "Match BGP community list", "set community": "BGP community attribute",
+});
+Object.assign(HELP_MODE, {
+  rmap: { description: "Route-map comment", set: "Set values in destination routing protocol", match: "Match values from routing table" },
+  kchain: { key: "Configure a key" }, kckey: { key: "Configure a key", "key-string": "Set key string" }, dhcp6: { "dns-server": "DNS servers" },
+  afif: { authentication: "authentication subcommands", "split-horizon": "Perform split horizon", shutdown: "Disable Address-Family on interface" },
+  afif6: { authentication: "authentication subcommands", "split-horizon": "Perform split horizon", shutdown: "Disable Address-Family on interface" }, ospf: { distance: "Define an administrative distance", neighbor: "Specify a neighbor router" },
+  rip: { network: "Enable routing on an IP network", version: "Set routing protocol version", distance: "Define an administrative distance", "auto-summary": "Enable automatic network number summarization" },
+  eigrp: { distance: "Define an administrative distance" }, aftop: { distance: "Define an administrative distance" },
+});
+
+// Register a command with optional keyword clauses that may follow in any order (each at most once).
+// opts: [{key, spec}] where spec may hold <params> or {a|b}; fn(c, base args, {key: [values]}).
+function defOpts(types, modes, prefix, opts, fn) {
+  const argc = (spec) => (spec.match(/<[^>]+>|\{[^}]+\}/g) || []).length;
+  const baseN = argc(prefix);
+  const walkOpts = (chosen) => {
+    const spec = [prefix, ...chosen.map((o) => o.spec)].join(" ");
+    def(types, modes, spec, (c, args) => {
+      const got = {};
+      let k = baseN;
+      for (const o of chosen) { const n = argc(o.spec); got[o.key] = args.slice(k, k + n); k += n; }
+      return fn(c, args.slice(0, baseN), got);
+    });
+    for (const o of opts) {
+      if (chosen.includes(o)) continue;
+      // Clauses that share a first keyword (metric / metric-type) are distinct, so all orders are fine.
+      walkOpts([...chosen, o]);
+    }
+  };
+  walkOpts([]);
+}
+
+// Find the route-map / OSPF process / RIP process the current mode works on.
+const rmapCur = (c) => c.cfg.routeMaps[c.target.name].find((x) => x.seq === c.target.seq);
+const ospfCur = (c) => ospfProcs(c.cfg).find((o) => o.pid === c.target) || c.cfg.ospf;
+const newOspf = (pid) => ({ pid, rid: null, ridHeld: null, networks: [], passive: [], noPassive: [], passiveDefault: false,
+  defaultOriginate: false, defaultAlways: false, refBw: 100 });
+const parsePfx = (t) => {
+  const m = /^(\d+\.\d+\.\d+\.\d+)\/(\d{1,2})$/.exec(t);
+  return m && isIp(m[1]) && +m[2] <= 32 ? { net: and(ip2n(m[1]), lenMask(+m[2])), len: +m[2] } : null;
+};
+
+// ---- prefix lists
+const plAdd = (c, v6, name, seq, action, text, at) => {
+  const words = tokenize(text).map((t) => t.t);
+  let net, len;
+  if (v6) {
+    const m = /^([^/]+)\/(\d{1,3})$/.exec(words[0] || "");
+    const a = m && parse6(m[1]);
+    if (!m || a === null || +m[2] > 128) { c.invalid(at); return; }
+    len = +m[2]; net = fmt6(net6(a, len));
+  } else {
+    const p = parsePfx(words[0] || "");
+    if (!p) { c.invalid(at); return; }
+    ({ net, len } = p);
+  }
+  let ge = null, le = null;
+  for (let i = 1; i < words.length; i += 2) {
+    const v = +words[i + 1];
+    if (!/^\d+$/.test(words[i + 1] || "") || !["ge", "le"].includes(words[i].toLowerCase())) { c.invalid(at + i); return; }
+    if (words[i].toLowerCase() === "ge") ge = v; else le = v;
+  }
+  const max = v6 ? 128 : 32;
+  if ((ge !== null && (ge <= len || ge > max)) || (le !== null && (le < (ge ?? len + 1) || le > max)) || (le !== null && le <= len)) {
+    c.print(`% Invalid prefix range for ${v6 ? net : n2ip(net)}/${len}, make sure: len < ge-value <= le-value`);
+    return;
+  }
+  const key = v6 ? "prefixLists6" : "prefixLists";
+  const lists = c.cfg[key] || (c.cfg[key] = {});
+  const pl = lists[name] || (lists[name] = { desc: null, entries: [] });
+  const dup = pl.entries.find((e) => e.net === net && e.len === len && e.ge === ge && e.le === le && e.seq !== seq);
+  if (dup) { c.print(`% Duplicate prefix, ${v6 ? net : n2ip(net)}/${len} already exists in ${name} at seq ${dup.seq}`); return; }
+  const s = seq ?? (pl.entries.length ? Math.max(...pl.entries.map((e) => e.seq)) + 5 : 5);
+  pl.entries = pl.entries.filter((e) => e.seq !== s);
+  pl.entries.push({ seq: s, action, net, len, ge, le });
+  pl.entries.sort((a, b) => a.seq - b.seq);
+};
+for (const [kw, v6] of [["ip", false], ["ipv6", true]]) {
+  const what = v6 ? "IPv6 prefix x:x::y/<z>, e.g., 2001:db8::/32 [ge n] [le n]" : "IP prefix network/length, e.g., 35.0.0.0/8 [ge n] [le n]";
+  const W = "<word|Name of a prefix list>";
+  def("R", "config", `${kw} prefix-list ${W} seq <num:1-4294967294|Sequence number> {permit|deny} <line|${what}>`, (c, [n, seq, a, t]) => plAdd(c, v6, n, seq, a, t, 6));
+  def("R", "config", `${kw} prefix-list ${W} {permit|deny} <line|${what}>`, (c, [n, a, t]) => plAdd(c, v6, n, null, a, t, 4));
+  def("R", "config", `${kw} prefix-list ${W} description <line|Up to 80 characters describing this prefix-list>`, (c, [n, t]) => {
+    const key = v6 ? "prefixLists6" : "prefixLists", lists = c.cfg[key] || (c.cfg[key] = {});
+    (lists[n] || (lists[n] = { desc: null, entries: [] })).desc = t;
+  });
+  def("R", "config", `no ${kw} prefix-list ${W}`, (c, [n]) => { delete (c.cfg[v6 ? "prefixLists6" : "prefixLists"] || {})[n]; });
+  def("R", "config", `no ${kw} prefix-list ${W} seq <num:1-4294967294|Sequence number>`, (c, [n, seq]) => {
+    const pl = (c.cfg[v6 ? "prefixLists6" : "prefixLists"] || {})[n];
+    if (!pl) return;
+    pl.entries = pl.entries.filter((e) => e.seq !== seq);
+  });
+  def("R", "config", `no ${kw} prefix-list ${W} seq <num:1-4294967294|Sequence number> {permit|deny} <line|${what}>`, (c, [n, seq]) => {
+    const pl = (c.cfg[v6 ? "prefixLists6" : "prefixLists"] || {})[n];
+    if (pl) pl.entries = pl.entries.filter((e) => e.seq !== seq);
+  });
+}
+
+// ---- route maps
+const RM = "<word|Route map tag>";
+const rmEnter = (c, name, action, seq) => {
+  const maps = c.cfg.routeMaps || (c.cfg.routeMaps = {});
+  const m = maps[name] || (maps[name] = []);
+  if (seq === null) {
+    if (m.length > 1) { c.print("% Please specify the entry by its sequence"); return; }
+    seq = m.length ? m[0].seq : 10;
+  }
+  let e = m.find((x) => x.seq === seq);
+  if (!e) { e = { seq, action: action || "permit", desc: null, match: {}, set: {} }; m.push(e); m.sort((a, b) => a.seq - b.seq); }
+  else if (action) e.action = action;
+  c.s.enter("rmap", { name, seq });
+};
+def("R", "config", `route-map ${RM}`, (c, [n]) => rmEnter(c, n, null, null));
+def("R", "config", `route-map ${RM} {permit|deny}`, (c, [n, a]) => rmEnter(c, n, a, null));
+def("R", "config", `route-map ${RM} {permit|deny} <num:0-65535|Sequence to insert to/delete from existing route-map entry>`, (c, [n, a, s]) => rmEnter(c, n, a, s));
+def("R", "config", `no route-map ${RM}`, (c, [n]) => { delete (c.cfg.routeMaps || {})[n]; });
+def("R", "config", `no route-map ${RM} {permit|deny} <num:0-65535|Sequence to insert to/delete from existing route-map entry>`, (c, [n, , s]) => {
+  const m = (c.cfg.routeMaps || {})[n];
+  if (!m) return;
+  c.cfg.routeMaps[n] = m.filter((x) => x.seq !== s);
+  if (!c.cfg.routeMaps[n].length) delete c.cfg.routeMaps[n];
+});
+const words = (t) => tokenize(t).map((x) => x.t);
+const rmSet = (key, conv) => (c, args) => { rmapCur(c).set[key] = conv ? conv(args, c) : args[0]; };
+const rmMatch = (key, conv) => (c, args) => { const m = rmapCur(c).match; m[key] = conv ? conv(args, m[key]) : args[0]; };
+const rmUnset = (where, key) => (c) => { delete rmapCur(c)[where][key]; };
+def("R", "rmap", "description <line|Comment up to 100 characters>", (c, [t]) => { rmapCur(c).desc = t; });
+def("R", "rmap", "no description", (c) => { rmapCur(c).desc = null; });
+def("R", "rmap", "match ip address <line|IP access-list number or name>", rmMatch("ipAddress", ([t], old) => [...new Set([...(old || []), ...words(t)])]));
+def("R", "rmap", "match ip address prefix-list <line|IP prefix-list name>", rmMatch("ipPrefix", ([t], old) => [...new Set([...(old || []), ...words(t)])]));
+def("R", "rmap", "match ipv6 address prefix-list <line|IPv6 prefix-list name>", rmMatch("ipv6Prefix", ([t], old) => [...new Set([...(old || []), ...words(t)])]));
+def("R", "rmap", "match ip next-hop prefix-list <line|IP prefix-list name>", rmMatch("nextHopPrefix", ([t], old) => [...new Set([...(old || []), ...words(t)])]));
+def("R", "rmap", "match tag <line|Tag value>", (c, [t]) => {
+  const v = words(t);
+  if (!v.every((x) => /^\d+$/.test(x))) { c.invalid(2); return; }
+  const m = rmapCur(c).match;
+  m.tag = [...new Set([...(m.tag || []), ...v.map(Number)])];
+});
+def("R", "rmap", "match metric <num:0-4294967295|Metric value>", rmMatch("metric"));
+def("R", "rmap", "match interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => { const m = rmapCur(c).match; m.interface = [...new Set([...(m.interface || []), ifn])]; }));
+def("R", "rmap", "match length <num:0-2147483647|Minimum packet length> <num:0-2147483647|Maximum packet length>", rmMatch("length", (a) => a));
+def("R", "rmap", "match as-path <num:1-500|AS path access-list>", rmMatch("asPath", ([n], old) => [...new Set([...(old || []), n])]));
+def("R", "rmap", "match community <word|Community-list number or name>", rmMatch("community", ([n], old) => [...new Set([...(old || []), n])]));
+for (const t of ["internal", "local", "external", "nssa-external"]) {
+  def("R", "rmap", `match route-type ${t}`, (c) => { rmapCur(c).match.routeType = [t]; });
+  if (t === "external" || t === "nssa-external") def("R", "rmap", `match route-type ${t} {type-1|type-2}`, (c, [x]) => { rmapCur(c).match.routeType = [t, x]; });
+}
+for (const [spec, key] of [["ip address", "ipAddress"], ["ip address prefix-list", "ipPrefix"], ["ipv6 address prefix-list", "ipv6Prefix"], ["ip next-hop prefix-list", "nextHopPrefix"],
+  ["tag", "tag"], ["metric", "metric"], ["interface", "interface"], ["length", "length"], ["route-type", "routeType"], ["as-path", "asPath"], ["community", "community"]]) {
+  def("R", "rmap", "no match " + spec, rmUnset("match", key));
+}
+def("R", "rmap", "set metric <num:0-4294967295|Metric value or Bandwidth in Kbits per second>", rmSet("metric"));
+def("R", "rmap", "set metric <num:1-4294967295|Bandwidth in Kbits per second> <num:0-4294967295|EIGRP delay metric, in 10 microsecond units> <num:0-255|EIGRP reliability metric where 255 is 100% reliable> <num:1-255|EIGRP Effective bandwidth metric (Loading) where 255 is 100% loaded> <num:1-65535|EIGRP MTU of the path>", rmSet("metric", (a) => a));
+def("R", "rmap", "set metric-type {type-1|type-2|internal|external}", rmSet("metricType"));
+def("R", "rmap", "set tag <num:0-4294967295|Tag value>", rmSet("tag"));
+const ipList = (c, t, at) => {
+  const v = words(t);
+  if (!v.length || !v.every(isIp)) { c.invalid(at); return null; }
+  return v.map(ip2n);
+};
+def("R", "rmap", "set ip next-hop <line|IP address of next hop>", (c, [t]) => { const v = ipList(c, t, 3); if (v) rmapCur(c).set.nextHop = v; });
+def("R", "rmap", "set ip default next-hop <line|Default next hop IP address>", (c, [t]) => { const v = ipList(c, t, 4); if (v) rmapCur(c).set.defaultNextHop = v; });
+def("R", "rmap", "set interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => { const s = rmapCur(c).set; s.interface = [...new Set([...(s.interface || []), ifn])]; }));
+def("R", "rmap", "set interface Null0", (c) => { const s = rmapCur(c).set; s.interface = [...new Set([...(s.interface || []), "Null0"])]; });
+def("R", "rmap", "set local-preference <num:0-4294967295|Preference value>", rmSet("localPref"));
+def("R", "rmap", "set weight <num:0-65535|Weight value>", rmSet("weight"));
+def("R", "rmap", "set as-path prepend <line|AS number>", (c, [t]) => {
+  const v = words(t);
+  if (!v.every((x) => /^\d+$/.test(x))) { c.invalid(3); return; }
+  rmapCur(c).set.prepend = v.map(Number);
+});
+def("R", "rmap", "set community <line|community-number>", (c, [t]) => { rmapCur(c).set.community = words(t); });
+def("R", "rmap", "set origin {igp|egp|incomplete}", rmSet("origin"));
+for (const [spec, key] of [["metric", "metric"], ["metric-type", "metricType"], ["tag", "tag"], ["ip next-hop", "nextHop"], ["ip default next-hop", "defaultNextHop"],
+  ["interface", "interface"], ["local-preference", "localPref"], ["weight", "weight"], ["as-path prepend", "prepend"], ["community", "community"], ["origin", "origin"]]) {
+  def("R", "rmap", "no set " + spec, rmUnset("set", key));
+}
+
+// ---- redistribution, distribute-lists, offset-lists, distance (OSPF, EIGRP, RIP)
+const REDIST_SRCS = [["static", null], ["connected", null], ["rip", null], ["ospf", "<num:1-65535|Process ID>"],
+  ["eigrp", "<num:1-65535|Autonomous system number>"], ["bgp", "<num:1-65535|Autonomous system number>"]];
+// Where each protocol keeps its redistribute entries.
+const redistHome = (c) => (c.mode === "ospf" ? ospfCur(c) : c.mode === "rip" ? c.cfg.rip : c.mode === "ripng" ? c.cfg.ripng[c.target]
+  : c.mode === "eigrp6" ? c.cfg.eigrp6 : c.mode === "aftop6" ? c.cfg.eigrp.af6 : c.cfg.eigrp);
+const redistKey = (e) => e.src + (e.id !== null && e.id !== undefined ? " " + e.id : "");
+const putRedist = (home, e) => {
+  home.redist = (home.redist || []).filter((x) => redistKey(x) !== redistKey(e));
+  home.redist.push(e);
+  if (e.src === "static") home.redistStatic = false; // the old CCNA flag is folded into the list
+};
+for (const [src, idSpec] of REDIST_SRCS) {
+  const base = "redistribute " + src + (idSpec ? " " + idSpec : "");
+  // OSPF: metric, metric-type, subnets, tag, route-map
+  {
+    defOpts("R", "ospf", base, [{ key: "metric", spec: "metric <num:0-16777214|OSPF default metric>" }, { key: "metricType", spec: "metric-type {1|2}" },
+      { key: "subnets", spec: "subnets" }, { key: "tag", spec: "tag <num:0-4294967295|32-bit tag value>" }, { key: "routeMap", spec: "route-map <word|Pointer to route-map entries>" }],
+    (c, ids, o) => {
+      const home = ospfCur(c), id = idSpec ? ids[0] : null;
+      if (src === "ospf" && id === home.pid) { c.print("% Can't redistribute a process into itself"); return; }
+      const e = { src, id, metric: o.metric ? o.metric[0] : null, metricType: o.metricType ? +o.metricType[0] : null, subnets: !!o.subnets,
+        tag: o.tag ? o.tag[0] : null, routeMap: o.routeMap ? o.routeMap[0] : null };
+      putRedist(home, e);
+      if (!e.subnets && src !== "ospf") c.print("% Only classful networks will be redistributed");
+    });
+  }
+  // EIGRP (classic and named topology): metric <5 values>, route-map
+  defOpts("R", ["eigrp", "aftop"], base, [{ key: "metric", spec: "metric <num:1-4294967295|Bandwidth metric in Kbits per second> <num:0-4294967295|EIGRP delay metric, in 10 microsecond units> <num:0-255|EIGRP reliability metric where 255 is 100% reliable> <num:1-255|EIGRP Effective bandwidth metric (Loading) where 255 is 100% loaded> <num:1-65535|EIGRP MTU of the path>" },
+    { key: "routeMap", spec: "route-map <word|Pointer to route-map entries>" }],
+  (c, ids, o) => {
+    const id = idSpec ? ids[0] : null;
+    if (src === "eigrp" && id === c.cfg.eigrp.asn) { c.print("% Can't redistribute EIGRP into itself"); return; }
+    putRedist(c.cfg.eigrp, { src, id, metric: o.metric || null, routeMap: o.routeMap ? o.routeMap[0] : null });
+  });
+  // RIP: metric <hops>, route-map
+  defOpts("R", "rip", base, [{ key: "metric", spec: "metric <num:0-16|Default metric>" }, { key: "routeMap", spec: "route-map <word|Pointer to route-map entries>" }],
+    (c, ids, o) => {
+      if (src === "rip") { c.print("% Can't redistribute RIP into itself"); return; }
+      putRedist(c.cfg.rip, { src, id: idSpec ? ids[0] : null, metric: o.metric ? o.metric[0] : null, routeMap: o.routeMap ? o.routeMap[0] : null });
+    });
+  def("R", ["ospf", "eigrp", "aftop", "rip"], "no " + base, (c, ids) => {
+    const home = redistHome(c), key = redistKey({ src, id: idSpec ? ids[0] : null });
+    home.redist = (home.redist || []).filter((x) => redistKey(x) !== key);
+    if (src === "static") { home.redistStatic = false; home.redistSubnets = false; }
+  });
+}
+// IPv6 protocols redistribute static and connected routes.
+for (const src of ["static", "connected"]) {
+  defOpts("R", ["ripng", "eigrp6", "aftop6"], "redistribute " + src, [{ key: "metric", spec: "metric <num:1-4294967295|Default metric>" },
+    { key: "routeMap", spec: "route-map <word|Route map reference>" }], (c, ids, o) => {
+    const home = redistHome(c);
+    const metric = o.metric ? (c.mode === "ripng" ? o.metric[0] : null) : null;
+    putRedist(home, { src, id: null, metric, routeMap: o.routeMap ? o.routeMap[0] : null });
+  });
+  def("R", ["ripng", "eigrp6", "aftop6"], "no redistribute " + src, (c) => { const h = redistHome(c); h.redist = (h.redist || []).filter((x) => x.src !== src); });
+}
+const DL_ACL = "<word|IP access list number or name>";
+const putDist = (home, f) => {
+  home.dist = (home.dist || []).filter((x) => !(x.dir === f.dir && (x.ifn || null) === (f.ifn || null)));
+  home.dist.push(f);
+};
+const distHome = (c) => (c.mode === "ospf" ? ospfCur(c) : redistHome(c));
+for (const [kind, spec] of [["acl", DL_ACL], ["prefix", "prefix <word|Name of an IP prefix-list>"], ["route-map", "route-map <word|Route-map name>"]]) {
+  const modes = ["eigrp", "aftop", "rip"];
+  for (const dirs of [["in", "out"]]) {
+    for (const dir of dirs) {
+      const put = (c, name, ifn) => {
+        if (c.mode === "ospf") { ospfCur(c).distIn = { kind, name }; return; }
+        putDist(distHome(c), { dir, kind, name, ifn: ifn || null });
+      };
+      def("R", modes, `distribute-list ${spec} ${dir}`, (c, [n]) => put(c, n, null));
+      def("R", modes, `distribute-list ${spec} ${dir} <intf>`, (c, [n, i]) => c.s.withIf(i, 4, (ifn) => put(c, n, ifn)));
+      def("R", modes, `no distribute-list ${spec} ${dir}`, (c) => { const h = distHome(c); h.dist = (h.dist || []).filter((x) => !(x.dir === dir && !x.ifn)); });
+      def("R", modes, `no distribute-list ${spec} ${dir} <intf>`, (c, [, i]) => c.s.withIf(i, 5, (ifn) => { const h = distHome(c); h.dist = (h.dist || []).filter((x) => !(x.dir === dir && x.ifn === ifn)); }));
+      if (dir === "in") {
+        def("R", "ospf", `distribute-list ${spec} in`, (c, [n]) => put(c, n, null));
+        def("R", "ospf", `no distribute-list ${spec} in`, (c) => { delete ospfCur(c).distIn; });
+      }
+    }
+  }
+}
+for (const m of ["eigrp", "aftop", "rip"]) {
+  const OFF = "<word|Access list of networks to apply offset (0 selects all networks)> {in|out} <num:0-2147483647|Offset>";
+  const put = (c, acl, dir, off, ifn) => {
+    const h = redistHome(c);
+    h.offsets = (h.offsets || []).filter((x) => !(x.acl === acl && x.dir === dir && (x.ifn || null) === (ifn || null)));
+    h.offsets.push({ acl, dir, offset: off, ifn: ifn || null });
+  };
+  def("R", m, `offset-list ${OFF}`, (c, [a, d, o]) => put(c, a, d, o, null));
+  def("R", m, `offset-list ${OFF} <intf>`, (c, [a, d, o, i]) => c.s.withIf(i, 4, (ifn) => put(c, a, d, o, ifn)));
+  def("R", m, `no offset-list ${OFF}`, (c, [a, d]) => { const h = redistHome(c); h.offsets = (h.offsets || []).filter((x) => !(x.acl === a && x.dir === d && !x.ifn)); });
+  def("R", m, `no offset-list ${OFF} <intf>`, (c, [a, d, , i]) => c.s.withIf(i, 5, (ifn) => { const h = redistHome(c); h.offsets = (h.offsets || []).filter((x) => !(x.acl === a && x.dir === d && x.ifn === ifn)); }));
+}
+for (const m of ["eigrp", "aftop", "eigrp6", "aftop6"]) {
+  def("R", m, "distance eigrp <num:1-255|Distance for internal routes> <num:1-255|Distance for external routes>", (c, [i, e]) => { redistHome(c).distance = { int: i, ext: e }; });
+  def("R", m, "no distance eigrp", (c) => { delete redistHome(c).distance; });
+}
+for (const m of ["eigrp", "aftop"]) {
+  def("R", m, "default-metric <num:1-4294967295|Bandwidth in Kbits per second> <num:0-4294967295|Delay metric, in 10 microsecond units> <num:0-255|Reliability metric where 255 is 100% reliable> <num:1-255|Effective bandwidth metric (Loading) where 255 is 100% loaded> <num:1-65535|Maximum Transmission Unit metric of the path>",
+    (c, args) => { c.cfg.eigrp.defaultMetric = args; });
+  def("R", m, "no default-metric", (c) => { delete c.cfg.eigrp.defaultMetric; });
+}
+def("R", "ospf", "default-metric <num:1-16777214|Default metric>", (c, [m]) => { ospfCur(c).defaultMetric = m; });
+def("R", "ospf", "no default-metric", (c) => { delete ospfCur(c).defaultMetric; });
+def("R", "rip", "default-metric <num:1-16|Default metric>", (c, [m]) => { c.cfg.rip.defaultMetric = m; });
+def("R", "rip", "no default-metric", (c) => { delete c.cfg.rip.defaultMetric; });
+def("R", "ospf", "distance <num:1-255|Administrative distance>", (c, [a]) => { const o = ospfCur(c); o.distance = { ...(o.distance || {}), all: a }; });
+def("R", "ospf", "no distance <num:1-255|Administrative distance>", (c) => { const o = ospfCur(c); if (o.distance) delete o.distance.all; });
+defOpts("R", "ospf", "distance ospf", [{ key: "intra", spec: "intra-area <num:1-255|Distance for intra-area routes>" },
+  { key: "inter", spec: "inter-area <num:1-255|Distance for inter-area routes>" }, { key: "ext", spec: "external <num:1-255|Distance for external type 5 and type 7 routes>" }],
+(c, ids, o) => {
+  if (!Object.keys(o).length) { c.print("% Incomplete command."); return; }
+  const cur = ospfCur(c);
+  cur.distance = { ...(cur.distance || {}) };
+  for (const k of ["intra", "inter", "ext"]) if (o[k]) cur.distance[k] = o[k][0];
+});
+def("R", "ospf", "no distance ospf", (c) => { const o = ospfCur(c); if (o.distance) { delete o.distance.intra; delete o.distance.inter; delete o.distance.ext; } });
+def("R", "rip", "distance <num:1-255|Administrative distance>", (c, [a]) => { c.cfg.rip.distance = a; });
+def("R", "rip", "no distance", (c) => { delete c.cfg.rip.distance; });
+def("R", "ripng", "distance <num:1-254|Administrative distance>", (c, [a]) => { c.cfg.ripng[c.target].distance = a; });
+
+// ---- OSPF: processes, areas, summaries, virtual links, authentication, network types
+def("R", "ospf", "log-adjacency-changes", () => {});
+def("R", "ospf", "log-adjacency-changes detail", () => {});
+const areaCfg = (c, a) => {
+  const area = parseArea(a);
+  if (area === null) return null;
+  const o = ospfCur(c), areas = o.areas || (o.areas = {});
+  return areas[area] || (areas[area] = {});
+};
+const A = "area <word|OSPF area ID as a decimal value or in IP address format>";
+const tidyArea = (c, a) => {
+  const o = ospfCur(c), area = parseArea(a);
+  if (o.areas && o.areas[area] && !Object.keys(o.areas[area]).some((k) => o.areas[area][k] !== undefined && o.areas[area][k] !== null
+    && !(Array.isArray(o.areas[area][k]) && !o.areas[area][k].length) && o.areas[area][k] !== false)) delete o.areas[area];
+};
+const setAreaType = (c, a, type, opts) => {
+  if (parseArea(a) === 0) { c.print(`% OSPF: Backbone can not be configured as ${type === "stub" ? "stub" : "NSSA"} area`); return; }
+  const ac = areaCfg(c, a);
+  if (!ac) { c.invalid(1); return; }
+  if ((ac.vlinks || []).length) { c.print(`% OSPF: Area cannot be a ${type} as it contains a virtual link`); return; }
+  ac.type = type;
+  ac.noSummary = !!opts.noSummary;
+  ac.nssaDefault = type === "nssa" && !!opts.nssaDefault;
+};
+defOpts("R", "ospf", `${A} stub`, [{ key: "noSummary", spec: "no-summary" }], (c, [a], o) => setAreaType(c, a, "stub", o));
+defOpts("R", "ospf", `${A} nssa`, [{ key: "noSummary", spec: "no-summary" }, { key: "nssaDefault", spec: "default-information-originate" }],
+  (c, [a], o) => setAreaType(c, a, "nssa", o));
+def("R", "ospf", `no ${A} stub`, (c, [a]) => { const ac = areaCfg(c, a); if (ac && ac.type === "stub") { delete ac.type; delete ac.noSummary; } tidyArea(c, a); });
+def("R", "ospf", `no ${A} stub no-summary`, (c, [a]) => { const ac = areaCfg(c, a); if (ac) delete ac.noSummary; tidyArea(c, a); });
+def("R", "ospf", `no ${A} nssa`, (c, [a]) => { const ac = areaCfg(c, a); if (ac && ac.type === "nssa") { delete ac.type; delete ac.noSummary; delete ac.nssaDefault; } tidyArea(c, a); });
+def("R", "ospf", `${A} default-cost <num:0-16777215|Stub's advertised external metric>`, (c, [a, n]) => { const ac = areaCfg(c, a); if (ac) ac.defaultCost = n; });
+def("R", "ospf", `no ${A} default-cost`, (c, [a]) => { const ac = areaCfg(c, a); if (ac) delete ac.defaultCost; tidyArea(c, a); });
+const addRange = (c, a, net, mask, advertise, cost) => {
+  const ac = areaCfg(c, a), len = maskLen(mask);
+  if (!ac || len < 0) { c.print("% OSPF: Invalid address/mask combination"); return; }
+  const n = and(net, mask);
+  ac.ranges = (ac.ranges || []).filter((r) => !(r.net === n && r.len === len));
+  ac.ranges.push({ net: n, len, advertise, fixedCost: cost ?? undefined });
+};
+defOpts("R", "ospf", `${A} range <ip|IP address to match> <ip|IP mask for address>`, [{ key: "adv", spec: "{advertise|not-advertise}" },
+  { key: "cost", spec: "cost <num:0-16777215|User specified metric for this range>" }],
+(c, [a, n, m], o) => addRange(c, a, n, m, !o.adv || o.adv[0] === "advertise", o.cost ? o.cost[0] : null));
+def("R", "ospf", `no ${A} range <ip|IP address to match> <ip|IP mask for address>`, (c, [a, n, m]) => {
+  const ac = areaCfg(c, a);
+  if (ac) ac.ranges = (ac.ranges || []).filter((r) => !(r.net === and(n, m) && r.len === maskLen(m)));
+  tidyArea(c, a);
+});
+def("R", "ospf", `${A} virtual-link <ip|ID (IP addr) associated with virtual link neighbor>`, (c, [a, rid]) => {
+  if (parseArea(a) === 0) { c.print("% OSPF: Area 0 can not be configured as transit area"); return; }
+  const ac = areaCfg(c, a);
+  if (!ac) { c.invalid(1); return; }
+  if (ac.type) { c.print(`% OSPF: Area ${a} is a ${ac.type === "stub" ? "stub" : "nssa"} area, virtual link cannot be configured`); return; }
+  ac.vlinks = [...new Set([...(ac.vlinks || []), rid])];
+});
+def("R", "ospf", `no ${A} virtual-link <ip|ID (IP addr) associated with virtual link neighbor>`, (c, [a, rid]) => {
+  const ac = areaCfg(c, a);
+  if (ac) ac.vlinks = (ac.vlinks || []).filter((x) => x !== rid);
+  tidyArea(c, a);
+});
+def("R", "ospf", `${A} authentication`, (c, [a]) => { const ac = areaCfg(c, a); if (ac) ac.auth = "text"; });
+def("R", "ospf", `${A} authentication message-digest`, (c, [a]) => { const ac = areaCfg(c, a); if (ac) ac.auth = "md5"; });
+def("R", "ospf", `no ${A} authentication`, (c, [a]) => { const ac = areaCfg(c, a); if (ac) delete ac.auth; tidyArea(c, a); });
+def("R", "ospf", `${A} filter-list prefix <word|Name of an IP prefix-list> {in|out}`, (c, [a, n, d]) => { const ac = areaCfg(c, a); if (ac) ac[d === "in" ? "filterIn" : "filterOut"] = n; });
+def("R", "ospf", `no ${A} filter-list prefix <word|Name of an IP prefix-list> {in|out}`, (c, [a, , d]) => { const ac = areaCfg(c, a); if (ac) delete ac[d === "in" ? "filterIn" : "filterOut"]; tidyArea(c, a); });
+defOpts("R", "ospf", "summary-address <ip|IP summary address> <ip|Summary mask>", [{ key: "na", spec: "not-advertise" }, { key: "tag", spec: "tag <num:0-4294967295|32-bit tag value>" }],
+  (c, [n, m], o) => {
+    const len = maskLen(m), cur = ospfCur(c);
+    if (len < 0) { c.print("% OSPF: Invalid address/mask combination"); return; }
+    cur.summaries = (cur.summaries || []).filter((s) => !(s.net === and(n, m) && s.len === len));
+    cur.summaries.push({ net: and(n, m), len, advertise: !o.na, tag: o.tag ? o.tag[0] : null });
+  });
+def("R", "ospf", "no summary-address <ip|IP summary address> <ip|Summary mask>", (c, [n, m]) => {
+  const cur = ospfCur(c);
+  cur.summaries = (cur.summaries || []).filter((s) => !(s.net === and(n, m) && s.len === maskLen(m)));
+});
+def("R", "ospf", "neighbor <ip|Neighbor address>", (c, [ip]) => { const o = ospfCur(c); o.nbma = [...(o.nbma || []).filter((x) => x.ip !== ip), { ip, prio: 0 }]; });
+def("R", "ospf", "neighbor <ip|Neighbor address> priority <num:0-255|Neighbor priority>", (c, [ip, p]) => { const o = ospfCur(c); o.nbma = [...(o.nbma || []).filter((x) => x.ip !== ip), { ip, prio: p }]; });
+def("R", "ospf", "no neighbor <ip|Neighbor address>", (c, [ip]) => { const o = ospfCur(c); o.nbma = (o.nbma || []).filter((x) => x.ip !== ip); });
+defOpts("R", "ospf", "default-information originate", [{ key: "always", spec: "always" }, { key: "metric", spec: "metric <num:0-16777214|OSPF metric>" },
+  { key: "mtype", spec: "metric-type {1|2}" }], (c, ids, o) => Object.assign(ospfCur(c), { defaultOriginate: true, defaultAlways: !!o.always,
+  defaultOrigMetric: o.metric ? o.metric[0] : undefined, defaultOrigType: o.mtype ? +o.mtype[0] : undefined }));
+// Interface OSPF settings.
+const oiSet = (fn) => (c, args) => eachIf(c, (n, i) => fn(i.ospf, args, n, i));
+def("R", IF_MODES, "ip ospf authentication", oiSet((o) => { o.auth = "text"; }));
+def("R", IF_MODES, "ip ospf authentication message-digest", oiSet((o) => { o.auth = "md5"; }));
+def("R", IF_MODES, "ip ospf authentication null", oiSet((o) => { o.auth = "null"; }));
+def("R", IF_MODES, "no ip ospf authentication", oiSet((o) => { delete o.auth; }));
+def("R", IF_MODES, "ip ospf authentication-key <word|The OSPF password (key)>", oiSet((o, [k]) => { o.authKey = k.slice(0, 8); }));
+def("R", IF_MODES, "no ip ospf authentication-key", oiSet((o) => { delete o.authKey; }));
+def("R", IF_MODES, "ip ospf message-digest-key <num:1-255|Key ID> md5 <word|The OSPF password (key)>", oiSet((o, [id, k]) => { o.md5 = { ...(o.md5 || {}), [id]: k.slice(0, 16) }; }));
+def("R", IF_MODES, "no ip ospf message-digest-key <num:1-255|Key ID>", oiSet((o, [id]) => {
+  if (!o.md5) return;
+  delete o.md5[id];
+  if (!Object.keys(o.md5).length) delete o.md5;
+}));
+def("R", IF_MODES, "ip ospf network {point-to-multipoint|non-broadcast}", oiSet((o, [t]) => { o.ntype = t; delete o.ptp; }));
+def("R", IF_MODES, "ip ospf mtu-ignore", oiSet((o) => { o.mtuIgnore = true; }));
+def("R", IF_MODES, "no ip ospf mtu-ignore", oiSet((o) => { delete o.mtuIgnore; }));
+def("R", IF_MODES, "ip mtu <num:68-1500|MTU (bytes)>", (c, [m]) => eachIf(c, (n, i) => { i.mtu = m === 1500 ? undefined : m; }));
+def("R", IF_MODES, "no ip mtu", (c) => eachIf(c, (n, i) => { delete i.mtu; }));
+def("R", "priv", "debug ip ospf adj", (c) => dbgOn(c, "ospfAdj", "OSPF adjacency debugging is on"));
+def("R", "priv", "debug ip ospf hello", (c) => dbgOn(c, "ospfHello", "OSPF hello debugging is on"));
+def("R", "priv", "debug ip routing", (c) => dbgOn(c, "routing", "IP routing debugging is on"));
+def("R", "priv", "debug ip rip", (c) => { dbgOn(c, "rip", "RIP protocol debugging is on"); ripDebugBurst(c); });
+def("R", "priv", "debug ip policy", (c) => dbgOn(c, "policy", "Policy routing debugging is on"));
+def("R", "priv", "debug eigrp packets", (c) => dbgOn(c, "eigrpPackets", "EIGRP Packet debugging is on\n    (UPDATE, REQUEST, QUERY, REPLY, HELLO, IPXSAP, PROBE, ACK, STUB, SIAQUERY, SIAREPLY)"));
+for (const [spec, key, what] of [["ip ospf adj", "ospfAdj", "OSPF adjacency"], ["ip ospf hello", "ospfHello", "OSPF hello"], ["ip routing", "routing", "IP routing"],
+  ["ip rip", "rip", "RIP protocol"], ["ip policy", "policy", "Policy routing"], ["eigrp packets", "eigrpPackets", "EIGRP Packet"]]) {
+  const off = (c) => { c.d.rt.debug = { ...(c.d.rt.debug || {}), [key]: false }; c.print(what + " debugging is off"); };
+  def("R", "priv", "no debug " + spec, off);
+  def("R", "priv", "undebug " + spec, off);
+}
+function dbgOn(c, key, msg) {
+  c.d.rt.debug = { ...(c.d.rt.debug || {}), [key]: true };
+  c.print(msg);
+  // Problems that are already there show up with the next hello, so report them again from now.
+  const last = c.net.dbgLast && c.net.dbgLast[c.d.name];
+  if (last) { last.ospf = []; last.eigrp = []; }
+}
+// `debug ip rip` shows the next round of updates straight away.
+function ripDebugBurst(c) {
+  const r = c.net.cp().rip[c.d.name];
+  if (!r) return;
+  const L = [];
+  const v = c.cfg.rip.version || 1, dst = v === 2 ? "224.0.0.9" : "255.255.255.255";
+  for (const i of r.ifs) {
+    if (i.passive) continue;
+    L.push(`RIP: sending v${Math.max(...i.send)} update to ${dst} via ${i.ifn} (${n2ip(i.ip)})`, "RIP: build update entries");
+    for (const en of Object.values(r.table)) {
+      if (i.sh && en.via && en.via.some((x) => x.ifn === i.ifn)) continue;
+      L.push(`\t${n2ip(en.net)}/${en.len} via 0.0.0.0, metric ${en.metric + 1}, tag ${en.tag || 0}`);
+    }
+  }
+  for (const n of r.nbrs) {
+    L.push(`RIP: received v${Math.max(...n.lj.send)} update from ${n2ip(n.ip)} on ${n.local}`);
+    for (const en of Object.values(r.table)) if (en.via.some((x) => x.ip === n.ip)) L.push(`     ${n2ip(en.net)}/${en.len} via 0.0.0.0 in ${en.metric} hops`);
+  }
+  for (const l of L) c.print("*" + clock() + ": " + l);
+}
+
+// ---- EIGRP: stub, summaries, authentication, key chains, named-mode extras, EIGRP for IPv6
+const stubOpts = [{ key: "connected", spec: "connected" }, { key: "summary", spec: "summary" }, { key: "static", spec: "static" }, { key: "redistributed", spec: "redistributed" }];
+const setStub = (home) => (c, ids, o) => {
+  const h = home(c), kinds = Object.keys(o);
+  h.stub = kinds.length ? stubOpts.map((x) => x.key).filter((k) => kinds.includes(k)) : ["connected", "summary"];
+};
+for (const [m, home] of [["eigrp", (c) => c.cfg.eigrp], ["eigrpaf", (c) => c.cfg.eigrp], ["eigrp6", (c) => c.cfg.eigrp6], ["eigrpaf6", (c) => c.cfg.eigrp.af6]]) {
+  defOpts("R", m, "eigrp stub", stubOpts, setStub(home));
+  def("R", m, "eigrp stub receive-only", (c) => { home(c).stub = ["receive-only"]; });
+  def("R", m, "no eigrp stub", (c) => { delete home(c).stub; });
+}
+const eigrpIfAs = (c, asn, fn) => {
+  if (!c.cfg.eigrp || c.cfg.eigrp.asn !== asn || c.cfg.eigrp.name) { /* IOS accepts it for any AS; it only acts on the running one */ }
+  return eachIf(c, (n, i) => fn(i, n));
+};
+const EAS = "<num:1-65535|Autonomous system number>";
+def("R", IF_MODES, `ip summary-address eigrp ${EAS} <ip|IP address> <ip|IP network mask>`, (c, [asn, n, m]) => eigrpIfAs(c, asn, (i) => {
+  const len = maskLen(m);
+  i.eigrpSum = [...(i.eigrpSum || []).filter((s) => !(s.asn === asn && s.net === and(n, m) && s.len === len)), { asn, net: and(n, m), len }];
+}));
+def("R", IF_MODES, `no ip summary-address eigrp ${EAS} <ip|IP address> <ip|IP network mask>`, (c, [asn, n, m]) => eigrpIfAs(c, asn, (i) => {
+  i.eigrpSum = (i.eigrpSum || []).filter((s) => !(s.asn === asn && s.net === and(n, m) && s.len === maskLen(m)));
+  if (!i.eigrpSum.length) delete i.eigrpSum;
+}));
+def("R", IF_MODES, `ip authentication mode eigrp ${EAS} md5`, (c, [asn]) => eachIf(c, (n, i) => { i.eigrpAuth = { ...(i.eigrpAuth || {}), [asn]: { ...((i.eigrpAuth || {})[asn] || {}), mode: "md5" } }; }));
+def("R", IF_MODES, `no ip authentication mode eigrp ${EAS} md5`, (c, [asn]) => eachIf(c, (n, i) => { if (i.eigrpAuth && i.eigrpAuth[asn]) delete i.eigrpAuth[asn].mode; }));
+def("R", IF_MODES, `ip authentication key-chain eigrp ${EAS} <word|name of key-chain>`, (c, [asn, k]) => eachIf(c, (n, i) => { i.eigrpAuth = { ...(i.eigrpAuth || {}), [asn]: { ...((i.eigrpAuth || {})[asn] || {}), chain: k } }; }));
+def("R", IF_MODES, `no ip authentication key-chain eigrp ${EAS} <word|name of key-chain>`, (c, [asn]) => eachIf(c, (n, i) => { if (i.eigrpAuth && i.eigrpAuth[asn]) delete i.eigrpAuth[asn].chain; }));
+def("R", IF_MODES, `ip split-horizon eigrp ${EAS}`, (c, [asn]) => eachIf(c, (n, i) => { if (i.eigrpSH) { delete i.eigrpSH[asn]; if (!Object.keys(i.eigrpSH).length) delete i.eigrpSH; } }));
+def("R", IF_MODES, `no ip split-horizon eigrp ${EAS}`, (c, [asn]) => eachIf(c, (n, i) => { i.eigrpSH = { ...(i.eigrpSH || {}), [asn]: false }; }));
+def("R", "config", "key chain <word|Key-chain name>", (c, [n]) => {
+  const kc = c.cfg.keyChains || (c.cfg.keyChains = {});
+  kc[n] = kc[n] || { keys: {} };
+  c.s.enter("kchain", n);
+});
+def("R", "config", "no key chain <word|Key-chain name>", (c, [n]) => { delete (c.cfg.keyChains || {})[n]; });
+def("R", "kchain", "key <num:0-2147483647|Key identifier>", (c, [k]) => {
+  const ch = c.cfg.keyChains[c.target];
+  if (ch.keys[k] === undefined) ch.keys[k] = null;
+  c.s.enter("kckey", { chain: c.target, key: k });
+});
+def("R", "kchain", "no key <num:0-2147483647|Key identifier>", (c, [k]) => { delete c.cfg.keyChains[c.target].keys[k]; });
+def("R", "kckey", "key-string <line|The unencrypted (cleartext) user password>", (c, [s]) => { c.cfg.keyChains[c.target.chain].keys[c.target.key] = s.trim(); });
+def("R", "kckey", "no key-string", (c) => { c.cfg.keyChains[c.target.chain].keys[c.target.key] = null; });
+def("R", "kckey", "key <num:0-2147483647|Key identifier>", (c, [k]) => {
+  const ch = c.cfg.keyChains[c.target.chain];
+  if (ch.keys[k] === undefined) ch.keys[k] = null;
+  c.s.enter("kckey", { chain: c.target.chain, key: k });
+});
+for (const [m, v6] of [["afif", false], ["afif6", true]]) {
+  const afc = (c) => {
+    const base = v6 ? c.cfg.eigrp.af6 : c.cfg.eigrp;
+    const ifs = base.afIfs || (base.afIfs = {});
+    return ifs[c.target] || (ifs[c.target] = {});
+  };
+  if (!v6) {
+    def("R", m, "summary-address <ip|IP address> <ip|IP network mask>", (c, [n, mk]) => { const a = afc(c); a.summary = [...(a.summary || []).filter((s) => !(s.net === and(n, mk))), { net: and(n, mk), len: maskLen(mk) }]; });
+    def("R", m, "no summary-address <ip|IP address> <ip|IP network mask>", (c, [n, mk]) => { const a = afc(c); a.summary = (a.summary || []).filter((s) => !(s.net === and(n, mk) && s.len === maskLen(mk))); });
+  } else {
+    def("R", m, "summary-address <ip6pfx>", (c, [p]) => { const a = afc(c); const net = net6(parse6(p.a), p.len); a.summary = [...(a.summary || []).filter((s) => s.net !== String(net)), { net: String(net), len: p.len }]; });
+    def("R", m, "passive-interface", (c) => { const a = c.cfg.eigrp.af6; if (c.target === "default") a.passiveDefault = true; else a.passive = [...new Set([...(a.passive || []), c.target])]; });
+    def("R", m, "no passive-interface", (c) => { const a = c.cfg.eigrp.af6; if (c.target === "default") a.passiveDefault = false; else a.passive = (a.passive || []).filter((x) => x !== c.target); });
+  }
+  def("R", m, "authentication mode md5", (c) => { const a = afc(c); a.authMode = "md5"; delete a.authKey; });
+  def("R", m, "authentication mode hmac-sha-256 <word|Password>", (c, [k]) => { const a = afc(c); a.authMode = "hmac-sha-256"; a.authKey = k; });
+  def("R", m, "no authentication mode", (c) => { const a = afc(c); delete a.authMode; delete a.authKey; });
+  def("R", m, "authentication key-chain <word|name of key-chain>", (c, [k]) => { afc(c).authChain = k; });
+  def("R", m, "no authentication key-chain", (c) => { delete afc(c).authChain; });
+  def("R", m, "split-horizon", (c) => { delete afc(c).splitHorizon; });
+  def("R", m, "no split-horizon", (c) => { afc(c).splitHorizon = false; });
+  def("R", m, "shutdown", (c) => { afc(c).shutdown = true; });
+  def("R", m, "no shutdown", (c) => { delete afc(c).shutdown; });
+  if (v6) def("R", m, "exit-af-interface", (c) => c.s.enter("eigrpaf6", null));
+}
+// Named mode, IPv6 address family.
+const enterAf6 = (c, asn) => {
+  if (!c.cfg.ipv6Routing) { c.print("% IPv6 routing not enabled"); return; }
+  const e = c.cfg.eigrp;
+  if (e.af6 && e.af6.asn !== asn) { c.print(`% Address family IPv6 is already running autonomous-system ${e.af6.asn}`); return; }
+  e.af6 = e.af6 || { asn, rid: null, passive: [], noPassive: [], passiveDefault: false, k: [1, 0, 1, 0, 0], variance: 1 };
+  c.s.enter("eigrpaf6", null);
+};
+def("R", "eigrpn", `address-family ipv6 unicast autonomous-system ${EAS}`, (c, [a]) => enterAf6(c, a));
+def("R", "eigrpn", `address-family ipv6 autonomous-system ${EAS}`, (c, [a]) => enterAf6(c, a));
+def("R", "eigrpn", `no address-family ipv6 unicast autonomous-system ${EAS}`, (c) => { delete c.cfg.eigrp.af6; });
+def("R", "eigrpaf6", "exit-address-family", (c) => c.s.enter("eigrpn", null));
+def("R", "eigrpaf6", "af-interface <intf>", (c, [n]) => c.s.withIf(n, 1, (ifn) => c.s.enter("afif6", ifn)));
+def("R", "eigrpaf6", "af-interface default", (c) => c.s.enter("afif6", "default"));
+def("R", "eigrpaf6", "topology base", (c) => c.s.enter("aftop6", null));
+def("R", "aftop6", "exit-af-topology", (c) => c.s.enter("eigrpaf6", null));
+def("R", ["eigrpaf6", "eigrp6"], "eigrp router-id <ip|EIGRP Router-ID in IP address format>", (c, [r]) => { (c.mode === "eigrp6" ? c.cfg.eigrp6 : c.cfg.eigrp.af6).rid = r; });
+def("R", ["eigrpaf6", "eigrp6"], "no eigrp router-id", (c) => { (c.mode === "eigrp6" ? c.cfg.eigrp6 : c.cfg.eigrp.af6).rid = null; });
+for (const m of ["aftop6", "eigrp6"]) {
+  def("R", m, "variance <num:1-128|Metric variance multiplier>", (c, [v]) => { redistHome(c).variance = v; });
+  def("R", m, "no variance", (c) => { redistHome(c).variance = 1; });
+}
+// Classic EIGRP for IPv6.
+def("R", "config", `ipv6 router eigrp ${EAS}`, (c, [asn]) => {
+  if (!c.cfg.ipv6Routing) { c.print("% IPv6 routing not enabled"); return; }
+  const e = c.cfg.eigrp6;
+  if (e && e.asn !== asn) { c.print(`% This simulator runs one EIGRP for IPv6 instance per router; this router already runs "ipv6 router eigrp ${e.asn}".`); return; }
+  if (!e) c.cfg.eigrp6 = { asn, rid: null, passive: [], noPassive: [], passiveDefault: false, shutdown: false, k: [1, 0, 1, 0, 0], variance: 1 };
+  c.s.enter("eigrp6", null);
+});
+def("R", "config", `no ipv6 router eigrp ${EAS}`, (c, [asn]) => { if (c.cfg.eigrp6 && c.cfg.eigrp6.asn === asn) delete c.cfg.eigrp6; });
+def("R", "eigrp6", "shutdown", (c) => { c.cfg.eigrp6.shutdown = true; });
+def("R", "eigrp6", "no shutdown", (c) => { c.cfg.eigrp6.shutdown = false; });
+def("R", "eigrp6", "passive-interface <intf>", (c, [n]) => c.s.withIf(n, 1, (ifn) => { const e = c.cfg.eigrp6; e.passive = [...new Set([...e.passive, ifn])]; }));
+def("R", "eigrp6", "no passive-interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => { const e = c.cfg.eigrp6; e.passive = e.passive.filter((x) => x !== ifn); }));
+def("R", IF_MODES, `ipv6 eigrp ${EAS}`, (c, [asn]) => eachIf(c, (n, i) => { i.eigrp6 = asn; }));
+def("R", IF_MODES, `no ipv6 eigrp ${EAS}`, (c) => eachIf(c, (n, i) => { delete i.eigrp6; }));
+def("R", IF_MODES, `ipv6 summary-address eigrp ${EAS} <ip6pfx>`, (c, [asn, p]) => eachIf(c, (n, i) => {
+  const net = String(net6(parse6(p.a), p.len));
+  i.eigrpSum = [...(i.eigrpSum || []).filter((s) => !(s.v6 && s.net === net)), { asn, net, len: p.len, v6: true }];
+}));
+def("R", IF_MODES, `no ipv6 split-horizon eigrp ${EAS}`, (c, [asn]) => eachIf(c, (n, i) => { i.eigrp6SH = { ...(i.eigrp6SH || {}), [asn]: false }; }));
+
+// ---- RIP and RIPng
+def("R", "config", "router rip", (c) => {
+  if (!c.cfg.rip) c.cfg.rip = { version: null, networks: [], passive: [], noPassive: [], passiveDefault: false, autoSummary: true, defaultOriginate: false };
+  c.s.enter("rip", null);
+});
+def("R", "config", "no router rip", (c) => { delete c.cfg.rip; });
+def("R", "rip", "version {1|2}", (c, [v]) => { c.cfg.rip.version = +v; });
+def("R", "rip", "no version", (c) => { c.cfg.rip.version = null; });
+def("R", "rip", "network <ip|Network number>", (c, [a]) => {
+  const m = majorNet(a).net;
+  if (!c.cfg.rip.networks.includes(m)) c.cfg.rip.networks.push(m);
+});
+def("R", "rip", "no network <ip|Network number>", (c, [a]) => {
+  const m = majorNet(a).net, r = c.cfg.rip;
+  if (!r.networks.includes(m)) { c.print("% Invalid network: " + n2ip(a)); return; }
+  r.networks = r.networks.filter((x) => x !== m);
+});
+def("R", "rip", "passive-interface <intf>", (c, [n]) => c.s.withIf(n, 1, (ifn) => {
+  const r = c.cfg.rip;
+  if (r.passiveDefault) r.noPassive = r.noPassive.filter((x) => x !== ifn); else if (!r.passive.includes(ifn)) r.passive.push(ifn);
+}));
+def("R", "rip", "no passive-interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => {
+  const r = c.cfg.rip;
+  if (r.passiveDefault) { if (!r.noPassive.includes(ifn)) r.noPassive.push(ifn); } else r.passive = r.passive.filter((x) => x !== ifn);
+}));
+def("R", "rip", "passive-interface default", (c) => Object.assign(c.cfg.rip, { passiveDefault: true, passive: [], noPassive: [] }));
+def("R", "rip", "no passive-interface default", (c) => Object.assign(c.cfg.rip, { passiveDefault: false, passive: [], noPassive: [] }));
+def("R", "rip", "auto-summary", (c) => { c.cfg.rip.autoSummary = true; });
+def("R", "rip", "no auto-summary", (c) => { c.cfg.rip.autoSummary = false; });
+def("R", "rip", "default-information originate", (c) => { c.cfg.rip.defaultOriginate = true; });
+def("R", "rip", "no default-information originate", (c) => { c.cfg.rip.defaultOriginate = false; });
+def("R", "rip", "timers basic <num:0-4294967295|Interval between updates for RIP> <num:1-4294967295|Invalid> <num:0-4294967295|Holddown> <num:1-4294967295|Flush>", (c, t) => { c.cfg.rip.timers = t; });
+def("R", "rip", "no timers basic", (c) => { delete c.cfg.rip.timers; });
+for (const dir of ["send", "receive"]) {
+  const key = dir === "send" ? "ripSend" : "ripRecv";
+  def("R", IF_MODES, `ip rip ${dir} version {1|2}`, (c, [v]) => eachIf(c, (n, i) => { i[key] = [+v]; }));
+  def("R", IF_MODES, `ip rip ${dir} version 1 2`, (c) => eachIf(c, (n, i) => { i[key] = [1, 2]; }));
+  def("R", IF_MODES, `no ip rip ${dir} version`, (c) => eachIf(c, (n, i) => { delete i[key]; }));
+}
+def("R", IF_MODES, "ip split-horizon", (c) => eachIf(c, (n, i) => { delete i.ripSH; }));
+def("R", IF_MODES, "no ip split-horizon", (c) => eachIf(c, (n, i) => { i.ripSH = false; }));
+def("R", "config", "ipv6 router rip <word|User selected string identifying this process>", (c, [n]) => {
+  if (!c.cfg.ipv6Routing) { c.print("% IPv6 routing not enabled"); return; }
+  const r = c.cfg.ripng || (c.cfg.ripng = {});
+  r[n] = r[n] || {};
+  c.s.enter("ripng", n);
+});
+def("R", "config", "no ipv6 router rip <word|User selected string identifying this process>", (c, [n]) => {
+  if (c.cfg.ripng) delete c.cfg.ripng[n];
+  for (const i of Object.values(c.cfg.intfs)) if (i.ripng && i.ripng.name === n) delete i.ripng;
+});
+def("R", IF_MODES, "ipv6 rip <word|User selected string identifying this process> enable", (c, [n]) => {
+  if (!c.cfg.ipv6Routing) { c.print("% IPv6 routing not enabled"); return; }
+  const r = c.cfg.ripng || (c.cfg.ripng = {});
+  r[n] = r[n] || {};
+  eachIf(c, (x, i) => { i.ripng = { name: n, defaultOriginate: i.ripng && i.ripng.name === n ? i.ripng.defaultOriginate : null }; });
+});
+def("R", IF_MODES, "no ipv6 rip <word|User selected string identifying this process> enable", (c, [n]) => eachIf(c, (x, i) => { if (i.ripng && i.ripng.name === n) delete i.ripng; }));
+def("R", IF_MODES, "ipv6 rip <word|User selected string identifying this process> default-information {originate|only}", (c, [n, how]) => eachIf(c, (x, i) => {
+  if (!i.ripng || i.ripng.name !== n) { c.print("% RIPng is not enabled on this interface for process " + n); return false; }
+  i.ripng.defaultOriginate = how;
+  return true;
+}));
+def("R", IF_MODES, "no ipv6 rip <word|User selected string identifying this process> default-information", (c, [n]) => eachIf(c, (x, i) => { if (i.ripng && i.ripng.name === n) i.ripng.defaultOriginate = null; }));
+
+// ---- IP SLA, tracking and tracked static routes
+def("R", "config", "ip sla <num:1-2147483647|Entry number>", (c, [n]) => {
+  const s = c.cfg.slas || (c.cfg.slas = {});
+  if (c.cfg.slaSched && c.cfg.slaSched[n]) { c.print("Entry already running and cannot be modified\n(only can delete (no) and start over)\n(check to see if the probe has finished exiting)"); return; }
+  s[n] = s[n] || { kind: null, dst: null, srcIf: null, srcIp: null, freq: null, threshold: null, timeout: null };
+  c.s.enter("sla", n);
+});
+def("R", "config", "no ip sla <num:1-2147483647|Entry number>", (c, [n]) => { delete (c.cfg.slas || {})[n]; delete (c.cfg.slaSched || {})[n]; });
+const slaEcho = (c, dst, srcIf, srcIp) => {
+  const s = c.cfg.slas[c.target];
+  if (s.kind && (s.dst !== dst || s.srcIf !== srcIf || s.srcIp !== srcIp)) { c.print("%Error: Entry already configured with a different type or parameters; remove it first"); return; }
+  Object.assign(s, { kind: "icmp-echo", dst, srcIf, srcIp });
+  c.s.enter("slaecho", c.target);
+};
+def("R", "sla", "icmp-echo <ip|Destination IP address or hostname>", (c, [d]) => slaEcho(c, d, null, null));
+def("R", "sla", "icmp-echo <ip|Destination IP address or hostname> source-interface <intf>", (c, [d, n]) => c.s.withIf(n, 3, (ifn) => slaEcho(c, d, ifn, null)));
+def("R", "sla", "icmp-echo <ip|Destination IP address or hostname> source-ip <ip|Source Address>", (c, [d, s]) => slaEcho(c, d, null, s));
+def("R", "slaecho", "frequency <num:1-604800|Frequency in seconds (default 60)>", (c, [f]) => { c.cfg.slas[c.target].freq = f; });
+def("R", "slaecho", "threshold <num:0-60000|Millisecond threshold value>", (c, [t]) => { c.cfg.slas[c.target].threshold = t; });
+def("R", "slaecho", "timeout <num:0-604800000|Timeout in milliseconds>", (c, [t]) => { c.cfg.slas[c.target].timeout = t; });
+def("R", "slaecho", "no frequency", (c) => { c.cfg.slas[c.target].freq = null; });
+for (const life of ["forever", "<num:0-2147483647|Life seconds (default 3600)>"]) {
+  for (const start of ["now", "pending"]) {
+    def("R", "config", `ip sla schedule <num:1-2147483647|Entry number> life ${life} start-time ${start}`, (c, [n, l]) => {
+      if (!(c.cfg.slas || {})[n] || !c.cfg.slas[n].kind) { c.print(`%Error: Entry ${n} doesn't exist, configure it first`); return; }
+      (c.cfg.slaSched || (c.cfg.slaSched = {}))[n] = { life: life === "forever" ? "forever" : l, start };
+      if (start === "pending") delete c.cfg.slaSched[n];
+    });
+  }
+}
+def("R", "config", "ip sla schedule <num:1-2147483647|Entry number> start-time now", (c, [n]) => {
+  if (!(c.cfg.slas || {})[n] || !c.cfg.slas[n].kind) { c.print(`%Error: Entry ${n} doesn't exist, configure it first`); return; }
+  (c.cfg.slaSched || (c.cfg.slaSched = {}))[n] = { life: 3600, start: "now" };
+});
+def("R", "config", "no ip sla schedule <num:1-2147483647|Entry number>", (c, [n]) => { delete (c.cfg.slaSched || {})[n]; });
+for (const kind of ["", " reachability", " state"]) {
+  def("R", "config", `track <num:1-1000|Tracked object> ip sla <num:1-2147483647|Entry number>${kind}`, (c, [o, n]) => {
+    c.cfg.tracks[o] = { sla: n, kind: kind.trim() || "state" };
+    c.s.enter("track", o);
+  });
+}
+def("R", "track", "delay {up|down} <num:0-180|Seconds>", (c, [d, s]) => { const t = c.cfg.tracks[c.target]; t.delay = { ...(t.delay || {}), [d]: s }; });
+def("R", "track", "no delay", (c) => { delete c.cfg.tracks[c.target].delay; });
+const TRK = "track <num:1-1000|Tracked object number>";
+const IPR = "ip route <ip|Destination prefix> <ip|Destination prefix mask>";
+const staticExtra = (c, n, m, ifn, nh, ad, o) => {
+  addRoute(c, n, m, ifn, nh, ad);
+  const r = c.cfg.routes.find((x) => x.net === and(n, m) && x.len === maskLen(m) && x.ifn === (ifn || null) && x.nh === nh);
+  if (!r) return;
+  if (o.track) r.track = o.track[0]; else delete r.track;
+  if (o.tag) r.tag = o.tag[0]; else delete r.tag;
+  if (o.name) r.name = o.name[0]; else delete r.name;
+  if (o.permanent) r.permanent = true; else delete r.permanent;
+};
+const STATIC_OPTS = [{ key: "track", spec: "track <num:1-1000|Install route depending on tracked item>" }, { key: "tag", spec: "tag <num:1-4294967295|Set tag for this route>" },
+  { key: "name", spec: "name <word|Specify name of the next hop>" }, { key: "permanent", spec: "permanent" }];
+// The plain forms already exist; these add the options (track, tag, name, permanent) after the next hop and distance.
+const defStatic = (spec, build) => {
+  const base = IPR + " " + spec;
+  const walk = (chosen) => {
+    for (const o of STATIC_OPTS) {
+      if (chosen.includes(o)) continue;
+      const next = [...chosen, o];
+      const full = [base, ...next.map((x) => x.spec)].join(" ");
+      const argc = (s) => (s.match(/<[^>]+>|\{[^}]+\}/g) || []).length;
+      def("R", "config", full, (c, args) => {
+        const k0 = 2 + argc(spec), got = {};
+        let k = k0;
+        for (const x of next) { const n2 = argc(x.spec); got[x.key] = args.slice(k, k + n2); k += n2; }
+        build(c, args.slice(0, k0), got);
+      });
+      walk(next);
+    }
+  };
+  walk([]);
+};
+defStatic("<ip|Forwarding router's address>", (c, [n, m, nh], o) => staticExtra(c, n, m, undefined, nh, 1, o));
+defStatic("<ip|Forwarding router's address> <num:1-255|Distance metric for this route>", (c, [n, m, nh, ad], o) => staticExtra(c, n, m, undefined, nh, ad, o));
+defStatic("<intf> <ip|Forwarding router's address>", (c, [n, m, i, nh], o) => staticExtra(c, n, m, i, nh, 1, o));
+defStatic("<intf> <ip|Forwarding router's address> <num:1-255|Distance metric for this route>", (c, [n, m, i, nh, ad], o) => staticExtra(c, n, m, i, nh, ad, o));
+// Null0: a discard route.
+const nullRoute = (c, n, m, ad, o = {}) => {
+  const len = maskLen(m);
+  if (len < 0 || and(n, m) !== n) { c.print("%Inconsistent address and mask"); return; }
+  const ex = c.cfg.routes.find((r) => r.net === n && r.len === len && r.ifn === "Null0");
+  const r = ex || { net: n, len, ifn: "Null0", nh: null, ad };
+  r.ad = ad;
+  if (o.tag) r.tag = o.tag[0];
+  if (!ex) c.cfg.routes.push(r);
+};
+for (const nul of ["Null0", "Null 0"]) {
+  def("R", "config", `${IPR} ${nul}`, (c, [n, m]) => nullRoute(c, n, m, 1));
+  def("R", "config", `${IPR} ${nul} <num:1-255|Distance metric for this route>`, (c, [n, m, ad]) => nullRoute(c, n, m, ad));
+  def("R", "config", `${IPR} ${nul} tag <num:1-4294967295|Set tag for this route>`, (c, [n, m, t]) => nullRoute(c, n, m, 1, { tag: [t] }));
+  def("R", "config", `no ${IPR} ${nul}`, (c, [n, m]) => {
+    const before = c.cfg.routes.length;
+    c.cfg.routes = c.cfg.routes.filter((r) => !(r.net === n && r.len === maskLen(m) && r.ifn === "Null0"));
+    if (before === c.cfg.routes.length) c.print("%No matching route to delete");
+  });
+}
+
+// ---- PBR and uRPF
+def("R", IF_MODES, "ip policy route-map <word|Policy route map name>", (c, [n]) => eachIf(c, (x, i) => { i.policy = n; }));
+def("R", IF_MODES, "no ip policy route-map", (c) => eachIf(c, (x, i) => { delete i.policy; }));
+def("R", IF_MODES, "no ip policy route-map <word|Policy route map name>", (c) => eachIf(c, (x, i) => { delete i.policy; }));
+def("R", "config", "ip local policy route-map <word|Policy route map name>", (c, [n]) => { c.cfg.localPolicy = n; });
+def("R", "config", "no ip local policy route-map", (c) => { delete c.cfg.localPolicy; });
+for (const how of ["rx", "any"]) {
+  def("R", IF_MODES, `ip verify unicast source reachable-via ${how}`, (c) => eachIf(c, (x, i) => { i.urpf = { mode: how, allowDefault: false }; }));
+  def("R", IF_MODES, `ip verify unicast source reachable-via ${how} allow-default`, (c) => eachIf(c, (x, i) => { i.urpf = { mode: how, allowDefault: true }; }));
+}
+def("R", IF_MODES, "no ip verify unicast source reachable-via", (c) => eachIf(c, (x, i) => { delete i.urpf; }));
+def("R", IF_MODES, "no ip verify unicast", (c) => eachIf(c, (x, i) => { delete i.urpf; }));
+
+// ---- IPv6 access lists
+function parseAce6(w) {
+  const at = (i, ok) => (ok ? null : { at: i });
+  let i = 0;
+  const proto = (w[i] || "").toLowerCase();
+  if (!["ipv6", "icmp", "tcp", "udp"].includes(proto)) return { at: 0 };
+  i++;
+  const addr = () => {
+    const t = (w[i] || "").toLowerCase();
+    if (t === "any") { i++; return "any"; }
+    if (t === "host") { const a = parse6(w[i + 1] || ""); if (a === null || a === undefined) return null; i += 2; return { host: fmt6(a) }; }
+    const m = /^([^/]+)\/(\d{1,3})$/.exec(w[i] || ""), a = m && parse6(m[1]);
+    if (!m || a === null || a === undefined || +m[2] > 128) return null;
+    i++;
+    return { net: fmt6(net6(a, +m[2])), len: +m[2] };
+  };
+  const src = addr();
+  if (!src) return { at: i };
+  let sport = null;
+  if ((proto === "tcp" || proto === "udp") && (w[i] || "").toLowerCase() === "eq") { sport = { op: "eq", a: +w[i + 1] }; i += 2; }
+  const dst = addr();
+  if (!dst) return { at: i };
+  const e = { proto, src, dst };
+  if (sport) e.sport = sport;
+  if ((proto === "tcp" || proto === "udp") && (w[i] || "").toLowerCase() === "eq") {
+    const p = /^\d+$/.test(w[i + 1] || "") ? +w[i + 1] : PORT_NAMES[(w[i + 1] || "").toLowerCase()];
+    if (p === undefined) return { at: i + 1 };
+    e.dport = { op: "eq", a: p };
+    i += 2;
+  }
+  if (proto === "icmp" && w[i] && w[i].toLowerCase() !== "log") {
+    if (!ICMP6_TYPES.includes(w[i].toLowerCase())) return { at: i };
+    e.icmp = w[i].toLowerCase();
+    i++;
+  }
+  if ((w[i] || "").toLowerCase() === "log") { e.log = true; i++; }
+  return i < w.length ? at(i, false) : { entry: e };
+}
+const ace6Str = (e) => {
+  const a = (x) => (x === "any" ? "any" : x.host !== undefined ? "host " + x.host : `${x.net}/${x.len}`);
+  return [e.proto, a(e.src), e.sport ? "eq " + e.sport.a : null, a(e.dst), e.dport ? "eq " + (Object.keys(PORT_NAMES).find((k) => PORT_NAMES[k] === e.dport.a) || e.dport.a) : null,
+    e.icmp || null, e.log ? "log" : null].filter(Boolean).join(" ");
+};
+const acl6Add = (c, action, text, seq, at) => {
+  const acl = c.cfg.acls6[c.target];
+  const r = parseAce6(words(text));
+  if (!r.entry) { c.invalid(at + r.at); return; }
+  const s = seq ?? (acl.entries.length ? Math.max(...acl.entries.map((e) => e.seq)) + 10 : 10);
+  if (acl.entries.some((e) => e.seq === s)) { c.print("% Duplicate sequence number"); return; }
+  acl.entries.push({ seq: s, action, ...r.entry });
+  acl.entries.sort((x, y) => x.seq - y.seq);
+};
+def("R", "config", "ipv6 access-list <word|User selected string identifying this access list>", (c, [n]) => {
+  const a = c.cfg.acls6 || (c.cfg.acls6 = {});
+  a[n] = a[n] || { entries: [] };
+  c.s.enter("acl6", n);
+});
+def("R", "config", "no ipv6 access-list <word|User selected string identifying this access list>", (c, [n]) => { delete (c.cfg.acls6 || {})[n]; });
+const ACE6 = "<line|Protocol, source, destination: e.g. icmp any host 2001:DB8::1 echo-request>";
+def("R", "acl6", `{permit|deny} ${ACE6}`, (c, [a, t]) => acl6Add(c, a, t, null, 1));
+def("R", "acl6", `sequence <num:1-4294967295|Sequence number for this entry> {permit|deny} ${ACE6}`, (c, [s, a, t]) => acl6Add(c, a, t, s, 3));
+def("R", "acl6", "remark <line|Comment up to 100 characters>", (c, [t]) => {
+  const acl = c.cfg.acls6[c.target];
+  acl.entries.push({ seq: (acl.entries.length ? Math.max(...acl.entries.map((e) => e.seq)) + 10 : 10), remark: t });
+});
+def("R", "acl6", "no sequence <num:1-4294967295|Sequence number for this entry>", (c, [s]) => { const acl = c.cfg.acls6[c.target]; acl.entries = acl.entries.filter((e) => e.seq !== s); });
+def("R", "acl6", `no {permit|deny} ${ACE6}`, (c, [a, t]) => {
+  const acl = c.cfg.acls6[c.target], r = parseAce6(words(t));
+  if (!r.entry) { c.invalid(2 + r.at); return; }
+  acl.entries = acl.entries.filter((e) => e.remark !== undefined || e.action !== a || ace6Str(e) !== ace6Str(r.entry));
+});
+def("R", IF_MODES, "ipv6 traffic-filter <word|Access list name> {in|out}", (c, [n, d]) => eachIf(c, (x, i) => { i.filter6 = { ...(i.filter6 || {}), [d]: n }; }));
+def("R", IF_MODES, "no ipv6 traffic-filter <word|Access list name> {in|out}", (c, [, d]) => eachIf(c, (x, i) => {
+  if (!i.filter6) return;
+  delete i.filter6[d];
+  if (!Object.keys(i.filter6).length) delete i.filter6;
+}));
+
+// ---- DHCPv6
+def("R", "config", "ipv6 dhcp pool <word|DHCP pool name>", (c, [n]) => {
+  const p = c.cfg.dhcp6Pools || (c.cfg.dhcp6Pools = {});
+  p[n] = p[n] || { prefix: null, dns: [], domain: null };
+  c.s.enter("dhcp6", n);
+});
+def("R", "config", "no ipv6 dhcp pool <word|DHCP pool name>", (c, [n]) => { delete (c.cfg.dhcp6Pools || {})[n]; });
+def("R", "dhcp6", "address prefix <ip6pfx>", (c, [p]) => { c.cfg.dhcp6Pools[c.target].prefix = { a: fmt6(net6(parse6(p.a), p.len)), len: p.len }; });
+def("R", "dhcp6", "address prefix <ip6pfx> lifetime <num:60-4294967295|Valid lifetime (seconds)> <num:60-4294967295|Preferred lifetime (seconds)>", (c, [p]) => { c.cfg.dhcp6Pools[c.target].prefix = { a: fmt6(net6(parse6(p.a), p.len)), len: p.len }; });
+def("R", "dhcp6", "no address prefix", (c) => { c.cfg.dhcp6Pools[c.target].prefix = null; });
+def("R", "dhcp6", "dns-server <ip6|IPv6 address>", (c, [a]) => { const p = c.cfg.dhcp6Pools[c.target]; if (!p.dns.includes(a)) p.dns.push(a); });
+def("R", "dhcp6", "no dns-server <ip6|IPv6 address>", (c, [a]) => { const p = c.cfg.dhcp6Pools[c.target]; p.dns = p.dns.filter((x) => x !== a); });
+def("R", "dhcp6", "domain-name <word|Domain name>", (c, [d]) => { c.cfg.dhcp6Pools[c.target].domain = d; });
+def("R", "dhcp6", "no domain-name", (c) => { c.cfg.dhcp6Pools[c.target].domain = null; });
+const d6 = (fn) => (c, args) => eachIf(c, (x, i) => { i.dhcp6 = i.dhcp6 || { server: null, relay: [], client: false }; fn(i.dhcp6, args, i); });
+def("R", IF_MODES, "ipv6 dhcp server <word|Name of IPv6 DHCP pool>", d6((v, [n]) => { v.server = n; }));
+def("R", IF_MODES, "no ipv6 dhcp server", d6((v) => { v.server = null; }));
+def("R", IF_MODES, "ipv6 dhcp relay destination <ip6|IPv6 destination address>", d6((v, [a]) => { v.relay = [...v.relay.filter((r) => r.dst !== a), { dst: a, ifn: null }]; }));
+def("R", IF_MODES, "ipv6 dhcp relay destination <ip6|IPv6 destination address> <intf>", (c, [a, n]) => c.s.withIf(n, 5, (ifn) => d6((v) => { v.relay = [...v.relay.filter((r) => r.dst !== a), { dst: a, ifn }]; })(c, [])));
+def("R", IF_MODES, "no ipv6 dhcp relay destination <ip6|IPv6 destination address>", d6((v, [a]) => { v.relay = v.relay.filter((r) => r.dst !== a); }));
+def("R", IF_MODES, "ipv6 address dhcp", d6((v) => { v.client = true; }));
+def("R", IF_MODES, "no ipv6 address dhcp", d6((v) => { v.client = false; }));
+for (const [flag, key] of [["managed-config-flag", "managed"], ["other-config-flag", "other"]]) {
+  def("R", IF_MODES, "ipv6 nd " + flag, (c) => eachIf(c, (x, i) => { i.nd = { ...(i.nd || {}), [key]: true }; }));
+  def("R", IF_MODES, "no ipv6 nd " + flag, (c) => eachIf(c, (x, i) => { if (i.nd) { delete i.nd[key]; if (!Object.keys(i.nd).length) delete i.nd; } }));
+}
+
+// ---- show commands for all of the above
+def("R", "priv", "show ip ospf database", (c) => c.print(showOspfDb(c.net, c.d.name, null)));
+for (const kind of ["router", "network", "summary", "asbr-summary", "external", "nssa-external"]) {
+  def("R", "priv", "show ip ospf database " + kind, (c) => c.print(showOspfDb(c.net, c.d.name, kind)));
+}
+def("R", "priv", "show ip ospf border-routers", (c) => c.print(showOspfBorder(c.net, c.d.name)));
+def("R", "priv", "show ip ospf virtual-links", (c) => c.print(showOspfVlinks(c.net, c.d.name)));
+def("R", both, "show ip route rip", (c) => c.print(showIpRoute(c.net, c.d.name, "R")));
+def("R", "priv", "show ip rip database", (c) => c.print(showRipDb(c.net, c.d.name)));
+def("R", "priv", "show ip eigrp neighbors detail", (c) => c.cfg.eigrp && c.print(showEigrpNbrs(c.net, c.d.name, true)));
+def("R", "priv", "show ip eigrp topology all-links", (c) => c.cfg.eigrp && c.print(showEigrpTopo(c.net, c.d.name, true)));
+def("R", "priv", "show ip eigrp topology <word|IP prefix <network>/<length>, e.g., 192.168.0.0/16>", (c, [p]) => c.print(showEigrpTopoOne(c.net, c.d.name, p)));
+def("R", "priv", "show ipv6 eigrp neighbors", (c) => c.print(showEigrp6Nbrs(c.net, c.d.name)));
+def("R", "priv", "show ipv6 eigrp topology", (c) => c.print(showEigrp6Topo(c.net, c.d.name)));
+def("R", "priv", "show ipv6 eigrp interfaces", (c) => c.print(showEigrp6Ifs(c.net, c.d.name)));
+def("R", both, "show ipv6 route {rip|eigrp}", (c, [f]) => c.print(showIpv6Route(c.net, c.d.name, f === "rip" ? "R" : "D")));
+def("R", both, "show ipv6 rip", (c) => c.print(showRipng(c.net, c.d.name, false)));
+def("R", both, "show ipv6 rip database", (c) => c.print(showRipng(c.net, c.d.name, true)));
+def("R", "priv", "show key chain", (c) => c.print(showKeyChain(c.net, c.d.name)));
+def("R", both, "show ip prefix-list", (c) => c.print(showPrefixLists(c.net, c.d.name, false, null, false)));
+def("R", both, "show ip prefix-list detail", (c) => c.print(showPrefixLists(c.net, c.d.name, false, null, true)));
+def("R", both, "show ip prefix-list <word|Name of a prefix list>", (c, [n]) => c.print(showPrefixLists(c.net, c.d.name, false, n, false)));
+def("R", both, "show ip prefix-list detail <word|Name of a prefix list>", (c, [n]) => c.print(showPrefixLists(c.net, c.d.name, false, n, true)));
+def("R", both, "show ipv6 prefix-list", (c) => c.print(showPrefixLists(c.net, c.d.name, true, null, false)));
+def("R", both, "show route-map", (c) => c.print(showRouteMaps(c.net, c.d.name, null)));
+def("R", both, "show route-map <word|route-map name>", (c, [n]) => c.print(showRouteMaps(c.net, c.d.name, n)));
+def("R", both, "show ip policy", (c) => c.print(showIpPolicy(c.net, c.d.name)));
+def("R", both, "show ip sla statistics", (c) => c.print(showSlaStats(c.net, c.d.name, null)));
+def("R", both, "show ip sla statistics <num:1-2147483647|Entry number>", (c, [n]) => c.print(showSlaStats(c.net, c.d.name, n)));
+def("R", both, "show ip sla configuration", (c) => c.print(showSlaConfig(c.net, c.d.name, null)));
+def("R", both, "show ip sla configuration <num:1-2147483647|Entry number>", (c, [n]) => c.print(showSlaConfig(c.net, c.d.name, n)));
+def("R", both, "show ip sla summary", (c) => c.print(showSlaSummary(c.net, c.d.name)));
+def("R", both, "show ipv6 access-list", (c) => c.print(showAcls6(c.net, c.d.name, null)));
+def("R", both, "show ipv6 access-list <word|Access list name>", (c, [n]) => c.print(showAcls6(c.net, c.d.name, n)));
+def("R", "priv", "clear ipv6 access-list counters", (c) => { c.d.rt.hits6 = {}; });
+def("R", both, "show ipv6 dhcp pool", (c) => c.print(showDhcp6Pool(c.net, c.d.name)));
+def("R", both, "show ipv6 dhcp binding", (c) => c.print(showDhcp6Binding(c.net, c.d.name)));
+def("R", both, "show ipv6 dhcp interface", (c) => c.print(showDhcp6If(c.net, c.d.name)));
+def("R", both, "show ip interface", (c) => c.print(showIpInterface(c.net, c.d.name, null)));
+def("R", both, "show ip interface <intf>", (c, [n]) => c.s.withIf(n, 3, (ifn) => c.print(showIpInterface(c.net, c.d.name, ifn))));
+def("R", "priv", "clear ip ospf <num:1-65535|Process ID> process", (c, [pid]) => c.s.ask(`Reset OSPF process ${pid}? [no]: `, {}, (ans) => {
+  if (!/^y(es?)?$/i.test(ans.trim())) return;
+  const o = ospfProcs(c.cfg).find((x) => x.pid === pid);
+  if (o) o.ridHeld = null;
 }));
 
 // ---------------------------------------------------------------- output filters
@@ -5157,9 +8186,10 @@ export class Session {
   }
 
   setRid(rid) {
-    const dn = this.d.name, o = this.d.cfg.ospf;
-    const cur = this.net.routerId(dn);
-    const busy = !!this.net.ospf()[dn] && this.net.ospf()[dn].nbrs.length > 0;
+    const dn = this.d.name, o = ospfProcs(this.d.cfg).find((x) => x.pid === this.f.target) || this.d.cfg.ospf;
+    const cur = this.net.routerId(dn, o.pid);
+    const inst = this.net.ospfInstsOf(dn).find((x) => x.pid === o.pid);
+    const busy = !!inst && inst.nbrs.length > 0;
     const next = rid ?? null;
     if (busy && next !== null && next !== cur) {
       if (o.ridHeld === null || o.ridHeld === undefined) o.ridHeld = cur;
@@ -5192,7 +8222,7 @@ export class Session {
       const r = net.ping(dn, dst, { source: source ?? undefined, record: true });
       first = first || r;
       if (r.ok && !(i === 0 && r.arpMiss)) { marks += "!"; ok++; continue; }
-      const unreachable = !r.ok && r.by !== null && r.by !== undefined && r.failAt !== dn && (r.fail === "noroute" || r.fail === "acl");
+      const unreachable = !r.ok && r.by !== null && r.by !== undefined && r.failAt !== dn && (r.fail === "noroute" || r.fail === "acl" || r.fail === "null0");
       marks += unreachable && i % 2 === 0 ? "U" : ".";
     }
     for (let i = 0; i < marks.length; i += 70) this.print(marks.slice(i, i + 70));
@@ -5497,7 +8527,7 @@ export class Session {
         this.print(`host (${n2ip(nh)}) not reachable`);
         break;
       }
-      if (!r.ok && r.by !== null && r.by !== undefined && r.failAt !== dn && (r.fail === "noroute" || r.fail === "acl")) {
+      if (!r.ok && r.by !== null && r.by !== undefined && r.failAt !== dn && (r.fail === "noroute" || r.fail === "acl" || r.fail === "null0")) {
         const [code, text] = r.fail === "acl" ? [13, "Communication administratively prohibited"] : [0, "Destination network unreachable"];
         this.print(`*${n2ip(r.by)} icmp_seq=${i} ttl=255 time=${ms()} ms (ICMP type:3, code:${code}, ${text})`);
         continue;
