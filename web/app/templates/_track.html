@@ -1,0 +1,11 @@
+{#- The CCNP / CCNA / Both switch. Clicking a choice saves it for this user and reloads. -#}
+{% macro track_switch(extra_class="") -%}
+{%- set cur = track if track is defined and track else "both" -%}
+{%- set choices = TRACKS if TRACKS is defined else [("ccnp", "CCNP"), ("ccna", "CCNA"), ("both", "Both")] -%}
+<div class="track-switch {{ extra_class }}" role="radiogroup" aria-label="Which exam to show">
+  {%- for value, label in choices %}
+  <button type="button" role="radio" data-track-choice="{{ value }}" aria-checked="{{ 'true' if value == cur else 'false' }}"
+          class="{{ 'on' if value == cur }}" title="{{ 'Show CCNP and CCNA together' if value == 'both' else 'Show ' ~ label ~ ' material' }}">{{ label }}</button>
+  {%- endfor %}
+</div>
+{%- endmacro %}

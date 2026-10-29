@@ -1,37 +1,56 @@
 {% extends "base.html" %}
 {% block title %}Flashcards{% endblock %}
+{% set kit_names = KIT_TITLES if KIT_TITLES is defined else {"ccna": "CCNA", "ccnp": "CCNP"} %}
 {% block content %}
-{% set tot_new = counts.values()|sum(attribute='new') %}
-{% set tot_learn = counts.values()|sum(attribute='learning') %}
-{% set tot_due = counts.values()|sum(attribute='due') %}
+{% set tot = namespace(new=0, learn=0, due=0) %}
+{% for d in decks %}{% set c = counts[d.id] %}{% set tot.new = tot.new + c.new %}{% set tot.learn = tot.learn + c.learning %}{% set tot.due = tot.due + c.due %}{% endfor %}
+{% set tot_new, tot_learn, tot_due = tot.new, tot.learn, tot.due %}
 <div class="page-head spread">
   <div>
     <h1>Flashcards</h1>
-    <p>{{ decks|length }} decks, spaced repetition. Rate each card honestly and the scheduler brings it back right before you'd forget it.</p>
+    <p>{{ decks|length }} deck{{ '' if decks|length == 1 else 's' }} with spaced repetition. Rate each card honestly and it comes back right before you'd forget it.</p>
   </div>
-  <a class="btn btn-primary btn-lg" href="/cards/study">Study all ({{ tot_learn + tot_due + [new_left, tot_new]|min }})</a>
+  {% if decks %}<a class="btn btn-primary btn-lg" href="/cards/study">Study all ({{ tot_learn + tot_due + [new_left, tot_new]|min }})</a>{% endif %}
 </div>
 
-<div class="card">
-  <div class="deck-row muted small" style="font-weight:600;padding-top:0">
-    <span>Deck</span><span class="num" title="New cards (never studied)" style="color:var(--accent)">New</span>
-    <span class="num" title="In learning, due now" style="color:var(--bad)">Learn</span>
-    <span class="num" title="Reviews due" style="color:var(--good)">Due</span><span class="deck-actions"></span>
-  </div>
-  {% for d in decks %}{% set c = counts[d.id] %}
-  <div class="deck-row">
-    <span><a href="/cards/study?deck={{ d.id }}">{{ d.name }}</a><br>
-      <span class="muted tiny">{{ c.total - c.new }} of {{ c.total }} studied · {{ c.mature }} mature</span></span>
-    <span class="num" style="color:var(--accent)">{{ c.new }}</span>
-    <span class="num" style="color:var(--bad)">{{ c.learning }}</span>
-    <span class="num" style="color:var(--good)">{{ c.due }}</span>
-    <span class="row deck-actions">
-      <a class="btn btn-sm btn-primary" href="/cards/study?deck={{ d.id }}">Study</a>
-      <a class="btn btn-sm" href="/cards/study?deck={{ d.id }}&mode=cram" title="Run through every card without touching the schedule">Cram</a>
-      <a class="btn btn-sm btn-ghost" href="/cards/browse?deck={{ d.id }}">Browse</a>
-    </span>
-  </div>
-  {% endfor %}
+{% if not decks %}
+<div class="card empty">
+  <p>No flashcard decks for this track yet.</p>
+  <p class="small">Switch to <strong>Both</strong> in the track switch to see every deck.</p>
 </div>
+{% endif %}
+
+{% set groups = [] %}
+{% for kit in ["ccnp", "ccna"] %}
+  {% set items = decks|selectattr("kit", "defined")|selectattr("kit", "equalto", kit)|list %}
+  {% if items %}{% set _ = groups.append((kit, items)) %}{% endif %}
+{% endfor %}
+{% if decks and not groups %}{% set _ = groups.append(("", decks)) %}{% endif %}
+{% for kit, items in groups %}
+<section class="kit-section">
+  {% if groups|length > 1 %}<h2 class="section-title"><span class="kit-badge kit-{{ kit }}">{{ kit_names[kit] }}</span> decks</h2>{% endif %}
+  <div class="card">
+    <div class="deck-row deck-head muted small">
+      <span>Deck</span><span class="num" title="New cards (never studied)" style="color:var(--accent)">New</span>
+      <span class="num" title="In learning, due now" style="color:var(--bad)">Learn</span>
+      <span class="num" title="Reviews due" style="color:var(--good)">Due</span><span class="deck-actions"></span>
+    </div>
+    {% for d in items %}{% set c = counts[d.id] %}
+    <div class="deck-row">
+      <span><a href="/cards/study?deck={{ d.id }}">{{ d.name }}</a><br>
+        <span class="muted tiny">{{ c.total - c.new }} of {{ c.total }} studied · {{ c.mature }} mature</span></span>
+      <span class="num" style="color:var(--accent)">{{ c.new }}</span>
+      <span class="num" style="color:var(--bad)">{{ c.learning }}</span>
+      <span class="num" style="color:var(--good)">{{ c.due }}</span>
+      <span class="row deck-actions">
+        <a class="btn btn-sm btn-primary" href="/cards/study?deck={{ d.id }}">Study</a>
+        <a class="btn btn-sm" href="/cards/study?deck={{ d.id }}&mode=cram" title="Run through every card without touching the schedule">Cram</a>
+        <a class="btn btn-sm btn-ghost" href="/cards/browse?deck={{ d.id }}">Browse</a>
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
 <p class="muted small">New cards per day: {{ settings.new_cards_per_day }} ({{ new_left }} left today). Change it in <a href="/settings">Settings</a>. A card counts as <em>mature</em> once its interval reaches 21 days.</p>
 {% endblock %}
