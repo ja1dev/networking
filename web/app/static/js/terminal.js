@@ -1,6 +1,6 @@
 // Terminal lab page: topology diagram, one console per device, live task checks, autosave.
 import { api, debounce, toast } from "netlab";
-import { buildLab, clock, fmt6, n2ip, maskLen, Session, shortIf } from "netlab/ios";
+import { buildLab, fmt6, n2ip, maskLen, Session, shortIf } from "netlab/ios";
 
 const root = document.getElementById("term-lab");
 const labId = root.dataset.lab;
@@ -81,8 +81,10 @@ function showDevice(dev, focus) {
 }
 
 function afterCommand(s) {
-  for (const [dev, msgs] of Object.entries(s.events || {})) {
-    if (dev !== s.home && net.devs[dev].type !== "pc") write(dev, msgs.map((m) => "*" + clock() + ": " + m).join("\n"));
+  // Other devices' consoles get their log lines as each device formats them: its console
+  // logging level, sequence numbers and timestamp style (NTP-synced or not) all apply.
+  for (const [dev, lines] of Object.entries(s.consoleLines || {})) {
+    if (dev !== s.home && lines.length) write(dev, lines.join("\n"));
   }
   if (s.anim) animate(s.anim);
   refreshDiagram();
