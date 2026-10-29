@@ -310,10 +310,14 @@ function refreshDiagram() {
     const dev = net.devs[d.name], { name, sub } = labels.get(d.name);
     name.textContent = dev.cfg.hostname;
     if (d.type === "pc") {
-      sub.textContent = dev.cfg.ip !== null ? `${n2ip(dev.cfg.ip)}/${maskLen(dev.cfg.mask)}`
+      const addr = dev.cfg.ip !== null ? `${n2ip(dev.cfg.ip)}/${maskLen(dev.cfg.mask)}`
         : net.addrs6(d.name, "eth0").map((x) => `${fmt6(x.a).toLowerCase()}/${x.len}`)[0] || "no IP";
+      // A Linux workstation (curl, netconf-console) is marked so it isn't mistaken for a VPCS.
+      sub.textContent = (d.os === "linux" ? "Linux · " : "") + addr;
+    } else {
+      const tag = d.model === "csr" ? "IOS-XE" : "";
+      sub.textContent = [dev.cfg.hostname !== d.name ? d.name : "", tag].filter(Boolean).join(" · ");
     }
-    else sub.textContent = dev.cfg.hostname !== d.name ? d.name : "";
   }
 }
 
