@@ -1308,6 +1308,90 @@ And that's on the **same physical switch** — no extra hardware involved.
 
 Now a broadcast from a student only reaches **other students** (VLAN 20), never the teachers or the payroll server. Problem A (noise) shrinks, Problem B (security) is solved by the wall, and Problem C (location) is solved because you can just **assign a port to a VLAN with a command** instead of running cables.
 
+Step through it below: one switch, three VLANs, and watch where each broadcast is allowed to go.
+
+```diagram
+{
+  "type": "topology",
+  "title": "One switch, three broadcast domains",
+  "caption": "SW1 has ports in VLAN 10 (Teachers), VLAN 20 (Students) and VLAN 30 (Admin). Press **Next** to send some broadcasts.",
+  "nodes": [
+    {"id": "SW1", "kind": "switch", "x": 2.45, "y": 0, "sub": "VLANs 10, 20, 30", "info": "One physical switch. Each port is assigned to one VLAN, and the switch keeps a separate flooding domain for each VLAN."},
+    {"id": "T1", "kind": "host", "x": 0, "y": 1.6, "label": "Teacher 1", "sub": "VLAN 10", "info": "Access port Fa0/1, VLAN 10."},
+    {"id": "T2", "kind": "host", "x": 0.9, "y": 1.6, "label": "Teacher 2", "sub": "VLAN 10", "info": "Access port Fa0/2, VLAN 10."},
+    {"id": "S1", "kind": "host", "x": 2.05, "y": 1.6, "label": "Student 1", "sub": "VLAN 20", "info": "Access port Fa0/3, VLAN 20."},
+    {"id": "S2", "kind": "host", "x": 2.95, "y": 1.6, "label": "Student 2", "sub": "VLAN 20", "info": "Access port Fa0/4, VLAN 20."},
+    {"id": "PR", "kind": "host", "x": 4.1, "y": 1.6, "label": "Principal", "sub": "VLAN 30", "info": "Access port Fa0/5, VLAN 30."},
+    {"id": "PAY", "kind": "server", "x": 5.0, "y": 1.6, "label": "Payroll", "sub": "VLAN 30", "info": "Access port Fa0/6, VLAN 30. Students have no Layer 2 path to it."}
+  ],
+  "links": [
+    {"a": "SW1", "b": "T1"}, {"a": "SW1", "b": "T2"}, {"a": "SW1", "b": "S1"},
+    {"a": "SW1", "b": "S2"}, {"a": "SW1", "b": "PR"}, {"a": "SW1", "b": "PAY"}
+  ],
+  "zones": [
+    {"label": "VLAN 10", "nodes": ["T1", "T2"], "tone": "accent"},
+    {"label": "VLAN 20", "nodes": ["S1", "S2"], "tone": "good"},
+    {"label": "VLAN 30", "nodes": ["PR", "PAY"], "tone": "purple"}
+  ],
+  "steps": [
+    {"title": "1. Student 1 sends an ARP broadcast",
+     "text": "Student 1 asks *who has 192.168.20.5?* The frame goes to `FFFF.FFFF.FFFF`, so the switch must flood it. The question is: flood it **where**?",
+     "packets": [{"path": ["S1", "SW1"], "label": "ARP broadcast", "tone": "warn"}]},
+    {"title": "2. Flooded inside VLAN 20 only",
+     "text": "The frame came in on a VLAN 20 port, so SW1 floods it **only to the other VLAN 20 ports**. The teachers and the payroll server never see it. That's what *a VLAN is a broadcast domain* means.",
+     "focus": ["SW1", "S1", "S2", "SW1-S1", "SW1-S2"],
+     "packets": [{"path": ["SW1", "S2"], "label": "ARP broadcast", "tone": "warn"}]},
+    {"title": "3. A teacher's DHCP Discover stays in VLAN 10",
+     "text": "Same rule for every VLAN. Teacher 1's DHCP Discover reaches Teacher 2 and nobody else. Without VLANs, all six devices would have had to stop and read both broadcasts.",
+     "focus": ["SW1", "T1", "T2", "SW1-T1", "SW1-T2"],
+     "packets": [{"path": ["T1", "SW1", "T2"], "label": "DHCP Discover", "tone": "accent"}]},
+    {"title": "4. Students can't reach payroll at Layer 2",
+     "text": "Student 1 tries to reach the payroll server. SW1 will **never** forward a frame from a VLAN 20 port out a VLAN 30 port. The only way between VLANs is through a router, where you decide what's allowed (Chapter 8).",
+     "nodes": {"PAY": {"badge": "no path", "tone": "bad"}},
+     "packets": [{"path": ["S1", "SW1"], "label": "to payroll?", "tone": "bad"}]}
+  ]
+}
+```
+
+**📝 Exam-style questions — 7.1**
+
+**Q1.** A new 48-port switch has every port in VLAN 1. An engineer creates VLANs 10, 20 and 30 and moves some ports into each one. The remaining ports stay in VLAN 1. How many broadcast domains does the switch now have?
+
+- **A.** 1
+- **B.** 3
+- **C.** 4
+- **D.** 48
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Each VLAN is its own broadcast domain, and VLAN 1 still has ports in it, so that's VLANs 1, 10, 20 and 30: four. **Why not the others:** A is the count before any VLANs were made. B forgets that VLAN 1 is still in use by the leftover ports. D confuses broadcast domains with collision domains: every switch port is its own collision domain, but ports in the same VLAN share one broadcast domain.
+</details>
+
+**Q2.** A switch with no VLANs configured receives a broadcast frame on port Fa0/3. What does it do with the frame?
+
+- **A.** It forwards it only out the port where the destination MAC was learned.
+- **B.** It floods it out every port except Fa0/3.
+- **C.** It drops it, because broadcasts need a router.
+- **D.** It sends it back out Fa0/3 and every other port.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A broadcast goes to `FFFF.FFFF.FFFF`, which is "everyone", so the switch floods it out every port in the same VLAN (here, all of them) except the one it came in on. **Why not the others:** A describes a known unicast; no device "owns" the broadcast MAC, so there's no single port to pick. C is backwards: switches flood broadcasts, and it's routers that stop them. D is wrong because a switch never sends a frame back out the port it arrived on.
+</details>
+
+**Q3.** A school runs 200 devices in one flat network. Which two problems would splitting them into VLANs solve? (Choose two.)
+
+- **A.** Every broadcast interrupts all 200 devices.
+- **B.** Student laptops can reach the payroll server directly, with no point where traffic can be filtered.
+- **C.** The school needs more IP addresses than a /24 provides.
+- **D.** Frames between two devices in different VLANs no longer need a router.
+- **E.** Full-duplex links suffer from collisions.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** VLANs shrink each broadcast domain, so a broadcast only bothers its own group, and they separate groups so cross-group traffic has to pass a router, where ACLs can allow or block it. **Why not the others:** C is an addressing problem; VLANs don't create addresses (though each VLAN gets its own subnet). D is backwards: VLANs *create* the need for a router between groups. E is wrong because full-duplex links have no collisions to begin with.
+</details>
+
 ## 7.2 Why VLANs Are Awesome (Each Benefit, With the Reasoning)
 
 Now that you feel the problem, here's *why* each benefit actually works:
@@ -1322,7 +1406,72 @@ Now that you feel the problem, here's *why* each benefit actually works:
 
 - **Cost savings:** One physical switch does the job of several. No need to buy separate hardware per group.
 
+Click the devices and links below to see how VLANs follow the **role** of a device rather than where it's plugged in.
+
+```diagram
+{
+  "type": "topology",
+  "title": "VLANs by role, not by location",
+  "caption": "Two switches in different buildings, joined by a trunk. Click any device or link.",
+  "nodes": [
+    {"id": "R1", "kind": "router", "x": 4.5, "y": 0, "sub": "inter-VLAN gateway", "info": "The only way **between** VLANs. Here you can put ACLs, for example *VLAN 20 may not reach VLAN 30*."},
+    {"id": "GYM", "kind": "switch", "x": 1, "y": 1, "label": "SW-Gym", "info": "Gym building switch. It has cameras and student laptops, each port set to the VLAN of the device's **role**."},
+    {"id": "OFF", "kind": "switch", "x": 4.5, "y": 1.3, "label": "SW-Office", "info": "Office building switch. Same VLAN numbers as the gym switch, because VLANs stretch across the trunk."},
+    {"id": "CAM1", "kind": "host", "x": 0, "y": 2.5, "label": "Camera 1", "sub": "VLAN 50", "info": "A camera in the gym, in **VLAN 50** with every other camera, so one rule set covers all cameras."},
+    {"id": "ST", "kind": "host", "x": 1.8, "y": 2.5, "label": "Student", "sub": "VLAN 20", "info": "A student laptop in **VLAN 20**. Its broadcasts reach only other VLAN 20 ports, in either building."},
+    {"id": "CAM2", "kind": "host", "x": 3.6, "y": 2.7, "label": "Camera 2", "sub": "VLAN 50", "info": "A camera in the office, also in **VLAN 50**, even though it's in a different building from Camera 1. Same group, different place."},
+    {"id": "PAY", "kind": "server", "x": 5.4, "y": 2.7, "label": "Payroll", "sub": "VLAN 30", "info": "Payroll in **VLAN 30**. A student in VLAN 20 has no Layer 2 path here; anything they send must go through R1 and its rules."}
+  ],
+  "links": [
+    {"a": "GYM", "b": "OFF", "style": "thick", "label": "trunk", "info": "A **trunk** carries VLANs 20, 30 and 50 between the buildings, tagging each frame with its VLAN (section 7.3)."},
+    {"a": "OFF", "b": "R1", "style": "thick", "label": "trunk", "info": "Another trunk, so R1 can be the gateway for every VLAN (router-on-a-stick, section 8.4)."},
+    {"a": "GYM", "b": "CAM1", "info": "Access port in VLAN 50."},
+    {"a": "GYM", "b": "ST", "info": "Access port in VLAN 20."},
+    {"a": "OFF", "b": "CAM2", "info": "Access port in VLAN 50."},
+    {"a": "OFF", "b": "PAY", "info": "Access port in VLAN 30. Moving payroll to another jack is one command: `switchport access vlan 30` on the new port."}
+  ]
+}
+```
+
 **Big idea (and a cliffhanger):** Each VLAN is its **own broadcast domain / its own subnet**. That's great for separation — but sometimes teachers legitimately *need* to reach a shared server on another VLAN. Moving data **between** VLANs requires a **router** (or a Layer 3 switch). That's called **inter-VLAN routing**, and we cover it in Chapter 8. For now, just hold this thought: *VLANs separate; routers reconnect — on your terms.*
+
+**📝 Exam-style questions — 7.2**
+
+**Q1.** Student laptops in VLAN 20 and a print server in VLAN 30 are plugged into the same switch. Every access port is configured correctly. What do the students need in order to print?
+
+- **A.** Nothing, because both VLANs are on the same switch.
+- **B.** A router or Layer 3 switch to route between VLAN 20 and VLAN 30.
+- **C.** A trunk between the students' ports and the print server's port.
+- **D.** The same native VLAN on both access ports.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Different VLANs are different broadcast domains and different subnets, so getting from one to the other is routing, a Layer 3 job. **Why not the others:** A is the classic trap: being on the same box doesn't matter, the switch keeps VLANs apart by design. C is wrong because trunks carry many VLANs between network devices; they don't join VLANs together. D is wrong because native VLAN is a trunk setting and has nothing to do with access ports.
+</details>
+
+**Q2.** The principal moves to a new office. The wall jack there connects to Fa0/15, which is an access port in VLAN 20 (Students). Her PC must be in VLAN 30 (Admin). What is the simplest fix?
+
+- **A.** Configure `switchport access vlan 30` on Fa0/15.
+- **B.** Run a new cable from her office to an admin switch.
+- **C.** Configure `switchport mode trunk` on Fa0/15.
+- **D.** Give her PC a static IP address from the VLAN 30 subnet and leave the port alone.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** VLAN membership is a port setting, so moving a person to a new network is one command, not a cabling job. **Why not the others:** B is the pre-VLAN way, exactly the hassle VLANs remove. C makes the port a trunk, which is for switch-to-switch links; a PC doesn't understand tags. D doesn't work: the port still puts her frames into VLAN 20, so she'd have a VLAN 30 address in the VLAN 20 broadcast domain and couldn't reach her gateway.
+</details>
+
+**Q3.** An engineer splits 200 devices from one flat network into four VLANs of 50 devices each. Which statement is true?
+
+- **A.** Each broadcast is now processed by about 50 devices instead of 200.
+- **B.** The switch's total bandwidth is now four times higher.
+- **C.** Devices in different VLANs can still exchange frames directly through the switch.
+- **D.** Each VLAN must now be placed on its own physical switch.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A broadcast only floods within its own VLAN, so it reaches the 50 devices of that VLAN instead of all 200. **Why not the others:** B is wrong because VLANs don't add bandwidth; they cut wasted broadcast traffic. C is wrong because a switch never forwards a frame from one VLAN into another. D is the opposite of the point: VLANs let one physical switch act as several.
+</details>
 
 ## 7.3 Access Ports vs. Trunk Ports — The Deep "Why"
 
@@ -1387,6 +1536,47 @@ Ask yourself: *"Does this link need to carry more than one VLAN?"* If **yes → 
 
 Let's trace Teacher-A (VLAN 10 on SW1) sending a frame to Teacher-B (VLAN 10 on SW2):
 
+Step through the same trip below, then watch a student's frame share the same cable without mixing in.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Follow a frame across the trunk",
+  "caption": "Fa0/24 on each switch is a trunk. Every other port is an access port in the VLAN shown.",
+  "nodes": [
+    {"id": "TA", "kind": "host", "x": 0, "y": 0, "label": "Teacher-A", "sub": "VLAN 10"},
+    {"id": "SA", "kind": "host", "x": 0, "y": 2, "label": "Student-A", "sub": "VLAN 20"},
+    {"id": "SW1", "kind": "switch", "x": 1.6, "y": 1},
+    {"id": "SW2", "kind": "switch", "x": 3.8, "y": 1},
+    {"id": "TB", "kind": "host", "x": 5.4, "y": 0, "label": "Teacher-B", "sub": "VLAN 10"},
+    {"id": "SB", "kind": "host", "x": 5.4, "y": 2, "label": "Student-B", "sub": "VLAN 20"}
+  ],
+  "links": [
+    {"a": "SW1", "b": "TA", "aLabel": "Fa0/1"},
+    {"a": "SW1", "b": "SA", "aLabel": "Fa0/2"},
+    {"a": "SW1", "b": "SW2", "style": "thick", "label": "trunk", "aLabel": "Fa0/24", "bLabel": "Fa0/24"},
+    {"a": "SW2", "b": "TB", "aLabel": "Fa0/5"},
+    {"a": "SW2", "b": "SB", "aLabel": "Fa0/6"}
+  ],
+  "steps": [
+    {"title": "1. A plain frame enters an access port",
+     "text": "Teacher-A's PC knows nothing about VLANs. It sends an ordinary, **untagged** frame. SW1 notes *Fa0/1 is in VLAN 10*, so internally this frame is VLAN 10.",
+     "packets": [{"path": ["TA", "SW1"], "label": "untagged frame"}]},
+    {"title": "2. SW1 tags it for the trunk",
+     "text": "The destination is behind SW2, across a cable that carries many VLANs. So SW1 **adds a tag saying VLAN 10** before sending it out Fa0/24. Without the tag, SW2 couldn't tell which VLAN it belongs to.",
+     "links": {"SW1-SW2": "active"},
+     "packets": [{"path": ["SW1", "SW2"], "label": "tag: VLAN 10", "tone": "accent"}]},
+    {"title": "3. SW2 reads the tag, then strips it",
+     "text": "SW2 reads *VLAN 10*, removes the tag, and forwards the frame only out VLAN 10 access ports. Teacher-B gets a normal untagged frame. Student-B is never offered it.",
+     "focus": ["SW2", "TB", "SW2-TB", "SW1", "SW1-SW2"],
+     "packets": [{"path": ["SW2", "TB"], "label": "untagged frame"}]},
+    {"title": "4. Same cable, different tag",
+     "text": "Student-A's frame enters a VLAN 20 port, crosses the **same trunk** tagged *VLAN 20*, and is delivered only to Student-B. One cable, many VLANs, and the tag keeps them apart. Tags only ever exist **on the trunk**.",
+     "packets": [{"path": ["SA", "SW1", "SW2", "SB"], "label": "VLAN 20 frame", "tone": "good"}]}
+  ]
+}
+```
+
 1. Teacher-A's PC sends a **plain frame** into SW1's port Fa0/1 (an **access** port in VLAN 10). The PC has no idea about VLANs.
 2. SW1 knows "Fa0/1 = VLAN 10," so internally it treats the frame as VLAN 10.
 3. SW1 needs to send it to SW2 across the **trunk** (Fa0/24). Because the trunk carries multiple VLANs, SW1 **adds a tag: "VLAN 10"** to the frame.
@@ -1395,6 +1585,57 @@ Let's trace Teacher-A (VLAN 10 on SW1) sending a frame to Teacher-B (VLAN 10 on 
 6. Teacher-B's PC receives a normal, untagged frame — it never knew a tag was ever involved. 🎉
 
 Notice the pattern: **tags exist only on the trunk, in transit between switches.** They're added when entering the trunk and stripped before reaching the end device. Access ports never see tags; trunks always use them.
+
+**📝 Exam-style questions — 7.3**
+
+**Q1.** Which type of switch port should connect to an ordinary desktop PC?
+
+- **A.** A trunk port
+- **B.** An access port
+- **C.** A port in `dynamic desirable` mode
+- **D.** A routed port with an IP address
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A PC belongs to one VLAN and expects plain, untagged frames, which is exactly what an access port provides. **Why not the others:** A trunk (A) sends tagged frames for many VLANs, which a normal PC doesn't understand. C leaves the port free to negotiate itself into a trunk, which is a security risk on a user port (section 8.2). D turns the port into a Layer 3 interface, which is for links to routers, not hosts.
+</details>
+
+**Q2.** SW1 and SW2 each have hosts in VLAN 10 and VLAN 20, and they're joined by a single cable. Hosts must reach hosts in the same VLAN on the other switch. How must the link between the switches be configured?
+
+- **A.** As an access port in VLAN 10 on both switches
+- **B.** As a trunk on both switches
+- **C.** As an access port in VLAN 1 on both switches
+- **D.** As an access port in VLAN 10 on SW1 and in VLAN 20 on SW2
+
+<details><summary>Answer</summary>
+
+**Answer: B.** One cable has to carry two VLANs, and only a trunk can do that, because it tags each frame so the far switch knows which VLAN it belongs to. **Why not the others:** A carries only VLAN 10, so VLAN 20 hosts would be cut off. C carries only VLAN 1, which neither group uses. D is worse: it would join VLAN 10 on one side to VLAN 20 on the other, merging two VLANs that should be separate.
+</details>
+
+**Q3.** A host in VLAN 10 on SW1 sends a frame to a host in VLAN 10 on SW2. The switches are joined by an 802.1Q trunk, and VLAN 10 is not the native VLAN. Where does the frame carry a VLAN tag?
+
+- **A.** Only on the link from the sending PC to SW1
+- **B.** Only on the trunk between SW1 and SW2
+- **C.** On all three links
+- **D.** Nowhere, because the switches share a VLAN table
+
+<details><summary>Answer</summary>
+
+**Answer: B.** SW1 adds the tag as the frame enters the trunk, and SW2 strips it before sending the frame out the access port. **Why not the others:** A and C are wrong because the hosts send and receive plain untagged frames on access ports. D is wrong because switches don't share a table that maps each frame to a VLAN; the tag is the only way SW2 learns the frame's VLAN.
+</details>
+
+**Q4.** Which two links are normally configured as trunks? (Choose two.)
+
+- **A.** A switch-to-switch uplink that carries several VLANs
+- **B.** A switch port connected to a router doing router-on-a-stick
+- **C.** A switch port connected to a network printer
+- **D.** A switch port connected to a single desktop PC
+- **E.** A switch port connected to an IP camera
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Both links must carry traffic for more than one VLAN: the uplink joins VLANs across switches, and the router needs every VLAN on one cable so it can route between them. **Why not the others:** a printer (C), a PC (D) and a camera (E) each belong to one VLAN, so they get access ports. Ask "does this link carry more than one VLAN?" Here the answer is no.
+</details>
 
 ## 7.4 Configuring VLANs (Try It!)
 
@@ -1428,6 +1669,75 @@ VLAN Name       Status    Ports
 20   Students   active    Fa0/2, Fa0/3, ... Fa0/12
 ```
 
+**📝 Exam-style questions — 7.4**
+
+**Q1.** Refer to the exhibit. VLAN 30 has not been created on the switch. What happens when the engineer enters these commands on a Catalyst switch in VTP server or transparent mode?
+
+```
+SW1(config)# interface FastEthernet0/7
+SW1(config-if)# switchport mode access
+SW1(config-if)# switchport access vlan 30
+```
+
+- **A.** The last command is rejected because VLAN 30 doesn't exist.
+- **B.** The switch creates VLAN 30 automatically and puts Fa0/7 in it.
+- **C.** Fa0/7 is placed in the err-disabled state.
+- **D.** Fa0/7 stays in VLAN 1 until VLAN 30 is created by hand.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** IOS prints `% Access VLAN does not exist. Creating vlan 30` and creates the VLAN for you, with the default name VLAN0030. It's handy, but it also means a typo can quietly create a VLAN you didn't want. **Why not the others:** A is what many people expect, but the command is accepted. C is wrong because err-disabled comes from violations such as port security or BPDU Guard, not from a VLAN assignment. D is wrong because the port is assigned to VLAN 30 straight away.
+</details>
+
+**Q2.** Refer to the exhibit. Port Fa0/24 is up and connected to another switch, but it doesn't appear anywhere in the output. What is the most likely reason?
+
+```
+SW1# show vlan brief
+VLAN Name                 Status    Ports
+---- -------------------- --------- -------------------------------
+1    default              active    Fa0/13, Fa0/14, Fa0/15, Fa0/16
+10   Teachers             active    Fa0/1
+20   Students             active    Fa0/2, Fa0/3, Fa0/4, Fa0/5
+1002 fddi-default         act/unsup
+1003 token-ring-default   act/unsup
+1004 fddinet-default      act/unsup
+1005 trnet-default        act/unsup
+```
+
+- **A.** Fa0/24 is operating as a trunk.
+- **B.** Fa0/24 is administratively shut down.
+- **C.** Fa0/24 is an access port in VLAN 1.
+- **D.** Fa0/24 is assigned to VLAN 1002.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `show vlan brief` lists access ports only. A trunk belongs to many VLANs at once, so it isn't listed under any of them; use `show interfaces trunk` to see it. **Why not the others:** B is wrong because shut-down access ports are still listed under their VLAN. C is wrong because a VLAN 1 access port would be listed in VLAN 1's row, alongside Fa0/13 to Fa0/16. D is wrong because VLAN 1002's row shows no ports.
+</details>
+
+**Q3.** An engineer configures `switchport access vlan 10` on a user port but leaves out `switchport mode access`. Why should the second command be added?
+
+- **A.** Without it, the access VLAN command is ignored.
+- **B.** It stops the port from negotiating itself into a trunk with DTP.
+- **C.** It enables PortFast on the port.
+- **D.** It creates VLAN 10 in the VLAN database.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Many Catalyst ports default to a dynamic DTP mode, so a device that asks for a trunk could get one. `switchport mode access` fixes the port's role so it can only ever be an access port. **Why not the others:** A is wrong because the access VLAN is used whenever the port operates as an access port; the danger is that it might not. C is wrong because PortFast is a separate command (section 9.6). D is wrong because `switchport mode access` has nothing to do with creating VLANs.
+</details>
+
+**Q4.** How many ports does `interface range fa0/2 - 12` select?
+
+- **A.** 2
+- **B.** 10
+- **C.** 11
+- **D.** 12
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The range includes both ends, so Fa0/2 through Fa0/12 is 12 − 2 + 1 = 11 ports. **Why not the others:** B is the off-by-one slip of subtracting without adding 1. D counts Fa0/1 to Fa0/12. A reads "2 - 12" as two separate ports.
+</details>
+
 ## 7.5 The Default & Special VLANs (And Why They Matter)
 
 - **VLAN 1 — the default:** Every port starts in VLAN 1 out of the box. That's convenient, but it's a security weakness: attackers *know* VLAN 1 is the default and often target it. **Best practice: don't use VLAN 1 for real user traffic or management.** Move important things to a purpose-made VLAN. *Why: reducing predictability reduces risk.*
@@ -1441,6 +1751,57 @@ VLAN Name       Status    Ports
 - **Management VLAN — keep admins separate:** The VLAN you use to remotely reach and configure your switches (SSH to the switch's IP). Putting it in its own dedicated VLAN (not VLAN 1, not a user VLAN) means normal users can't even *see* the management traffic, let alone attack it. *Why: separation of "who runs the network" from "who uses the network."*
 
 - **VLANs 1002–1005:** Reserved for old Token Ring/FDDI tech. You'll never use them today — just know they're reserved so the numbers aren't a surprise on the exam.
+
+**📝 Exam-style questions — 7.5**
+
+**Q1.** What is the native VLAN on an 802.1Q trunk if no one has changed it?
+
+- **A.** VLAN 1
+- **B.** VLAN 99
+- **C.** VLAN 1002
+- **D.** There is no native VLAN until one is configured.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Out of the box the native VLAN is VLAN 1, the same as the default VLAN. Frames in the native VLAN cross the trunk untagged. **Why not the others:** B is a common choice for a *configured* native VLAN, not the default. C is one of the reserved legacy FDDI/Token Ring VLANs. D is wrong because every 802.1Q trunk always has a native VLAN.
+</details>
+
+**Q2.** An attacker in the native VLAN sends a frame carrying two 802.1Q tags, hoping the first switch strips the outer tag and a second switch forwards the frame into the VLAN named by the inner tag. What is this attack called?
+
+- **A.** MAC flooding
+- **B.** Double-tagging VLAN hopping
+- **C.** DHCP starvation
+- **D.** ARP spoofing
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Double tagging abuses the fact that native-VLAN frames leave a trunk untagged: the first switch removes the outer (native) tag, and the next switch reads the inner tag and puts the frame into the victim VLAN. Moving the native VLAN to an unused VLAN defeats it. **Why not the others:** A fills a switch's MAC table to force flooding. C exhausts a DHCP pool with fake requests. D poisons ARP caches to intercept traffic. None of them involve VLAN tags.
+</details>
+
+**Q3.** Which two are best practices for special VLANs? (Choose two.)
+
+- **A.** Set the native VLAN to an unused VLAN, the same on both ends of each trunk.
+- **B.** Put switch management in its own dedicated VLAN, not VLAN 1.
+- **C.** Put user ports in VLAN 1002 so they're isolated.
+- **D.** Use VLAN 1 for management, because it always exists.
+- **E.** Use a different native VLAN on each end of a trunk to confuse attackers.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** An unused, matching native VLAN keeps user traffic off the untagged path, and a dedicated management VLAN keeps admin access away from users. **Why not the others:** C is wrong because 1002–1005 are reserved legacy VLANs, not for users. D is exactly what the guide warns against: VLAN 1 is the predictable default that attackers target. E causes a native VLAN mismatch, which leaks frames between VLANs, the opposite of security.
+</details>
+
+**Q4.** An engineer enters `no vlan 1` on a Catalyst switch. What happens?
+
+- **A.** VLAN 1 is deleted and its ports become inactive.
+- **B.** VLAN 1 is deleted and its ports move to VLAN 1002.
+- **C.** The command is rejected, because the default VLAN can't be deleted.
+- **D.** VLAN 1 is renamed to "unused".
+
+<details><summary>Answer</summary>
+
+**Answer: C.** IOS replies `%Default VLAN 1 may not be deleted.` VLAN 1 always exists, and so do 1002–1005. That's why the advice is to *stop using* VLAN 1, not to remove it. **Why not the others:** A and B describe a deletion that IOS doesn't allow. D is wrong because no command renames a VLAN as a side effect, and VLAN 1's name can't be changed anyway.
+</details>
 
 ---
 
@@ -1475,6 +1836,46 @@ them at full speed and only then notices the tag.
 4. Before the frame reaches the destination **access** port, the switch **removes** the tag.
 5. The end device gets a normal, untagged frame. *The tag lived only on the trunk.*
 
+Step through a trunk below, including what the **native VLAN** does differently and what goes wrong when the two ends disagree about it.
+
+```diagram
+{
+  "type": "topology",
+  "title": "802.1Q tags and the native VLAN",
+  "caption": "Gi0/1 on both switches is an 802.1Q trunk with native VLAN 99. PC-A and PC-B are in VLAN 10; MGMT-1 and MGMT-2 are in VLAN 99.",
+  "nodes": [
+    {"id": "A", "kind": "host", "x": 0, "y": 0, "label": "PC-A", "sub": "VLAN 10"},
+    {"id": "M1", "kind": "host", "x": 0, "y": 2, "label": "MGMT-1", "sub": "VLAN 99"},
+    {"id": "SW1", "kind": "switch", "x": 1.6, "y": 1, "sub": "native 99"},
+    {"id": "SW2", "kind": "switch", "x": 3.8, "y": 1, "sub": "native 99"},
+    {"id": "B", "kind": "host", "x": 5.4, "y": 0, "label": "PC-B", "sub": "VLAN 10"},
+    {"id": "M2", "kind": "host", "x": 5.4, "y": 2, "label": "MGMT-2", "sub": "VLAN 99"}
+  ],
+  "links": [
+    {"a": "SW1", "b": "A"},
+    {"a": "SW1", "b": "M1"},
+    {"a": "SW1", "b": "SW2", "style": "thick", "label": "802.1Q trunk", "aLabel": "Gi0/1", "bLabel": "Gi0/1"},
+    {"a": "SW2", "b": "B"},
+    {"a": "SW2", "b": "M2"}
+  ],
+  "steps": [
+    {"title": "1. VLAN 10 frame: tagged on the trunk",
+     "text": "PC-A's untagged frame enters a VLAN 10 access port. On its way out Gi0/1, SW1 inserts the 4-byte **802.1Q tag** (VLAN ID 10) between the source MAC and the Type field, and recalculates the FCS.",
+     "packets": [{"path": ["A", "SW1", "SW2"], "label": "tag VID 10", "tone": "accent"}]},
+    {"title": "2. SW2 strips the tag and delivers",
+     "text": "SW2 reads VID 10, removes the tag (and recalculates the FCS again), and sends a plain frame out a VLAN 10 access port. PC-B never sees a tag.",
+     "packets": [{"path": ["SW2", "B"], "label": "untagged", "tone": "accent"}]},
+    {"title": "3. Native VLAN 99 crosses untagged",
+     "text": "MGMT-1 is in **VLAN 99, the native VLAN**. SW1 sends native-VLAN frames across the trunk **without a tag**. SW2 receives an untagged frame on a trunk, so it puts it in *its* native VLAN, 99. Both ends agree, so it lands in the right place.",
+     "packets": [{"path": ["M1", "SW1", "SW2", "M2"], "label": "no tag (native)", "tone": "good"}]},
+    {"title": "4. Mismatch: SW2's native VLAN is 1",
+     "text": "Now suppose SW2 was left at the default, native VLAN 1. The same untagged frame arrives, and SW2 puts it in **VLAN 1**: traffic has leaked from VLAN 99 into VLAN 1. CDP warns with `%CDP-4-NATIVE_VLAN_MISMATCH`. That's why both ends must match, and why the native VLAN should be an unused one.",
+     "nodes": {"SW2": {"badge": "native 1 ✕", "tone": "bad"}, "M2": {"state": "dim"}},
+     "packets": [{"path": ["M1", "SW1", "SW2"], "label": "no tag → VLAN 1?", "tone": "bad"}]}
+  ]
+}
+```
+
 ### Configuring a Trunk (and why each line matters)
 
 ```
@@ -1496,6 +1897,72 @@ Port    Mode   Encapsulation  Status    Native vlan
 Fa0/24  on     802.1q         trunking  99
 ```
 
+**📝 Exam-style questions — 8.1**
+
+**Q1.** How does 802.1Q mark a frame with its VLAN on a trunk?
+
+- **A.** It inserts a 4-byte tag between the source MAC address and the Type/Length field.
+- **B.** It wraps the whole frame in a new 26-byte header and adds a second FCS.
+- **C.** It adds a 4-byte tag in front of the destination MAC address.
+- **D.** It writes the VLAN number into the last 2 bytes of the FCS.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 802.1Q squeezes a 4-byte tag in after the source MAC, so both MAC addresses stay where hardware expects them, then recalculates the FCS. **Why not the others:** B describes Cisco's old ISL, which encapsulated the whole frame; modern switches don't support it. C would push the destination MAC out of its normal place. D is wrong because the FCS is an error check, and overwriting it would make every frame look corrupted.
+</details>
+
+**Q2.** The VLAN ID field in an 802.1Q tag is 12 bits long. Which VLAN numbers can be used for traffic?
+
+- **A.** 1 to 1005
+- **B.** 1 to 4094
+- **C.** 0 to 4095
+- **D.** 1 to 4096
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Twelve bits give 4096 values (0–4095), but 0 and 4095 are reserved, which leaves 1–4094. **Why not the others:** A is only the *normal* range; 1006–4094 is the extended range, and it's valid too. C includes the two reserved values. D goes past what 12 bits can hold.
+</details>
+
+**Q3.** Refer to the exhibit. VLAN 40 exists on both SW1 and SW2, but users in VLAN 40 on SW1 can't reach users in VLAN 40 on SW2. What is the cause?
+
+```
+SW1# show interfaces trunk
+
+Port        Mode             Encapsulation  Status        Native vlan
+Gi0/1       on               802.1q         trunking      99
+
+Port        Vlans allowed on trunk
+Gi0/1       10,20,30
+
+Port        Vlans allowed and active in management domain
+Gi0/1       10,20,30
+
+Port        Vlans in spanning tree forwarding state and not pruned
+Gi0/1       10,20,30
+```
+
+- **A.** VLAN 40 is not in the trunk's allowed VLAN list.
+- **B.** The native VLAN doesn't match on the two switches.
+- **C.** Gi0/1 is not trunking.
+- **D.** The trunk uses ISL encapsulation.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The allowed list is 10, 20 and 30, so VLAN 40 frames are never sent across Gi0/1. **Why not the others:** B can't be judged from one side's output, and a mismatch wouldn't single out VLAN 40. C is wrong because Status says `trunking`. D is wrong because Encapsulation says `802.1q`.
+</details>
+
+**Q4.** Following on from Q3, the engineer must let VLAN 40 cross the trunk and keep VLANs 10, 20 and 30 working. Which command should be entered on Gi0/1?
+
+- **A.** `switchport trunk allowed vlan 40`
+- **B.** `switchport trunk allowed vlan add 40`
+- **C.** `switchport trunk native vlan 40`
+- **D.** `switchport access vlan 40`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The `add` keyword appends VLAN 40 to the existing list. **Why not the others:** A *replaces* the list with just VLAN 40, cutting off 10, 20 and 30; it's a famous outage-causing slip. C changes which VLAN is untagged, which doesn't fix the allowed list and would cause a native mismatch. D only applies when the port is an access port, so it does nothing for the trunk.
+</details>
+
 ## 8.2 DTP (Dynamic Trunking Protocol) — And Why to Disable It
 
 Cisco switches can **automatically negotiate** whether a link becomes a trunk, using **DTP**. It's convenient, but understanding it matters for security.
@@ -1510,6 +1977,57 @@ Modes:
 
 > **Security best practice:** On end-device ports, hard-set `switchport mode access` and add `switchport nonegotiate` (which turns DTP off). On real switch-to-switch links, hard-set `switchport mode trunk` and also `switchport nonegotiate`. *Why: never leave "should this be a trunk?" up to negotiation an attacker could exploit.*
 
+**📝 Exam-style questions — 8.2**
+
+**Q1.** Two switch ports are connected and both use DTP. Which combination of modes leaves the link as an access link?
+
+- **A.** `dynamic desirable` and `dynamic auto`
+- **B.** `dynamic auto` and `dynamic auto`
+- **C.** `trunk` and `dynamic auto`
+- **D.** `dynamic desirable` and `dynamic desirable`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `dynamic auto` only agrees to a trunk when the other side asks for one. Two auto ports both wait, nobody asks, and the link stays access. **Why not the others:** in A and D, at least one side is desirable and actively asks, so a trunk forms. In C, the `trunk` side sends DTP asking for a trunk, and auto agrees.
+</details>
+
+**Q2.** Which interface command stops a port from sending DTP frames?
+
+- **A.** `switchport mode dynamic auto`
+- **B.** `switchport nonegotiate`
+- **C.** `no switchport`
+- **D.** `switchport trunk native vlan 999`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `switchport nonegotiate` turns DTP off on a port whose mode is already set to `access` or `trunk`. **Why not the others:** A is a DTP mode, so negotiation stays on. C makes the port a routed Layer 3 port, which is a different thing altogether. D only changes the native VLAN.
+</details>
+
+**Q3.** Refer to the exhibit. Gi0/5 connects to a wall jack at a user's desk. What is the problem, and what is the fix?
+
+```
+SW1# show interfaces gi0/5 switchport
+Name: Gi0/5
+Switchport: Enabled
+Administrative Mode: dynamic desirable
+Operational Mode: trunk
+Administrative Trunking Encapsulation: dot1q
+Operational Trunking Encapsulation: dot1q
+Negotiation of Trunking: On
+Access Mode VLAN: 1 (default)
+Trunking Native Mode VLAN: 1 (default)
+```
+
+- **A.** The device at the desk has negotiated a trunk and can reach every VLAN. Set `switchport mode access` and `switchport nonegotiate`.
+- **B.** The port is in VLAN 1. Changing the access VLAN is all that's needed.
+- **C.** Nothing is wrong; `dynamic desirable` is recommended for user ports.
+- **D.** The port should use ISL encapsulation instead of dot1q.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A user port has no business being a trunk. Because the port is in a dynamic mode, whatever is plugged in answered DTP and got a trunk, which gives it access to every allowed VLAN: a switch-spoofing VLAN-hopping attack. Hard-setting access mode and turning DTP off closes the door. **Why not the others:** B misses the point, because the access VLAN isn't used while the port is trunking. C is wrong because dynamic modes on user ports are exactly the risk. D changes the tagging method, not the fact that it's a trunk.
+</details>
+
 ## 8.3 VTP (VLAN Trunking Protocol) — Convenience vs. Danger
 
 **VTP** lets you create a VLAN on **one** switch and have it **automatically copy** to all other switches in the same VTP domain. In a network with 50 switches, that's a huge time-saver — no need to type `vlan 10` on all 50.
@@ -1519,9 +2037,85 @@ VTP modes:
 - **Client:** Receives VLAN info; can't edit VLANs itself.
 - **Transparent:** Ignores VTP for its own VLANs (keeps them local) but forwards VTP messages along.
 
+Step through the horror story below: an old switch with a high revision number joins the network.
+
+```diagram
+{
+  "type": "topology",
+  "title": "How one old switch wipes out every VLAN",
+  "caption": "All switches are in VTP domain CAMPUS. Press **Next** to plug in the old switch.",
+  "nodes": [
+    {"id": "SRV", "kind": "switch", "x": 2.5, "y": 0, "label": "SW1", "sub": "VTP server · rev 12"},
+    {"id": "SW2", "kind": "switch", "x": 1, "y": 1.5, "sub": "VTP client · rev 12"},
+    {"id": "SW3", "kind": "switch", "x": 4, "y": 1.5, "sub": "VTP client · rev 12"},
+    {"id": "OLD", "kind": "switch", "x": 4, "y": 3, "label": "Old switch", "sub": "VTP client · rev 50"}
+  ],
+  "links": [
+    {"a": "SRV", "b": "SW2", "style": "thick", "label": "trunk"},
+    {"a": "SRV", "b": "SW3", "style": "thick", "label": "trunk"},
+    {"a": "SW3", "b": "OLD", "style": "thick", "label": "new trunk"}
+  ],
+  "steps": [
+    {"title": "1. A healthy VTP domain",
+     "text": "SW1 is the VTP server. Its VLAN database (VLANs 10, 20 and 30, shown on each badge) is at **revision 12**, and both clients have synchronized to it.",
+     "nodes": {"SRV": {"badge": "10,20,30", "tone": "good"}, "SW2": {"badge": "10,20,30", "tone": "good"}, "SW3": {"badge": "10,20,30", "tone": "good"}, "OLD": {"state": "dim"}},
+     "links": {"SW3-OLD": "down"},
+     "packets": [{"path": ["SRV", "SW2"], "label": "VTP rev 12"}, {"path": ["SRV", "SW3"], "label": "VTP rev 12"}]},
+    {"title": "2. An old lab switch is plugged in",
+     "text": "Someone reuses a switch from the lab. It still has the domain name CAMPUS and a VLAN database at **revision 50** that holds only VLAN 1. It's a *client*, so it looks harmless. The link to SW3 comes up as a trunk.",
+     "nodes": {"OLD": {"state": "active", "badge": "VLAN 1", "tone": "warn"}},
+     "links": {"SW3-OLD": null}},
+    {"title": "3. Its advertisement wins on revision number",
+     "text": "The old switch advertises revision 50. VTP trusts the **highest revision**, not the server and not the biggest list, and that includes a client's advertisement in VTP versions 1 and 2. SW3 adopts it and passes it on, and SW1 adopts it too.",
+     "packets": [{"path": ["OLD", "SW3", "SRV", "SW2"], "label": "VTP rev 50", "tone": "bad"}]},
+    {"title": "4. VLANs 10, 20 and 30 are gone everywhere",
+     "text": "Every switch now has revision 50 and only VLAN 1. Access ports in VLANs 10, 20 and 30 go **inactive**, and every user is offline at once. The fix is prevention: reset a used switch's revision to 0 (switch to transparent mode and back) before connecting it, or run VTP version 3 or transparent mode.",
+     "nodes": {"SRV": {"badge": "VLAN 1", "tone": "bad"}, "SW2": {"badge": "VLAN 1", "tone": "bad"}, "SW3": {"badge": "VLAN 1", "tone": "bad"}, "OLD": {"badge": "VLAN 1", "tone": "bad"}}}
+  ]
+}
+```
+
 **Why VTP can be dangerous (the famous horror story):** VTP uses a **revision number** that increases every time you change VLANs. Switches trust whichever message has the **highest revision number**. If you take an **old switch** that has a high revision number and a nearly-empty VLAN list, and plug it into your network, it can **overwrite every other switch's VLANs with its own (empty) list** — instantly wiping VLANs network-wide and taking everyone offline. 😱
 
 > **Best practice:** Before adding any used switch to your network, **reset its VTP revision number to 0** (set it to VTP transparent mode and back, or erase config). Many engineers avoid VTP entirely, or use the safer VTP version 3, precisely because of this risk. *Why: a convenience feature should never be able to delete your whole VLAN design by accident.*
+
+**📝 Exam-style questions — 8.3**
+
+**Q1.** Which VTP mode lets a switch create, change and delete VLANs and advertise those changes to the rest of the domain?
+
+- **A.** Server
+- **B.** Client
+- **C.** Transparent
+- **D.** Off
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A VTP server can edit VLANs, and it advertises each change with a higher revision number. **Why not the others:** a client (B) can't create or delete VLANs at all; it only learns them. Transparent (C) can create VLANs, but they stay local and aren't advertised, although it does relay other switches' VTP messages. Off (D) ignores VTP entirely and doesn't relay it either.
+</details>
+
+**Q2.** A used switch with VTP domain name CAMPUS, configuration revision 50 and only VLAN 1 is configured as a VTP client and connected over a trunk to the production network. The production server is at revision 12. All switches run VTP version 2. What happens?
+
+- **A.** Nothing, because clients can't send VLAN information.
+- **B.** The used switch learns revision 12 from the server.
+- **C.** The production switches adopt the revision 50 database and lose their VLANs.
+- **D.** The trunk is err-disabled because of the revision mismatch.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** VTP versions 1 and 2 accept whichever advertisement has the highest revision in the domain, even one from a client. The VLAN-1-only database overwrites everyone, and ports in the missing VLANs go inactive. **Why not the others:** A is the dangerous myth; clients do advertise their database. B gets the direction backwards: the lower revision is the one that loses. D is wrong because VTP has no err-disable reaction; it simply synchronizes.
+</details>
+
+**Q3.** Before connecting a used switch to production, which action resets its VTP configuration revision to 0?
+
+- **A.** Change it to VTP transparent mode, then back to client mode.
+- **B.** Reload the switch.
+- **C.** Enter `vtp version 2`.
+- **D.** Enter `no vlan 1`.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Moving to transparent mode resets the revision to 0 (so does changing the domain name). Then you can safely put it back in client mode. **Why not the others:** B does nothing, because the revision is saved in `vlan.dat` in flash and survives a reload, and so does erasing the startup config. C changes the VTP version, not the revision. D is rejected, because VLAN 1 can't be deleted.
+</details>
 
 ## 8.4 Inter-VLAN Routing — Why VLANs Need a Router to Talk
 
@@ -1567,6 +2161,43 @@ R1(config-subif)# ip address 192.168.20.1 255.255.255.0
 
 **How a cross-VLAN trip works here:** A teacher (VLAN 10) wants the student server (VLAN 20). Because it's a different subnet, the teacher's PC sends the frame to its **default gateway** (192.168.10.1) up the trunk (tagged VLAN 10). The router receives it on subinterface Gi0/0.10, **routes** it to the 192.168.20.0 network, re-sends it tagged as VLAN 20 back down the trunk, and the switch delivers it to the server. The router was the border crossing.
 
+Step through that trip below. Watch how the same packet crosses the trunk **twice**, once up and once down.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Router-on-a-stick: up the trunk and back down",
+  "caption": "R1 Gi0/0 is split into Gi0/0.10 (192.168.10.1, VLAN 10) and Gi0/0.20 (192.168.20.1, VLAN 20). Click a device for its settings.",
+  "nodes": [
+    {"id": "R1", "kind": "router", "x": 2.5, "y": 0, "sub": "Gi0/0.10 · Gi0/0.20", "info": "One physical link, two subinterfaces. `Gi0/0.10` has `encapsulation dot1Q 10` and 192.168.10.1/24; `Gi0/0.20` has `encapsulation dot1Q 20` and 192.168.20.1/24. Each one is the default gateway for its VLAN."},
+    {"id": "SW1", "kind": "switch", "x": 2.5, "y": 1.5, "info": "Gi0/1 toward R1 is a **trunk**. Fa0/1 is an access port in VLAN 10, Fa0/2 an access port in VLAN 20."},
+    {"id": "PC1", "kind": "host", "x": 0.8, "y": 3, "label": "Teacher PC", "sub": "192.168.10.10/24", "info": "VLAN 10. Default gateway **192.168.10.1** (R1's Gi0/0.10)."},
+    {"id": "SRV", "kind": "server", "x": 4.2, "y": 3, "label": "Server", "sub": "192.168.20.50/24", "info": "VLAN 20. Default gateway **192.168.20.1** (R1's Gi0/0.20)."}
+  ],
+  "links": [
+    {"a": "R1", "b": "SW1", "style": "thick", "label": "trunk", "info": "R1 Gi0/0 to SW1 Gi0/1. On SW1 this port is `switchport mode trunk`, carrying VLANs 10 and 20."},
+    {"a": "SW1", "b": "PC1", "aLabel": "Fa0/1"},
+    {"a": "SW1", "b": "SRV", "aLabel": "Fa0/2"}
+  ],
+  "steps": [
+    {"title": "1. The PC sends to its gateway",
+     "text": "192.168.20.50 isn't in the PC's own subnet (192.168.10.0/24), so the PC addresses the frame to the **MAC of its gateway**, 192.168.10.1. The IP destination stays 192.168.20.50.",
+     "packets": [{"path": ["PC1", "SW1"], "label": "to gateway MAC"}]},
+    {"title": "2. Up the trunk, tagged VLAN 10",
+     "text": "SW1 forwards the frame toward R1's MAC, out the trunk, tagged **VLAN 10**. R1 accepts it on Gi0/0.10 because of `encapsulation dot1Q 10`.",
+     "packets": [{"path": ["SW1", "R1"], "label": "tag 10", "tone": "accent"}]},
+    {"title": "3. R1 routes it and sends it back down",
+     "text": "R1 looks up 192.168.20.50: it's on the connected network of Gi0/0.20. R1 writes a new Ethernet header (its own MAC to the server's MAC) and sends it **back down the same cable**, tagged **VLAN 20**.",
+     "nodes": {"R1": {"badge": "routed", "tone": "good"}},
+     "packets": [{"path": ["R1", "SW1"], "label": "tag 20", "tone": "good"}]},
+    {"title": "4. Delivered in VLAN 20",
+     "text": "SW1 strips the tag and delivers the frame out Fa0/2. The reply makes the same trip in reverse. Every inter-VLAN packet crosses the trunk **twice**, which is why a busy network outgrows router-on-a-stick and moves to a Layer 3 switch.",
+     "nodes": {"R1": null},
+     "packets": [{"path": ["SW1", "SRV"], "label": "untagged", "tone": "good"}]}
+  ]
+}
+```
+
 ### Method 3: Layer 3 Switch (SVI) — The Modern, Fast Way
 A **Layer 3 switch** can route between VLANs **by itself**, using **SVIs** (Switch Virtual Interfaces) — a virtual gateway interface for each VLAN, right inside the switch. No external router, no trunk-to-a-router bottleneck.
 
@@ -1583,6 +2214,71 @@ L3SW(config-if)# no shutdown
 ```
 
 Each PC uses its VLAN's `.1` address as its **default gateway** to reach other VLANs. *Why the `.1`?* It's just convention — the gateway is usually the first usable address in the subnet, so it's easy to remember and standardize.
+
+**📝 Exam-style questions — 8.4**
+
+**Q1.** Refer to the exhibit. Hosts in VLAN 20 can't ping their default gateway, 192.168.20.1. VLAN 20 is allowed on the switch's trunk to R1. What is the cause?
+
+```
+R1# show running-config | section interface GigabitEthernet0/0.20
+interface GigabitEthernet0/0.20
+ encapsulation dot1Q 30
+ ip address 192.168.20.1 255.255.255.0
+```
+
+- **A.** The subinterface number must be 30 to match the encapsulation.
+- **B.** The subinterface accepts frames tagged VLAN 30, not VLAN 20.
+- **C.** The physical interface Gi0/0 needs an IP address in VLAN 20.
+- **D.** The mask should be /16 to cover all VLANs.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `encapsulation dot1Q` decides which tag a subinterface handles. Frames tagged 20 arrive, but no subinterface is listening for 20, so they're dropped. The fix is `encapsulation dot1Q 20`. **Why not the others:** A is the trap: the subinterface number is just a label, and matching it to the VLAN is only a tidy habit. C is wrong because in ROAS the physical interface usually has no IP address; the subinterfaces carry them. D would overlap the other VLANs' subnets and doesn't fix the tag.
+</details>
+
+**Q2.** An engineer configures SVIs for VLANs 10 and 20 on a Layer 3 switch. Each PC can ping its own SVI but not the other VLAN. Which command is missing?
+
+- **A.** `ip routing`
+- **B.** `no switchport` on each SVI
+- **C.** `encapsulation dot1q` on each SVI
+- **D.** `switchport mode trunk` on each SVI
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A Layer 3 switch doesn't route between SVIs until you enable it with `ip routing`. Pinging your own gateway works without it; going *through* the switch to another VLAN doesn't. **Why not the others:** B is used to turn a physical port into a routed port, not on an SVI. C belongs on router subinterfaces in ROAS. D is a Layer 2 port setting and doesn't exist on a VLAN interface.
+</details>
+
+**Q3.** Which two statements about router-on-a-stick are true? (Choose two.)
+
+- **A.** The switch port connected to the router must be a trunk.
+- **B.** Each subinterface's IP address is the default gateway for its VLAN.
+- **C.** The router needs one physical interface per VLAN.
+- **D.** Traffic between VLANs never crosses the trunk.
+- **E.** The subinterface number must equal the VLAN ID.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** The single link must carry every VLAN, so it's a trunk, and each subinterface's address is what that VLAN's hosts use as their gateway. **Why not the others:** C describes the old one-cable-per-VLAN method. D is backwards: every inter-VLAN packet goes up the trunk and back down. E is only a convention; `encapsulation dot1Q` sets the VLAN.
+</details>
+
+**Q4.** Refer to the exhibit. The engineer has configured `interface vlan 30` with `no shutdown` on a Layer 3 switch. Why is it down?
+
+```
+L3SW# show ip interface brief | include Vlan
+Vlan10        192.168.10.1    YES manual up                    up
+Vlan20        192.168.20.1    YES manual up                    up
+Vlan30        192.168.30.1    YES manual up                    down
+```
+
+- **A.** `ip routing` hasn't been enabled.
+- **B.** VLAN 30 doesn't exist, or no port in VLAN 30 is up and forwarding.
+- **C.** SVIs need `no switchport` before they come up.
+- **D.** The subnet 192.168.30.0/24 overlaps another SVI.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An SVI's line protocol is up only when its VLAN exists and at least one access or trunk port carrying that VLAN is up and forwarding. Status up / protocol down is the signature of an SVI with no active ports. **Why not the others:** A affects routing between SVIs, not whether an SVI is up; VLANs 10 and 20 are up without it mattering. C isn't an SVI command. D would be rejected when the address is configured, with an "overlaps" error, not cause a down state.
+</details>
 
 ---
 
@@ -1610,6 +2306,49 @@ Now combine that with two switch behaviors you already know:
 
 So a Layer 2 loop isn't a small slowdown — it's a **total, instant meltdown** of the whole broadcast domain. *That's why we can't just "leave the backup cable plugged in and hope."* We need something to actively guarantee there's never a loop — while still keeping that backup cable ready. Enter STP.
 
+**📝 Exam-style questions — 9.1**
+
+**Q1.** Why does a broadcast frame caught in a Layer 2 loop keep circling until the loop is broken, when an IP packet caught in a routing loop eventually disappears?
+
+- **A.** Ethernet frames have no TTL field, so nothing ever discards a looping frame.
+- **B.** Switches don't learn MAC addresses from broadcast frames.
+- **C.** Spanning tree is disabled by default on Cisco switches.
+- **D.** Routers forward broadcasts back into the switched network.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** An IP packet's TTL drops by one at each router and the packet is discarded at zero. An Ethernet header has no such counter, so a looping frame lives forever, and flooding keeps copying it. **Why not the others:** B is false: switches learn the source MAC of every frame, broadcasts included, and that learning is what causes MAC flapping in a loop. C is false: STP is on by default, which is exactly why loops are rare. D is false: routers don't forward broadcasts.
+</details>
+
+**Q2.** Which two symptoms are typical of a Layer 2 switching loop? (Choose two.)
+
+- **A.** A broadcast storm that saturates links and CPUs
+- **B.** MAC address table instability, with the same MAC moving between ports
+- **C.** ICMP "time exceeded" messages from the switches
+- **D.** OSPF electing a new designated router
+- **E.** Frames being dropped because their TTL reached zero
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Frames multiply around the loop (the storm), and the same source MAC keeps arriving on different ports, so the switch keeps rewriting its table (MAC flapping). **Why not the others:** C and E both rely on a TTL, which Ethernet frames don't have. D is a Layer 3 event and not a sign of a Layer 2 loop.
+</details>
+
+**Q3.** Refer to the exhibit. A switch logs this message many times per second. What is the most likely cause?
+
+```
+%SW_MATM-4-MACFLAP_NOTIF: Host 0050.7966.6800 in vlan 10 is flapping between port Gi0/1 and port Gi0/2
+```
+
+- **A.** A Layer 2 loop that brings the host's frames in on both Gi0/1 and Gi0/2
+- **B.** A port security violation on Gi0/1
+- **C.** A native VLAN mismatch on Gi0/2
+- **D.** A duplex mismatch between Gi0/1 and Gi0/2
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The switch keeps learning the same MAC on two different ports, which is what happens when copies of the host's frames come around a loop and arrive from both directions. **Why not the others:** B would log a `PORT_SECURITY` violation and shut down or restrict the port. C produces CDP native-VLAN-mismatch messages, not MAC moves. D causes errors and late collisions on one link; it doesn't make a MAC appear on two ports.
+</details>
+
 ## 9.2 The Hero: Spanning Tree Protocol
 
 **STP (802.1D)** automatically finds loops and **blocks** one path so there's only ONE way through — no loops. If the active path breaks, STP **unblocks** the backup path. Best of both worlds: redundancy WITHOUT loops.
@@ -1620,6 +2359,44 @@ that port and everyone stays connected — the redundancy is still there, just h
 in reserve.
 
 **Why "block a port" instead of "unplug the cable"?** Because a blocked port is a **backup on standby**, not a removed one. It still *listens* for STP messages, so it knows the instant the main path fails — and then it springs into action and starts forwarding. You get the safety of no-loops *and* the resilience of a spare path, automatically. Unplugging the cable would give you no loop but also no backup. Blocking gives you both.
+
+**📝 Exam-style questions — 9.2**
+
+**Q1.** How does spanning tree break a loop in a redundant switched network?
+
+- **A.** It administratively shuts down one of the redundant interfaces.
+- **B.** It puts one or more ports in a blocking state, where they forward no user frames but still receive BPDUs.
+- **C.** It err-disables the port with the highest cost.
+- **D.** It removes the VLAN from one of the trunks.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A blocked port stays up and keeps listening to BPDUs, so it knows the moment it's needed and can take over as a backup. **Why not the others:** A and C would remove the backup completely, needing a human to bring it back. D changes the trunk's allowed VLAN list, which is an admin job, not something STP does.
+</details>
+
+**Q2.** Which IEEE standard defines the original Spanning Tree Protocol?
+
+- **A.** 802.1D
+- **B.** 802.1Q
+- **C.** 802.1w
+- **D.** 802.3ad
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 802.1D is classic STP. **Why not the others:** 802.1Q (B) is VLAN tagging. 802.1w (C) is Rapid STP, the faster successor. 802.3ad (D) is LACP for EtherChannel.
+</details>
+
+**Q3.** Three switches are wired in a triangle and STP has blocked one port. The link that was forwarding between two of them then fails. What happens?
+
+- **A.** Nothing; the blocked port stays blocked until an administrator intervenes.
+- **B.** STP recalculates, and the blocked port moves to forwarding so the switches stay connected.
+- **C.** All three switches reload to rebuild the spanning tree.
+- **D.** The blocked port becomes err-disabled to prevent a loop.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** That's the whole point of blocking rather than unplugging: the standby path is brought into service automatically once STP has worked out the new tree. **Why not the others:** A ignores STP's job of restoring connectivity. C isn't something STP ever does. D would make things worse; err-disable is for protection features such as BPDU Guard.
+</details>
 
 ## 9.3 How STP Chooses (The Election)
 
@@ -1636,7 +2413,70 @@ STP holds "elections" using special messages called **BPDUs** (Bridge Protocol D
 
 **Why does "lowest Bridge ID" win, and why is it priority + MAC?** STP needs a tie-proof way to pick exactly one winner. The **MAC address** is guaranteed unique, so it can *always* break a tie — there's never a stalemate. But you don't want the root chosen by random factory MAC luck (the oldest switch, often the weakest, tends to have the lowest MAC!). So STP puts an admin-controllable **priority** *in front* of the MAC. Priority is checked first, so by lowering the priority on your best switch, **you** decide the root — and the MAC is just the automatic backup tiebreaker. (This is exactly why section 9.7 tells you to set the root manually.)
 
+Try it below: change priorities and MACs and see who becomes root. Priority is checked first, and the MAC only breaks a tie.
+
+```diagram
+{
+  "type": "compare",
+  "title": "Which switch becomes the root bridge?",
+  "prompt": "All four switches start at the default priority (32769 for VLAN 1), so the **lowest MAC** wins: probably your oldest switch. Lower Core-1's priority to 24577 and watch it take over. Priorities move in steps of 4096 (section 9.10).",
+  "winner": "Root bridge",
+  "fields": [
+    {"id": "prio", "label": "Bridge priority (VLAN 1)", "kind": "number", "rule": "lowest"},
+    {"id": "mac", "label": "MAC address", "kind": "mac", "rule": "lowest"}
+  ],
+  "candidates": [
+    {"label": "Core-1", "values": {"prio": 32769, "mac": "00d0.97a4.1c00"}},
+    {"label": "Core-2", "values": {"prio": 32769, "mac": "00d0.97a4.2e80"}},
+    {"label": "Access-1", "values": {"prio": 32769, "mac": "0019.e8a1.0f00"}},
+    {"label": "Access-2", "values": {"prio": 32769, "mac": "001a.2b3c.4d00"}}
+  ]
+}
+```
+
 **Why pick ports by "lowest cost to root"?** Because cost is based on **link speed** — a fast link has a *low* cost, a slow link a *high* cost (see the table). Choosing the lowest-cost path means STP keeps your **fastest** route active and blocks the slower, redundant one. So the network isn't just loop-free — it's loop-free *on the best available path*. Makes sense: if you have a 1 Gbps and a 100 Mbps route to the same place, you want the gigabit one working and the slow one as backup.
+
+Now watch the whole election play out on a triangle of switches, all joined by 1 Gbps links (cost 4 each).
+
+```diagram
+{
+  "type": "topology",
+  "title": "Root bridge, root ports, designated ports, and the blocked port",
+  "caption": "Every link is 1 Gbps (cost 4). Press **Next** to run the election.",
+  "nodes": [
+    {"id": "SW1", "kind": "switch", "x": 2.5, "y": 0, "sub": "prio 24577", "info": "Bridge ID 24577 (priority 24576 + VLAN 1), MAC 00d0.97a4.1c00."},
+    {"id": "SW2", "kind": "switch", "x": 0.8, "y": 1.9, "sub": "32769 · 0019.e8a1.0f00"},
+    {"id": "SW3", "kind": "switch", "x": 4.2, "y": 1.9, "sub": "32769 · 001a.2b3c.4d00"}
+  ],
+  "links": [
+    {"a": "SW1", "b": "SW2", "bLabel": "Gi0/1"},
+    {"a": "SW1", "b": "SW3", "bLabel": "Gi0/1"},
+    {"a": "SW2", "b": "SW3", "aLabel": "Gi0/2", "bLabel": "Gi0/2"}
+  ],
+  "steps": [
+    {"title": "1. Everyone claims to be root",
+     "text": "When the switches boot, each one sends BPDUs naming **itself** as root. As soon as a switch hears a better (lower) Bridge ID, it stops claiming and passes on the better one instead.",
+     "packets": [{"path": ["SW2", "SW3"], "label": "I'm root!"}, {"path": ["SW3", "SW1"], "label": "I'm root!"}, {"path": ["SW1", "SW2"], "label": "I'm root!"}]},
+    {"title": "2. Lowest Bridge ID wins: SW1",
+     "text": "SW1's priority, 24577, beats 32769, so the MACs never even get compared. SW1 is the **root bridge**, and from now on only SW1 originates BPDUs, advertising a root path cost of **0**.",
+     "nodes": {"SW1": {"badge": "Root", "tone": "good"}},
+     "packets": [{"path": ["SW1", "SW2"], "label": "root SW1, cost 0", "tone": "good"}, {"path": ["SW1", "SW3"], "label": "root SW1, cost 0", "tone": "good"}]},
+    {"title": "3. Each non-root switch picks its root port",
+     "text": "SW2 can reach the root directly (cost **4**) or through SW3 (4 + 4 = **8**). The lowest cost wins, so **Gi0/1** is SW2's root port. SW3 does the same sum and also picks its Gi0/1.",
+     "nodes": {"SW2": {"badge": "RP Gi0/1", "tone": "accent"}, "SW3": {"badge": "RP Gi0/1", "tone": "accent"}},
+     "focus": ["SW1", "SW2", "SW3", "SW1-SW2", "SW1-SW3"]},
+    {"title": "4. Designated ports, and the one that blocks",
+     "text": "Every port on the root is **designated** for its segment. On the SW2–SW3 link both switches are cost 4 from the root, a tie, so the **lower sender Bridge ID** wins: SW2 (MAC 0019… beats 001a…). SW2's Gi0/2 is designated, and SW3's Gi0/2 is left over, so it **blocks**. The loop is broken.",
+     "nodes": {"SW3": {"badge": "Gi0/2 BLK", "tone": "warn"}},
+     "links": {"SW2-SW3": "blocked"}},
+    {"title": "5. A link fails and the backup takes over",
+     "text": "If SW1–SW3 fails, SW3 loses its root port. Its blocked Gi0/2 still hears SW2's BPDUs (cost 4, so 8 for SW3), so it becomes the new **root port**. Classic STP takes about 30 seconds of listening and learning to get there; RSTP takes about a second.",
+     "nodes": {"SW3": {"badge": "RP Gi0/2", "tone": "good"}},
+     "links": {"SW1-SW3": "down", "SW2-SW3": "active"},
+     "packets": [{"path": ["SW1", "SW2", "SW3"], "label": "BPDU", "tone": "good"}]}
+  ]
+}
+```
 
 ### STP Path Costs (memorize these!)
 
@@ -1648,6 +2488,65 @@ STP holds "elections" using special messages called **BPDUs** (Bridge Protocol D
 | 10 Gbps | 2 |
 
 Lower total cost = better path. Faster links have lower cost = preferred. *(Notice the costs aren't a neat formula like 10/9/8 — they're specific values defined by the standard, which is why you just memorize them. Faster = lower, always.)*
+
+**📝 Exam-style questions — 9.3**
+
+**Q1.** Refer to the exhibit. All switches are in VLAN 1's spanning tree. Which switch becomes the root bridge?
+
+```
+Switch   Bridge priority   MAC address
+SW1      32769             0019.e8a1.1100
+SW2      32769             0019.e8a1.0f00
+SW3      28673             00d0.ff12.3400
+SW4      32769             000c.85a0.2200
+```
+
+- **A.** SW1
+- **B.** SW2
+- **C.** SW3
+- **D.** SW4
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Priority is compared first, and SW3's 28673 is the lowest, so the MAC addresses don't matter. **Why not the others:** D has the lowest MAC, which would only win if all the priorities tied; that's the trap. A and B also lose on priority.
+</details>
+
+**Q2.** SW1 is the root bridge. SW3 connects to SW1 directly over a 100 Mbps link, and also to SW2 over a 1 Gbps link. SW2 connects to SW1 over a 1 Gbps link. Using the short (default) STP costs, which port becomes SW3's root port, and what is its root path cost?
+
+- **A.** The port toward SW1, cost 19
+- **B.** The port toward SW2, cost 8
+- **C.** The port toward SW1, cost 4
+- **D.** The port toward SW2, cost 23
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Through SW2 it's 4 (SW2 to SW1) + 4 (SW3 to SW2) = 8. Directly, it's 19 for the 100 Mbps link. 8 beats 19, so the root port is the one toward SW2, even though it's an extra hop. **Why not the others:** A picks the direct link, but STP counts cost, not hops. C uses the wrong cost for 100 Mbps. D adds the 100 Mbps cost to a path that doesn't use that link.
+</details>
+
+**Q3.** Why does the Bridge ID put an administrator-set priority in front of the MAC address?
+
+- **A.** So the administrator, not factory MAC addresses, decides which switch becomes root
+- **B.** Because MAC addresses aren't unique between vendors
+- **C.** So the switch with the most ports always becomes root
+- **D.** Because the priority sets each port's cost
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Priority is compared first, so lowering it on your best core switch makes that switch root. The MAC is only the tie-breaker that guarantees there's always exactly one winner. **Why not the others:** B is false: MACs are unique, and that's why they can break ties. C is wrong because port count plays no part in the election. D is wrong because port cost comes from link speed, not bridge priority.
+</details>
+
+**Q4.** Which two statements about STP port roles are true in a normal switched network? (Choose two.)
+
+- **A.** Every non-root switch has exactly one root port.
+- **B.** All active ports on the root bridge are designated ports.
+- **C.** The root bridge has one root port toward the core.
+- **D.** Each segment has two designated ports, one at each end.
+- **E.** The switch with the highest Bridge ID becomes the root bridge.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Each non-root switch keeps one best path to the root (its root port), and the root bridge is cost 0 from itself, so it wins every segment it's on. **Why not the others:** C is wrong because the root has no root port; it *is* the root. D is wrong because each segment has exactly one designated port. E has it backwards: the lowest Bridge ID wins.
+</details>
 
 ## 9.4 Port States (The Traffic Lights)
 
@@ -1671,11 +2570,130 @@ In classic STP, a port moves through states before it forwards data:
 - **Listening** gives every switch time to exchange BPDUs and *agree* on the final tree, so no two switches make a conflicting choice.
 - **Learning** lets the port build up its MAC table *before* it starts forwarding, so when it does go live it isn't flooding everything blindly.
 
+Step through the full 50 seconds below. SW1 is the root, and the link between SW1 and SW2 has just failed. Watch SW3's blocked port Gi0/2, which faces SW2.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Classic STP: 50 seconds from blocking to forwarding",
+  "actors": [
+    {"id": "SW3", "kind": "switch", "label": "SW3 Gi0/2"},
+    {"id": "SW2", "kind": "switch", "label": "SW2"},
+    {"id": "SW1", "kind": "switch", "label": "SW1 (root)"}
+  ],
+  "messages": [
+    {"from": "SW2", "to": "SW3", "label": "BPDU: root SW1, cost 4", "states": {"SW3": "Blocking"},
+     "text": "Before the failure, SW2's designated port sends BPDUs every 2 seconds. SW3's Gi0/2 is **blocking**: it forwards no user frames but stores the best BPDU it hears there."},
+    {"note": "SW1–SW2 link fails", "over": ["SW1", "SW2"],
+     "text": "SW2 loses its root port and has no other path it knows of to SW1. It's an **indirect** failure for SW3: SW3's own links are fine."},
+    {"from": "SW2", "to": "SW3", "label": "BPDU: I'm root (SW2)", "tone": "warn",
+     "text": "SW2 now claims to be root itself. That BPDU is **inferior** to the one SW3 has stored (root SW1), so classic STP ignores it."},
+    {"from": "SW3", "to": "SW3", "label": "Max Age expires", "detail": "20 seconds", "states": {"SW3": "Listening"},
+     "text": "SW3 keeps the old information until **Max Age (20 s)** runs out. Only then does Gi0/2 become designated and move to **listening**. No user data yet."},
+    {"from": "SW3", "to": "SW2", "label": "BPDU: root SW1, cost 4", "tone": "good",
+     "text": "SW3 tells SW2 about the real root. SW2 makes the port toward SW3 its new root port and stops claiming to be root."},
+    {"from": "SW3", "to": "SW3", "label": "Forward Delay expires", "detail": "15 seconds", "states": {"SW3": "Learning"},
+     "text": "After **15 s** of listening, the port moves to **learning**: it fills its MAC table from incoming frames but still doesn't forward them."},
+    {"from": "SW3", "to": "SW3", "label": "Forward Delay expires", "detail": "15 seconds", "states": {"SW3": "Forwarding"}, "tone": "good",
+     "text": "After another **15 s**, the port is **forwarding**. 20 + 15 + 15 = **50 seconds** of outage. That wait is the reason RSTP exists."}
+  ]
+}
+```
+
 The timers (20s blocking, 15s + 15s) are STP being cautious — it would rather be **slow and safe** than fast and looping. This caution is exactly *why* people invented the faster RSTP (next), and *why* PortFast exists for ports that provably can't cause a loop (a single PC).
+
+**📝 Exam-style questions — 9.4**
+
+**Q1.** In classic 802.1D STP, in what order does a blocked port move through the states on its way to forwarding?
+
+- **A.** Blocking, learning, listening, forwarding
+- **B.** Blocking, listening, learning, forwarding
+- **C.** Listening, blocking, learning, forwarding
+- **D.** Blocking, forwarding, learning, listening
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The port first *listens* (agrees on the topology with BPDUs), then *learns* (fills its MAC table), then forwards. **Why not the others:** A learns MAC addresses before the topology is settled. C and D put the states in an order STP never uses.
+</details>
+
+**Q2.** In which two 802.1D states does a port add entries to the MAC address table? (Choose two.)
+
+- **A.** Blocking
+- **B.** Listening
+- **C.** Learning
+- **D.** Forwarding
+- **E.** Disabled
+
+<details><summary>Answer</summary>
+
+**Answer: C, D.** Learning exists to fill the MAC table before forwarding starts, and forwarding keeps learning while it passes traffic. **Why not the others:** blocking (A) and listening (B) process BPDUs only. Disabled (E) does nothing at all.
+</details>
+
+**Q3.** With the default 802.1D timers, an indirect link failure means a blocked port must first wait for its stored BPDU to age out. About how long is it before that port forwards traffic?
+
+- **A.** 2 seconds
+- **B.** 15 seconds
+- **C.** 30 seconds
+- **D.** 50 seconds
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Max Age (20 s) + listening (15 s forward delay) + learning (15 s forward delay) = 50 s. **Why not the others:** A is the hello time between BPDUs. B is a single forward delay. C is listening plus learning only, which is what you get after a *direct* failure, when there's no Max Age to wait out.
+</details>
+
+**Q4.** Why does a port wait in the listening state before it starts forwarding?
+
+- **A.** To give every switch time to exchange BPDUs and agree on the final tree, so no temporary loop forms
+- **B.** To wait for the attached host to get an address from DHCP
+- **C.** To let the port negotiate speed and duplex
+- **D.** To check that the port's VLAN exists
+
+<details><summary>Answer</summary>
+
+**Answer: A.** If two switches both started forwarding on a new link before agreeing on the tree, a short loop and broadcast storm could form. The wait is STP being "slow and safe". **Why not the others:** B is backwards; the wait often makes DHCP *time out*, which is one reason PortFast exists. C is autonegotiation, a Layer 1 process that happens before STP is involved. D has nothing to do with STP timers.
+</details>
 
 ## 9.5 Faster STP: RSTP (802.1w)
 
 Classic STP is slow (~30-50 seconds to recover). **RSTP (Rapid Spanning Tree, 802.1w)** does the same job in **a few seconds**. It's the modern default. RSTP port roles: Root, Designated, **Alternate** (backup to root), and **Backup**.
+
+**📝 Exam-style questions — 9.5**
+
+**Q1.** Which IEEE standard defines Rapid Spanning Tree Protocol?
+
+- **A.** 802.1D
+- **B.** 802.1w
+- **C.** 802.1s
+- **D.** 802.1X
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 802.1w is RSTP. **Why not the others:** 802.1D (A) is classic STP. 802.1s (C) is MST, which maps many VLANs to a few instances. 802.1X (D) is port-based authentication, nothing to do with spanning tree.
+</details>
+
+**Q2.** Which RSTP port role is a pre-computed backup for the root port, receiving BPDUs from a different switch?
+
+- **A.** Designated
+- **B.** Alternate
+- **C.** Backup
+- **D.** Edge
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An alternate port offers a different path to the root and takes over at once if the root port fails. **Why not the others:** A forwards onto a segment. C backs up a *designated* port on the same shared segment (it hears its own switch's BPDUs). D isn't a role at all; "edge" is RSTP's name for a PortFast port.
+</details>
+
+**Q3.** An access switch running Rapid PVST+ connects to an old switch that only runs 802.1D. What happens on that link?
+
+- **A.** The link is err-disabled because the versions don't match.
+- **B.** The RSTP switch falls back to 802.1D behaviour on that port, so it converges with classic timers.
+- **C.** The old switch is upgraded to RSTP automatically.
+- **D.** Both switches stop sending BPDUs on that link.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** RSTP is backward compatible. When it hears 802.1D BPDUs on a port, it speaks 802.1D on that port, and loses the rapid convergence there. **Why not the others:** A is wrong because a version difference isn't treated as an error. C is impossible: a protocol can't upgrade another switch's software. D would blind STP to that link and risk a loop.
+</details>
 
 ## 9.6 PortFast & BPDU Guard (Helpful Extras)
 
@@ -1696,6 +2714,61 @@ SW1(config-if)# spanning-tree bpduguard enable
 
 > **PortFast and BPDU Guard protect *access* ports.** Two more guards protect the rest of the topology — **Root Guard** and **Loop Guard** — and section **9.9** puts all four side by side so you don't mix them up on the exam.
 
+**📝 Exam-style questions — 9.6**
+
+**Q1.** A port has PortFast and BPDU Guard enabled. A user plugs a small switch into it, and the switch sends a BPDU. What does the port do?
+
+- **A.** It moves to the err-disabled state.
+- **B.** It moves to the blocking state until the BPDUs stop.
+- **C.** It becomes a root port.
+- **D.** It ignores the BPDU, because PortFast ports don't process BPDUs.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** BPDU Guard shuts the port down (err-disabled) the moment a BPDU arrives, because a port that was promised to have only an end device clearly has a switch on it. **Why not the others:** B describes the inconsistent states of Root Guard and Loop Guard, which recover on their own. C would only happen if nothing protected the port and the BPDU were better than the current root path. D is false: PortFast ports still send and receive BPDUs, which is how BPDU Guard can spot one.
+</details>
+
+**Q2.** Where should PortFast be enabled?
+
+- **A.** On access ports connected to a single end device such as a PC or printer
+- **B.** On trunk ports between distribution switches
+- **C.** On every port, to speed up convergence
+- **D.** Only on the root bridge's ports
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A single end device can't create a loop, so it's safe to skip the listening and learning wait there. **Why not the others:** B and D are switch-to-switch links, where jumping straight to forwarding could cause a loop. C would remove STP's safety pause everywhere, including where loops are possible.
+</details>
+
+**Q3.** Refer to the exhibit. What happened, and how is the port brought back into service?
+
+```
+%SPANTREE-2-BLOCK_BPDUGUARD: Received BPDU on port Gi0/10 with BPDU Guard enabled. Disabling port.
+%PM-4-ERR_DISABLE: bpduguard error detected on Gi0/10, putting Gi0/10 in err-disable state
+```
+
+- **A.** A device that sends BPDUs was connected to Gi0/10. Remove it, then `shutdown` and `no shutdown` the port (or let errdisable recovery do it).
+- **B.** Gi0/10 is blocking and will recover by itself when the BPDUs stop.
+- **C.** A port security violation occurred. Run `clear port-security` on Gi0/10.
+- **D.** Gi0/10 became the root port. Lower the bridge priority to fix it.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** BPDU Guard err-disabled the port because a BPDU arrived. An err-disabled port stays down until it's bounced by hand or by `errdisable recovery cause bpduguard`, and you should remove the offending switch first or it will happen again. **Why not the others:** B is how Root Guard and Loop Guard behave, not BPDU Guard. C is a different feature with different log messages. D is wrong because the port is disabled, not forwarding in any role.
+</details>
+
+**Q4.** Which global configuration command enables BPDU Guard on every port where PortFast is enabled?
+
+- **A.** `spanning-tree bpduguard enable`
+- **B.** `spanning-tree portfast bpduguard default`
+- **C.** `spanning-tree portfast default`
+- **D.** `errdisable recovery cause bpduguard`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** This global command turns on BPDU Guard for all PortFast-enabled ports at once. **Why not the others:** A is the interface-level command for one port. C enables PortFast on all non-trunk ports, not BPDU Guard. D only controls automatic recovery after an err-disable.
+</details>
+
 ## 9.7 Making a Switch the Root (Best Practice)
 
 Don't let STP pick a random root. Force your best central switch to be root:
@@ -1705,6 +2778,44 @@ SW1(config)# spanning-tree vlan 10 root primary   ! become root for VLAN 10
 ! or set priority directly (must be multiples of 4096):
 SW1(config)# spanning-tree vlan 10 priority 4096
 ```
+
+**📝 Exam-style questions — 9.7**
+
+**Q1.** Which value can be set with `spanning-tree vlan 10 priority`?
+
+- **A.** 30000
+- **B.** 28672
+- **C.** 32769
+- **D.** 65535
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The priority must be a multiple of 4096 from 0 to 61440, and 28672 = 7 × 4096. **Why not the others:** A isn't a multiple of 4096. C is what `show spanning-tree` *displays* for VLAN 1 (32768 + 1), not a value you can type. D is beyond the 61440 maximum.
+</details>
+
+**Q2.** An engineer enters `spanning-tree vlan 10 root primary` on SW1. The current root for VLAN 10 has priority 32778 (32768 + 10). What does the command do?
+
+- **A.** It sets SW1's priority to 0.
+- **B.** It sets SW1's priority to 24576, low enough to win against the current root.
+- **C.** It keeps watching the network and lowers SW1's priority whenever another switch tries to become root.
+- **D.** It sets SW1's priority to 4096.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `root primary` is a macro that runs once. It sets 24576 if that's enough to beat the current root; otherwise it sets the priority 4096 below the current root's. Here 24576 beats 32768, so 24576 it is. **Why not the others:** A and D are values you could set by hand, but not what the macro chooses here. C is the big misconception: the macro calculates once and saves a plain priority, so a switch added later with priority 0 would still win. Setting the priority explicitly is more predictable.
+</details>
+
+**Q3.** Which priority does `spanning-tree vlan 10 root secondary` set?
+
+- **A.** 4096
+- **B.** 24576
+- **C.** 28672
+- **D.** 32768
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Secondary sets 28672: lower than the default 32768, so this switch takes over if the primary root fails, but higher than the primary's 24576. **Why not the others:** B is the value `root primary` usually sets. D is the default. A is a value you'd set by hand.
+</details>
 
 ---
 
@@ -1722,6 +2833,47 @@ So far we've talked about "STP" as one thing. In reality there are several **ver
 **Rapid PVST+ is the Cisco default on modern switches**, and it's the one to assume unless a question says otherwise.
 
 **Why run a separate spanning tree for every VLAN — isn't that a lot of extra work?** It is more work, and it buys something valuable: **you can use all your links instead of wasting half of them.** Remember what plain STP does — it blocks redundant links to break loops. With one spanning tree for everything, a blocked link is blocked for *all* traffic; you bought a second uplink and it sits idle doing nothing until something breaks.
+
+Step through it below: one tree for everything versus one tree per VLAN.
+
+```diagram
+{
+  "type": "topology",
+  "title": "One tree per VLAN puts both uplinks to work",
+  "caption": "AS1 is an access switch with an uplink to each distribution switch. All links are 1 Gbps.",
+  "nodes": [
+    {"id": "DS1", "kind": "l3switch", "x": 0.6, "y": 0, "sub": "distribution"},
+    {"id": "DS2", "kind": "l3switch", "x": 0.6, "y": 2.2, "sub": "distribution"},
+    {"id": "AS1", "kind": "switch", "x": 3.4, "y": 1.1, "sub": "access · VLANs 10, 20"}
+  ],
+  "links": [
+    {"a": "DS1", "b": "DS2", "style": "thick", "label": "trunk"},
+    {"a": "AS1", "b": "DS1", "label": "uplink 1", "aLabel": "Gi0/1"},
+    {"a": "AS1", "b": "DS2", "label": "uplink 2", "aLabel": "Gi0/2"}
+  ],
+  "steps": [
+    {"title": "1. One tree for everything",
+     "text": "With one spanning tree for all VLANs (classic 802.1D), DS1 is root for everything, and AS1's uplink to DS2 is blocked for **every** VLAN. You paid for two uplinks and one sits idle.",
+     "nodes": {"DS1": {"badge": "Root (all)", "tone": "good"}},
+     "links": {"AS1-DS1": "active", "AS1-DS2": "blocked"},
+     "packets": [{"path": ["AS1", "DS1"], "label": "VLANs 10 + 20"}]},
+    {"title": "2. PVST+: VLAN 10's tree",
+     "text": "Now each VLAN gets its own election. For **VLAN 10**, DS1 has the lowest priority (`root primary`), so it's root. AS1 blocks uplink 2 **for VLAN 10 only**.",
+     "nodes": {"DS1": {"badge": "Root VLAN 10"}},
+     "packets": [{"path": ["AS1", "DS1"], "label": "VLAN 10", "tone": "accent"}]},
+    {"title": "3. VLAN 20's tree",
+     "text": "For **VLAN 20**, DS2 is root. Now uplink 2 forwards and uplink 1 is the one blocked, but only for VLAN 20.",
+     "nodes": {"DS1": null, "DS2": {"badge": "Root VLAN 20", "tone": "good"}},
+     "links": {"AS1-DS1": "blocked", "AS1-DS2": "active"},
+     "packets": [{"path": ["AS1", "DS2"], "label": "VLAN 20", "tone": "purple"}]},
+    {"title": "4. Both uplinks carry traffic",
+     "text": "Put the two trees together: each uplink forwards for one VLAN and blocks for the other. Both links carry real traffic, every VLAN is still loop-free, and if one uplink fails, its VLANs reconverge onto the other.",
+     "nodes": {"DS1": {"badge": "Root VLAN 10", "tone": "good"}},
+     "links": {"AS1-DS1": "active", "AS1-DS2": "active"},
+     "packets": [{"path": ["AS1", "DS1"], "label": "VLAN 10", "tone": "accent"}, {"path": ["AS1", "DS2"], "label": "VLAN 20", "tone": "purple"}]}
+  ]
+}
+```
 
 With one tree per VLAN, you can deliberately make **different switches the root for different VLANs**:
 
@@ -1745,6 +2897,54 @@ SW1(config)# spanning-tree mode rapid-pvst        ! the modern default
 SW1(config)# spanning-tree vlan 10 root primary   ! SW1 = root for VLAN 10
 SW2(config)# spanning-tree vlan 20 root primary   ! SW2 = root for VLAN 20
 ```
+
+**📝 Exam-style questions — 9.8**
+
+**Q1.** Which spanning tree flavor runs a separate 802.1w (rapid) instance for each VLAN?
+
+- **A.** PVST+
+- **B.** Rapid PVST+
+- **C.** RSTP
+- **D.** 802.1D
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Rapid PVST+ is Cisco's per-VLAN version of 802.1w: fast convergence and one tree per VLAN. **Why not the others:** A is per-VLAN but uses slow 802.1D timers. C is rapid but runs one tree for the whole switch. D is slow and runs one tree for everything.
+</details>
+
+**Q2.** An engineer makes DS1 the root bridge for VLAN 10 and DS2 the root bridge for VLAN 20. What is the main benefit?
+
+- **A.** Both uplinks from each access switch carry traffic, because each one forwards for a different VLAN.
+- **B.** Spanning tree is no longer needed for VLANs 10 and 20.
+- **C.** VLAN 10 and VLAN 20 hosts can now talk to each other without a router.
+- **D.** Each switch now sends fewer BPDUs.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With different roots, the blocked port lands on a different uplink for each VLAN, so you get crude load balancing instead of an idle link. **Why not the others:** B is wrong: each VLAN still has its own loop-free tree. C is wrong: routing between VLANs still needs a Layer 3 device. D is backwards: per-VLAN STP sends BPDUs for every VLAN, so more of them.
+</details>
+
+**Q3.** Refer to the exhibit. Which statement is true?
+
+```
+SW1# show spanning-tree vlan 10
+
+VLAN0010
+  Spanning tree enabled protocol rstp
+  Root ID    Priority    24586
+             Address     0019.e8a1.0f00
+             This bridge is the root
+```
+
+- **A.** SW1 runs Rapid PVST+ and is the root for VLAN 10, with a configured priority of 24576.
+- **B.** SW1 runs PVST+ and is the root for VLAN 10.
+- **C.** SW1 has a configured priority of 24586 for VLAN 10.
+- **D.** SW1 runs MST, and VLAN 10 is mapped to instance 10.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** In rapid-pvst mode, IOS shows the protocol as `rstp`. The displayed priority is the configured priority plus the VLAN number: 24586 = 24576 + 10. **Why not the others:** B would show `protocol ieee`. C is impossible, because priorities must be multiples of 4096. D would show `protocol mstp` and an MST instance instead of VLAN0010.
+</details>
 
 ## 9.9 Protecting the Topology: Root Guard, Loop Guard & BPDU Filter
 
@@ -1786,6 +2986,54 @@ BPDU Filter **suppresses BPDUs** on a port. It's the odd one out, because it's t
 | **BPDU Filter** | Rare, edge cases | — | Stops sending/processing BPDUs |
 
 *The one-line memory hook:* **BPDU Guard reacts to a BPDU showing up where it shouldn't. Loop Guard reacts to a BPDU disappearing where it should still be.* One fears noise, the other fears silence.
+
+**📝 Exam-style questions — 9.9**
+
+**Q1.** Which feature puts a port into the root-inconsistent state if it receives a superior BPDU?
+
+- **A.** BPDU Guard
+- **B.** Root Guard
+- **C.** Loop Guard
+- **D.** BPDU Filter
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Root Guard says "no root bridge may ever appear through this port". A superior BPDU there stops the port forwarding until the superior BPDUs stop. **Why not the others:** A err-disables on *any* BPDU. C reacts to BPDUs *stopping* (loop-inconsistent). D just suppresses BPDUs and protects nothing.
+</details>
+
+**Q2.** A fiber link has failed in one direction only. A blocked port on SW3 stops receiving BPDUs, although the link still looks up. Which feature stops that port from moving to forwarding and creating a loop?
+
+- **A.** Root Guard
+- **B.** BPDU Guard
+- **C.** Loop Guard
+- **D.** PortFast
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Loop Guard treats silence on a port that used to hear BPDUs as suspicious. It puts the port into loop-inconsistent instead of letting it forward. **Why not the others:** A and B react to BPDUs *arriving*, but here they've stopped. D would make things worse by skipping the wait states.
+</details>
+
+**Q3.** Refer to the exhibit. What happens when the device on Gi0/3 stops sending superior BPDUs?
+
+```
+SW1# show spanning-tree inconsistentports
+
+Name                 Interface                Inconsistency
+-------------------- ------------------------ ------------------
+VLAN0010             GigabitEthernet0/3       Root Inconsistent
+
+Number of inconsistent ports (segments) in the system : 1
+```
+
+- **A.** Gi0/3 recovers automatically and goes back through the normal STP states.
+- **B.** Gi0/3 stays down until an administrator enters `shutdown` and `no shutdown`.
+- **C.** Gi0/3 moves to err-disabled.
+- **D.** Gi0/3 becomes the root port for VLAN 10.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Root-inconsistent is a temporary blocking state. Once the superior BPDUs stop, the port recovers by itself. **Why not the others:** B and C describe BPDU Guard's err-disable, which needs a manual or timed recovery. D is exactly what Root Guard exists to prevent.
+</details>
 
 ---
 
@@ -1833,6 +3081,31 @@ Cost is **added on reception**, using the cost of the port the BPDU arrived on:
 
 Take a chain — ROOT, then SW2, then SW3, joined by 1 Gbps links (cost 4 each):
 
+Try a bigger example below. SW4 has two ways to reach the root, and its root port is on the cheaper one. Change the link costs (for example, make SW2–SW4 a 100 Mbps link, cost 19) and watch it move.
+
+```diagram
+{
+  "type": "path",
+  "title": "SW4's root port is on its cheapest path to the root",
+  "prompt": "Each cost is the STP cost of that link (1 Gbps = 4, 100 Mbps = 19). If you make the two paths cost the same, both light up, but STP still uses only one: it breaks the tie with the lower sender Bridge ID, as described below.",
+  "metric": "Root path cost",
+  "from": "SW4",
+  "to": "ROOT",
+  "nodes": [
+    {"id": "ROOT", "x": 0, "y": 1},
+    {"id": "SW2", "x": 2, "y": 0},
+    {"id": "SW3", "x": 2, "y": 2},
+    {"id": "SW4", "x": 4, "y": 1}
+  ],
+  "links": [
+    {"a": "ROOT", "b": "SW2", "cost": 4, "label": "1G"},
+    {"a": "ROOT", "b": "SW3", "cost": 19, "label": "100M"},
+    {"a": "SW2", "b": "SW4", "cost": 4, "label": "1G"},
+    {"a": "SW3", "b": "SW4", "cost": 4, "label": "1G"}
+  ]
+}
+```
+
 | Switch | BPDU says | Adds its ingress cost | Advertises onward |
 |--------|-----------|-----------------------|-------------------|
 | ROOT | — | — | cost **0** |
@@ -1852,11 +3125,88 @@ Every port role in the network comes from applying four tie-breakers, **in order
 
 Then roles fall out:
 
+Try the four tie-breakers below. SW4 hears a BPDU on each of its uplinks and has to pick one as its root port. Both start at the same root path cost, so the decision falls through to the sender's Bridge ID.
+
+```diagram
+{
+  "type": "compare",
+  "title": "Which of SW4's ports becomes the root port?",
+  "prompt": "Both BPDUs name the same root. Lower the cost on one, or change a sender's priority or MAC, and see which tie-breaker decides. To reach the port ID tie-breaker, give both candidates the same sender (as with two parallel links to one neighbour).",
+  "winner": "Root port",
+  "fields": [
+    {"id": "cost", "label": "Root path cost via this port", "kind": "number", "rule": "lowest"},
+    {"id": "sprio", "label": "Sender bridge priority", "kind": "number", "rule": "lowest"},
+    {"id": "smac", "label": "Sender MAC", "kind": "mac", "rule": "lowest"},
+    {"id": "pprio", "label": "Sender port priority", "kind": "number", "rule": "lowest"},
+    {"id": "pnum", "label": "Sender port number", "kind": "number", "rule": "lowest"}
+  ],
+  "candidates": [
+    {"label": "Gi0/1 (from SW2)", "values": {"cost": 8, "sprio": 32769, "smac": "001a.2b3c.4d00", "pprio": 128, "pnum": 3}},
+    {"label": "Gi0/2 (from SW3)", "values": {"cost": 8, "sprio": 32769, "smac": "0019.e8a1.0f00", "pprio": 128, "pnum": 2}}
+  ]
+}
+```
+
 - **Root Port** — the one port on each non-root switch with the best path to root. *Every non-root switch has exactly one.*
 - **Designated Port** — on each segment, the one port responsible for forwarding onto it. *Every segment has exactly one.* All ports on the root bridge are designated.
 - **Blocking / Non-designated** — everything else.
 
 **Why does step 4 exist at all — when would two links tie on everything else?** When a switch has **two parallel links to the same neighbour**. Same root, same cost, same sender Bridge ID — the first three tie-breakers are useless. Port ID is the final arbiter, and it's why the lower-numbered port becomes the root port and the other blocks. (If you'd rather bundle them than block one, that's exactly what EtherChannel in Chapter 10 is for.)
+
+**📝 Exam-style questions — 9.10**
+
+**Q1.** A switch uses the default bridge priority. What priority does `show spanning-tree vlan 20` display for it?
+
+- **A.** 32768
+- **B.** 32769
+- **C.** 32788
+- **D.** 20
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The displayed value is the priority (32768) plus the extended system ID, which is the VLAN number (20): 32788. **Why not the others:** A leaves out the VLAN. B is what VLAN 1 shows. D is just the VLAN number.
+</details>
+
+**Q2.** ROOT connects to SW2 over a 1 Gbps link, and SW2 connects to SW3 over a 100 Mbps link. Using short STP costs, what root path cost does SW3 advertise in the BPDUs it sends downstream?
+
+- **A.** 4
+- **B.** 19
+- **C.** 23
+- **D.** 27
+
+<details><summary>Answer</summary>
+
+**Answer: C.** ROOT advertises 0. SW2 adds 4 for the 1 Gbps port it received on and advertises 4. SW3 adds 19 for its 100 Mbps port, so its cost is 23, and that's what it advertises onward. **Why not the others:** A is SW2's cost. B is only the last link. D adds the 1 Gbps cost twice.
+</details>
+
+**Q3.** Refer to the exhibit. SW1 is the root. SW2 has two parallel links to it, with every port at the default port priority of 128. Which port becomes SW2's root port?
+
+```
+SW2 Gi0/1  <------>  SW1 Gi0/24
+SW2 Gi0/2  <------>  SW1 Gi0/23
+```
+
+- **A.** Gi0/1, because it has the lower local port number
+- **B.** Gi0/2, because it receives BPDUs from SW1's lower port ID (Gi0/23)
+- **C.** Both, because they're equal-cost paths
+- **D.** Whichever link came up first
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Root ID, cost and sender Bridge ID all tie, so the decision falls to the **sender's** port ID, the port on SW1 that sent the BPDU. SW1's Gi0/23 has a lower port ID than Gi0/24, so SW2's Gi0/2 wins. **Why not the others:** A is the trap: SW2's own port number is used only as a final tie-breaker when the sender port IDs also match, which can't happen here. C is wrong because STP never forwards on two root ports. D has no part in the election.
+</details>
+
+**Q4.** Why must a bridge priority be a multiple of 4096?
+
+- **A.** Because the low 12 bits of the 16-bit priority field now carry the VLAN ID (the extended system ID)
+- **B.** Because 4096 is the maximum number of switches in one STP domain
+- **C.** Because port costs are calculated in units of 4096
+- **D.** Because the MAC address takes up the low 12 bits
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Per-VLAN STP needed a different Bridge ID for each VLAN, so the low 12 bits of the priority field were given to the VLAN number. Only the top 4 bits are left for you to set, and they count in steps of 4096. **Why not the others:** B is made up; there's no such limit. C mixes up port cost with bridge priority. D is wrong because the MAC is a separate 6-byte part of the Bridge ID.
+</details>
 
 ## 9.11 RSTP In Depth — Why It's Seconds Instead of Fifty
 
@@ -1897,6 +3247,32 @@ On a point-to-point link, two RSTP switches negotiate explicitly instead of wait
 
 **Why is skipping the timers safe here, when classic STP insisted on them?** Because the timers were a substitute for information. Classic STP had no way to ask "is it safe to forward?", so it waited long enough for any conflicting news to arrive. RSTP just **asks**, and the neighbour blocks its own downstream ports (the **sync**) before answering. Safety comes from an explicit agreement rather than from elapsed time.
 
+Step through the handshake below. SW1 is upstream (closer to the root), SW2 is in the middle, and SW3 is further down.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "RSTP proposal and agreement, link by link",
+  "actors": [
+    {"id": "SW1", "kind": "switch", "label": "SW1 (upstream)"},
+    {"id": "SW2", "kind": "switch", "label": "SW2"},
+    {"id": "SW3", "kind": "switch", "label": "SW3 (downstream)"}
+  ],
+  "messages": [
+    {"from": "SW1", "to": "SW2", "label": "Proposal", "detail": "BPDU with the proposal flag set", "states": {"SW1": "Discarding"},
+     "text": "A point-to-point link comes up. SW1 wants its port on this link to be **designated**, so it sends a BPDU with the **proposal** flag. Its port stays discarding for now."},
+    {"from": "SW2", "to": "SW2", "label": "Sync", "detail": "block its own non-edge designated ports", "states": {"SW2": "Synced"},
+     "text": "SW2 sees that SW1 offers a better path to the root. Before agreeing, it **syncs**: it puts its other non-edge designated ports into discarding. Now nothing SW1 does can create a loop through SW2. Edge (PortFast) ports keep forwarding."},
+    {"from": "SW2", "to": "SW1", "label": "Agreement", "tone": "good", "states": {"SW1": "Forwarding", "SW2": "Root port: Fwd"},
+     "text": "SW2 replies with an **agreement**. SW1's designated port goes straight to **forwarding**, and so does SW2's new root port. There are no timers, just an explicit OK."},
+    {"from": "SW2", "to": "SW3", "label": "Proposal", "states": {"SW3": "Discarding"},
+     "text": "The handshake ripples downstream. The SW2 port that sync blocked now proposes to SW3."},
+    {"from": "SW3", "to": "SW2", "label": "Agreement", "tone": "good", "states": {"SW3": "Forwarding"},
+     "text": "SW3 syncs and agrees, and that link forwards too. The whole tree converges in well under a second, one link at a time. On a **shared** (half-duplex) link this handshake isn't available, and RSTP falls back to timers."}
+  ]
+}
+```
+
 This is also why **link type** matters:
 
 - **Point-to-point** (full duplex) → handshake available → fast.
@@ -1906,6 +3282,67 @@ This is also why **link type** matters:
 *So a duplex mismatch doesn't just hurt throughput — it can silently drop a link into shared mode and cost you rapid convergence.*
 
 Finally, RSTP handles **topology change** differently. Classic STP notified the root, which set a flag causing everyone to age out MAC tables in 15 seconds. RSTP lets **any** switch flood a topology change directly and **flushes** affected MAC entries outright rather than aging them — so traffic re-learns its path at once instead of blackholing while a stale table expires.
+
+**📝 Exam-style questions — 9.11**
+
+**Q1.** RSTP has only three port states. Which classic 802.1D states are merged into RSTP's discarding state?
+
+- **A.** Disabled, blocking and listening
+- **B.** Blocking, listening and learning
+- **C.** Listening and learning
+- **D.** Blocking only
+
+<details><summary>Answer</summary>
+
+**Answer: A.** None of disabled, blocking or listening forwards frames or learns MACs, so RSTP folds them into one state: discarding. Learning and forwarding keep their names. **Why not the others:** B and C wrongly include learning, which RSTP keeps as its own state. D leaves out disabled and listening.
+</details>
+
+**Q2.** Refer to the exhibit. Which port can't use the RSTP proposal/agreement handshake and will fall back to timer-based convergence?
+
+```
+SW2# show spanning-tree vlan 10
+...
+Interface           Role Sts Cost      Prio.Nbr Type
+------------------- ---- --- --------- -------- --------------------------------
+Gi0/1               Root FWD 4         128.1    P2p
+Gi0/2               Altn BLK 4         128.2    P2p
+Fa0/5               Desg FWD 19        128.5    P2p Edge
+Fa0/6               Desg FWD 19        128.6    Shr
+```
+
+- **A.** Gi0/1
+- **B.** Gi0/2
+- **C.** Fa0/5
+- **D.** Fa0/6
+
+<details><summary>Answer</summary>
+
+**Answer: D.** `Shr` means a shared link (half duplex, usually a hub or a duplex mismatch). There may be several neighbours on it, so there's no single peer to agree with, and RSTP falls back to timers. **Why not the others:** A and B are point-to-point (`P2p`) links, where the handshake works. C is an edge port (PortFast), which forwards straight away with no handshake needed.
+</details>
+
+**Q3.** On an RSTP switch, the root port fails and an alternate port exists. What happens?
+
+- **A.** The alternate port becomes the root port and moves to forwarding almost at once.
+- **B.** The switch waits Max Age (20 seconds) before using the alternate port.
+- **C.** The alternate port goes through listening and learning, taking 30 seconds.
+- **D.** The switch becomes the root bridge.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The alternate was already worked out as the next-best path to the root, so RSTP promotes it straight away. **Why not the others:** B and C describe classic 802.1D timers, which RSTP avoids. D only happens if a switch loses *every* path to the root; here a backup path still exists.
+</details>
+
+**Q4.** What is the difference between an RSTP alternate port and a backup port?
+
+- **A.** An alternate port receives better BPDUs from another switch; a backup port receives better BPDUs from its own switch on a shared segment.
+- **B.** An alternate port is on the root bridge; a backup port is on a non-root switch.
+- **C.** An alternate port forwards traffic; a backup port discards it.
+- **D.** They're two names for the same role.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** An alternate offers a genuinely different path to the root through a neighbouring switch. A backup is a spare for a designated port on the same shared segment, and it hears its own switch's BPDUs, usually through a hub. **Why not the others:** B is wrong: neither role is tied to the root bridge. C is wrong: both roles are discarding. D is wrong: RSTP defines them as separate roles.
+</details>
 
 ---
 
@@ -1935,6 +3372,80 @@ You paid for four cables and got the speed of one. 😤
 
 **Why does losing a cable NOT cause an outage?** Because to STP and to the switch's logic, nothing changed — it's still "one link," just now made of 3 cables instead of 4. Traffic keeps flowing on the survivors instantly. Compare that to STP failover (unblocking a backup port), which takes seconds. EtherChannel failover is nearly instant because the "backup" was already active and part of the bundle.
 
+Step through it below: four cables without EtherChannel, then the same four bundled.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Four cables: STP blocks three, EtherChannel uses all four",
+  "caption": "SW1 and SW2 are joined by four 1 Gbps links, Gi0/1 to Gi0/4 on both sides (top to bottom). Click a link for its ports.",
+  "nodes": [
+    {"id": "SW1", "kind": "switch", "x": 0.5, "y": 1, "sub": "Gi0/1-4"},
+    {"id": "SW2", "kind": "switch", "x": 4, "y": 1, "sub": "Gi0/1-4"}
+  ],
+  "links": [
+    {"id": "l1", "a": "SW1", "b": "SW2", "info": "Gi0/1 on SW1 to Gi0/1 on SW2, 1 Gbps."},
+    {"id": "l2", "a": "SW1", "b": "SW2", "info": "Gi0/2 on SW1 to Gi0/2 on SW2, 1 Gbps."},
+    {"id": "l3", "a": "SW1", "b": "SW2", "info": "Gi0/3 on SW1 to Gi0/3 on SW2, 1 Gbps."},
+    {"id": "l4", "a": "SW1", "b": "SW2", "info": "Gi0/4 on SW1 to Gi0/4 on SW2, 1 Gbps."}
+  ],
+  "steps": [
+    {"title": "1. Four separate links: STP sees a loop",
+     "text": "To spanning tree, four parallel links are four ways round a loop. It forwards on **one** (the lowest port ID wins the tie) and blocks the other **three**. You bought 4 Gbps and get 1.",
+     "links": {"l1": "active", "l2": "blocked", "l3": "blocked", "l4": "blocked"},
+     "packets": [{"path": ["SW1", "SW2"], "via": ["l1"], "label": "all traffic"}]},
+    {"title": "2. Bundle them into Port-channel 1",
+     "text": "With `channel-group 1 mode active` on all four ports at both ends, LACP forms **Po1**. STP now sees **one logical link**, so there's no loop to break, and all four members forward.",
+     "nodes": {"SW1": {"badge": "Po1", "tone": "good"}, "SW2": {"badge": "Po1", "tone": "good"}},
+     "links": {"l1": "active", "l2": "active", "l3": "active", "l4": "active"},
+     "packets": [{"path": ["SW1", "SW2"], "via": ["l1"]}, {"path": ["SW1", "SW2"], "via": ["l2"]}, {"path": ["SW1", "SW2"], "via": ["l3"]}, {"path": ["SW1", "SW2"], "via": ["l4"]}]},
+    {"title": "3. A cable fails: no STP recalculation",
+     "text": "Gi0/3 fails. Po1 is still up, just with three members, so STP notices nothing. The flows that hashed to Gi0/3 move to the survivors almost instantly, with no blocking, listening or learning.",
+     "links": {"l3": "down"},
+     "packets": [{"path": ["SW1", "SW2"], "via": ["l1"]}, {"path": ["SW1", "SW2"], "via": ["l2"]}, {"path": ["SW1", "SW2"], "via": ["l4"]}]}
+  ]
+}
+```
+
+**📝 Exam-style questions — 10.1**
+
+**Q1.** Two switches are joined by four 1 Gbps links. No EtherChannel is configured, and spanning tree is running. How many of the links forward traffic?
+
+- **A.** 0
+- **B.** 1
+- **C.** 2
+- **D.** 4
+
+<details><summary>Answer</summary>
+
+**Answer: B.** STP sees four parallel paths as a loop, so it forwards on one link and blocks the other three. **Why not the others:** A would leave the switches disconnected, which STP never does on purpose. C has no basis; STP doesn't load-share within one VLAN's tree. D is what you get only *after* bundling them with EtherChannel.
+</details>
+
+**Q2.** Which two benefits does EtherChannel provide? (Choose two.)
+
+- **A.** STP treats the bundle as one logical link, so it doesn't block member links.
+- **B.** If a member link fails, traffic moves to the remaining links without STP reconverging.
+- **C.** A single file transfer can use the combined bandwidth of every member link.
+- **D.** Links of different speeds can be bundled together.
+- **E.** Spanning tree no longer needs to run on the switches.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** The logical link hides the members from STP, which gives you the bandwidth of all of them and near-instant failover inside the bundle. **Why not the others:** C is the classic misconception: each flow is hashed to one member, so a single transfer is capped at one link's speed (section 10.4). D is wrong because members must match in speed and duplex. E is wrong because STP still runs; it just sees the port-channel as one port.
+</details>
+
+**Q3.** On most Catalyst switches, what is the maximum number of physical links that can actively forward in one EtherChannel?
+
+- **A.** 2
+- **B.** 4
+- **C.** 8
+- **D.** 16
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Up to 8 links can be active in one bundle. **Why not the others:** A and B are common bundle sizes, not limits. D is the number LACP can *configure*: 8 active plus up to 8 in hot-standby, ready to replace a failed member.
+</details>
+
 ## 10.2 Two Ways to Negotiate
 
 - **PAgP** (Port Aggregation Protocol): Cisco's own. Modes: `desirable`, `auto`.
@@ -1947,6 +3458,30 @@ You paid for four cables and got the speed of one. 😤
 
 **Which combos form a channel?**
 
+Step through an LACP negotiation below: one side **active**, the other **passive**.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "LACP active meets LACP passive",
+  "actors": [
+    {"id": "SW1", "kind": "switch", "label": "SW1 (active)"},
+    {"id": "SW2", "kind": "switch", "label": "SW2 (passive)"}
+  ],
+  "messages": [
+    {"note": "Gi0/1-2: channel-group 1 on both", "over": ["SW1", "SW2"], "states": {"SW1": "Individual", "SW2": "Individual"},
+     "text": "Both switches have Gi0/1 and Gi0/2 in channel-group 1. SW1 uses `mode active`, SW2 uses `mode passive`. Until LACP agrees, each port works as an ordinary single link."},
+    {"from": "SW1", "to": "SW2", "label": "LACPDU", "detail": "I'm active: system ID, key, port", "text": "An **active** port starts the conversation, sending LACPDUs that describe itself: its system priority and MAC, its key (which group of ports it belongs to) and its port number."},
+    {"from": "SW2", "to": "SW1", "label": "LACPDU", "detail": "I'm passive: here's my side", "text": "A **passive** port never starts, but it does answer. SW2 replies with its own details. That's why passive + passive never forms a channel: both sides wait for the other to speak."},
+    {"note": "Both check: same speed, duplex, VLANs, mode", "over": ["SW1", "SW2"], "text": "Each switch checks that every member agrees with its partners: same speed and duplex, and the same access VLAN or trunk settings. A port that doesn't match is left out (suspended)."},
+    {"from": "SW1", "to": "SW2", "label": "LACPDU", "detail": "in sync, collecting + distributing", "tone": "good", "states": {"SW1": "Bundled (P)", "SW2": "Bundled (P)"},
+     "text": "Both sides mark their ports as in sync, and the ports join **Po1**. `show etherchannel summary` shows each member with **(P)**, bundled in the port-channel."},
+    {"from": "SW2", "to": "SW1", "label": "LACPDU", "detail": "every 30 s (slow rate)", "dashed": true,
+     "text": "LACPDUs keep flowing (every 30 seconds by default) so each side notices if its partner disappears or changes, and pulls that member out of the bundle."}
+  ]
+}
+```
+
 | Side A | Side B | Forms? |
 |--------|--------|--------|
 | LACP active | LACP active | Yes |
@@ -1955,6 +3490,57 @@ You paid for four cables and got the speed of one. 😤
 | PAgP desirable | PAgP desirable | Yes |
 | PAgP desirable | PAgP auto | Yes |
 | PAgP auto | PAgP auto | No |
+
+**📝 Exam-style questions — 10.2**
+
+**Q1.** Which pair of modes forms an EtherChannel?
+
+- **A.** LACP passive and LACP passive
+- **B.** PAgP auto and PAgP auto
+- **C.** LACP active and LACP passive
+- **D.** LACP active and PAgP desirable
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The active side starts sending LACPDUs, and the passive side answers. **Why not the others:** in A and B both sides only listen, so nobody starts. D mixes two different protocols, which can't talk to each other.
+</details>
+
+**Q2.** Which link aggregation protocol is an open IEEE standard and works between Cisco and other vendors' switches?
+
+- **A.** PAgP
+- **B.** LACP
+- **C.** DTP
+- **D.** VTP
+
+<details><summary>Answer</summary>
+
+**Answer: B.** LACP was defined in IEEE 802.3ad (now 802.1AX), so any vendor can use it. **Why not the others:** PAgP (A) is Cisco-only. DTP (C) negotiates trunking, not bundles, and VTP (D) shares VLAN databases. Both are Cisco-only too.
+</details>
+
+**Q3.** Which two mode combinations will NOT form an EtherChannel? (Choose two.)
+
+- **A.** `auto` and `auto`
+- **B.** `active` and `active`
+- **C.** `passive` and `passive`
+- **D.** `desirable` and `auto`
+- **E.** `on` and `on`
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** Auto (PAgP) and passive (LACP) only respond. With both ends waiting, no negotiation ever starts. **Why not the others:** B forms, because both sides initiate. D forms, because desirable initiates and auto responds. E forms, because `on` forces the bundle with no negotiation at all, as long as the configurations match.
+</details>
+
+**Q4.** SW1's ports are set to `channel-group 1 mode on` and SW2's ports to `channel-group 1 mode active`. What is the result?
+
+- **A.** The channel forms, because the active side starts the negotiation.
+- **B.** No channel forms, because `on` sends no LACPDUs and SW2 never hears a partner.
+- **C.** The channel forms using PAgP instead.
+- **D.** The channel forms at half the normal speed.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `on` doesn't speak LACP at all, so SW2's LACPDUs go unanswered and its ports aren't bundled, while SW1 bundles its ports blindly. That mismatch is exactly why forcing `on` is risky. **Why not the others:** A forgets that negotiation needs a reply. C is wrong because nothing switches protocols automatically. D isn't a thing; a channel either forms or it doesn't.
+</details>
 
 ## 10.3 Configuring EtherChannel (LACP)
 
@@ -1973,6 +3559,55 @@ Check it:
 ```
 SW1# show etherchannel summary
 ```
+
+**📝 Exam-style questions — 10.3**
+
+**Q1.** Refer to the exhibit. Why is Gi0/3 not carrying traffic in Po1?
+
+```
+SW1# show etherchannel summary
+Flags:  D - down        P - bundled in port-channel
+        I - stand-alone s - suspended
+        S - Layer2      U - in use
+...
+Group  Port-channel  Protocol    Ports
+------+-------------+-----------+-----------------------------------------------
+1      Po1(SU)         LACP      Gi0/1(P)    Gi0/2(P)    Gi0/3(s)
+```
+
+- **A.** Gi0/3's settings (for example speed, duplex or VLAN configuration) don't match the other members.
+- **B.** Gi0/3 is administratively shut down.
+- **C.** Port-channel 1 is down.
+- **D.** Gi0/3 is in standby, waiting for a ninth link to fail.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `(s)` means suspended: the switch kept the port out of the bundle because it isn't compatible with the others. Fix the mismatch and it joins. **Why not the others:** B would show `(D)` for down. C is wrong because `Po1(SU)` means Layer 2 and in use. D would show `(H)` for hot-standby, which only happens when more than eight links are configured.
+</details>
+
+**Q2.** Which command puts Gi0/1 and Gi0/2 into EtherChannel group 1 as LACP ports that start negotiation themselves?
+
+- **A.** `channel-group 1 mode desirable`
+- **B.** `channel-group 1 mode active`
+- **C.** `channel-group 1 mode on`
+- **D.** `channel-group 1 mode passive`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `active` is LACP's mode that sends LACPDUs and starts the negotiation. **Why not the others:** A is PAgP's initiating mode. C forces the bundle without any protocol. D is LACP, but it only answers and never starts.
+</details>
+
+**Q3.** An EtherChannel trunk has formed. An engineer needs to change the allowed VLAN list on the bundle. Where should the change be made?
+
+- **A.** On `interface port-channel 1`, which passes the setting on to its members
+- **B.** On each member port separately, leaving the port-channel alone
+- **C.** On only one member port, which then copies it to the others
+- **D.** It can't be changed without deleting the EtherChannel.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Configure the logical interface and IOS applies the setting to the members, so they stay consistent. **Why not the others:** B and C risk the members disagreeing; a member whose settings differ from the port-channel gets suspended. D is wrong because the bundle can be reconfigured live.
+</details>
 
 ---
 
@@ -1994,6 +3629,46 @@ Because the same conversation always hashes to the same value, **every frame in 
 
 **The consequence to remember:** one file transfer between two hosts uses **one link** and is capped at that link's speed. EtherChannel scales *many* conversations, not one. A backup server pushing a single huge stream sees no benefit at all.
 
+Step through some flows below to see it. The bundle has four members, and each conversation is hashed to exactly one of them.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Each flow sticks to one member link",
+  "caption": "Po1 has four 1 Gbps members (m1–m4), with `port-channel load-balance src-dst-ip`. Which flow lands on which link depends on the hash; these are examples.",
+  "nodes": [
+    {"id": "PC1", "kind": "host", "x": 0, "y": 0, "sub": "10.1.1.11"},
+    {"id": "PC2", "kind": "host", "x": 0, "y": 2.2, "sub": "10.1.1.12"},
+    {"id": "SW1", "kind": "switch", "x": 1.4, "y": 1.1},
+    {"id": "SW2", "kind": "switch", "x": 3.6, "y": 1.1},
+    {"id": "SRV1", "kind": "server", "x": 5, "y": 0, "sub": "10.2.2.21"},
+    {"id": "SRV2", "kind": "server", "x": 5, "y": 2.2, "sub": "10.2.2.22"}
+  ],
+  "links": [
+    {"a": "PC1", "b": "SW1"},
+    {"a": "PC2", "b": "SW1"},
+    {"id": "m1", "a": "SW1", "b": "SW2"},
+    {"id": "m2", "a": "SW1", "b": "SW2"},
+    {"id": "m3", "a": "SW1", "b": "SW2"},
+    {"id": "m4", "a": "SW1", "b": "SW2"},
+    {"a": "SW2", "b": "SRV1"},
+    {"a": "SW2", "b": "SRV2"}
+  ],
+  "steps": [
+    {"title": "1. PC1 to SRV1 hashes to m1",
+     "text": "The switch hashes the source and destination IPs (10.1.1.11 and 10.2.2.21) and gets a result that maps to **m1**. Every packet of this conversation gives the same result, so every one uses m1 and they arrive in order.",
+     "packets": [{"path": ["PC1", "SW1", "SW2", "SRV1"], "via": [null, "m1", null], "label": "flow A"}]},
+    {"title": "2. A different pair, a different link",
+     "text": "PC2 to SRV2 is a different address pair, so it gives a different hash: **m3** here. Many conversations spread across the members, which is how the bundle reaches its 4 Gbps total.",
+     "packets": [{"path": ["PC1", "SW1", "SW2", "SRV1"], "via": [null, "m1", null], "label": "flow A"}, {"path": ["PC2", "SW1", "SW2", "SRV2"], "via": [null, "m3", null], "label": "flow B", "tone": "good"}]},
+    {"title": "3. One big download is still one link",
+     "text": "PC2 starts a huge transfer from SRV1. It's one address pair, so it hashes to one member (**m4**) and tops out at **1 Gbps**, however idle m2 is. EtherChannel scales many conversations, not one.",
+     "focus": ["PC2", "SW1", "SW2", "SRV1", "m4", "PC2-SW1", "SW2-SRV1"],
+     "packets": [{"path": ["SRV1", "SW2", "SW1", "PC2"], "via": [null, "m4", null], "label": "big download", "tone": "warn"}]}
+  ]
+}
+```
+
 Cisco lets you choose which fields feed the hash:
 
 ```
@@ -2006,6 +3681,56 @@ SW# show etherchannel summary          ! P = in port-channel, (SU) = in use
 **Why does the choice matter?** Consider a switch uplinking to a router: every frame leaving the subnet has the **router's MAC** as its destination, so a MAC-based hash sees almost no variation and dumps nearly everything on one link. Switching to `src-dst-ip` restores variety, because the real destinations differ even though the next-hop MAC doesn't. *Pick the fields that actually vary in your traffic — otherwise the bundle silently runs on one strand.*
 
 **Powers of two matter too.** With 2, 4 or 8 links the hash space divides evenly. With 3, 5, 6 or 7, some links receive a larger share of hash buckets than others and the load sits permanently lopsided.
+
+**📝 Exam-style questions — 10.4**
+
+**Q1.** A backup server sends one large file to a storage array across an EtherChannel of four 1 Gbps links. What is the most throughput that single transfer can reach?
+
+- **A.** About 1 Gbps
+- **B.** About 2 Gbps
+- **C.** About 4 Gbps
+- **D.** About 250 Mbps
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A single flow always hashes to the same member link, so it's capped at that one link's speed. **Why not the others:** C is the bundle's *total*, which only many flows together can use. B has no basis. D assumes the flow is split four ways, but EtherChannel never splits one flow across members.
+</details>
+
+**Q2.** Traffic from 300 users to their default gateway router crosses an EtherChannel, but nearly all of it uses one member link. The switch uses `port-channel load-balance dst-mac`. Which change will spread the load best?
+
+- **A.** `port-channel load-balance src-dst-ip`
+- **B.** `port-channel load-balance dst-mac` on the router instead
+- **C.** Add two more member links.
+- **D.** Change the LACP mode from active to passive.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Every frame to the gateway has the same destination MAC, the router's, so a `dst-mac` hash gives the same answer every time. Hashing the source and destination IPs brings in values that really vary. **Why not the others:** B keeps a hash that doesn't vary for this traffic. C adds links that the same single hash result will never use. D only changes who starts the negotiation, not how traffic is spread.
+</details>
+
+**Q3.** Why does EtherChannel hash each flow onto one link instead of sending packets round-robin across all members?
+
+- **A.** Round-robin would deliver packets out of order, and TCP would treat that as loss and slow down.
+- **B.** Round-robin would create a Layer 2 loop.
+- **C.** Hashing uses less bandwidth than round-robin.
+- **D.** STP would block the extra links during round-robin.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Members never have exactly the same queues and delay, so packets spread across them arrive out of order. TCP sees duplicate ACKs, retransmits and cuts its window. Keeping a flow on one link keeps it in order. **Why not the others:** B is wrong because the bundle is one logical link either way. C is wrong because the method doesn't change how many bytes are sent. D is wrong because STP sees only the port-channel.
+</details>
+
+**Q4.** An EtherChannel has three member links, and it carries hundreds of flows. Why might one link carry noticeably less traffic than the other two?
+
+- **A.** The hash produces a fixed number of buckets (eight on Catalyst switches), and eight can't be split evenly three ways, so the links get 3, 3 and 2 buckets.
+- **B.** LACP always makes the third link a standby link.
+- **C.** STP blocks the third link.
+- **D.** Three-link bundles run at half duplex.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The hash result picks one of eight buckets, and the buckets are shared among the members. With 2, 4 or 8 links the share is even. With 3, one link gets two buckets instead of three, and so roughly a quarter of the traffic instead of three-eighths. **Why not the others:** B is wrong because standby only applies beyond eight members. C is wrong because STP doesn't see the members. D is nonsense, since every member must run full duplex.
+</details>
 
 ---
 
@@ -2028,6 +3753,68 @@ An IPv4 address is **four octets**, each 0–255:
 Four octets × 8 bits = **32 bits** in total.
 
 Each octet is one byte (8 bits), so it can be **0 to 255**. (Remember from Chapter 4: 11111111 = 255.)
+
+Flip the bits of one octet below to see how 8 bits make every value from 0 to 255.
+
+```diagram
+{
+  "type": "bits",
+  "mode": "octet",
+  "value": 168,
+  "title": "One octet, eight bits",
+  "prompt": "168 is 128 + 32 + 8. Click bits to change the value. Turn them all on for 255, and try 192 (11000000) and 10 (00001010), the other octets of 192.168.1.10."
+}
+```
+
+**📝 Exam-style questions — 11.1**
+
+**Q1.** How many bits are in an IPv4 address?
+
+- **A.** 8
+- **B.** 32
+- **C.** 48
+- **D.** 128
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Four octets of 8 bits each make 32 bits. **Why not the others:** A is one octet. C is the length of a MAC address. D is the length of an IPv6 address.
+</details>
+
+**Q2.** Which dotted-decimal address is the same as `11000000.10101000.00001010.01100100`?
+
+- **A.** 192.168.10.100
+- **B.** 192.168.5.100
+- **C.** 192.168.10.50
+- **D.** 192.84.10.100
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 11000000 = 128 + 64 = 192. 10101000 = 128 + 32 + 8 = 168. 00001010 = 8 + 2 = 10. 01100100 = 64 + 32 + 4 = 100. **Why not the others:** B reads 00001010 as 5, which is the value shifted one place right. C halves the last octet the same way. D reads 10101000 as 84, also shifted one bit.
+</details>
+
+**Q3.** Which of these can never be a valid IPv4 address, whatever the mask?
+
+- **A.** 172.16.0.255
+- **B.** 10.256.1.1
+- **C.** 192.168.0.0
+- **D.** 1.1.1.1
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An octet is 8 bits, so its largest value is 255, and 256 doesn't fit. **Why not the others:** A is a normal host address in, for example, 172.16.0.0/16. C is a valid address (it's a network address under /24, but it's still a well-formed IPv4 address). D is a well-known public DNS server address.
+</details>
+
+**Q4.** What is decimal 172 in binary?
+
+- **A.** 10101100
+- **B.** 10110100
+- **C.** 11001010
+- **D.** 10101010
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 172 = 128 + 32 + 8 + 4, so the 128, 32, 8 and 4 bits are on: 10101100. **Why not the others:** B is 180 (128 + 32 + 16 + 4). C is 202. D is 170, close but with the 2 bit on instead of the 4.
+</details>
 
 ## 11.2 Two Parts: Network & Host
 
@@ -2066,6 +3853,44 @@ IP works identically:
 }
 ```
 
+**📝 Exam-style questions — 11.2**
+
+**Q1.** A host has the address 172.16.45.200 with mask 255.255.0.0. Which part of the address is the host part?
+
+- **A.** 172.16
+- **B.** 45.200
+- **C.** 200
+- **D.** 16.45.200
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A 255.255.0.0 mask marks the first two octets as network and the last two as host. **Why not the others:** A is the network part. C would be the host part with a /24 mask. D would need an 8-bit mask (255.0.0.0).
+</details>
+
+**Q2.** Why do routers store routes to networks instead of to individual hosts?
+
+- **A.** Grouping hosts under a network part keeps routing tables small enough to handle the whole internet.
+- **B.** Routers can't read the host part of an address.
+- **C.** Host addresses change too often for routers to track.
+- **D.** Each network can only hold one host at a time.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Hierarchical addressing works like postcodes: routers only need to know the way to each "neighbourhood", and the last router delivers to the house. **Why not the others:** B is false; routers read whole addresses but don't need a route per host. C misses the real reason, scale. D is false: a network holds many hosts.
+</details>
+
+**Q3.** What is the network address of 172.16.45.200/20?
+
+- **A.** 172.16.0.0
+- **B.** 172.16.32.0
+- **C.** 172.16.45.0
+- **D.** 172.16.40.0
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A /20 mask is 255.255.240.0, so the third octet moves in blocks of 256 − 240 = 16: 0, 16, 32, 48. 45 falls in the block that starts at 32, so the network is 172.16.32.0 (and its broadcast is 172.16.47.255). You can check it with the slider in the diagram above. **Why not the others:** A uses /16. C uses /24. D treats the block size as 8 (that would be /21).
+</details>
+
 
 ## 11.3 IP Address Classes (The Old System)
 
@@ -2083,10 +3908,73 @@ Long ago, IP addresses were divided into **classes** by their first number:
 
 **Why did classes exist, and WHY were they abandoned?** Classes were an early, *simple* way to decide the network/host split just by looking at the first number. Easy — but incredibly **wasteful**, and that waste is why they died:
 
+The class is decided by the **first few bits** of the address. Flip the leading bits of the first octet below and watch the first-octet value jump between the class ranges.
+
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "172.16.5.4",
+  "showPrefix": false,
+  "title": "The leading bits decide the class",
+  "prompt": "Look at the first octet. Starts with **0**: class A (1–126). **10**: class B (128–191). **110**: class C (192–223). **1110**: class D, multicast (224–239). **1111**: class E (240–255). Flip the top bits to move 172 between classes."
+}
+```
+
 - A **Class A** network gives you **16 million** host addresses. If a company needed, say, 5,000 addresses, they'd get a Class A (16 million) or a Class B (65,000) — and **waste millions of addresses** they'd never use.
 - With only ~4 billion IPv4 addresses total, handing them out in giant fixed chunks burned through them frighteningly fast.
 
 So the industry switched to **classless addressing (CIDR)** — the idea that you can put the network/host split **anywhere**, not just on the class boundaries. That company needing 5,000 addresses can get *exactly* the right-sized block instead of a wasteful giant one. **That flexibility to choose the split is literally what subnetting is** (Chapter 12), and it's why we barely use classes today except to explain the history and the private-range groupings.
+
+**📝 Exam-style questions — 11.3**
+
+**Q1.** Which class does the address 191.200.1.1 belong to?
+
+- **A.** Class A
+- **B.** Class B
+- **C.** Class C
+- **D.** Class D
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Class B covers first octets 128 to 191, and 191 is the very last one. In binary, 191 is 10111111: it starts with **10**, the class B pattern. **Why not the others:** A ends at 126. C starts at 192, one higher. D is 224 to 239.
+</details>
+
+**Q2.** What is the default mask of a class C address?
+
+- **A.** 255.0.0.0
+- **B.** 255.255.0.0
+- **C.** 255.255.255.0
+- **D.** 255.255.255.252
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Class C uses three octets for the network, so the default mask is /24. **Why not the others:** A is class A's default (/8). B is class B's (/16). D is a /30, used for point-to-point links, and isn't any class's default.
+</details>
+
+**Q3.** Which address is a class D (multicast) address?
+
+- **A.** 223.1.1.1
+- **B.** 239.1.1.1
+- **C.** 240.0.0.1
+- **D.** 127.0.0.1
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Class D is 224 to 239, used for multicast groups. **Why not the others:** A is the top of class C. C is class E (experimental, 240 and up). D is loopback, which is reserved and sits in the gap between class A and class B.
+</details>
+
+**Q4.** A company needs about 5,000 addresses. Why did classful addressing waste so much in a case like this?
+
+- **A.** Only fixed sizes existed: a class C (254 hosts) was too small, so the company got a class B with about 65,000 addresses.
+- **B.** Class B networks only allowed 5,000 hosts.
+- **C.** Classful addressing required a separate network for every host.
+- **D.** Classful routers couldn't forward to more than 254 hosts.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With classes, the network/host split was fixed at /8, /16 or /24. Anything between had to round up to the next class, leaving about 60,000 addresses unused here. CIDR fixed that by letting the split go anywhere. **Why not the others:** B is wrong: a class B holds 65,534 hosts. C and D describe limits that never existed.
+</details>
 
 ## 11.4 Private vs. Public IP Addresses
 
@@ -2094,6 +3982,19 @@ So the industry switched to **classless addressing (CIDR)** — the idea that yo
 - **Private IPs:** Free to use inside your own network, NOT routable on the internet. Many networks reuse them. A router uses **NAT** (Chapter 17) to share one public IP.
 
 **Private ranges to memorize:**
+
+The class B private range is the tricky one, because it covers **sixteen** second-octet values, not just 172.16. See why below: it's a /12.
+
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "172.16.0.0",
+  "prefix": 12,
+  "title": "Why 172.16.0.0 to 172.31.255.255 is one block",
+  "prompt": "The private class B block is **172.16.0.0/12**. The first 12 bits are fixed; the last 4 bits of the second octet are host bits, so it runs from 172.16 to 172.31. Change the second octet to 31 and you're still inside; change it to 32 and the network bits change, so you've left the private range."
+}
+```
 
 | Class | Private Range |
 |-------|---------------|
@@ -2104,6 +4005,45 @@ So the industry switched to **classless addressing (CIDR)** — the idea that yo
 **Story Time 📖:** Private IPs are like apartment numbers **inside** a building. Lots of buildings have an "Apt 1," so they're not unique to the world. The building's **street address** (public IP) is what the outside world sees. NAT is the front-desk clerk who forwards mail between the two.
 
 **Why do private IPs even exist? WHY not just give every device a public one?** Because **we ran out.** IPv4 has only ~4.3 billion addresses, and there are *way* more than 4.3 billion phones, laptops, TVs, and gadgets. If every device needed a unique public address, we'd have run dry decades ago. Private addresses are the brilliant workaround: **billions of home and office networks all reuse the same private ranges** (that's why your home network and your neighbor's both use 192.168.1.x — and it's fine, because they never directly touch). The whole building shares **one** public address to face the internet, and **NAT** (Chapter 17) translates between the shared public address and the many private ones. *So private IPs exist to stretch a limited supply of public addresses across an unlimited number of devices* — a patch that (along with IPv6) kept the internet growing.
+
+**📝 Exam-style questions — 11.4**
+
+**Q1.** Which two addresses are private (RFC 1918) addresses? (Choose two.)
+
+- **A.** 172.20.14.5
+- **B.** 192.169.1.1
+- **C.** 10.255.0.1
+- **D.** 172.32.1.1
+- **E.** 11.0.0.1
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** 172.20 is inside 172.16–172.31, and anything starting with 10 is private. **Why not the others:** B is 192.**169**, one past the private 192.168 range. D is 172.**32**, one past the end of 172.16–172.31. E starts with 11, not 10. All three are public addresses.
+</details>
+
+**Q2.** Which prefix describes the whole private class B range?
+
+- **A.** 172.16.0.0/16
+- **B.** 172.16.0.0/12
+- **C.** 172.0.0.0/8
+- **D.** 169.254.0.0/16
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 172.16.0.0/12 covers 172.16.0.0 to 172.31.255.255. **Why not the others:** A covers only 172.16.x.x, one sixteenth of the range. C includes many public addresses, such as 172.217.x.x. D is the APIPA (link-local) range, not RFC 1918.
+</details>
+
+**Q3.** Two neighbouring homes both use 192.168.1.0/24 inside. Why doesn't this cause a conflict on the internet?
+
+- **A.** Private addresses aren't routed on the internet; each home's router uses NAT to share its own public address.
+- **B.** Internet routers automatically renumber duplicate networks.
+- **C.** Each home's router adds its MAC address to make the address unique.
+- **D.** It does cause a conflict, so only one home can be online at a time.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Private ranges are only meaningful inside each site. At the edge, NAT translates them to the site's unique public address, so the internet never sees the duplicates. **Why not the others:** B and C describe mechanisms that don't exist. D is wrong because reusing private ranges is completely normal and is exactly what they're for.
+</details>
 
 ## 11.5 Special Addresses
 
@@ -2119,6 +4059,44 @@ So the industry switched to **classless addressing (CIDR)** — the idea that yo
 
 *This is exactly why the host formula is 2^h **minus 2**:* every subnet loses its first address (the network name) and its last address (the broadcast) as usable host addresses. Now that "−2" isn't a random rule you memorize — you know *why* those two are off-limits.
 
+**📝 Exam-style questions — 11.5**
+
+**Q1.** A user's PC shows the address 169.254.17.3. What does this most likely mean?
+
+- **A.** The PC couldn't reach a DHCP server and gave itself an APIPA address.
+- **B.** The PC received a public address from the ISP.
+- **C.** The PC is using its loopback address.
+- **D.** The DHCP server is handing out addresses from a private range.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 169.254.0.0/16 is the address a host gives itself when DHCP fails, which is a strong clue to check the cable, the VLAN or the DHCP server. **Why not the others:** B is wrong because 169.254 is never handed out as a public address. C would be 127.x.x.x. D is wrong because 169.254 isn't an RFC 1918 range, and a DHCP server doesn't normally hand it out.
+</details>
+
+**Q2.** In the network 192.168.5.0/24, which address can be assigned to a host?
+
+- **A.** 192.168.5.0
+- **B.** 192.168.5.255
+- **C.** 192.168.5.254
+- **D.** 127.0.0.1
+
+<details><summary>Answer</summary>
+
+**Answer: C.** .254 is the last usable host address in a /24. **Why not the others:** A is the network address (all host bits 0). B is the broadcast address (all host bits 1). D is loopback, which is never configured as a host's network address.
+</details>
+
+**Q3.** Why does a /24 have 254 usable host addresses rather than 256?
+
+- **A.** The first address names the network and the last one is the broadcast, so neither can go on a host.
+- **B.** The first address is always the default gateway and the last is the DNS server.
+- **C.** Two addresses are reserved for the switch's management interface.
+- **D.** 256 isn't possible in 8 bits.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** All host bits 0 is the network's name and all host bits 1 means "everyone on this subnet", so 2⁸ − 2 = 254. **Why not the others:** B mixes up convention with rules: the gateway is often .1, but it's an ordinary usable address. C isn't a rule. D is wrong: 8 bits give exactly 256 values, 0 to 255.
+</details>
+
 ## 11.6 Default Gateway
 
 The **default gateway** is the **router's address** that a device uses to reach **other networks**. It's the "door out of your neighborhood."
@@ -2131,12 +4109,100 @@ If a PC wants to talk to a device on its **own** network, it sends directly. If 
 
 **But HOW does the PC decide "same network" vs "different network"? And WHY does it need a gateway for one but not the other?** The PC does a quick piece of math with its **subnet mask** every time it sends: it compares the *network part* of its own IP with the network part of the destination IP.
 
+Step through both cases below: a neighbour on the same subnet, and a server on another network.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Local goes direct, remote goes to the gateway",
+  "caption": "PC1 is 192.168.1.10/24 with default gateway 192.168.1.1.",
+  "nodes": [
+    {"id": "PC1", "kind": "host", "x": 0, "y": 2.2, "sub": "192.168.1.10/24"},
+    {"id": "PC2", "kind": "host", "x": 1.8, "y": 2.2, "sub": "192.168.1.20/24"},
+    {"id": "SW1", "kind": "switch", "x": 0.9, "y": 1},
+    {"id": "R1", "kind": "router", "x": 2.6, "y": 0.4, "sub": "192.168.1.1"},
+    {"id": "NET", "kind": "cloud", "x": 4, "y": 0.4, "label": "Internet"},
+    {"id": "WEB", "kind": "server", "x": 5.2, "y": 1.4, "label": "Web server", "sub": "203.0.113.10"}
+  ],
+  "links": [
+    {"a": "PC1", "b": "SW1"},
+    {"a": "PC2", "b": "SW1"},
+    {"a": "SW1", "b": "R1"},
+    {"a": "R1", "b": "NET"},
+    {"a": "NET", "b": "WEB"}
+  ],
+  "steps": [
+    {"title": "1. To PC2: same network, so direct",
+     "text": "PC1 applies its /24 mask to both addresses: 192.168.1**.10** and 192.168.1**.20** share the network part 192.168.1. Same network, so PC1 ARPs for **PC2's own MAC** and sends the frame straight there. The router isn't involved.",
+     "focus": ["PC1", "PC2", "SW1", "PC1-SW1", "PC2-SW1"],
+     "packets": [{"path": ["PC1", "SW1", "PC2"], "label": "to PC2's MAC"}]},
+    {"title": "2. To the web server: different network",
+     "text": "203.0.113.10 doesn't match 192.168.1, so it's off the local network. PC1 ARPs for the **gateway's** MAC and sends the frame there. The IP destination is still 203.0.113.10; only the Layer 2 destination is the router.",
+     "packets": [{"path": ["PC1", "SW1", "R1"], "label": "to R1's MAC", "tone": "accent"}]},
+    {"title": "3. The router carries it onward",
+     "text": "R1 looks up 203.0.113.10 in its routing table and forwards the packet toward the internet. Each router hop writes a new Layer 2 header, but the IP addresses stay the same end to end (without NAT).",
+     "packets": [{"path": ["R1", "NET", "WEB"], "label": "to 203.0.113.10", "tone": "good"}]},
+    {"title": "4. Wrong gateway: local works, remote doesn't",
+     "text": "If PC1's gateway were mistyped as 192.168.1.254, where nothing lives, step 1 would still work, but its ARP for the gateway would get no answer, so nothing off-network would work. *Local works, remote fails* points straight at the gateway setting.",
+     "nodes": {"PC1": {"badge": "GW .254?", "tone": "bad"}},
+     "packets": [{"path": ["PC1", "SW1"], "label": "ARP .254: no reply", "tone": "bad"}]}
+  ]
+}
+```
+
 - **Same network part?** ("You live on my street.") The PC can reach the destination **directly** — it just ARPs for the destination's MAC and sends the frame straight over. No router needed, because they share the same local wire/broadcast domain.
 - **Different network part?** ("You live in another town.") The PC has **no way to reach another network by itself** — Layer 2 only reaches the local wire. So it hands the frame to its **default gateway** (the router) and says "please forward this onward." The router, whose whole job is connecting networks, takes it from there.
 
 *This is why a device with no default gateway can still talk to its local neighbors but can't reach the internet* — it has no "door" to hand off-network traffic to. It's also why a wrong gateway address is such a common real-world problem: local stuff works, but nothing outside does, which is a huge troubleshooting clue (you'll see this in Chapter 23).
 
 **But hold on — what if the gateway itself dies?** Every device on the subnet is pointed at that one address, so if that router fails, the whole subnet loses the outside world at once. That's a big enough problem to have its own family of protocols; we'll solve it properly in section **14.7 (FHRP/HSRP)** once you've met routers in detail.
+
+**📝 Exam-style questions — 11.6**
+
+**Q1.** Refer to the exhibit. The PC can ping other hosts in 192.168.10.0/24 but can't reach anything outside that network. What is the cause?
+
+```
+C:\> ipconfig
+
+Ethernet adapter Ethernet:
+   IPv4 Address. . . . . . . . . . . : 192.168.10.25
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Default Gateway . . . . . . . . . : 192.168.1.1
+```
+
+- **A.** The default gateway isn't in the PC's own subnet.
+- **B.** The subnet mask should be 255.255.0.0.
+- **C.** The PC's address is a broadcast address.
+- **D.** The PC needs a DNS server to reach the gateway.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The PC is in 192.168.10.0/24, but its gateway, 192.168.1.1, is in another subnet. The PC can only ARP for addresses on its own network, so it can never reach that gateway. Typically the gateway should be 192.168.10.1. **Why not the others:** B would merge subnets and is a hack, not the fix. C is wrong because .25 is an ordinary host address. D is wrong because DNS turns names into addresses, and reaching a gateway doesn't involve names.
+</details>
+
+**Q2.** PC1 (10.1.1.10/24) sends a packet to 10.1.2.20. Which destination MAC address does PC1 put in the frame?
+
+- **A.** The MAC address of 10.1.2.20
+- **B.** The MAC address of PC1's default gateway
+- **C.** FFFF.FFFF.FFFF
+- **D.** PC1's own MAC address
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 10.1.2.20 is on a different /24 (10.1.2 versus 10.1.1), so the frame goes to the gateway, while the IP header still says 10.1.2.20. **Why not the others:** A is the trap: PC1 can't ARP for a host on another network. C is used only for broadcasts such as ARP requests, not for data. D would send the frame to itself.
+</details>
+
+**Q3.** A PC is configured as 172.16.5.10 with mask 255.255.0.0. It sends a packet to 172.16.200.1. What does the PC do?
+
+- **A.** It sends an ARP request for 172.16.200.1 directly, because the destination is on its own network.
+- **B.** It sends the packet to its default gateway.
+- **C.** It drops the packet, because 200 is outside its third octet.
+- **D.** It sends a DNS query for 172.16.200.1.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With a /16 mask, only the first two octets are the network: 172.16 and 172.16 match, so the destination is local. **Why not the others:** B is what would happen with a /24 mask, which is the trap. C is wrong because the third octet is host bits here. D is wrong because the destination is already an IP address; there's no name to look up.
+</details>
 
 ---
 
@@ -2159,6 +4225,45 @@ If a PC wants to talk to a device on its **own** network, it sends directly. If 
 
 > **Pair this chapter with the Subnetting Drill Sheet.** Subnetting is the one CCNA skill that has to be *fast*, not just correct — the drill sheet's 60 worked problems are built to turn the methods below into reflexes. Read here, drill there.
 
+**📝 Exam-style questions — 12.1**
+
+**Q1.** Which two are reasons to subnet a large network? (Choose two.)
+
+- **A.** To make broadcast domains smaller
+- **B.** To put a router, and its filtering rules, between groups of devices
+- **C.** To increase the total number of addresses in the block
+- **D.** To remove the need for routers
+- **E.** To give every subnet more usable hosts
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Each subnet is its own broadcast domain, so devices hear less noise, and traffic between subnets has to pass a router, where you can apply ACLs. **Why not the others:** C is impossible: cutting a block into slices never adds addresses (it actually costs two per subnet). D is backwards, because subnets need routers between them. E is backwards too: each slice is smaller than the original.
+</details>
+
+**Q2.** An engineer splits 192.168.1.0/24 into four equal subnets. What prefix length does each subnet have?
+
+- **A.** /25
+- **B.** /26
+- **C.** /27
+- **D.** /28
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Four subnets need 2 borrowed bits (2² = 4), and 24 + 2 = 26. Each /26 holds 64 addresses. **Why not the others:** A borrows one bit, which gives only 2 subnets. C gives 8 and D gives 16, so they're smaller than needed.
+</details>
+
+**Q3.** An engineer borrows 3 host bits from 10.20.30.0/24. How many subnets does this create, and what is the new prefix length?
+
+- **A.** 3 subnets, /27
+- **B.** 6 subnets, /27
+- **C.** 8 subnets, /27
+- **D.** 8 subnets, /21
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Each borrowed bit doubles the count: 2³ = 8 subnets. The prefix grows by 3, from /24 to /27. **Why not the others:** A counts bits, not combinations. B is 2³ − 2, an old classful rule that modern IOS doesn't use (`ip subnet-zero` has been the default for decades). D subtracts the bits instead of adding them.
+</details>
+
 ## 12.2 The Subnet Mask
 
 The **subnet mask** decides which part of an IP is "network" and which is "host." It looks like an IP address but is made of **1s then 0s**:
@@ -2178,12 +4283,63 @@ The **24 ones** mark the network portion; the **8 zeros** mark the host portion.
 
 **WHY does a "mask" made of 1s and 0s work — what's actually happening?** The word *mask* is literal: it's like a stencil laid over the IP address that **covers up** part of it. The computer does a bit-by-bit **AND** operation between the IP and the mask, and the result is the **network address**. Here's the intuition without heavy math:
 
+Try the AND below. The mask's 1-bits keep the address's network bits and its 0-bits clear the rest, which leaves the network address.
+
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "192.168.1.10",
+  "prefix": 24,
+  "title": "Address AND mask = network",
+  "prompt": "At /24 the network is 192.168.1.0. Slide to /26 and the mask becomes 255.255.255.192: still network 192.168.1.0, because .10 is in the first block of 64. Click host bits to move the address and watch the network stay put until you flip a network bit."
+}
+```
+
 - Where the mask is **1**, the IP's bit "shows through" → that's the **network** part (it's kept).
 - Where the mask is **0**, the IP's bit gets "blocked out" to 0 → that's the **host** part (erased to find the network's starting address).
 
 So a device can instantly find "what network does this address belong to?" by applying the mask. *That's the whole point of the mask existing* — it's the tool every device uses to answer the "same network or different?" question from Chapter 11.
 
 **And WHY must the mask be all 1s THEN all 0s — never mixed like 11010011?** Because the network part has to be **contiguous** (one solid block on the left). Remember hierarchical addressing: routers summarize whole networks by their leading bits ("everything starting with 192.168.1 goes this way"). That only works if all the network bits are grouped together at the front. A scattered mask like `11010011` would make it impossible to describe a network as a clean "starts-with" prefix, breaking route summarization. *So the "1s then 0s" rule isn't arbitrary — it's what keeps addresses summarizable and routing efficient.* This is also why we can shorten a mask to a single number (the count of 1s) — the CIDR "/24" notation you'll see next.
+
+**📝 Exam-style questions — 12.2**
+
+**Q1.** Which of these is a valid subnet mask?
+
+- **A.** 255.255.0.255
+- **B.** 255.255.255.224
+- **C.** 255.255.255.250
+- **D.** 255.254.255.0
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 224 is 11100000, so the mask is 27 ones followed by zeros. **Why not the others:** A has 1s after 0s (the third octet is all zeros, then 255). C is 11111010 in the last octet, which mixes ones and zeros. D puts 255 after 254, which also breaks the "ones, then zeros" rule.
+</details>
+
+**Q2.** What is the network address for host 10.45.130.77 with mask 255.255.192.0?
+
+- **A.** 10.45.130.0
+- **B.** 10.45.128.0
+- **C.** 10.45.192.0
+- **D.** 10.45.0.0
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The interesting octet is the third. 130 is 10000010 and 192 is 11000000, and 10000010 AND 11000000 = 10000000 = 128. The last octet is ANDed with 0, so the network is 10.45.128.0. **Why not the others:** A keeps the 130 as if the mask were /24. C copies the mask value into the address. D uses a /16.
+</details>
+
+**Q3.** How many 1-bits are in the mask 255.255.248.0?
+
+- **A.** 19
+- **B.** 21
+- **C.** 22
+- **D.** 24
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 255 + 255 is 16 ones, and 248 is 11111000, five more: 21, so the mask is /21. **Why not the others:** A would be 255.255.224.0. C would be 255.255.252.0. D would be 255.255.255.0.
+</details>
 
 ## 12.3 CIDR / Slash Notation
 
@@ -2202,6 +4358,44 @@ Instead of writing `255.255.255.0`, we count the 1s and write **/24**. This is c
 | 255.255.255.252 | /30 | 30 |
 
 **Why can we get away with just writing a single number like "/24"?** Because of the "1s then 0s" rule you just learned! Since the 1s are *always* packed together on the left, the **only** thing that varies is *how many* of them there are. Once you know the count (24), you know the entire mask (24 ones, then 8 zeros). No information is lost. *That's why /24 and 255.255.255.0 are exactly the same thing* — /24 is just the shorthand, and it's why engineers prefer it (faster to write, easier to compare: /26 is obviously "more network bits" than /24).
+
+**📝 Exam-style questions — 12.3**
+
+**Q1.** Which dotted-decimal mask is the same as /27?
+
+- **A.** 255.255.255.192
+- **B.** 255.255.255.224
+- **C.** 255.255.255.240
+- **D.** 255.255.224.0
+
+<details><summary>Answer</summary>
+
+**Answer: B.** /27 is 24 + 3, so three ones in the last octet: 128 + 64 + 32 = 224. **Why not the others:** A is /26. C is /28. D has the three ones in the *third* octet, which makes it /19.
+</details>
+
+**Q2.** Which prefix length is the same as 255.255.255.240?
+
+- **A.** /26
+- **B.** /27
+- **C.** /28
+- **D.** /29
+
+<details><summary>Answer</summary>
+
+**Answer: C.** 240 is 11110000, four ones, and 24 + 4 = 28. **Why not the others:** /26 is .192, /27 is .224 and /29 is .248.
+</details>
+
+**Q3.** What is the dotted-decimal mask for /19?
+
+- **A.** 255.255.224.0
+- **B.** 255.255.255.224
+- **C.** 255.255.192.0
+- **D.** 255.255.240.0
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 19 = 16 + 3, so the third octet has three ones (224) and the fourth is 0. **Why not the others:** B is /27, with the 224 in the wrong octet. C is /18. D is /20.
+</details>
 
 ## 12.4 How Many Hosts? The Magic Formula
 
@@ -2231,6 +4425,57 @@ Why minus 2? Because you **can't use** the **network address** (first) or the **
 | 2² | 4 | | 2⁶ | 64 |
 | 2³ | 8 | | 2⁷ | 128 |
 | 2⁴ | 16 | | 2⁸ | 256 |
+
+**📝 Exam-style questions — 12.4**
+
+**Q1.** How many usable host addresses does a /27 subnet have?
+
+- **A.** 30
+- **B.** 32
+- **C.** 62
+- **D.** 14
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 32 − 27 = 5 host bits, and 2⁵ − 2 = 30. **Why not the others:** B forgets to subtract the network and broadcast addresses. C is a /26. D is a /28.
+</details>
+
+**Q2.** A LAN needs 60 hosts. Which prefix length gives enough addresses while wasting the fewest?
+
+- **A.** /25
+- **B.** /26
+- **C.** /27
+- **D.** /28
+
+<details><summary>Answer</summary>
+
+**Answer: B.** /26 has 6 host bits: 2⁶ − 2 = 62 usable, which covers 60. **Why not the others:** A (126 hosts) works but wastes 66 addresses. C (30) and D (14) are too small.
+</details>
+
+**Q3.** How many usable host addresses does a /22 subnet have?
+
+- **A.** 510
+- **B.** 1022
+- **C.** 1024
+- **D.** 2046
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 32 − 22 = 10 host bits, and 2¹⁰ − 2 = 1022. **Why not the others:** A is a /23. C forgets the −2. D is a /21.
+</details>
+
+**Q4.** Which two prefix lengths provide at least 100 usable host addresses? (Choose two.)
+
+- **A.** /24
+- **B.** /25
+- **C.** /26
+- **D.** /27
+- **E.** /28
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** /24 gives 254 and /25 gives 126, both at least 100. **Why not the others:** /26 gives 62, /27 gives 30 and /28 gives 14, all short of 100.
+</details>
 
 ## 12.5 The "Block Size" Trick (Subnetting Made Easy)
 
@@ -2270,6 +4515,77 @@ Now list them:
 
 Block size 64 → subnets at 0, 64, 128, 192. 100 falls between **64 and 127**, so it's in the **.64 subnet** (hosts .65–.126, broadcast .127). Done!
 
+Now check it in binary. At /26 the last octet keeps only its top two bits for the network, and 100 is 01100100, so the network part is 01000000 = 64.
+
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "192.168.1.100",
+  "prefix": 26,
+  "title": "192.168.1.100/26: which block of 64?",
+  "prompt": "Read off the network (.64), broadcast (.127) and host range (.65–.126). Then slide to /27 (blocks of 32: it's in .96–.127) and /28 (blocks of 16: .96–.111), and check each one with the block size trick."
+}
+```
+
+**📝 Exam-style questions — 12.5**
+
+**Q1.** Which subnet does the host 172.16.77.130/27 belong to?
+
+- **A.** 172.16.77.96/27
+- **B.** 172.16.77.128/27
+- **C.** 172.16.77.130/27
+- **D.** 172.16.77.160/27
+
+<details><summary>Answer</summary>
+
+**Answer: B.** /27 means a .224 mask, so blocks of 256 − 224 = 32 in the last octet: 96, 128, 160. 130 falls in 128–159. **Why not the others:** A ends at .127. C is the host itself, not a network. D starts after the host.
+</details>
+
+**Q2.** What is the broadcast address of the subnet that contains 10.10.10.70/28?
+
+- **A.** 10.10.10.63
+- **B.** 10.10.10.71
+- **C.** 10.10.10.79
+- **D.** 10.10.10.80
+
+<details><summary>Answer</summary>
+
+**Answer: C.** /28 gives blocks of 16: 64, 80. 70 is in the 64 block, so the broadcast is one below the next block, 79. **Why not the others:** A is the broadcast of the block before. B would come from blocks of 8 (/29). D is the next subnet's network address.
+</details>
+
+**Q3.** What is the last usable host address in the /29 subnet that contains 192.168.50.45?
+
+- **A.** 192.168.50.45
+- **B.** 192.168.50.46
+- **C.** 192.168.50.47
+- **D.** 192.168.50.39
+
+<details><summary>Answer</summary>
+
+**Answer: B.** /29 gives blocks of 8: 40 to 47. The broadcast is .47, so the last usable host is .46. **Why not the others:** A is just the given host. C is the broadcast. D is in the block before (32–39).
+</details>
+
+**Q4.** Refer to the exhibit. PC1 can't reach anything outside its subnet. What is the problem?
+
+```
+R1# show running-config interface GigabitEthernet0/1
+interface GigabitEthernet0/1
+ ip address 192.168.1.65 255.255.255.192
+
+PC1:  IP 192.168.1.60   Mask 255.255.255.192   Gateway 192.168.1.65
+```
+
+- **A.** PC1 is in 192.168.1.0/26, but its gateway is in 192.168.1.64/26, a different subnet.
+- **B.** 192.168.1.65 is a broadcast address and can't be a gateway.
+- **C.** The mask 255.255.255.192 is invalid.
+- **D.** Nothing is wrong; the problem must be elsewhere.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With blocks of 64, .60 is in 0–63 and .65 is in 64–127. PC1 can't ARP for a gateway outside its own subnet. Either PC1 needs an address in .65–.126, or the gateway must be in .1–.62. **Why not the others:** B is wrong because .65 is the first usable host of the .64 subnet; the broadcast is .127. C is wrong because .192 is a valid /26 mask. D ignores the mismatch.
+</details>
+
 ## 12.6 A Full Subnetting Walkthrough
 
 **Question:** You have `172.16.0.0/16` and need **subnets with at least 500 hosts each**. What mask?
@@ -2277,6 +4593,69 @@ Block size 64 → subnets at 0, 64, 128, 192. 100 falls between **64 and 127**, 
 1. Need 500 hosts → find host bits: 2^9 = 512 (≥ 502 after −2). So **9 host bits**.
 2. Total bits = 32. Network bits = 32 − 9 = **23**. So mask = **/23** (255.255.254.0).
 3. Each /23 gives 2^9 − 2 = **510 hosts.** ✅
+
+Check it below: at /23 the host part is 9 bits, one of them in the third octet. Slide to /24 and the host count drops to 254, too few. Slide to /22 and you get 1022: it works, but you get half as many subnets.
+
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "172.16.4.0",
+  "prefix": 23,
+  "title": "A /23: 510 hosts across two third-octet values",
+  "prompt": "172.16.4.0/23 runs from 172.16.4.0 to 172.16.5.255: the last bit of the third octet is a **host** bit. Flip it and you're at 172.16.5.x, still the same subnet. Flip the bit above it and you're in the next /23, 172.16.6.0."
+}
+```
+
+**📝 Exam-style questions — 12.6**
+
+**Q1.** An engineer is subnetting 10.0.0.0/8. Every subnet needs at least 1000 hosts, and the engineer wants as many subnets as possible. Which mask should be used?
+
+- **A.** 255.255.248.0
+- **B.** 255.255.252.0
+- **C.** 255.255.254.0
+- **D.** 255.255.255.0
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 1000 hosts need 10 host bits (2¹⁰ − 2 = 1022), so the prefix is /22, which is 255.255.252.0. **Why not the others:** A is /21 (2046 hosts). It works, but you'd get half as many subnets. C is /23 (510 hosts) and D is /24 (254), both too small.
+</details>
+
+**Q2.** 192.168.10.0/24 must be split into at least 10 equal subnets, with as many hosts per subnet as possible. Which prefix length, and how many usable hosts per subnet?
+
+- **A.** /27, 30 hosts
+- **B.** /28, 14 hosts
+- **C.** /29, 6 hosts
+- **D.** /26, 62 hosts
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 10 subnets need 4 borrowed bits (2³ = 8 is too few, 2⁴ = 16 is enough), giving /28 with 4 host bits: 2⁴ − 2 = 14. **Why not the others:** A gives only 8 subnets. D gives only 4. C gives 32 subnets, more than enough, but with fewer hosts each than /28, so it doesn't meet "as many hosts as possible".
+</details>
+
+**Q3.** How many /23 subnets fit inside 172.16.0.0/16?
+
+- **A.** 64
+- **B.** 128
+- **C.** 256
+- **D.** 512
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Going from /16 to /23 borrows 7 bits, and 2⁷ = 128. **Why not the others:** A is /22 (6 bits). C is /24 (8 bits). D is /25 (9 bits).
+</details>
+
+**Q4.** 172.16.0.0/16 is divided into /23 subnets, starting with 172.16.0.0/23. What is the broadcast address of the third subnet?
+
+- **A.** 172.16.4.255
+- **B.** 172.16.5.255
+- **C.** 172.16.6.255
+- **D.** 172.16.3.255
+
+<details><summary>Answer</summary>
+
+**Answer: B.** /23 subnets step by 2 in the third octet: 172.16.0.0, 172.16.2.0, then 172.16.4.0. The third one runs from 172.16.4.0 to 172.16.5.255. **Why not the others:** A treats it as a /24 and stops at .4.255. C is inside the fourth subnet (172.16.6.0/23). D is the broadcast of the *second* subnet.
+</details>
 
 ## 12.7 VLSM — Different-Sized Slices
 
@@ -2295,13 +4674,144 @@ Block size 64 → subnets at 0, 64, 128, 192. 100 falls between **64 and 127**, 
 
 **Golden VLSM rule:** Always assign the **biggest** subnet first, then smaller ones. This prevents overlap.
 
+Click each LAN and link below to see the range it got from the plan above.
+
+```diagram
+{
+  "type": "topology",
+  "title": "One /24, four right-sized subnets",
+  "caption": "The VLSM plan for 192.168.1.0/24, biggest first. Click a LAN or the WAN link for its range.",
+  "nodes": [
+    {"id": "SALES", "kind": "switch", "x": 0, "y": 0, "label": "Sales LAN", "sub": "192.168.1.0/25", "info": "**100 hosts** → /25 (126 usable). Network .0, hosts **.1–.126**, broadcast .127. Placed first: a /25 can only start at .0 or .128."},
+    {"id": "IT", "kind": "switch", "x": 0, "y": 1.4, "label": "IT LAN", "sub": "192.168.1.128/26", "info": "**50 hosts** → /26 (62 usable). Network .128, hosts **.129–.190**, broadcast .191."},
+    {"id": "HR", "kind": "switch", "x": 0, "y": 2.8, "label": "HR LAN", "sub": "192.168.1.192/27", "info": "**25 hosts** → /27 (30 usable). Network .192, hosts **.193–.222**, broadcast .223."},
+    {"id": "R1", "kind": "router", "x": 2.4, "y": 1.4, "sub": "gateway for all 3", "info": "R1 has one interface in each LAN (usually the first host address: .1, .129 and .193) and one on the WAN link (.225)."},
+    {"id": "R2", "kind": "router", "x": 4.6, "y": 1.4, "sub": "192.168.1.226", "info": "The other end of the point-to-point link. Its WAN address is .226, the only other usable address in the /30."}
+  ],
+  "links": [
+    {"a": "R1", "b": "SALES", "info": "192.168.1.0/25, gateway 192.168.1.1."},
+    {"a": "R1", "b": "IT", "info": "192.168.1.128/26, gateway 192.168.1.129."},
+    {"a": "R1", "b": "HR", "info": "192.168.1.192/27, gateway 192.168.1.193."},
+    {"a": "R1", "b": "R2", "label": ".224/30", "info": "**2 hosts** → /30. Network .224, hosts **.225** (R1) and **.226** (R2), broadcast .227. Addresses .228–.255 are still free for later."}
+  ]
+}
+```
+
 **Why must you assign biggest-first? What actually goes wrong otherwise?** Because subnets can only start on **boundaries that match their size** (a /25 must start at .0 or .128; a /26 at .0/.64/.128/.192; and so on). Big subnets have **few** legal starting points, while small subnets fit almost anywhere. So if you place the big, picky subnets **first**, they grab their valid boundaries while everything is still open. If you place small subnets first, they scatter around and **block the boundaries the big subnet needed** — now your /25 has nowhere legal to fit, even though there's technically enough total space. It's like packing a suitcase: put the big rigid items in first, then tuck small soft things around them. Do it backwards and the big item won't fit. *That's the whole reason for the rule — it's about respecting alignment boundaries, not just tidiness.*
+
+**📝 Exam-style questions — 12.7**
+
+**Q1.** An engineer uses VLSM to divide 192.168.20.0/24, assigning the biggest subnet first, each starting at the lowest free address. LAN A needs 50 hosts, LAN B needs 25 and LAN C needs 10. Which subnet does LAN C get?
+
+- **A.** 192.168.20.96/28
+- **B.** 192.168.20.64/28
+- **C.** 192.168.20.96/27
+- **D.** 192.168.20.112/28
+
+<details><summary>Answer</summary>
+
+**Answer: A.** LAN A needs a /26 (62 hosts): .0–.63. LAN B needs a /27 (30): .64–.95. LAN C needs a /28 (14): the next free address is .96, so .96–.111. **Why not the others:** B overlaps LAN B. C is the wrong size: a /27 holds 30, wasting 16 addresses. D skips over .96–.111 for no reason.
+</details>
+
+**Q2.** Why should VLSM assign the largest subnets first?
+
+- **A.** Large subnets must start on boundaries that are multiples of their size, and placing small subnets first can leave no aligned space for them.
+- **B.** Routers only accept the largest subnet as their first interface.
+- **C.** Large subnets get lower addresses, so they win routing ties.
+- **D.** It makes the plan use fewer total addresses.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A /25 can only start at .0 or .128. Scatter some /30s across the block first and both of those starts may be taken, even though enough addresses are free in total. **Why not the others:** B and C are made up. D is wrong because the order doesn't change how many addresses each subnet uses; it decides whether they fit at all.
+</details>
+
+**Q3.** Refer to the exhibit. An engineer proposes this address plan. Which two subnets overlap?
+
+```
+Sales   10.1.1.0/25
+Eng     10.1.1.128/26
+Lab     10.1.1.160/28
+WAN     10.1.1.192/30
+```
+
+- **A.** Sales and Eng
+- **B.** Eng and Lab
+- **C.** Lab and WAN
+- **D.** None of them overlap.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Eng, a /26 at .128, covers .128 to .191. Lab (.160 to .175) sits entirely inside it. **Why not the others:** A doesn't overlap: Sales ends at .127 and Eng starts at .128. C doesn't either: Lab ends at .175 and the WAN starts at .192. D misses the Eng/Lab clash, because it only looks at the start addresses.
+</details>
 
 ## 12.8 The /30 and /31 — Tiny Subnets for Router Links
 
 A **/30** gives exactly **2 usable hosts** — perfect for a cable between two routers (each end needs one IP). A **/31** is a special case that gives 2 hosts with no waste (used on point-to-point links). Memorize: **/30 = 2 hosts.**
 
+See it below: a /30 leaves 2 host bits, so 4 addresses, and only the middle two are usable. Slide to /31 to see the RFC 3021 case, where both addresses are usable.
+
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "10.1.12.1",
+  "prefix": 30,
+  "title": "A /30: four addresses, two usable",
+  "prompt": "At /30, 10.1.12.0 is the network, .1 and .2 are the two router ends, and .3 is the broadcast. Click the last two bits to walk through all four. The next /30 starts at 10.1.12.4."
+}
+```
+
 **Why use a tiny /30 for a router-to-router link instead of a normal /24?** Because a point-to-point link between two routers has **exactly two devices** on it — one router on each end. A /24 would reserve 254 host addresses for a link that can only ever use 2, **wasting 252 addresses**. Multiply that across dozens of WAN links in a real network and you've thrown away thousands of addresses for nothing. A /30 gives you precisely the 2 addresses you need (plus its own network and broadcast). *This is VLSM's whole philosophy in action: match the slice size to the actual need.* The /31 takes it even further — a special rule (RFC 3021) that squeezes a point-to-point link down to literally 2 addresses with no network/broadcast waste at all, because on a link with only two ends, "broadcast" and "unicast to the other guy" mean the same thing anyway.
+
+**📝 Exam-style questions — 12.8**
+
+**Q1.** How many usable host addresses does a /30 subnet provide?
+
+- **A.** 1
+- **B.** 2
+- **C.** 4
+- **D.** 6
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Two host bits give 4 addresses, minus the network and broadcast, leaving 2: one for each router. **Why not the others:** A is too few for a link with two ends. C counts the network and broadcast too. D is a /29.
+</details>
+
+**Q2.** R1's Gi0/0 is 10.1.1.6/30. Which address must R2's end of the link use?
+
+- **A.** 10.1.1.4
+- **B.** 10.1.1.5
+- **C.** 10.1.1.7
+- **D.** 10.1.1.8
+
+<details><summary>Answer</summary>
+
+**Answer: B.** /30 blocks are 4 wide: .4 to .7. .4 is the network, .7 is the broadcast, and .5 and .6 are the only usable addresses. R1 has .6, so R2 gets .5. **Why not the others:** A is the network address. C is the broadcast. D is in the next subnet, so the routers wouldn't share a network.
+</details>
+
+**Q3.** Which statement about /31 subnets on point-to-point links is true?
+
+- **A.** Both addresses are usable as host addresses, as defined in RFC 3021.
+- **B.** A /31 has no usable addresses, because both are reserved.
+- **C.** A /31 has one usable address.
+- **D.** /31 is only valid for IPv6.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** On a link with exactly two ends there's no need for a separate network or broadcast address, so RFC 3021 lets both addresses be used. IOS accepts a /31 on a point-to-point interface (with a warning on Ethernet). **Why not the others:** B and C apply the normal −2 rule, which RFC 3021 sets aside for /31 links. D is wrong because /31 is an IPv4 technique; IPv6 links commonly use /64 or /127.
+</details>
+
+**Q4.** How many /30 subnets can be made from 192.168.100.0/26?
+
+- **A.** 8
+- **B.** 16
+- **C.** 32
+- **D.** 64
+
+<details><summary>Answer</summary>
+
+**Answer: B.** From /26 to /30 borrows 4 bits, and 2⁴ = 16. Put another way, 64 addresses ÷ 4 per /30 = 16. **Why not the others:** A is what /29s would give. C counts as if the block were a /25. D is the number of addresses, not subnets.
+</details>
 
 ---
 
