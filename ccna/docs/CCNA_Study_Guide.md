@@ -3527,6 +3527,32 @@ An **ACL (Access Control List)** is a set of **rules** that tell a router which 
 
 **Story Time 📖:** A bouncer reads names off a list from top to bottom. The FIRST matching rule wins — once he finds your name (allow or deny), he stops reading. And there's a secret rule at the bottom: "anyone NOT on the list, get out!" (the implicit deny).
 
+**📝 Exam-style questions — 19.1**
+
+**Q1.** A router checks a packet against an ACL. The packet matches line 2, which is a `permit`, and it would also match line 4, which is a `deny`. What does the router do?
+
+- **A.** It drops the packet, because a deny always overrides a permit.
+- **B.** It permits the packet and stops reading the ACL at line 2.
+- **C.** It reads every line and applies the most specific match.
+- **D.** It forwards the packet and logs a rule conflict.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The bouncer reads the list from the top and acts on the **first** name he finds. Line 2 matched, so the packet is permitted and lines 3 onward are never read. **Why not the others:** there's no "deny wins" rule (A); a later deny simply never gets a look. Routers don't hunt for the most specific line (C); that's how a routing table works, not an ACL. And IOS doesn't detect or log "conflicts" between lines (D); it just stops at the first match.
+</details>
+
+**Q2.** A packet reaches an interface that has an ACL applied, and the packet matches none of the configured lines. What happens to it?
+
+- **A.** It is forwarded, because no line denied it.
+- **B.** It is dropped by the implicit deny at the end of the ACL.
+- **C.** It is forwarded and a log message is generated.
+- **D.** It is sent to the router's CPU for a routing decision.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Every ACL ends with an invisible "deny everything else". If a packet gets to the bottom without matching, the secret rule throws it out. **Why not the others:** "not denied" isn't the same as "permitted" (A); the safe default is block. Nothing is logged by the implicit deny (C); you only get log messages from lines that carry the `log` keyword. And the ACL decision has nothing to do with sending the packet to the CPU (D); the packet is simply dropped.
+</details>
+
 ## 19.2 How ACLs Are Read (Very Important!)
 
 ![ACL first-match processing flow](images/acl_flow.png)
@@ -3549,6 +3575,72 @@ An ACL is read **top down**, and the **first match wins**:
 
 **Why is there a hidden "deny all" at the bottom?** This is a deliberate **security-first** design choice called *implicit deny*. The philosophy is: "if you didn't *explicitly* say this traffic is allowed, then it's forbidden." The safe default is **block**, not allow — because forgetting to block something dangerous is far worse than forgetting to allow something harmless. *That's why the moment you put ANY ACL on an interface, everything you didn't explicitly permit gets dropped.* It also explains the #1 beginner mistake (below): people write a `deny` rule, forget to add `permit` for everyone else, and accidentally block the *entire* network because the invisible deny-all catches everything they didn't mention.
 
+```diagram
+{
+  "type": "match",
+  "kind": "standard",
+  "name": "10",
+  "title": "First match wins, then the hidden deny",
+  "prompt": "Type a source address, or click a try. Watch which line catches it first, and what happens to addresses no line mentions.",
+  "rules": [
+    {"action": "deny", "source": "host 192.168.10.50"},
+    {"action": "permit", "source": "192.168.10.0 0.0.0.255"},
+    {"action": "permit", "source": "host 192.168.20.5"}
+  ],
+  "input": "192.168.10.77",
+  "tries": ["192.168.10.50", "192.168.10.77", "192.168.20.5", "192.168.20.9", "10.0.0.1"]
+}
+```
+
+**📝 Exam-style questions — 19.2**
+
+**Q1.** Refer to the exhibit. The ACL is applied inbound on the router interface that faces the 10.1.1.0/24 LAN. Host 10.1.1.20 opens a Telnet session to 10.2.2.10. What happens?
+
+```
+access-list 110 permit ip 10.1.1.0 0.0.0.255 any
+access-list 110 deny tcp 10.1.1.0 0.0.0.255 host 10.2.2.10 eq telnet
+access-list 110 deny ip any any
+```
+
+- **A.** The session is denied by line 2, because it is more specific than line 1.
+- **B.** The session is permitted by line 1, and line 2 is never checked.
+- **C.** The session is denied by line 3.
+- **D.** The session is denied because IOS moves the deny lines above the permit lines.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Telnet is carried over IP, so the packet matches line 1 (`permit ip` from 10.1.1.0/24 to anywhere) and the router stops there. Line 2 is "shadowed": nothing it could match ever gets past line 1. To block Telnet, the deny has to come **before** the broad permit. **Why not the others:** ACLs don't prefer the more specific line (A); the first match wins, full stop. Line 3 (C) is only reached by packets that match neither line above it. And IOS doesn't reorder extended ACL lines to put denies first (D); the order you enter is the order it checks.
+</details>
+
+**Q2.** An engineer applies this ACL inbound on Gi0/0 and nothing else is configured in it. What is the result?
+
+```
+access-list 20 deny 172.16.4.0 0.0.0.255
+```
+
+- **A.** Only traffic from 172.16.4.0/24 is dropped; everything else passes.
+- **B.** All IPv4 traffic arriving on Gi0/0 is dropped.
+- **C.** Nothing is dropped, because an ACL with no permit line is ignored.
+- **D.** Only traffic from 172.16.4.0/24 is permitted.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Line 1 drops 172.16.4.0/24, and the implicit deny at the bottom drops everyone else. The ACL has no permit at all, so nothing gets through. This is the classic beginner mistake from the section above. **Why not the others:** A is what the engineer *meant*, and it needs `access-list 20 permit any` added after the deny. IOS doesn't ignore an ACL just because it lacks a permit (C). And D reverses the line: it says deny, not permit.
+</details>
+
+**Q3.** Which two statements about how IOS processes an ACL are true? (Choose two.)
+
+- **A.** Lines are checked from the top down, and processing stops at the first match.
+- **B.** An implicit `deny any` is applied to packets that match no line.
+- **C.** The router checks every line and uses the most specific match.
+- **D.** An implicit `permit any` is applied to packets that match no line.
+- **E.** Deny lines are always checked before permit lines.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Top-down, first match wins, and an invisible deny at the bottom: those are the two rules everything else in this chapter builds on. **Why not the others:** "most specific wins" (C) is longest-prefix match from routing, not ACL logic. The hidden last line is a deny, not a permit (D); safe default means block. And there's no priority for deny lines (E); a permit above a deny wins if the packet reaches it first.
+</details>
+
 ## 19.3 Two Kinds of ACLs
 
 - **Standard ACL:** Filters by **source IP only**. Numbered **1–99** (and 1300–1999). Simple. Place it **close to the destination** (because it can only see the source, placing it too early might block too much).
@@ -3562,6 +3654,88 @@ An ACL is read **top down**, and the **first match wins**:
 
 **Why does an EXTENDED ACL go near the SOURCE?** Because an extended ACL is **precise** — it can match source AND destination AND port, so it knows *exactly* which traffic to drop without collateral damage. Since it's that specific, you want to block unwanted traffic **as early as possible** — right where it enters, near the source. *Why bother?* Efficiency: why let a packet travel across your whole network, eating bandwidth on every link, only to be dropped at the far end? Kill it at the door. *So the placement rules aren't arbitrary — they come directly from how much each ACL type can "see":* blunt tools act late to avoid mistakes, precise tools act early to save resources.
 
+**Where you put the ACL matters as much as what's in it.** Step through the same goal, done three ways:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Where should the ACL go?",
+  "caption": "Goal: stop **PC-A** reaching the **HR server**, but let it keep using the **web server**. Press **Next**.",
+  "nodes": [
+    {"id": "PCA", "kind": "host", "x": 0, "y": 0, "label": "PC-A", "sub": "10.1.1.5"},
+    {"id": "R1", "kind": "router", "x": 1.25, "y": 0, "label": "R1"},
+    {"id": "R2", "kind": "router", "x": 2.5, "y": 0, "label": "R2"},
+    {"id": "R3", "kind": "router", "x": 3.75, "y": 0, "label": "R3"},
+    {"id": "HR", "kind": "server", "x": 5, "y": 0, "label": "HR server", "sub": "10.3.3.10"},
+    {"id": "WEB", "kind": "server", "x": 2.5, "y": 1.3, "label": "Web server", "sub": "10.2.2.20"}
+  ],
+  "links": [
+    {"a": "PCA", "b": "R1", "bLabel": "Gi0/0"},
+    {"a": "R1", "b": "R2"},
+    {"a": "R2", "b": "R3"},
+    {"a": "R3", "b": "HR", "aLabel": "Gi0/1"},
+    {"a": "R2", "b": "WEB"}
+  ],
+  "steps": [
+    {"title": "1. The goal",
+     "text": "PC-A (10.1.1.5) must not reach the HR server (10.3.3.10), but it still needs the web server (10.2.2.20). Two kinds of ACL could do it; the question is where each one belongs."},
+    {"title": "2. Standard ACL near the source: too blunt",
+     "text": "`access-list 10 deny host 10.1.1.5` plus `permit any`, applied **in** on R1 Gi0/0. A standard ACL only sees the **source**, so it drops *everything* PC-A sends, web traffic included. That's the collateral damage the placement rule warns about.",
+     "nodes": {"R1": {"badge": "std ACL in", "tone": "bad"}},
+     "packets": [{"path": ["PCA", "R1"], "label": "to web: dropped", "tone": "bad"}]},
+    {"title": "3. Standard ACL near the destination",
+     "text": "Same ACL, applied **out** on R3 Gi0/1 toward the HR server. Now it only filters traffic that is about to reach HR. PC-A's web traffic never passes R3, so it's untouched. *Blunt tool, applied late.*",
+     "nodes": {"R1": null, "R3": {"badge": "std ACL out", "tone": "good"}},
+     "packets": [{"path": ["PCA", "R1", "R2", "WEB"], "label": "to web: allowed", "tone": "good"},
+                 {"path": ["PCA", "R1", "R2", "R3"], "label": "to HR: dropped", "tone": "bad"}]},
+    {"title": "4. Extended ACL near the source",
+     "text": "`access-list 110 deny ip host 10.1.1.5 host 10.3.3.10` plus `permit ip any any`, applied **in** on R1 Gi0/0. It sees source **and** destination, so it can drop just the HR traffic at the very first hop. The unwanted packet never crosses R1-R2 or R2-R3. *Precise tool, applied early.*",
+     "nodes": {"R3": null, "R1": {"badge": "ext ACL in", "tone": "good"}},
+     "packets": [{"path": ["PCA", "R1", "R2", "WEB"], "label": "to web: allowed", "tone": "good"},
+                 {"path": ["PCA", "R1"], "label": "to HR: dropped", "tone": "bad"}]}
+  ]
+}
+```
+
+**📝 Exam-style questions — 19.3**
+
+**Q1.** Which two number ranges identify extended IPv4 access lists? (Choose two.)
+
+- **A.** 1–99
+- **B.** 100–199
+- **C.** 1300–1999
+- **D.** 2000–2699
+- **E.** 200–299
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** Extended ACLs use 100–199 and the expanded range 2000–2699. **Why not the others:** 1–99 (A) and 1300–1999 (C) are the standard ranges. 200–299 (E) is a real range, but it belongs to an old protocol-type filter, not IPv4 extended ACLs. Memory hook: standard is the small numbers, extended starts at 100.
+</details>
+
+**Q2.** An engineer must stop host 10.1.1.5 from reaching server 10.3.3.10 while it keeps access to every other network. The engineer must use a standard ACL. Where should it be applied?
+
+- **A.** Inbound on the router interface closest to host 10.1.1.5
+- **B.** Outbound on the router interface that connects to the server's LAN
+- **C.** Outbound on the router interface closest to host 10.1.1.5, toward the WAN
+- **D.** Inbound on every router interface between the host and the server
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A standard ACL can only see the source, so it would block 10.1.1.5 from *everything* if placed early. Placing it outbound toward the server's LAN means it only judges traffic that is about to reach that LAN. **Why not the others:** A and C sit near the source, so the host would lose every destination beyond that point, not just the server. D multiplies the same problem across the whole path and adds work to every router.
+</details>
+
+**Q3.** Why does Cisco recommend placing extended ACLs close to the source of the traffic?
+
+- **A.** Extended ACLs can only match source addresses.
+- **B.** They match traffic precisely, so unwanted packets can be dropped early without blocking anything else, saving bandwidth on every later link.
+- **C.** IOS only allows extended ACLs to be applied in the inbound direction.
+- **D.** Extended ACLs are processed only on the first router a packet reaches.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An extended ACL knows source, destination, protocol and port, so it can drop exactly the unwanted flow at the first hop and no further link has to carry it. **Why not the others:** A describes a *standard* ACL, which is the reason standard ACLs go near the destination instead. Extended ACLs work in either direction (C). And every router that has an ACL applied checks packets against it (D); the "first router" idea is just the recommended placement, not a rule IOS enforces.
+</details>
+
 ## 19.4 Wildcard Masks (Again!)
 
 ACLs use **wildcard masks** (the opposite of subnet masks). Remember:
@@ -3573,6 +3747,90 @@ Examples:
 - `0.0.0.255` = match a whole /24 network.
 - `255.255.255.255` (keyword `any`) = match everything.
 - The keyword `host 192.168.1.5` means the same as `192.168.1.5 0.0.0.0`.
+
+The widget below starts on 10.10.8.0/22. Read its **wildcard** line: 0.0.3.255. That's the mask an ACL wants for this block, and it's simply 255.255.255.255 minus the subnet mask. Slide the prefix and watch both change together.
+
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "10.10.8.0",
+  "prefix": 22,
+  "title": "Subnet mask and wildcard mask, side by side",
+  "prompt": "Move the prefix length and compare the mask with the wildcard: every 1 in the mask is a 0 in the wildcard (\"must match\"), and every 0 in the mask is a 1 (\"don't care\")."
+}
+```
+
+Now put wildcards to work. Each line below uses a different mask; test addresses at the edges of each block:
+
+```diagram
+{
+  "type": "match",
+  "kind": "standard",
+  "name": "15",
+  "title": "Wildcard mask tester",
+  "prompt": "Try the edges: the first and last address of each block, and the one just past it. The last line is a trick wildcard: `0.0.0.254` cares only about the lowest bit, so it matches the **even** addresses.",
+  "rules": [
+    {"action": "permit", "source": "10.10.8.0 0.0.3.255"},
+    {"action": "permit", "source": "172.16.32.0 0.0.15.255"},
+    {"action": "permit", "source": "host 192.168.1.5"},
+    {"action": "permit", "source": "192.168.2.0 0.0.0.254"}
+  ],
+  "input": "10.10.11.200",
+  "tries": ["10.10.8.0", "10.10.11.255", "10.10.12.1", "172.16.47.255", "172.16.48.1", "192.168.1.6", "192.168.2.10", "192.168.2.11"]
+}
+```
+
+**📝 Exam-style questions — 19.4**
+
+**Q1.** Which wildcard mask matches every address in 172.16.32.0/20?
+
+- **A.** 0.0.15.255
+- **B.** 0.0.31.255
+- **C.** 255.255.240.0
+- **D.** 0.0.16.255
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A /20 mask is 255.255.240.0. Subtract each octet from 255: 0.0.15.255. That covers 172.16.32.0 through 172.16.47.255. **Why not the others:** 0.0.31.255 (B) is the wildcard for a /19, twice as big. 255.255.240.0 (C) is the subnet mask itself; as a wildcard it would "don't care" about the first two octets. And 0.0.16.255 (D) isn't a clean block at all: 16 is binary 00010000, a single don't-care bit, so it would match two scattered /24s instead of one /20.
+</details>
+
+**Q2.** Which range of addresses does `access-list 15 permit 10.10.8.0 0.0.3.255` match?
+
+- **A.** 10.10.8.0 – 10.10.8.255
+- **B.** 10.10.8.0 – 10.10.11.255
+- **C.** 10.10.8.0 – 10.10.15.255
+- **D.** 10.10.0.0 – 10.10.3.255
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A wildcard of 3 in the third octet means the last two bits of that octet are "don't care", so it can be 8, 9, 10 or 11. The fourth octet is fully "don't care" (255). Result: 10.10.8.0 to 10.10.11.255, which is a /22. **Why not the others:** A ignores the 3 in the third octet. C would need 0.0.7.255. D starts from the wrong third octet; the ACL's address says 8, not 0.
+</details>
+
+**Q3.** Which two ACL address entries match only the single host 192.168.1.5? (Choose two.)
+
+- **A.** `host 192.168.1.5`
+- **B.** `192.168.1.5 0.0.0.0`
+- **C.** `192.168.1.5 255.255.255.255`
+- **D.** `192.168.1.5 0.0.0.255`
+- **E.** `192.168.1.0 0.0.0.5`
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** `host 192.168.1.5` is shorthand for `192.168.1.5 0.0.0.0`: every bit must match, so only one address qualifies. **Why not the others:** a wildcard of 255.255.255.255 (C) means "don't care about any bit", which is the same as `any`. 0.0.0.255 (D) matches the whole 192.168.1.0/24. And 0.0.0.5 (E) is binary 101 in the last octet, so it matches .0, .1, .4 and .5, four hosts, not one.
+</details>
+
+**Q4.** Which addresses does `access-list 5 permit 192.168.2.0 0.0.0.254` match?
+
+- **A.** Every address from 192.168.2.0 to 192.168.2.254
+- **B.** Only the even-numbered addresses in 192.168.2.0 – 192.168.2.255
+- **C.** Only the odd-numbered addresses in 192.168.2.0 – 192.168.2.255
+- **D.** Only 192.168.2.0 and 192.168.2.254
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 254 is binary 11111110: the top seven bits of the last octet are "don't care", but the lowest bit must match the address's lowest bit, which is 0. Every number whose lowest bit is 0 is even, so .0, .2, .4 ... .254 match. (Try it in the tester above.) **Why not the others:** A reads the wildcard as if it were an upper bound; it isn't a range. C would need the address to end in an odd number (192.168.2.1 0.0.0.254). D treats the wildcard as a list of two addresses. Wildcards don't have to be contiguous like subnet masks, which is exactly what makes this one a trick.
+</details>
 
 ## 19.5 Configuring a Standard ACL
 
@@ -3586,6 +3844,50 @@ R1(config-if)# ip access-group 10 out               ! apply it going OUT
 ```
 
 > If you forget `permit any`, the implicit deny blocks EVERYONE. A classic mistake!
+
+**📝 Exam-style questions — 19.5**
+
+**Q1.** Refer to the exhibit. After this change, users report that no traffic at all leaves Gi0/1. What is the cause?
+
+```
+R1(config)# access-list 10 deny host 192.168.1.50
+R1(config)# interface gi0/1
+R1(config-if)# ip access-group 10 out
+```
+
+- **A.** The ACL is applied in the wrong direction.
+- **B.** The ACL has no permit line, so the implicit deny drops every other packet.
+- **C.** The `host` keyword can't be used in a standard ACL.
+- **D.** Standard ACLs can only be applied inbound.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Line 1 drops 192.168.1.50 and the invisible deny drops the rest. Adding `access-list 10 permit any` fixes it. **Why not the others:** changing the direction (A) wouldn't help; the ACL would still deny everything, just on the other side. `host` is perfectly valid in a standard ACL (C); it means a 0.0.0.0 wildcard. And standard ACLs work in or out (D).
+</details>
+
+**Q2.** Which command applies standard ACL 10 to traffic leaving interface Gi0/1?
+
+- **A.** `R1(config-if)# ip access-group 10 out`
+- **B.** `R1(config-if)# access-class 10 out`
+- **C.** `R1(config-if)# ip access-list 10 out`
+- **D.** `R1(config)# access-group 10 out gi0/1`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** On an interface, `ip access-group <acl> in|out` is the command that applies an ACL. **Why not the others:** `access-class` (B) applies an ACL to VTY lines to control who can SSH or Telnet to the router; it isn't an interface command. `ip access-list` (C) creates a named ACL in global configuration; it doesn't apply one. And D isn't IOS syntax at all.
+</details>
+
+**Q3.** Gi0/0 already has `ip access-group 10 in`. The engineer now enters `ip access-group 20 in` on the same interface. What is the result?
+
+- **A.** Both ACLs are checked, ACL 10 first and then ACL 20.
+- **B.** ACL 20 replaces ACL 10 on the inbound direction of Gi0/0.
+- **C.** IOS rejects the command until ACL 10 is removed.
+- **D.** IOS merges the two ACLs into one.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An interface holds one IPv4 ACL per direction: one in, one out. Applying a second one in the same direction silently replaces the first. **Why not the others:** IOS never chains two ACLs on the same direction (A), and it doesn't merge them (D). It doesn't complain either (C); it just overwrites, which is why it's worth checking `show ip interface` after the change.
+</details>
 
 ## 19.6 Configuring an Extended ACL
 
@@ -3602,6 +3904,76 @@ R1(config-if)# ip access-group 100 in               ! apply going IN
 Reading `permit tcp 192.168.1.0 0.0.0.255 host 10.0.0.5 eq 80`:
 "Allow TCP from any host in 192.168.1.x to the server 10.0.0.5 on port 80 (web)."
 
+Test the ACL above. It's applied **in** on Gi0/0, the LAN side, so every packet the LAN sends meets it:
+
+```diagram
+{
+  "type": "match",
+  "kind": "extended",
+  "name": "100",
+  "title": "Extended ACL tester: protocol, source, destination, port",
+  "prompt": "Build a packet or click a try. Notice that the final `deny ip any any` doesn't care about the destination: SSH to the server is dropped, and so is HTTPS to a *different* server (10.0.0.6).",
+  "rules": [
+    {"action": "permit", "proto": "tcp", "src": "192.168.1.0 0.0.0.255", "dst": "host 10.0.0.5", "port": "eq 80"},
+    {"action": "permit", "proto": "tcp", "src": "192.168.1.0 0.0.0.255", "dst": "host 10.0.0.5", "port": "eq 443"},
+    {"action": "deny", "proto": "ip", "src": "any", "dst": "any"}
+  ],
+  "input": {"proto": "tcp", "src": "192.168.1.20", "dst": "10.0.0.5", "port": 443},
+  "tries": [
+    {"proto": "tcp", "src": "192.168.1.20", "dst": "10.0.0.5", "port": 80},
+    {"proto": "tcp", "src": "192.168.1.20", "dst": "10.0.0.5", "port": 22},
+    {"proto": "icmp", "src": "192.168.1.20", "dst": "10.0.0.5"},
+    {"proto": "tcp", "src": "192.168.2.9", "dst": "10.0.0.5", "port": 443},
+    {"proto": "tcp", "src": "192.168.1.20", "dst": "10.0.0.6", "port": 443}
+  ]
+}
+```
+
+**📝 Exam-style questions — 19.6**
+
+**Q1.** Refer to the exhibit. The ACL is applied inbound on the interface facing the 192.168.1.0/24 LAN. Which two flows from host 192.168.1.20 are permitted? (Choose two.)
+
+```
+access-list 100 permit tcp 192.168.1.0 0.0.0.255 host 10.0.0.5 eq 443
+access-list 100 deny ip any host 10.0.0.5
+access-list 100 permit ip any any
+```
+
+- **A.** HTTPS to 10.0.0.5
+- **B.** A ping to 10.0.0.5
+- **C.** HTTP (TCP 80) to 10.0.0.5
+- **D.** SSH to 10.0.0.9
+- **E.** A DNS query to 10.0.0.5
+
+<details><summary>Answer</summary>
+
+**Answer: A, D.** HTTPS to 10.0.0.5 matches line 1 and is permitted. SSH to 10.0.0.9 doesn't match line 1 (wrong destination) or line 2 (also wrong destination), so line 3 permits it. **Why not the others:** a ping (B), HTTP (C) and a DNS query (E) to 10.0.0.5 all miss line 1, which only allows TCP 443, and then hit line 2, which denies anything else to that server.
+</details>
+
+**Q2.** Which ACL line permits only HTTPS (TCP 443) from subnet 10.20.0.0/16 to the web server 10.30.1.10?
+
+- **A.** `access-list 120 permit tcp 10.20.0.0 0.0.255.255 host 10.30.1.10 eq 443`
+- **B.** `access-list 120 permit tcp host 10.30.1.10 10.20.0.0 0.0.255.255 eq 443`
+- **C.** `access-list 120 permit udp 10.20.0.0 0.0.255.255 host 10.30.1.10 eq 443`
+- **D.** `access-list 120 permit tcp 10.20.0.0 0.0.255.255 eq 443 host 10.30.1.10`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The order is protocol, source, destination, then the port, and a port written after the destination is the **destination** port, which is where a web server listens. **Why not the others:** B swaps source and destination, so it matches packets *from* the server. C says UDP, but the question asks for TCP 443. D puts `eq 443` after the source, which matches the client's **source** port; clients pick random high source ports, so real HTTPS requests wouldn't match.
+</details>
+
+**Q3.** What does `access-list 101 deny tcp any host 10.1.1.1 eq telnet` match?
+
+- **A.** All TCP traffic to 10.1.1.1
+- **B.** Telnet sessions to 10.1.1.1 from any source
+- **C.** Telnet sessions that 10.1.1.1 opens to other hosts
+- **D.** All IP traffic to 10.1.1.1
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Source `any`, destination `host 10.1.1.1`, destination port 23 (`telnet`): any device trying to Telnet *to* 10.1.1.1. **Why not the others:** A ignores the `eq telnet` part. C reverses the direction; 10.1.1.1 is the destination here, not the source. D would need `ip` instead of `tcp`, and no port.
+</details>
+
 ## 19.7 Named ACLs (Easier to Read)
 
 Instead of numbers, use names:
@@ -3611,6 +3983,52 @@ R1(config-ext-nacl)# permit tcp any host 10.0.0.5 eq 443
 R1(config-ext-nacl)# deny ip any any
 ```
 
+**📝 Exam-style questions — 19.7**
+
+**Q1.** Refer to the exhibit. The engineer must also allow SSH (TCP 22) to 10.0.0.5, without deleting and retyping the ACL. Which commands do it?
+
+```
+R1# show ip access-lists WEB_ONLY
+Extended IP access list WEB_ONLY
+    10 permit tcp any host 10.0.0.5 eq 443
+    20 deny ip any any
+```
+
+- **A.** `ip access-list extended WEB_ONLY`, then `15 permit tcp any host 10.0.0.5 eq 22`
+- **B.** `ip access-list extended WEB_ONLY`, then `permit tcp any host 10.0.0.5 eq 22`
+- **C.** `access-list WEB_ONLY permit tcp any host 10.0.0.5 eq 22`
+- **D.** `ip access-list standard WEB_ONLY`, then `15 permit tcp any host 10.0.0.5 eq 22`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Inside named-ACL mode you can give a line a sequence number, and 15 slots it between 10 and 20, before the deny. **Why not the others:** without a number (B), IOS adds the line at the end as sequence 30, after `deny ip any any`, so it would never match. C uses the numbered-ACL command with a name, which IOS rejects. D opens the wrong type; a standard ACL can't match TCP ports, and WEB_ONLY already exists as an extended list.
+</details>
+
+**Q2.** Which two are advantages of named ACLs? (Choose two.)
+
+- **A.** The name can describe the ACL's purpose.
+- **B.** In ACL configuration mode, single lines can be removed or inserted by sequence number.
+- **C.** Named ACLs have no implicit deny at the end.
+- **D.** Named ACLs can filter on MAC addresses for IPv4 traffic.
+- **E.** Named ACLs are processed faster than numbered ACLs.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** "WEB_ONLY" tells the next engineer what the list is for; "100" doesn't. And editing in place by sequence number beats deleting and retyping the whole list. (Modern IOS lets you edit numbered ACLs this way too, through `ip access-list extended 100`, but it's the named style that introduced it.) **Why not the others:** every ACL, named or numbered, ends in an implicit deny (C). IP ACLs match IP fields; MAC filtering is a different kind of ACL (D). And the name changes nothing about speed (E).
+</details>
+
+**Q3.** Which command creates a standard named ACL called MGMT?
+
+- **A.** `ip access-list standard MGMT`
+- **B.** `access-list standard MGMT`
+- **C.** `ip access-list MGMT standard`
+- **D.** `access-list MGMT standard permit any`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `ip access-list`, then the type, then the name. The prompt changes to `R1(config-std-nacl)#` and you type the lines. **Why not the others:** B and D use the numbered-ACL command, which expects a number, not a type or a name. C has the type and name in the wrong order.
+</details>
+
 ## 19.8 Checking ACLs
 ```
 R1# show access-lists              ! see all ACLs and hit counts
@@ -3618,6 +4036,52 @@ R1# show ip interface gi0/0        ! see which ACL is applied where
 ```
 
 **Direction tip:** `in` filters traffic **entering** the interface; `out` filters traffic **leaving** it. Picture yourself standing inside the router looking at each door.
+
+**📝 Exam-style questions — 19.8**
+
+**Q1.** Refer to the exhibit. Users in 10.1.1.0/24 can browse 10.2.2.10 but can't SSH to it. What explains this?
+
+```
+R1# show access-lists 110
+Extended IP access list 110
+    10 permit tcp 10.1.1.0 0.0.0.255 host 10.2.2.10 eq www (152 matches)
+    20 permit tcp 10.1.1.0 0.0.0.255 host 10.2.2.10 eq 443 (1043 matches)
+    30 deny ip any any (12 matches)
+```
+
+- **A.** Line 10 is catching the SSH traffic before line 20.
+- **B.** No line permits TCP 22, so SSH matches line 30 and is dropped.
+- **C.** The ACL isn't applied to any interface.
+- **D.** SSH is dropped by the implicit deny, which is why line 30 shows no matches.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Only ports 80 (`www`) and 443 are permitted. SSH uses TCP 22, misses lines 10 and 20, and lands on line 30. Its 12 matches are a good sign the dropped SSH attempts are being counted. **Why not the others:** line 10 only matches destination port 80 (A). The hit counters prove the ACL is applied and in use (C). And line 30 is an explicit deny that *does* have matches (D); it catches everything before the implicit deny ever could. That's exactly why people add it: to see the counter.
+</details>
+
+**Q2.** Which command shows which ACL is applied to Gi0/0, and in which direction?
+
+- **A.** `show ip interface gi0/0`
+- **B.** `show interfaces gi0/0`
+- **C.** `show access-lists`
+- **D.** `show ip interface brief`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `show ip interface` lists "Outgoing access list is ..." and "Inbound access list is ..." for the interface. **Why not the others:** `show interfaces` (B) gives Layer 1 and 2 counters, not ACLs. `show access-lists` (C) shows the ACLs' contents and hit counts but not where they're applied. `show ip interface brief` (D) only shows address and status.
+</details>
+
+**Q3.** R1's Gi0/1 connects to the 192.168.1.0/24 LAN. The engineer wants to filter packets from the LAN hosts as they arrive at R1, before R1 routes them. How should the ACL be applied?
+
+- **A.** `ip access-group` on Gi0/1, direction `out`
+- **B.** `ip access-group` on Gi0/1, direction `in`
+- **C.** `ip access-group` on the WAN interface, direction `in`
+- **D.** `ip access-group` on Gi0/1, in both directions
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Stand inside the router: packets from the LAN come *in* through the Gi0/1 door. An inbound ACL there checks them before the routing decision. **Why not the others:** `out` on Gi0/1 (A) checks packets going *toward* the LAN. The WAN interface inbound (C) checks traffic arriving from the WAN. Both directions (D) needs two ACLs, and the outbound one would filter the wrong traffic.
+</details>
 
 ---
 
@@ -3632,9 +4096,61 @@ Wireless clients — phones, laptops — connect over **radio waves** to an
 **access point**. The AP is itself plugged into a **switch** on the wired
 network, so it acts as the bridge between the two worlds.
 
+**📝 Exam-style questions — 20.1**
+
+**Q1.** Which device converts between 802.11 radio frames and the wired Ethernet network, so wireless clients can reach wired servers?
+
+- **A.** An access point
+- **B.** A RADIUS server
+- **C.** A Layer 2 switch
+- **D.** A Wireless LAN Controller with no APs
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The AP is the bridge between the two worlds: radio on one side, an Ethernet cable to a switch on the other. **Why not the others:** a RADIUS server (B) checks credentials; it never touches radio. A switch (C) only speaks wired Ethernet. And a WLC (D) manages APs but has no radios of its own; without APs, no client can reach it over the air.
+</details>
+
+**Q2.** A laptop shows it's connected to the office Wi‑Fi, but it can't reach any server on the wired LAN. You find the AP's Ethernet cable unplugged from the switch, though the AP has power from a separate injector. Why does this break access?
+
+- **A.** The laptop needs the cable for its own IP address configuration.
+- **B.** The AP bridges radio clients onto the wired network; without its uplink, clients can reach the AP but nothing beyond it.
+- **C.** Wi‑Fi clients always need a wired connection for return traffic.
+- **D.** The AP stops sending beacons when the cable is unplugged.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The radio side still works, which is why the laptop looks "connected", but the bridge to the wired network has no far bank. **Why not the others:** the laptop itself never needs a cable (A); its DHCP request would normally travel *through* the AP's uplink, which is part of the same problem. Return traffic comes back over the air through the AP, not over a separate wire (C). And beacons are a radio function (D); an autonomous AP with power keeps sending them, which is exactly why the laptop could still associate.
+</details>
+
 ## 20.2 SSID — The Network Name
 
 The **SSID (Service Set Identifier)** is the **Wi‑Fi network's name** you see when you connect (like "CoffeeShop_Guest"). It's just a friendly label for a wireless network.
+
+**📝 Exam-style questions — 20.2**
+
+**Q1.** What is an SSID?
+
+- **A.** The name that identifies a wireless network to clients
+- **B.** The MAC address of the AP's radio
+- **C.** The pre-shared key used to encrypt the WLAN
+- **D.** The channel number the AP transmits on
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The SSID is the friendly network name, such as "CoffeeShop_Guest", that appears in a client's Wi‑Fi list. **Why not the others:** the radio's MAC address (B) is the **BSSID**, a different identifier: one SSID can be served by many BSSIDs. The key (C) is security, not identity. And the channel (D) is a radio setting the SSID says nothing about.
+</details>
+
+**Q2.** An office broadcasts the SSID "Corp" from 12 APs, all with the same security settings. A user walks from one end of the building to the other on a call without reconnecting. What makes this possible?
+
+- **A.** Each AP uses a different SSID, and the laptop remembers all of them.
+- **B.** The APs share one SSID and security policy, so they form one extended service set the client can roam across.
+- **C.** The laptop stays associated to the first AP for the whole walk.
+- **D.** Hiding the SSID lets clients move between APs faster.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** When many APs advertise the same SSID with the same security, the client sees one network (an **ESS**, extended service set) and moves between APs as signal strength changes. **Why not the others:** different SSIDs (A) would mean separate networks and a reconnect each time. Staying on the first AP (C) fails as soon as you walk out of its range. And hiding the SSID (D) only stops it appearing in beacons; it does nothing for roaming, and clients still reveal it in probes.
+</details>
 
 ## 20.3 Frequency Bands & Channels
 
@@ -3657,6 +4173,45 @@ Spacing your APs across those three keeps neighbouring cells from interfering. �
 
 **Why specifically 1, 6, and 11 — why not 1, 2, 3?** Because each 2.4 GHz channel is actually **wider than the spacing between channel numbers**, so neighboring channels physically *overlap* and bleed into each other. Picture each channel as a fat highway lane painted wider than the lines: channels 1 and 2 are so close their traffic smears together, causing interference — which is *worse* than being on the same channel! It turns out you need about **5 channels of gap** for two signals not to overlap. Do the math: 1, then 1+5=6, then 6+5=11. Those three are the only combination that fits in the 2.4 GHz band with **zero overlap**. *That's why every Wi‑Fi pro memorizes 1/6/11* — it's the one way to run three nearby access points without them stepping on each other. (This overlap problem is another reason 5 GHz is nicer: it has many more non-overlapping channels to spread out on.)
 
+**📝 Exam-style questions — 20.3**
+
+**Q1.** Which set of 2.4 GHz channels lets three neighbouring APs run with no channel overlap?
+
+- **A.** 1, 6, 11
+- **B.** 1, 2, 3
+- **C.** 1, 3, 5
+- **D.** 6, 8, 10
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Each 2.4 GHz channel is wider than the 5 MHz gap between channel numbers, so you need about five numbers of separation: 1, 6 and 11. **Why not the others:** 1, 2, 3 (B) are almost on top of each other, which is worse than sharing one channel. 1, 3, 5 (C) and 6, 8, 10 (D) are only two numbers apart, so each pair still overlaps.
+</details>
+
+**Q2.** A warehouse needs Wi‑Fi coverage at the far end of the building, through several concrete walls. Only a few barcode scanners will connect, and speed doesn't matter. Which band suits it best?
+
+- **A.** 2.4 GHz
+- **B.** 5 GHz
+- **C.** 6 GHz
+- **D.** Any band; range is the same on all of them
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Lower frequencies travel farther and push through walls better. With few clients and no need for speed, 2.4 GHz's crowding and lower throughput don't matter. **Why not the others:** 5 GHz (B) and especially 6 GHz (C) are faster but fade faster and are absorbed more by walls. And range really does depend on frequency (D); that's the core trade-off of this section.
+</details>
+
+**Q3.** Which two statements comparing the 2.4 GHz and 5 GHz bands are true? (Choose two.)
+
+- **A.** 5 GHz offers many more non-overlapping channels.
+- **B.** 5 GHz passes through walls better than 2.4 GHz.
+- **C.** 2.4 GHz shares its spectrum with Bluetooth and microwave ovens.
+- **D.** 2.4 GHz has more non-overlapping channels than 5 GHz.
+- **E.** 5 GHz has a longer range than 2.4 GHz at the same power.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** 5 GHz has room for many non-overlapping 20 MHz channels, while 2.4 GHz has only three. And 2.4 GHz is crowded with non-Wi‑Fi devices such as Bluetooth and microwaves. **Why not the others:** B and E have the physics backwards; higher frequencies fade faster and are absorbed more by walls. D reverses the channel count.
+</details>
+
 ## 20.4 Wireless Standards (802.11 Family)
 
 | Standard | Nickname | Band | Max Speed |
@@ -3668,6 +4223,44 @@ Spacing your APs across those three keeps neighbouring cells from interfering. �
 | 802.11ax | Wi‑Fi 6/6E | 2.4/5/6 GHz | ~9.6 Gbps |
 
 **Why is Wi‑Fi "half-duplex" and shared — why does it feel slower than the numbers suggest?** Because radio is like **everyone talking in one room** — only one device can transmit at a time on a channel, or the signals collide (this is why Wi‑Fi uses CSMA/**CA**, *collision avoidance* — it can't detect collisions in the air, so it politely waits and avoids them). The more devices on one AP, the more they take turns, so real speed per device drops. *That's why wired connections (full-duplex, own wire) are still preferred for anything that needs guaranteed speed*, and why packing 30 people onto one coffee-shop AP feels sluggish even on fast Wi‑Fi.
+
+**📝 Exam-style questions — 20.4**
+
+**Q1.** Which 802.11 standard operates only in the 5 GHz band?
+
+- **A.** 802.11ac
+- **B.** 802.11n
+- **C.** 802.11g
+- **D.** 802.11ax
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 802.11ac (Wi‑Fi 5) is 5 GHz only. **Why not the others:** 802.11n (B) works in both 2.4 and 5 GHz. 802.11g (C) is 2.4 GHz only. 802.11ax (D) works in 2.4 and 5 GHz, and in 6 GHz as Wi‑Fi 6E.
+</details>
+
+**Q2.** A company wants to use the 6 GHz band. Which standard must its APs and clients support?
+
+- **A.** 802.11ac
+- **B.** 802.11ax (Wi‑Fi 6E)
+- **C.** 802.11n
+- **D.** 802.11g
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 6 GHz arrived with Wi‑Fi 6E, the 6 GHz extension of 802.11ax. **Why not the others:** 802.11ac (A) is 5 GHz only, 802.11n (C) is 2.4 and 5 GHz, and 802.11g (D) is 2.4 GHz only. None of them can use 6 GHz.
+</details>
+
+**Q3.** Why does 802.11 use CSMA/CA instead of the CSMA/CD that old shared Ethernet used?
+
+- **A.** A radio can't reliably hear a collision while it's transmitting, so stations wait for a clear channel and rely on acknowledgements to avoid collisions instead.
+- **B.** Wi‑Fi is full-duplex, so collisions can't happen.
+- **C.** Clients transmit and listen at the same time, then send a jam signal when they detect a collision.
+- **D.** Each client gets its own dedicated channel from the AP.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A transmitting radio drowns out what it's listening for, so detection is out. Instead each station checks that the channel is clear, waits a random backoff, and treats a missing ACK as "that probably collided". **Why not the others:** Wi‑Fi on a channel is half-duplex and shared (B), which is the whole problem. C describes CSMA/CD itself, the thing radio can't do. And clients on one AP share the channel (D); they don't get one each.
+</details>
 
 ## 20.5 Wireless Security
 
@@ -3687,6 +4280,45 @@ Two modes:
 **Why does wireless need its OWN security when wired networks mostly don't?** Because of one huge difference: **Wi‑Fi signals leak out into the air, past your walls, into the street.** On a wired network, an attacker has to *physically plug in* to eavesdrop. But Wi‑Fi is literally broadcasting your data as radio waves that anyone nearby can *silently capture from a parked car* — no plugging in required. *That's why Wi‑Fi must encrypt everything by default:* without encryption, your traffic is a public radio broadcast. This is also why the security standards keep evolving (WEP→WPA→WPA2→WPA3): as attackers found ways to crack each one, we needed stronger encryption, because the stakes (invisible, remote eavesdropping) are so high.
 
 **Why choose Personal vs Enterprise mode?** With **Personal (PSK)**, *everyone shares one password.* Fine at home, but in a company it's a nightmare: if one employee leaks the password or leaves, you must change it and re-tell *everyone*. And you can't tell who's who — all users look identical. **Enterprise (802.1X)** fixes this by giving *each person their own login* (via a RADIUS server, from Chapter 18). *Why bother?* You can disable one person's access without affecting anyone else, and you get a record of who connected. Same reason we centralize AAA: individual accountability and easy revocation.
+
+**📝 Exam-style questions — 20.5**
+
+**Q1.** A WPA2-Personal network can be attacked by capturing the 4-way handshake and guessing passwords offline. Which WPA3 feature removes that weakness?
+
+- **A.** SAE (Simultaneous Authentication of Equals)
+- **B.** TKIP
+- **C.** Protected Management Frames (PMF)
+- **D.** AES-CCMP
+
+<details><summary>Answer</summary>
+
+**Answer: A.** SAE replaces the PSK handshake with a live exchange, so a captured exchange gives the attacker nothing to test guesses against offline. Each guess needs a fresh attempt against the AP. **Why not the others:** TKIP (B) is the old WPA cipher, weaker than what WPA2 already uses. PMF (C) is also required by WPA3, but it protects management frames such as deauthentication from being forged; it doesn't stop password cracking. AES-CCMP (D) encrypts the data and was already in WPA2, which didn't stop the offline attack.
+</details>
+
+**Q2.** A company wants every employee to sign in to Wi‑Fi with their own account, and wants to revoke one person's access without affecting anyone else. Which option meets this?
+
+- **A.** WPA2-Personal with a long pre-shared key
+- **B.** WPA3-Enterprise with 802.1X and a RADIUS server
+- **C.** WEP with MAC address filtering
+- **D.** An open network with a hidden SSID
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Enterprise mode checks each user's own credentials against a RADIUS server, so disabling one account removes only that user. **Why not the others:** a PSK (A) is one shared password; revoking one person means changing it for everyone. WEP (C) is broken, and MAC addresses are easy to spoof. An open network (D) has no authentication or encryption, and hiding the SSID doesn't add either.
+</details>
+
+**Q3.** Which two statements about wireless security are true? (Choose two.)
+
+- **A.** WPA2 encrypts with AES (CCMP).
+- **B.** WEP is safe as long as it uses a 128-bit key.
+- **C.** Enterprise mode authenticates users through 802.1X, usually against a RADIUS server.
+- **D.** WPA3 relies on TKIP for encryption.
+- **E.** Personal mode gives each user a unique password.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** WPA2's strength comes from AES, and Enterprise mode means 802.1X with a RADIUS server behind it. **Why not the others:** WEP's flaw is in how it uses its keys, so a longer key doesn't save it (B). WPA3 uses AES-based ciphers, not TKIP (D). And Personal mode is one shared key for everyone (E); per-user passwords are the Enterprise feature.
+</details>
 
 ## 20.6 AP Types & Wireless LAN Controllers
 
@@ -3717,6 +4349,88 @@ The lightweight APs talk to the WLC using a tunnel protocol called **CAPWAP**.
 
 **Why is the lightweight model called "split-MAC"?** Because the 802.11 (MAC-layer) job gets **split in two**. The **real-time** work that can't tolerate delay — transmitting frames, acknowledgements, encryption, beacons — stays **on the AP**, right at the radio. The **management** work — authentication decisions, roaming, channel/power planning, applying policy — moves **to the WLC**. *Time-critical stays local; decisions centralize.* CAPWAP is the pipe between the halves: a **control tunnel (UDP 5246)** carrying the WLC's instructions, and a **data tunnel (UDP 5247)** carrying client traffic — control messages are encrypted with **DTLS**; data usually isn't unless you turn it on.
 
+Click any device or link in this split-MAC campus to see its job:
+
+```diagram
+{
+  "type": "topology",
+  "title": "A split-MAC campus: lightweight APs and their WLC",
+  "caption": "Purple arcs are the CAPWAP tunnels. Click a device or a link.",
+  "nodes": [
+    {"id": "CORE", "kind": "l3switch", "x": 2, "y": 0, "label": "Core", "info": "The Layer 3 core. It routes between the client VLANs and carries the AP management VLAN to the WLC. To it, CAPWAP is just ordinary UDP traffic between two IP addresses."},
+    {"id": "WLC", "kind": "wlc", "x": 3.6, "y": 0, "label": "WLC", "sub": "10.99.0.5", "info": "The **brain**. It holds every WLAN, makes the authentication decisions, coordinates roaming between APs, and plans channels and transmit power. It terminates every AP's CAPWAP tunnel and drops each client's traffic onto the right VLAN."},
+    {"id": "ASW1", "kind": "switch", "x": 0.8, "y": 1.2, "label": "Access SW1"},
+    {"id": "ASW2", "kind": "switch", "x": 3.2, "y": 1.2, "label": "Access SW2"},
+    {"id": "AP1", "kind": "ap", "x": 0.8, "y": 2.4, "label": "AP1", "sub": "10.99.0.21", "info": "A **lightweight** AP in local mode. It keeps the real-time radio work: beacons, probe responses, acknowledgements, encryption. It holds no WLAN configuration of its own; it downloads everything from the WLC when it joins."},
+    {"id": "AP2", "kind": "ap", "x": 3.2, "y": 2.4, "label": "AP2", "sub": "10.99.0.22", "info": "Same job as AP1. Because the WLC controls both, it can hand a moving client from AP1 to AP2 smoothly, and keep the two on different channels."},
+    {"id": "LAP", "kind": "host", "x": 0.8, "y": 3.5, "label": "Laptop"},
+    {"id": "PH", "kind": "phone", "x": 3.2, "y": 3.5, "label": "Phone"}
+  ],
+  "links": [
+    {"a": "CORE", "b": "WLC", "style": "thick", "label": "LAG trunk", "info": "A trunk, because the WLC drops client traffic onto many VLANs. It's a LAG for bandwidth and redundancy, and on a Cisco WLC that means a **static** bundle (`mode on`), no LACP."},
+    {"a": "CORE", "b": "ASW1", "style": "thick", "label": "trunk"},
+    {"a": "CORE", "b": "ASW2", "style": "thick", "label": "trunk"},
+    {"a": "ASW1", "b": "AP1", "label": "access", "info": "An **access** port. All client traffic is inside the CAPWAP tunnel, so this wire only carries one kind of traffic in one VLAN. The switch usually powers the AP over this same cable (PoE)."},
+    {"a": "ASW2", "b": "AP2", "label": "access"},
+    {"a": "AP1", "b": "LAP", "style": "wireless", "info": "802.11 over the air. Encryption between laptop and AP happens here, on the AP."},
+    {"a": "AP2", "b": "PH", "style": "wireless"},
+    {"id": "c1", "a": "AP1", "b": "WLC", "style": "tunnel", "label": "CAPWAP", "info": "**CAPWAP**: a control tunnel on UDP 5246, encrypted with DTLS, carrying the WLC's instructions, and a data tunnel on UDP 5247 carrying client traffic."},
+    {"id": "c2", "a": "AP2", "b": "WLC", "style": "tunnel", "info": "AP2's own CAPWAP tunnel. Every AP has one to its WLC."}
+  ]
+}
+```
+
+**📝 Exam-style questions — 20.6**
+
+**Q1.** In which wireless architecture do lightweight APs tunnel to a central controller using CAPWAP?
+
+- **A.** Autonomous
+- **B.** Split-MAC
+- **C.** Cloud-based
+- **D.** Mesh backhaul
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Split-MAC splits the 802.11 job between the AP (real-time radio work) and the WLC (management and decisions), with CAPWAP joining the halves. **Why not the others:** autonomous APs (A) work alone with no controller or tunnel. Cloud-based APs (C) such as Meraki are managed from a vendor's cloud dashboard rather than tunnelling to an on-site WLC. And mesh (D) is a way to backhaul over the air between APs, not a management architecture.
+</details>
+
+**Q2.** Which UDP ports does CAPWAP use?
+
+- **A.** 5246 for control and 5247 for data
+- **B.** 5247 for control and 5246 for data
+- **C.** 1812 for control and 1813 for data
+- **D.** 161 for control and 162 for data
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Control on 5246 (DTLS-encrypted), data on 5247. Memory hook: control comes first, so it gets the lower number. **Why not the others:** B swaps them. 1812 and 1813 (C) are RADIUS authentication and accounting. 161 and 162 (D) are SNMP polling and traps.
+</details>
+
+**Q3.** In a split-MAC design, which two functions stay on the lightweight AP? (Choose two.)
+
+- **A.** Sending beacons and answering probe requests
+- **B.** Acknowledging and retransmitting 802.11 frames
+- **C.** Deciding whether a client is allowed to authenticate
+- **D.** Planning channels and transmit power across all APs
+- **E.** Coordinating a client's roam between two APs
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Anything that has to happen in microseconds at the radio stays on the AP: beacons, probe responses, ACKs and retransmissions. **Why not the others:** authentication decisions (C), radio planning across the whole site (D) and roaming coordination (E) need a view of every AP, so they live on the WLC.
+</details>
+
+**Q4.** A retailer has 300 small stores with no IT staff on site. It wants central Wi‑Fi management without a controller at each store or a controller appliance to look after. Which architecture fits best?
+
+- **A.** Autonomous APs, configured one by one
+- **B.** Split-MAC with a WLC in every store
+- **C.** Cloud-based, managed from the vendor's dashboard
+- **D.** Embedded WLC on a switch at headquarters only, with no WAN links
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A cloud-managed AP only needs internet access to reach its dashboard, so one small team can run all 300 stores without any controller hardware. **Why not the others:** 300 sites of autonomous APs (A) is the "configure everything by hand" problem. A WLC per store (B) means 300 boxes to buy and maintain. And D can't work as described: APs in stores need a path to their controller.
+</details>
+
 ## 20.7 AP Modes — One AP, Many Jobs
 
 A lightweight AP isn't locked into serving clients; the WLC can assign it a **mode**. Two forward traffic, the rest turn the AP into a dedicated tool:
@@ -3732,6 +4446,96 @@ A lightweight AP isn't locked into serving clients; the WLC can assign it a **mo
 | **SE-Connect** | Dedicated **spectrum analysis** — finds non-Wi‑Fi interferers (microwaves, cordless phones) |
 
 **Why does FlexConnect exist — isn't tunneling everything the whole point?** Picture a branch office in another city, its WLC back at HQ. In **local mode**, a print job from a branch laptop to the branch printer *ten feet away* would travel across the WAN to HQ and back — silly. And if the WAN link fails, Wi‑Fi at the branch dies entirely, even though the AP and the printer are both fine. **FlexConnect lets the AP drop local traffic onto the local LAN directly**, keeping only management centralized — and if the WLC becomes unreachable, the AP keeps serving its existing WLANs on its own. *Central control when available, local survival when not.* That's the exam's favorite fact about it.
+
+Here's the FlexConnect story from above, step by step:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Local mode vs FlexConnect at a branch",
+  "caption": "The WLC is at headquarters, across the WAN. The laptop prints to a printer in the same branch. Press **Next**.",
+  "nodes": [
+    {"id": "LAP", "kind": "host", "x": 0, "y": 2.2, "label": "Laptop"},
+    {"id": "AP", "kind": "ap", "x": 0, "y": 1, "label": "Branch AP"},
+    {"id": "BSW", "kind": "switch", "x": 1.4, "y": 1, "label": "Branch SW"},
+    {"id": "PRN", "kind": "host", "x": 1.4, "y": 2.2, "label": "Printer", "sub": "10.40.1.50"},
+    {"id": "WAN", "kind": "cloud", "x": 2.8, "y": 1, "label": "WAN"},
+    {"id": "WLC", "kind": "wlc", "x": 4.2, "y": 1, "label": "WLC", "sub": "at HQ"}
+  ],
+  "links": [
+    {"a": "LAP", "b": "AP", "style": "wireless"},
+    {"a": "AP", "b": "BSW"},
+    {"a": "BSW", "b": "PRN"},
+    {"a": "BSW", "b": "WAN"},
+    {"a": "WAN", "b": "WLC"},
+    {"id": "capwap", "a": "AP", "b": "WLC", "style": "tunnel", "label": "CAPWAP"}
+  ],
+  "zones": [
+    {"label": "Branch", "nodes": ["LAP", "AP", "BSW", "PRN"], "tone": "accent"},
+    {"label": "HQ", "nodes": ["WLC"], "tone": "purple"}
+  ],
+  "steps": [
+    {"title": "1. Local mode: everything rides the tunnel",
+     "text": "In **local mode** the AP tunnels *all* client traffic to the WLC. The print job crosses the WAN inside CAPWAP, the WLC puts it on a VLAN at HQ, and it's routed straight back across the WAN to a printer ten feet from the laptop.",
+     "nodes": {"AP": {"badge": "Local mode", "tone": "accent"}},
+     "packets": [{"path": ["LAP", "AP", "WLC"], "label": "print job in CAPWAP", "tone": "warn"},
+                 {"path": ["WLC", "WAN", "BSW", "PRN"], "label": "back over the WAN", "tone": "warn"}]},
+    {"title": "2. Local mode: WAN down means Wi-Fi down",
+     "text": "The WAN link fails. A local-mode AP that loses its WLC stops serving its WLANs, so the laptop loses Wi‑Fi even though the AP, the switch and the printer are all fine.",
+     "nodes": {"AP": {"badge": "no WLC", "tone": "bad"}},
+     "links": {"BSW-WAN": "down", "capwap": "down"}},
+    {"title": "3. FlexConnect: local traffic stays local",
+     "text": "Switch the AP to **FlexConnect** with local switching. The AP drops branch traffic straight onto the branch LAN, so the print job goes AP → switch → printer. Only CAPWAP **control** traffic still goes to the WLC, which keeps management central.",
+     "nodes": {"AP": {"badge": "FlexConnect", "tone": "good"}},
+     "links": {"BSW-WAN": null, "capwap": null},
+     "packets": [{"path": ["LAP", "AP", "BSW", "PRN"], "label": "switched locally", "tone": "good"},
+                 {"path": ["AP", "WLC"], "label": "CAPWAP control", "tone": "accent"}]},
+    {"title": "4. FlexConnect: WAN down, Wi-Fi stays up",
+     "text": "The WAN fails again. The FlexConnect AP goes into **standalone** mode and keeps serving its WLANs on its own, switching traffic locally. Clients that authenticate locally (a PSK WLAN, or local 802.1X) carry on printing. *Central control when it's reachable, local survival when it isn't.*",
+     "nodes": {"AP": {"badge": "standalone", "tone": "warn"}},
+     "links": {"BSW-WAN": "down", "capwap": "down"},
+     "packets": [{"path": ["LAP", "AP", "BSW", "PRN"], "label": "still printing", "tone": "good"}]}
+  ]
+}
+```
+
+**📝 Exam-style questions — 20.7**
+
+**Q1.** A branch AP must keep serving clients if the WAN link to the WLC at headquarters fails, and traffic between branch devices should not cross the WAN. Which AP mode meets both needs?
+
+- **A.** Local
+- **B.** FlexConnect
+- **C.** Monitor
+- **D.** Bridge
+
+<details><summary>Answer</summary>
+
+**Answer: B.** FlexConnect can switch client traffic locally and keeps serving its WLANs in standalone mode if the WLC is unreachable. **Why not the others:** local mode (A) tunnels everything to the WLC and stops serving clients if it loses the WLC. Monitor mode (C) serves no clients at all. Bridge mode (D) turns the AP into a wireless link between sites.
+</details>
+
+**Q2.** An AP is placed on the wired side of the network to check whether rogue APs heard over the air are actually connected to the company LAN. Which mode is it in?
+
+- **A.** Monitor
+- **B.** Rogue detector
+- **C.** Sniffer
+- **D.** SE-Connect
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A rogue detector AP watches the wired side and matches wired MAC addresses against the rogues that other APs report hearing, proving the rogue is plugged into *your* network. **Why not the others:** monitor mode (A) hunts rogues **over the air**, not on the wire. Sniffer mode (C) captures 802.11 frames for Wireshark. SE-Connect (D) is spectrum analysis.
+</details>
+
+**Q3.** An engineer wants an AP to stream raw RF spectrum data to an analysis tool on a laptop to identify a microwave oven that's causing interference. Which mode should the AP use?
+
+- **A.** Sniffer
+- **B.** SE-Connect
+- **C.** Local
+- **D.** FlexConnect
+
+<details><summary>Answer</summary>
+
+**Answer: B.** SE-Connect dedicates the radio to spectrum analysis, which can identify non-Wi‑Fi interferers such as microwaves and cordless phones. **Why not the others:** sniffer mode (A) captures 802.11 **frames**, and a microwave doesn't send frames. Local (C) and FlexConnect (D) are for serving clients.
+</details>
 
 ## 20.8 Wiring It Up — How APs and WLCs Physically Connect
 
@@ -3754,6 +4558,90 @@ The WLC also keeps several **logical interfaces**, each answering a different "w
 | **Service port** | Out-of-band management — a lifeline that works even if the network config is broken |
 | **Redundancy** | Heartbeat link to a standby WLC |
 
+Follow two clients' traffic through the wiring above. The same tunnel and the same access port carry both; the split happens at the WLC.
+
+```diagram
+{
+  "type": "topology",
+  "title": "One tunnel in, many VLANs out",
+  "caption": "SSID **Corp** maps to VLAN 10, SSID **Guest** to VLAN 30. Press **Next**.",
+  "nodes": [
+    {"id": "LAP", "kind": "host", "x": 0, "y": 2.4, "label": "Laptop", "sub": "SSID Corp"},
+    {"id": "GST", "kind": "phone", "x": 1.2, "y": 2.4, "label": "Guest phone", "sub": "SSID Guest"},
+    {"id": "AP", "kind": "ap", "x": 0.6, "y": 1.2, "label": "AP", "sub": "10.99.0.21"},
+    {"id": "ASW", "kind": "switch", "x": 2, "y": 1.2, "label": "Access SW"},
+    {"id": "CORE", "kind": "l3switch", "x": 3.4, "y": 1.2, "label": "Core"},
+    {"id": "WLC", "kind": "wlc", "x": 3.4, "y": 0, "label": "WLC", "sub": "10.99.0.5"},
+    {"id": "SRV", "kind": "server", "x": 4.8, "y": 1.2, "label": "File server", "sub": "10.20.0.10"}
+  ],
+  "links": [
+    {"a": "LAP", "b": "AP", "style": "wireless"},
+    {"a": "GST", "b": "AP", "style": "wireless"},
+    {"a": "AP", "b": "ASW", "label": "access"},
+    {"a": "ASW", "b": "CORE", "style": "thick", "label": "trunk"},
+    {"a": "CORE", "b": "WLC", "style": "thick", "label": "LAG trunk"},
+    {"a": "CORE", "b": "SRV"},
+    {"id": "capwap", "a": "AP", "b": "WLC", "style": "tunnel"}
+  ],
+  "steps": [
+    {"title": "1. The AP sits on an access port",
+     "text": "The AP's switch port is an **access** port in VLAN 99, the AP management VLAN. Every client frame will travel inside CAPWAP, so this wire only ever carries AP-to-WLC packets: one kind of traffic, one VLAN.",
+     "focus": ["AP", "ASW", "AP-ASW"]},
+    {"title": "2. The laptop's frame goes into the tunnel",
+     "text": "The laptop sends a frame for the file server. The AP wraps it in **CAPWAP data (UDP 5247)** addressed from 10.99.0.21 to the WLC at 10.99.0.5. The switches only see an ordinary IP packet between two addresses; they have no idea a laptop is inside it.",
+     "packets": [{"path": ["LAP", "AP", "ASW", "CORE", "WLC"], "label": "CAPWAP, UDP 5247", "tone": "purple"}]},
+    {"title": "3. The WLC unwraps it onto VLAN 10",
+     "text": "The WLC maps SSID Corp to its **dynamic interface** for VLAN 10. It sends the frame back out on its trunk tagged VLAN 10, and the core routes it to the file server. This is why the WLC needs a trunk.",
+     "nodes": {"WLC": {"badge": "Corp: VLAN 10", "tone": "good"}},
+     "packets": [{"path": ["WLC", "CORE", "SRV"], "label": "tagged VLAN 10", "tone": "good"}]},
+    {"title": "4. The guest takes the same tunnel to VLAN 30",
+     "text": "The guest phone's traffic uses the **same** AP, the same access port and the same tunnel. Only at the WLC does it split off: SSID Guest maps to VLAN 30, which the core sends toward the internet, never to the file server. *The VLAN sorting happens where the tunnel ends.*",
+     "nodes": {"WLC": {"badge": "Guest: VLAN 30", "tone": "warn"}},
+     "packets": [{"path": ["GST", "AP", "ASW", "CORE", "WLC"], "label": "same CAPWAP tunnel", "tone": "purple"},
+                 {"path": ["WLC", "CORE"], "label": "tagged VLAN 30", "tone": "warn"}]}
+  ]
+}
+```
+
+**📝 Exam-style questions — 20.8**
+
+**Q1.** Which two switch-port configurations are correct? (Choose two.)
+
+- **A.** A lightweight AP in local mode connects to an access port.
+- **B.** A WLC that serves several WLANs on different VLANs connects to a trunk port.
+- **C.** A lightweight AP in local mode connects to a trunk that carries every WLAN's VLAN.
+- **D.** A WLC connects to an access port in the AP management VLAN.
+- **E.** An autonomous AP with three SSIDs on three VLANs connects to an access port.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** A local-mode AP sends everything through CAPWAP, so its port carries one VLAN. The WLC unwraps the tunnels and drops clients onto many VLANs, so it needs a trunk. **Why not the others:** a trunk to a local-mode AP (C) isn't needed because the client VLANs never appear on that wire. A WLC on an access port (D) could only reach one VLAN. And an autonomous AP with three SSIDs (E) tags each SSID's VLAN itself, so it needs a trunk.
+</details>
+
+**Q2.** A Cisco WLC's two distribution ports are bundled with LAG. How must the switch end of the bundle be configured?
+
+- **A.** `channel-group 1 mode active`
+- **B.** `channel-group 1 mode desirable`
+- **C.** `channel-group 1 mode on`
+- **D.** `channel-group 1 mode passive`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Cisco WLCs only support a static bundle; they don't speak LACP or PAgP, so the switch must not try to negotiate. **Why not the others:** `active` (A) and `passive` (D) are LACP modes and `desirable` (B) is PAgP. Each one waits for negotiation messages the WLC never sends, so the bundle wouldn't form.
+</details>
+
+**Q3.** Which WLC interface is the "exit door" that puts a WLAN's client traffic onto a particular VLAN?
+
+- **A.** Management interface
+- **B.** Virtual interface
+- **C.** Dynamic interface
+- **D.** Service port
+
+<details><summary>Answer</summary>
+
+**Answer: C.** You create one dynamic interface per client VLAN and map each WLAN to one. **Why not the others:** the management interface (A) is the WLC's own address for CAPWAP and admin access. The virtual interface (B) is a non-routable address for client-facing chores like the web login page and DHCP relay. The service port (D) is for out-of-band management of the WLC itself.
+</details>
+
 ## 20.9 Managing APs and the WLC
 
 Same menu as any Cisco device (21.1), applied to wireless — with the same security instincts:
@@ -3762,6 +4650,33 @@ Same menu as any Cisco device (21.1), applied to wireless — with the same secu
 - **GUI:** the WLC is mostly driven from its **web interface** — HTTP (❌) or **HTTPS** ✅. This is the practical difference from switches: day-to-day WLC work is GUI work, which is why the exam asks you to recognize its screens.
 - **Centralized admin login:** point the WLC at **TACACS+ or RADIUS** (the AAA story from 18.4), so admin accounts live in one place instead of on every controller.
 - A lightweight AP normally isn't managed directly at all — that's the entire point of owning a WLC — though its console port still matters for troubleshooting an AP that can't find its controller.
+
+**📝 Exam-style questions — 20.9**
+
+**Q1.** Which two protocols should an engineer use to manage a WLC securely? (Choose two.)
+
+- **A.** HTTP
+- **B.** HTTPS
+- **C.** Telnet
+- **D.** SSH
+- **E.** TFTP
+
+<details><summary>Answer</summary>
+
+**Answer: B, D.** HTTPS protects the web GUI, where most WLC work happens, and SSH protects the CLI. **Why not the others:** HTTP (A) and Telnet (C) send everything, passwords included, in clear text. TFTP (E) is a file-transfer protocol with no login or encryption; it isn't a management interface at all.
+</details>
+
+**Q2.** A company runs 20 WLCs and wants administrator accounts kept in one place, so that removing an admin takes one change. What should it configure?
+
+- **A.** Local user accounts on every WLC
+- **B.** WLC admin login against a TACACS+ or RADIUS server
+- **C.** An SNMPv2c community string shared by all WLCs
+- **D.** CAPWAP between the WLCs
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Pointing admin logins at a central AAA server means each account lives in one place. Remove it there and it's gone from all 20 controllers. **Why not the others:** local accounts (A) mean 20 changes per person. An SNMP community (C) is a shared string for monitoring, not a personal login. And CAPWAP (D) is the AP-to-WLC tunnel; it has nothing to do with admin accounts.
+</details>
 
 ## 20.10 Creating a WLAN in the WLC GUI (What the Exam Shows You)
 
@@ -3776,11 +4691,133 @@ The exam gives you **screenshots** of this workflow, so walk it once. A **WLAN**
 
 *Memory hook for the QoS tiers: medals in order — Platinum, Gold, Silver, Bronze — and voice always takes the podium.*
 
+**📝 Exam-style questions — 20.10**
+
+**Q1.** An engineer creates a new WLAN on a WLC and maps it to a dynamic interface, but clients can't see the SSID at all. What's the most likely cause?
+
+- **A.** The WLAN hasn't been enabled.
+- **B.** The WLAN's QoS profile is Silver.
+- **C.** The dynamic interface is on a trunk port.
+- **D.** The WLAN uses WPA2 instead of WPA3.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** New WLANs are created disabled, so nothing is broadcast until you tick **Enabled**. That's the classic "why isn't it showing up?" gotcha. **Why not the others:** Silver (B) is the default QoS profile and doesn't hide anything. The WLC's ports are supposed to be trunks (C). And WPA2 (D) is a perfectly valid security choice that clients can see and join.
+</details>
+
+**Q2.** Which QoS profile should a WLAN for wireless IP phones use on a WLC?
+
+- **A.** Gold
+- **B.** Platinum
+- **C.** Silver
+- **D.** Bronze
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Platinum is the voice tier, the top of the podium. **Why not the others:** Gold (A) is for video, Silver (C) is best effort and the default, and Bronze (D) is background traffic, the usual choice for guest Wi‑Fi.
+</details>
+
+**Q3.** On which WLAN tab does an engineer select the dynamic interface the WLAN's traffic will use?
+
+- **A.** General
+- **B.** Security
+- **C.** QoS
+- **D.** Advanced
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The General tab holds the profile name, SSID, status (enabled or not) and the interface the WLAN maps to. **Why not the others:** the Security tab (B) is where WPA2/WPA3 and PSK or 802.1X go. The QoS tab (C) holds the Platinum-to-Bronze profile. The Advanced tab (D) has the long tail: session timeouts, band steering, FlexConnect local switching.
+</details>
+
 ## 20.11 How a Device Joins Wi‑Fi
 1. **Discover:** Device listens for beacons or probes for the SSID.
 2. **Authenticate:** Proves it's allowed (password/802.1X).
 3. **Associate:** Officially joins the AP.
 4. **Get IP (DHCP):** Receives an address and starts using the network.
+
+The four steps above, as the actual frames a laptop exchanges joining a WPA2-Personal network. The list's "authenticate" step is really two pieces: a quick 802.11 open-system authentication **before** association, and the real password check (the 4-way handshake, or 802.1X in Enterprise mode) right **after** it.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "A laptop joins a WPA2-Personal WLAN",
+  "actors": [
+    {"id": "LAP", "kind": "host", "label": "Laptop"},
+    {"id": "AP", "kind": "ap", "label": "AP"},
+    {"id": "DHCP", "kind": "server", "label": "DHCP server"}
+  ],
+  "messages": [
+    {"from": "AP", "to": "LAP", "label": "Beacon", "detail": "SSID Corp, channel 36, WPA2-PSK", "dashed": true, "states": {"LAP": "scanning"},
+     "text": "**Discover.** The AP announces itself about ten times a second. A laptop scanning the channels can learn the SSID, channel and security type just by listening (passive scanning)."},
+    {"from": "LAP", "to": "AP", "label": "Probe Request", "detail": "Is SSID Corp here?",
+     "text": "Clients don't have to wait for beacons. A **probe request** asks out loud (active scanning), which is also how a client finds a hidden SSID it already knows."},
+    {"from": "AP", "to": "LAP", "label": "Probe Response", "detail": "SSID Corp, rates, WPA2-PSK", "dashed": true,
+     "text": "The AP answers with the same details a beacon carries."},
+    {"from": "LAP", "to": "AP", "label": "Authentication", "detail": "Open System",
+     "text": "**Authenticate (802.11 style).** This is a formality left over from the original standard: open-system authentication accepts everyone. The real password check comes after association."},
+    {"from": "AP", "to": "LAP", "label": "Authentication: success", "dashed": true, "states": {"LAP": "authenticated"},
+     "text": "The laptop is now *authenticated but not associated*."},
+    {"from": "LAP", "to": "AP", "label": "Association Request", "detail": "SSID Corp, supported rates",
+     "text": "**Associate.** The laptop asks to join this AP's network."},
+    {"from": "AP", "to": "LAP", "label": "Association Response", "detail": "status success, AID 5", "dashed": true, "tone": "good", "states": {"LAP": "associated"},
+     "text": "The AP accepts and gives the laptop an association ID. With a WLC, the AP passes this decision to the controller over CAPWAP. The laptop is joined but still can't send data: no keys yet."},
+    {"from": "AP", "to": "LAP", "label": "4-way handshake 1/4", "detail": "ANonce", "dashed": true,
+     "text": "**The real password check.** The AP sends a random number (ANonce). Both sides will mix the passphrase-derived key with both random numbers to build the session keys."},
+    {"from": "LAP", "to": "AP", "label": "4-way handshake 2/4", "detail": "SNonce + MIC",
+     "text": "The laptop sends its own random number and a MIC, a check value only someone who knows the passphrase could compute. The passphrase itself never crosses the air."},
+    {"from": "AP", "to": "LAP", "label": "4-way handshake 3/4", "detail": "group key (GTK) + MIC", "dashed": true,
+     "text": "The AP's MIC proves *it* knows the passphrase too, and it hands over the group key used for broadcasts."},
+    {"from": "LAP", "to": "AP", "label": "4-way handshake 4/4", "detail": "ACK", "tone": "good", "states": {"LAP": "keys installed"},
+     "text": "Both sides install the keys. From here, every data frame is encrypted with AES. A wrong passphrase fails at message 2, when the AP's check of the MIC doesn't match. *WPA3 replaces this exchange with SAE, so a recording of it is useless to an attacker.*"},
+    {"from": "LAP", "to": "DHCP", "label": "DHCP Discover", "detail": "0.0.0.0 → 255.255.255.255",
+     "text": "**Get an IP.** Now that it can send encrypted frames, the laptop broadcasts for an address. The AP (or the WLC) bridges the broadcast onto the wired VLAN."},
+    {"from": "DHCP", "to": "LAP", "label": "DHCP Offer", "detail": "10.10.10.25/24", "dashed": true,
+     "text": "The server offers an address from the VLAN 10 pool."},
+    {"from": "LAP", "to": "DHCP", "label": "DHCP Request", "detail": "I'll take 10.10.10.25",
+     "text": "The laptop accepts the offer."},
+    {"from": "DHCP", "to": "LAP", "label": "DHCP Ack", "detail": "gateway 10.10.10.1, DNS 10.20.0.53", "dashed": true, "tone": "good", "states": {"LAP": "online"},
+     "text": "Done. If this step failed, the laptop would be *associated with keys* but stuck on a 169.254.x.x address: Wi‑Fi fine, DHCP broken."}
+  ]
+}
+```
+
+**📝 Exam-style questions — 20.11**
+
+**Q1.** Instead of waiting to hear a beacon, a client asks whether the SSID "Corp" is available. Which frame does it send?
+
+- **A.** Beacon
+- **B.** Probe request
+- **C.** Association request
+- **D.** DHCP Discover
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A probe request is active scanning: the client asks, and APs serving that SSID answer with a probe response. **Why not the others:** beacons (A) come *from* the AP. An association request (C) comes later, once the client has picked an AP. DHCP Discover (D) is the IP step at the very end, after the client has joined.
+</details>
+
+**Q2.** A laptop joins a WPA2-Personal WLAN. The Wi‑Fi icon shows it connected with full signal, but `ipconfig` shows 169.254.37.112. Which step of joining failed?
+
+- **A.** Discovery
+- **B.** Authentication
+- **C.** Association
+- **D.** Getting an IP address from DHCP
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A 169.254.x.x address (APIPA) means the laptop never got a DHCP answer. Everything before that worked: it found the SSID, proved the passphrase and associated. **Why not the others:** if discovery (A), authentication (B) or association (C) had failed, the laptop wouldn't show as connected at all, and it would never have reached the point of asking for an address.
+</details>
+
+**Q3.** Which order matches how a client joins a Wi‑Fi network?
+
+- **A.** Discover the SSID, authenticate, associate, get an IP address
+- **B.** Associate, discover the SSID, authenticate, get an IP address
+- **C.** Get an IP address, discover the SSID, associate, authenticate
+- **D.** Discover the SSID, associate, get an IP address, authenticate
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Find the network, then 802.11 authentication and association, with the WPA2 key exchange straight after, and only then DHCP. **Why not the others:** you can't associate (B) to a network you haven't found. You can't get an IP (C) before you're on the network, because DHCP travels over it. And D puts security after DHCP; until the keys are in place, the AP won't pass the client's data frames, so DHCP couldn't happen yet.
+</details>
 
 ---
 
@@ -3796,6 +4833,84 @@ The exam gives you **screenshots** of this workflow, so walk it once. A **WLAN**
 **Out-of-band vs In-band:** Out-of-band uses a separate path (console cable) that doesn't rely on the network working. In-band uses the network itself.
 
 **Why keep an "out-of-band" console path when SSH over the network is so much more convenient?** Because of a brutal catch-22: the times you *most* need to fix a device are exactly the times the network is *broken* — and if the network is down, **SSH (which travels over that same network) won't reach the device either!** It's like keeping a spare key *outside* the house: locking yourself out is precisely when the key inside is useless. The **console cable** is a completely separate, physical path that works even when the device has no IP, no config, or a totally broken network. *That's why every network pro keeps console access:* it's the lifeline for a brand-new switch (no config yet), a misconfiguration that killed remote access, or a network meltdown. In-band (SSH) is for everyday convenience; out-of-band (console) is for emergencies — and you need both.
+
+Watch the catch-22 play out, and the spare key save the day:
+
+```diagram
+{
+  "type": "topology",
+  "title": "In-band vs out-of-band management",
+  "caption": "The admin normally manages SW1 over SSH through the core. A separate console server is wired to SW1's console port. Press **Next**.",
+  "nodes": [
+    {"id": "ADM", "kind": "host", "x": 3.6, "y": 1, "label": "Admin"},
+    {"id": "CORE", "kind": "l3switch", "x": 1.8, "y": 1, "label": "Core"},
+    {"id": "SW1", "kind": "switch", "x": 0, "y": 1, "label": "SW1", "sub": "mgmt 10.99.0.11"},
+    {"id": "CS", "kind": "server", "x": 1.8, "y": 2.4, "label": "Console server"}
+  ],
+  "links": [
+    {"a": "ADM", "b": "CORE", "label": "in-band"},
+    {"a": "CORE", "b": "SW1", "label": "uplink"},
+    {"a": "ADM", "b": "CS", "style": "dashed", "label": "OOB network"},
+    {"a": "CS", "b": "SW1", "style": "dashed", "label": "console cable"}
+  ],
+  "steps": [
+    {"title": "1. Everyday: SSH in-band",
+     "text": "The admin SSHes to 10.99.0.11. The session rides the **same network** it manages: through the core and up SW1's uplink. Convenient and encrypted.",
+     "packets": [{"path": ["ADM", "CORE", "SW1"], "label": "SSH, TCP 22", "tone": "accent"}]},
+    {"title": "2. A typo cuts the branch you're sitting on",
+     "text": "During a change the admin shuts Gi1/0/1, SW1's uplink, by mistake. The SSH session freezes, and a new one can't get through: the only path to SW1's management address just went down. *The moment you most need the device is the moment in-band access is gone.*",
+     "nodes": {"SW1": {"badge": "uplink shut", "tone": "bad"}},
+     "links": {"CORE-SW1": "down"},
+     "packets": [{"path": ["ADM", "CORE"], "label": "SSH: no path", "tone": "bad"}]},
+    {"title": "3. Out-of-band: the spare key",
+     "text": "The admin connects through the **console server**, which is wired straight to SW1's console port over a separate path. It doesn't need SW1's uplink, its IP address or even a working config.",
+     "packets": [{"path": ["ADM", "CS", "SW1"], "label": "console", "tone": "good"}]},
+    {"title": "4. Fixed from the console",
+     "text": "On the console the admin runs `no shutdown` on Gi1/0/1. The uplink comes back and SSH works again. In-band for everyday convenience, out-of-band for emergencies: you want both.",
+     "nodes": {"SW1": null},
+     "links": {"CORE-SW1": null},
+     "packets": [{"path": ["ADM", "CORE", "SW1"], "label": "SSH works again", "tone": "good"}]}
+  ]
+}
+```
+
+**📝 Exam-style questions — 21.1**
+
+**Q1.** A new switch has just been unboxed and has no configuration or IP address. Which method can an engineer use to configure it?
+
+- **A.** SSH
+- **B.** Telnet
+- **C.** The console port
+- **D.** HTTPS
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The console is out-of-band: a direct cable that needs no IP address and no config. **Why not the others:** SSH (A), Telnet (B) and HTTPS (D) are in-band. Each needs an IP address on the switch, a path to it and, for SSH and HTTPS, keys and a user account, none of which exists yet.
+</details>
+
+**Q2.** An auditor captures packets on the management VLAN and reads an administrator's password in plain text. Which protocol was the administrator using?
+
+- **A.** SSH version 2
+- **B.** Telnet
+- **C.** HTTPS
+- **D.** SNMPv3 with authPriv
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Telnet sends every keystroke, password included, unencrypted, which is why the guide says avoid it. **Why not the others:** SSHv2 (A) and HTTPS (C) encrypt the whole session. SNMPv3 with authPriv (D) both authenticates and encrypts, so a capture shows nothing readable.
+</details>
+
+**Q3.** Which option is an example of out-of-band management?
+
+- **A.** SSH to a switch's management SVI
+- **B.** HTTPS to a WLC's management interface
+- **C.** A console server wired to each device's console port over a separate network
+- **D.** SNMP polling of a router's loopback over the production network
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Out-of-band means a path that doesn't depend on the production network. A console server on its own network keeps working when the production network is broken. **Why not the others:** A, B and D all travel over the production network they're managing, which is the definition of in-band. If that network breaks, all three break with it.
+</details>
 
 ## 21.2 Discovering Neighbors: CDP & LLDP
 
@@ -3815,6 +4930,111 @@ R1# show lldp neighbors
 - **Why it's useful:** In a big messy wiring closet, you can sit on one switch and instantly *map the whole neighborhood* — "port 5 connects to Switch-B's port 12, which is a Catalyst running this IOS." You can rebuild a network diagram without physically tracing a single cable. A huge time-saver for documentation and troubleshooting.
 - **Why it's a risk:** That same free information is a **gift to an attacker.** If a hacker plugs into a port that's leaking CDP, they instantly learn your device models and IOS versions — which tells them exactly which known vulnerabilities to try. *So the rule is: keep CDP/LLDP ON internally (where it helps you) but turn it OFF on ports facing untrusted areas* (guest ports, internet edges), because there's no reason to hand strangers a map of your gear.
 
+Step through what CDP actually sends, how far it goes, and why you switch it off at the edges:
+
+```diagram
+{
+  "type": "topology",
+  "title": "CDP: one hop, and a gift to strangers",
+  "caption": "CDP is on by default on Cisco gear. Press **Next**.",
+  "nodes": [
+    {"id": "ISP", "kind": "cloud", "x": 0, "y": 0, "label": "ISP"},
+    {"id": "R1", "kind": "router", "x": 1.5, "y": 0, "label": "R1", "sub": "ISR4331"},
+    {"id": "SW1", "kind": "switch", "x": 3, "y": 0, "label": "SW1", "sub": "C9300"},
+    {"id": "SW2", "kind": "switch", "x": 4.5, "y": 0, "label": "SW2", "sub": "C9200"},
+    {"id": "GST", "kind": "host", "x": 4.5, "y": 1.3, "label": "Guest port"}
+  ],
+  "links": [
+    {"a": "ISP", "b": "R1", "bLabel": "Gi0/0/0"},
+    {"a": "R1", "b": "SW1"},
+    {"a": "SW1", "b": "SW2"},
+    {"a": "SW2", "b": "GST"}
+  ],
+  "steps": [
+    {"title": "1. Every port, every 60 seconds",
+     "text": "Each Cisco device sends a CDP message out of every interface every **60 seconds**: its name, model, IOS version, the port it was sent from and its IP address. A neighbor keeps the entry for the **holdtime** (180 seconds) unless a fresh one arrives.",
+     "packets": [{"path": ["R1", "SW1"], "label": "CDP from R1", "tone": "accent"},
+                 {"path": ["SW1", "SW2"], "label": "CDP from SW1", "tone": "accent"}]},
+    {"title": "2. Only one hop",
+     "text": "CDP goes to a special multicast address that switches **consume** rather than forward. SW1 hears R1 and SW2, but `show cdp neighbors` on SW2 lists only SW1; R1 never appears there. To map further, you hop to SW1 and ask again.",
+     "focus": ["R1", "SW1", "SW2", "R1-SW1", "SW1-SW2"],
+     "nodes": {"SW1": {"badge": "sees R1 + SW2", "tone": "good"}, "SW2": {"badge": "sees SW1 only", "tone": "accent"}},
+     "packets": [{"path": ["R1", "SW1"], "label": "R1's CDP stops here", "tone": "accent"}]},
+    {"title": "3. The leak",
+     "text": "The same messages go out of the ISP-facing port and the guest port. Anyone there learns the exact model and IOS version, which tells an attacker which known vulnerabilities to try.",
+     "nodes": {"SW1": null, "SW2": null},
+     "packets": [{"path": ["R1", "ISP"], "label": "model + IOS version", "tone": "bad"},
+                 {"path": ["SW2", "GST"], "label": "model + IOS version", "tone": "bad"}]},
+    {"title": "4. Off at the edges, on inside",
+     "text": "`no cdp enable` on R1 Gi0/0/0 and on SW2's guest port stops the leak on just those interfaces. CDP keeps running everywhere inside, where it helps you. (`no cdp run` would turn it off on the whole device; for LLDP the per-port commands are `no lldp transmit` and `no lldp receive`.)",
+     "nodes": {"R1": {"badge": "no cdp enable", "tone": "good"}, "SW2": {"badge": "no cdp enable", "tone": "good"}},
+     "links": {"ISP-R1": "dim", "SW2-GST": "dim"},
+     "packets": [{"path": ["SW1", "SW2"], "label": "CDP inside: fine", "tone": "good"}]}
+  ]
+}
+```
+
+**📝 Exam-style questions — 21.2**
+
+**Q1.** Refer to the exhibit. Which statement is true?
+
+```
+SW1# show cdp neighbors
+Capability Codes: R - Router, T - Trans Bridge, B - Source Route Bridge
+                  S - Switch, H - Host, I - IGMP, r - Repeater, P - Phone
+
+Device ID        Local Intrfce     Holdtme    Capability  Platform   Port ID
+R1               Gig 1/0/24        152            R B S I  ISR4331    Gig 0/0/1
+SW2              Gig 1/0/1         171            S I      C9200-48P  Gig 1/0/48
+```
+
+- **A.** SW1's Gi1/0/24 connects to R1's Gi0/0/1.
+- **B.** R1 connects to SW1's Gi1/0/1.
+- **C.** SW2's Gi1/0/1 connects to SW1's Gi1/0/48.
+- **D.** The output shows R1's IP address.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** "Local Intrfce" is the port on the switch you're typing on (SW1); "Port ID" is the port on the neighbor. So SW1 Gi1/0/24 ↔ R1 Gi0/0/1. **Why not the others:** Gi1/0/1 (B) is SW1's port toward SW2, not R1. C has the ports swapped: SW1's Gi1/0/1 connects to SW2's Gi1/0/48. And the summary view never shows IP addresses (D); you need `show cdp neighbors detail` for that.
+</details>
+
+**Q2.** Which command shows the IP address of a directly connected Cisco neighbor?
+
+- **A.** `show cdp neighbors`
+- **B.** `show cdp neighbors detail`
+- **C.** `show cdp interface`
+- **D.** `show ip interface brief`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The detail view adds each neighbor's IP address and full software version. (`show cdp entry *` shows the same information.) **Why not the others:** the plain summary (A) shows names, ports and platforms but no addresses. `show cdp interface` (C) shows CDP's timers and status on your own ports. `show ip interface brief` (D) lists *your* addresses, not your neighbors'.
+</details>
+
+**Q3.** Which two statements about CDP and LLDP are true? (Choose two.)
+
+- **A.** LLDP is the vendor-neutral IEEE 802.1AB standard.
+- **B.** CDP information is shared only with directly connected devices; switches don't forward it.
+- **C.** CDP messages are routed across the network, so a router can discover devices several hops away.
+- **D.** LLDP is enabled by default on every Cisco IOS device.
+- **E.** CDP only works between Cisco routers.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** LLDP is the open standard that works across vendors, and both protocols are strictly one hop. **Why not the others:** CDP is never routed or forwarded (C). On most Cisco IOS devices CDP is on by default and LLDP is **off** until you enter `lldp run` (D). And CDP runs on Cisco switches, routers, phones and APs, not just routers (E).
+</details>
+
+**Q4.** R1's Gi0/0/0 faces the ISP. Which command stops CDP on that interface only?
+
+- **A.** `R1(config)# no cdp run`
+- **B.** `R1(config-if)# no cdp enable`
+- **C.** `R1(config-if)# no lldp run`
+- **D.** `R1(config-if)# cdp disable`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `no cdp enable` in interface mode turns CDP off on that port and leaves it running everywhere else. **Why not the others:** `no cdp run` (A) turns CDP off for the whole router, which also loses you the internal neighbor information. `lldp run` (C) is a global LLDP command and has nothing to do with CDP. D isn't an IOS command.
+</details>
+
 ## 21.3 Backing Up & Restoring Configs
 
 Save configs to a **TFTP/FTP server** so you can restore after a failure:
@@ -3823,6 +5043,44 @@ R1# copy running-config tftp        ! back up to a server
 R1# copy tftp running-config        ! restore from a server
 R1# copy running-config startup-config   ! save locally (do this always!)
 ```
+
+**📝 Exam-style questions — 21.3**
+
+**Q1.** Which command backs up a router's current configuration to a TFTP server?
+
+- **A.** `copy running-config tftp:`
+- **B.** `copy tftp: running-config`
+- **C.** `copy startup-config running-config`
+- **D.** `copy running-config startup-config`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `copy <from> <to>`: from the running config, to TFTP. IOS then prompts for the server address and file name. **Why not the others:** B goes the other way and restores from the server. C loads the saved config into RAM. D saves locally to NVRAM, which is good practice but isn't a backup to a server.
+</details>
+
+**Q2.** A router's running config has a few commands that aren't in a backup file. The engineer runs `copy tftp: running-config` with that backup. What is the result?
+
+- **A.** The running config is replaced exactly by the backup.
+- **B.** The backup's commands are merged into the running config, and the extra commands stay.
+- **C.** IOS rejects the copy because the configurations differ.
+- **D.** The backup is written to NVRAM only.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Copying anything **into** running-config is like typing it at the prompt: each line is applied on top of what's there, and nothing is removed. To truly swap the config, IOS has `configure replace`. **Why not the others:** A is the common assumption, and the reason leftover commands surprise people. IOS doesn't compare and refuse (C). And the destination is running-config in RAM, not NVRAM (D).
+</details>
+
+**Q3.** An engineer makes changes on a router, tests them, and then the router reloads after a power cut. The changes are gone. What did the engineer forget?
+
+- **A.** `copy running-config startup-config`
+- **B.** `copy startup-config running-config`
+- **C.** `copy running-config tftp:`
+- **D.** `reload`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Changes live in the running config in RAM until you copy them to the startup config in NVRAM. A reload boots from startup-config. **Why not the others:** B would load the *old* saved config over the new one. A TFTP backup (C) is a good habit but the router doesn't boot from it. And reloading (D) is what lost the changes in the first place.
+</details>
 
 ## 21.4 Managing IOS Images
 
@@ -3842,6 +5100,81 @@ R1# reload
 - **Why keep the old image in flash?** If the new one fails, you point `boot system` back at the known-good file. Delete it only after the new image has survived a reload.
 - **TFTP vs FTP:** TFTP is the classic, dead-simple choice (UDP 69, no login); FTP adds authentication and handles big files more reliably. Both appear on the blueprint as "ways to move configs and images."
 
+Here's that upgrade as a conversation. Notice how TFTP moves the image: one small block at a time, each one waiting for an ACK.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Upgrading IOS from a TFTP server",
+  "actors": [
+    {"id": "ADM", "kind": "host", "label": "Admin"},
+    {"id": "R1", "kind": "router", "label": "R1"},
+    {"id": "TFTP", "kind": "server", "label": "TFTP 10.99.0.50"}
+  ],
+  "messages": [
+    {"from": "ADM", "to": "R1", "label": "show flash:", "detail": "enough free space? old image name?", "states": {"R1": "old image"},
+     "text": "Check before you copy: is there room for the new image **and** the old one? Keeping the old image is your way back if the new one won't boot."},
+    {"from": "ADM", "to": "R1", "label": "copy tftp: flash:", "detail": "file isr4300-universalk9.17.09.04a.SPA.bin",
+     "text": "IOS asks for the server address and the file name, then starts the transfer."},
+    {"from": "R1", "to": "TFTP", "label": "Read Request (RRQ)", "detail": "to UDP 69",
+     "text": "TFTP has no login: R1 just asks for the file by name on **UDP 69**. That simplicity is why it's everywhere, and why it's only safe on a trusted network."},
+    {"from": "TFTP", "to": "R1", "label": "DATA block 1", "detail": "512 bytes, from a new server port", "dashed": true,
+     "text": "The server answers from a fresh port and sends the first block. By default a block is 512 bytes."},
+    {"from": "R1", "to": "TFTP", "label": "ACK block 1",
+     "text": "R1 acknowledges, and only then does the next block come. One block in flight at a time is simple and reliable over UDP, but slow for a large image, which is why FTP or SCP is often a better choice for big files."},
+    {"note": "... many thousands of blocks later ...", "over": ["R1", "TFTP"],
+     "text": "A block shorter than 512 bytes tells R1 the file is finished."},
+    {"from": "R1", "to": "R1", "label": "verify /md5 flash:new image", "states": {"R1": "hash matches"}, "tone": "good",
+     "text": "Compare the hash with the one Cisco publishes for that file. A corrupted or tampered image shows up here, not at 2 a.m. when the router won't boot."},
+    {"from": "ADM", "to": "R1", "label": "boot system flash:<new image>",
+     "text": "Tell the router which image to load next time. Without this, it may keep booting the first image it finds in flash."},
+    {"from": "ADM", "to": "R1", "label": "copy running-config startup-config",
+     "text": "The `boot system` line is configuration, so it has to be saved or the reload forgets it."},
+    {"from": "R1", "to": "R1", "label": "reload", "states": {"R1": "new image"}, "tone": "good",
+     "text": "R1 boots the new image. Check with `show version`, and delete the old file only once the new one has survived a reload."}
+  ]
+}
+```
+
+**📝 Exam-style questions — 21.4**
+
+**Q1.** After copying a new IOS image into flash, which command confirms the file wasn't corrupted in transit?
+
+- **A.** `show flash:`
+- **B.** `verify /md5 flash:<image>`
+- **C.** `show version`
+- **D.** `dir flash:`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `verify /md5` computes the file's hash so you can compare it with Cisco's published value. A match means the file is intact. **Why not the others:** `show flash:` (A) and `dir flash:` (D) list file names and sizes; a corrupted file can have the right size. `show version` (C) describes the image that's running now, not the new file.
+</details>
+
+**Q2.** Which command makes a router load a specific new image at the next reload?
+
+- **A.** `R1(config)# boot system flash:<image>`
+- **B.** `R1# copy flash: startup-config`
+- **C.** `R1(config)# config-register 0x2102`
+- **D.** `R1# reload flash:<image>`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `boot system` tells the router which file to boot. Save the config afterwards so the line survives. **Why not the others:** B would try to copy an image file into the startup config, which makes no sense. `config-register 0x2102` (C) controls *how* the router boots (normal boot, load the startup config), not which image file. D isn't a valid way to pick an image.
+</details>
+
+**Q3.** Which two statements about TFTP and FTP are true? (Choose two.)
+
+- **A.** TFTP uses UDP port 69 and has no authentication.
+- **B.** FTP supports a username and password.
+- **C.** TFTP encrypts the files it transfers.
+- **D.** FTP runs over UDP ports 20 and 21.
+- **E.** TFTP runs over TCP port 69.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** TFTP is deliberately minimal: UDP 69, no login. FTP adds authentication and is more reliable for large files. **Why not the others:** neither TFTP nor plain FTP encrypts anything (C); SCP or SFTP would. FTP uses **TCP** 20 and 21 (D). TFTP is UDP, not TCP (E).
+</details>
+
 ## 21.5 Password Recovery (The Config Register)
 
 If you're locked out, the fix hinges on one 16-bit value: the **configuration register**, which tells the router *how to boot*. Normally it's **`0x2102`** — boot the IOS, load startup-config as usual. Changed to **`0x2142`**, one bit flips meaning: **ignore the startup config at boot**.
@@ -3855,6 +5188,84 @@ The recovery walk (console cable required — this cannot be done remotely, whic
 
 **Why does this feature exist — isn't it a security hole?** It's the deliberate trade-off from 18.9: anyone with **physical access** to the console effectively owns the device, so Cisco chose recoverable-by-owner over bricked-by-forgotten-password. That's exactly why wiring closets get locks. *And the exam angle: if a router boots up ignoring its startup config "for no reason," check `show version` — someone left the register at 0x2142.*
 
+The recovery walk, with the register value shown under the router at every step:
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Password recovery on a Cisco router",
+  "actors": [
+    {"id": "ADM", "kind": "host", "label": "Admin on console"},
+    {"id": "R1", "kind": "router", "label": "R1"}
+  ],
+  "messages": [
+    {"note": "Locked out: nobody knows the enable secret", "over": ["ADM", "R1"], "states": {"R1": "reg 0x2102"},
+     "text": "The register is at its normal value, **0x2102**: boot IOS and load the startup config. The admin is at the console, because none of this works remotely."},
+    {"from": "ADM", "to": "R1", "label": "power-cycle, then Ctrl+Break", "states": {"R1": "ROMMON"},
+     "text": "Breaking into the boot process lands in **ROMMON**, the tiny monitor that runs before IOS loads."},
+    {"from": "ADM", "to": "R1", "label": "confreg 0x2142", "states": {"R1": "reg 0x2142"},
+     "text": "One bit flips: **0x2142** means *ignore the startup config at boot*. The config is still safe in NVRAM; the router just won't read it."},
+    {"from": "ADM", "to": "R1", "label": "reset",
+     "text": "Restart from ROMMON with the new register value."},
+    {"from": "R1", "to": "R1", "label": "boot, skipping startup-config", "states": {"R1": "blank config"},
+     "text": "IOS comes up as if it were new: no config, so no passwords. The admin is in."},
+    {"from": "ADM", "to": "R1", "label": "copy startup-config running-config", "tone": "good", "states": {"R1": "config loaded"},
+     "text": "**This direction**, not the other one. It pulls the real config back into RAM, now that you're logged in *around* it. Interfaces come back administratively down, so they need a `no shutdown`. Typing `copy running-config startup-config` here instead would overwrite the saved config with a blank one."},
+    {"from": "ADM", "to": "R1", "label": "enable secret <new password>",
+     "text": "Set the new password (and any others you've lost)."},
+    {"from": "ADM", "to": "R1", "label": "config-register 0x2102", "states": {"R1": "next: 0x2102"},
+     "text": "Put the register back. It takes effect at the next reload; `show version` says *will be 0x2102 at next reload*."},
+    {"from": "ADM", "to": "R1", "label": "copy running-config startup-config",
+     "text": "Now save: the config with the new password goes to NVRAM."},
+    {"from": "R1", "to": "R1", "label": "reload", "states": {"R1": "reg 0x2102"}, "tone": "good",
+     "text": "A normal boot with the normal register and the new password. Forget the register step and the router boots with a blank config every time."}
+  ]
+}
+```
+
+**📝 Exam-style questions — 21.5**
+
+**Q1.** Which configuration register value makes a router ignore its startup configuration at boot?
+
+- **A.** 0x2102
+- **B.** 0x2142
+- **C.** 0x2100
+- **D.** 0x0102
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 0x2142 sets the "ignore NVRAM contents" bit, so the router boots with a blank config. **Why not the others:** 0x2102 (A) is the normal value. 0x2100 (C) makes the router stop in ROMMON instead of loading IOS. 0x0102 (D) differs from 0x2102 only in a bit that has nothing to do with the config, so the router still reads NVRAM. The "ignore the config" bit is 0x0040, and 0x2102 + 0x0040 = 0x2142.
+</details>
+
+**Q2.** Refer to the exhibit. Every time R1 reloads it comes up with a blank configuration, although a valid startup config is saved in NVRAM. How should the engineer fix it?
+
+```
+R1# show version | include register
+Configuration register is 0x2142
+```
+
+- **A.** Run `config-register 0x2102`, save the configuration, and reload.
+- **B.** Run `erase startup-config` and reload.
+- **C.** Run `boot system flash:` and reload.
+- **D.** Run `copy running-config startup-config` and reload.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The register was left at 0x2142 after a password recovery, so the router keeps skipping its startup config. Setting it back to 0x2102 makes it read NVRAM again. (Copy the startup config into the running config first if you need to work on it before the reload.) **Why not the others:** erasing the startup config (B) destroys the config you want. `boot system` (C) chooses the image, not whether to read the config. And D is dangerous: the running config is the blank one, so saving it overwrites the good startup config.
+</details>
+
+**Q3.** During password recovery the router has booted with register 0x2142 and a blank configuration. Which command should the engineer run next to keep the existing configuration?
+
+- **A.** `copy running-config startup-config`
+- **B.** `copy startup-config running-config`
+- **C.** `erase startup-config`
+- **D.** `reload`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The saved config is still in NVRAM. Copying it into RAM brings it back while you're already logged in, so you can then change the password. **Why not the others:** A is the classic trap: it saves the **blank** running config over the real one. C deletes the config you're trying to keep. And reloading (D) with 0x2142 still set just boots blank again.
+</details>
+
 ## 21.6 Useful Monitoring Commands
 
 | Command | Shows |
@@ -3864,6 +5275,44 @@ The recovery walk (console cable required — this cannot be done remotely, whic
 | `show interfaces` | Detailed port stats, errors |
 | `show logging` | Syslog messages stored locally |
 | `show ip arp` | IP-to-MAC mappings |
+
+**📝 Exam-style questions — 21.6**
+
+**Q1.** Which command displays the syslog messages a router has stored in its local buffer?
+
+- **A.** `show logging`
+- **B.** `show processes cpu`
+- **C.** `show interfaces`
+- **D.** `show memory`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `show logging` shows the logging settings and the buffered syslog messages. **Why not the others:** `show processes cpu` (B) shows CPU load per process. `show interfaces` (C) shows port counters and errors. `show memory` (D) shows memory pools and usage, not log messages.
+</details>
+
+**Q2.** An engineer on a router needs the MAC address of the host using 10.1.1.20 on a directly connected subnet. Which command shows it?
+
+- **A.** `show mac address-table`
+- **B.** `show ip arp`
+- **C.** `show cdp neighbors`
+- **D.** `show ip route`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The ARP table maps IP addresses to MAC addresses, which is exactly the question. **Why not the others:** the MAC address table (A) is a switch's map of MACs to ports, with no IP addresses in it. CDP (C) only lists Cisco neighbors, not ordinary hosts. And the routing table (D) maps networks to next hops, not hosts to MACs.
+</details>
+
+**Q3.** Users report a slow link on Gi0/1. Which command shows CRC errors and input error counters for that interface?
+
+- **A.** `show ip interface brief`
+- **B.** `show interfaces gi0/1`
+- **C.** `show running-config interface gi0/1`
+- **D.** `show processes cpu`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `show interfaces` gives the full counters: input errors, CRC, collisions, drops, plus duplex and speed. **Why not the others:** the brief view (A) only shows address and up/down status. The running config (C) shows what's configured, not what's happening on the wire. And CPU load (D) says nothing about errors on one port.
+</details>
 
 ---
 
@@ -3875,6 +5324,33 @@ The recovery walk (console cable required — this cannot be done remotely, whic
 Doing the same command on 500 switches by hand is slow and error-prone. **Automation** lets computers configure networks quickly, consistently, and without typos. This is a growing part of modern networking (and the CCNA).
 
 **Story Time 📖:** Imagine writing the same birthday card 500 times by hand vs. printing them. Automation is the printer — same result, way faster, no cramped hand!
+
+**📝 Exam-style questions — 22.1**
+
+**Q1.** Which two benefits does network automation bring? (Choose two.)
+
+- **A.** The same change is applied identically everywhere, without typos.
+- **B.** Changes across hundreds of devices take minutes instead of days.
+- **C.** Engineers no longer need to understand how the network works.
+- **D.** Devices no longer need any configuration.
+- **E.** Changes no longer need testing or review.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Consistency and speed at scale are the whole point: the printer, not the hand-written birthday cards. **Why not the others:** a script only does what someone who understands the network told it to (C); a wrong change gets applied to 500 devices just as fast. Devices still need configuration (D); automation just writes it for you. And because mistakes spread faster, testing and review matter *more* (E), not less.
+</details>
+
+**Q2.** An engineer must change the NTP server on 400 switches. Why is a script a better choice than SSHing to each switch?
+
+- **A.** A script can change the NTP server without the switches needing to be reachable.
+- **B.** A script applies the identical change to every switch quickly and can report which ones succeeded.
+- **C.** Switches accept changes from a script even when the change is invalid.
+- **D.** SSH can't be used to change NTP settings.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 400 manual sessions means hours of repetitive typing and a good chance of a typo on switch 263. A script does the same thing every time and can log the result per device. **Why not the others:** the script still needs to reach each switch (A), usually over the same SSH or an API. Invalid commands fail whoever sends them (C). And NTP is ordinary configuration that SSH handles fine (D); the problem is doing it 400 times.
+</details>
 
 ## 22.2 Controller-Based Networking (SDN)
 
@@ -3903,6 +5379,88 @@ The traditional way still *works* — Catalyst Center even talks to the same IOS
 
 **Why separate the "brain" from the "muscles" at all?** Because in traditional networking, every switch and router has its *own* brain making its *own* decisions — which means to change network-wide policy, you have to log into *every single device* and configure it separately. With hundreds of devices, that's slow, and worse, they can drift into slightly different ("snowflake") configs that cause weird bugs. SDN's insight: **pull all the decision-making into one central controller**, and let the devices just be fast, simple forwarders that follow orders. *Why is that powerful?* Now you set policy **once** in the controller and it programs every device consistently — like conducting an orchestra from one podium instead of running to each musician individually. It also means the controller has a **complete view** of the whole network, so it can make smarter, coordinated decisions than any single device could on its own.
 
+Step through one change made the controller way:
+
+```diagram
+{
+  "type": "topology",
+  "title": "One intent, every switch",
+  "caption": "The engineer needs VLAN 30 for security cameras on every access switch. Press **Next**.",
+  "nodes": [
+    {"id": "ENG", "kind": "host", "x": 4.4, "y": 0, "label": "Engineer"},
+    {"id": "CC", "kind": "controller", "x": 2, "y": 0, "label": "Catalyst Center", "sub": "10.10.20.85"},
+    {"id": "SW1", "kind": "switch", "x": 0.4, "y": 1.5, "label": "SW1"},
+    {"id": "SW2", "kind": "switch", "x": 2, "y": 1.5, "label": "SW2"},
+    {"id": "SW3", "kind": "switch", "x": 3.6, "y": 1.5, "label": "SW3"}
+  ],
+  "links": [
+    {"a": "ENG", "b": "CC", "label": "GUI / REST"},
+    {"a": "CC", "b": "SW1"},
+    {"a": "CC", "b": "SW2"},
+    {"a": "CC", "b": "SW3"}
+  ],
+  "steps": [
+    {"title": "1. The old way: one box at a time",
+     "text": "Without a controller, the engineer SSHes into each switch and types the change by hand. On a busy night that goes wrong in small ways: one switch gets a typo, one gets forgotten. Now the switches have *drifted* apart, and the bugs that causes are hard to find.",
+     "nodes": {"SW1": {"badge": "VLAN 30", "tone": "good"}, "SW2": {"badge": "typo: VLAN 3", "tone": "bad"}, "SW3": {"badge": "forgotten", "tone": "warn"}}},
+    {"title": "2. State the intent once",
+     "text": "With Catalyst Center, the engineer describes **what** they want once, in the GUI or through the REST API: *cameras get VLAN 30 on every access switch.* The controller turns that intent into device configuration.",
+     "nodes": {"SW1": null, "SW2": null, "SW3": null, "CC": {"badge": "intent saved", "tone": "accent"}},
+     "packets": [{"path": ["ENG", "CC"], "label": "intent: VLAN 30", "tone": "accent"}]},
+    {"title": "3. The controller programs every switch",
+     "text": "The controller pushes the **same** configuration to every switch over its southbound protocols. No typing, no typos, no switch left out.",
+     "nodes": {"SW1": {"badge": "VLAN 30", "tone": "good"}, "SW2": {"badge": "VLAN 30", "tone": "good"}, "SW3": {"badge": "VLAN 30", "tone": "good"}},
+     "packets": [{"path": ["CC", "SW1"], "label": "config", "tone": "good"},
+                 {"path": ["CC", "SW2"], "label": "config", "tone": "good"},
+                 {"path": ["CC", "SW3"], "label": "config", "tone": "good"}]},
+    {"title": "4. Assurance: the network reports back",
+     "text": "The switches stream telemetry to the controller all the time. When SW3's camera port starts logging errors, the controller notices and tells the engineer, instead of waiting for someone to poll each box. The controller's view of *every* device is what makes this possible.",
+     "nodes": {"SW3": {"badge": "port errors", "tone": "warn"}, "CC": {"badge": "issue found", "tone": "warn"}},
+     "packets": [{"path": ["SW3", "CC"], "label": "telemetry", "tone": "warn"},
+                 {"path": ["CC", "ENG"], "label": "alert: SW3 Gi1/0/12", "tone": "warn"}]}
+  ]
+}
+```
+
+**📝 Exam-style questions — 22.2**
+
+**Q1.** In a controller-based network, which plane is centralized in the controller?
+
+- **A.** The data plane
+- **B.** The control plane
+- **C.** The forwarding plane on each switch
+- **D.** The physical layer
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The controller becomes the shared brain: it decides what the network should do. The devices keep their muscles, the data plane, and forward traffic as programmed. **Why not the others:** the data plane (A) stays on every device; moving every packet through one central box would never scale. "Forwarding plane" (C) is just another name for the data plane. And the physical layer (D) is cables and signals, which no controller can centralize.
+</details>
+
+**Q2.** Which two statements describe managing a campus with Cisco Catalyst Center compared with managing it device by device? (Choose two.)
+
+- **A.** New switches can be discovered and configured automatically through plug-and-play.
+- **B.** Telemetry from all devices is collected and analyzed centrally for assurance.
+- **C.** Every IOS switch must be replaced with an OpenFlow-only switch.
+- **D.** Every change still requires an SSH session to each device.
+- **E.** The controller forwards all user traffic between switches.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Plug-and-play provisioning and continuous assurance are two of the headline differences in the comparison table above. **Why not the others:** Catalyst Center manages ordinary IOS devices (C); it doesn't need OpenFlow. Per-device SSH (D) is the traditional way the controller replaces. And user traffic stays on the switches' data planes (E); the controller makes decisions, it doesn't carry packets.
+</details>
+
+**Q3.** Which action is a data plane function?
+
+- **A.** A switch forwards a frame out of the port listed in its MAC address table.
+- **B.** A router runs the SPF algorithm after an OSPF topology change.
+- **C.** An engineer opens an SSH session to a router.
+- **D.** Two switches exchange STP BPDUs.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Moving user traffic from one port to another is the data plane's whole job. **Why not the others:** running SPF (B) and exchanging BPDUs (D) are control plane work: deciding where traffic *should* go. SSH (C) is management plane: how a human talks to the device.
+</details>
+
 ## 22.3 Northbound vs. Southbound APIs
 
 ![SDN controller with northbound and southbound APIs](images/sdn.png)
@@ -3924,6 +5482,76 @@ The controller sits in the middle, with an API facing each direction:
 - **Southbound (downward, toward devices):** This is how the controller *pushes those decisions* down to the actual switches and routers, using device-friendly protocols (NETCONF, OpenFlow). The audience is machines, so the language is more technical.
 
 *Why does this split matter?* It means you can describe your intent in simple, human terms at the top, and the controller handles translating that into the nitty-gritty device commands at the bottom. **Memory hook:** North = up toward *you* (the boss giving orders); South = down toward the *devices* (the workers doing the job).
+
+Click the parts of a controller-based network to see who talks to whom, and in which language:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Northbound and southbound",
+  "caption": "Applications above, the controller in the middle, devices below. Click a device or a link.",
+  "nodes": [
+    {"id": "PY", "kind": "server", "x": 0, "y": 0, "label": "Python script", "info": "Your automation. It calls the controller's **northbound REST API** with HTTP verbs and JSON, and never needs to know which CLI each device speaks."},
+    {"id": "ITSM", "kind": "server", "x": 1.6, "y": 0, "label": "ITSM app", "info": "A ticketing system that opens a ticket automatically when the controller reports a problem. Same northbound REST API as the script."},
+    {"id": "GUI", "kind": "host", "x": 3.2, "y": 0, "label": "Web dashboard", "info": "The controller's own GUI. Humans use it; it's another consumer of the controller's northbound side."},
+    {"id": "CTL", "kind": "controller", "x": 1.6, "y": 1.4, "label": "Controller", "sub": "Catalyst Center", "info": "The **middle**. It turns intent from above into device configuration below, and turns raw device data from below into answers above. It holds the view of the whole network."},
+    {"id": "R1", "kind": "router", "x": 0, "y": 2.8, "label": "R1"},
+    {"id": "SW1", "kind": "switch", "x": 1.6, "y": 2.8, "label": "SW1"},
+    {"id": "WLC", "kind": "wlc", "x": 3.2, "y": 2.8, "label": "WLC"}
+  ],
+  "links": [
+    {"a": "PY", "b": "CTL", "label": "REST", "info": "**Northbound** (up, toward apps and people): a REST API over HTTPS, data in JSON. Designed to be easy for software to use."},
+    {"a": "ITSM", "b": "CTL", "label": "REST", "info": "**Northbound**: the same REST API, used by another application."},
+    {"a": "GUI", "b": "CTL", "info": "**Northbound**: the human-facing side of the controller."},
+    {"a": "CTL", "b": "R1", "style": "dashed", "label": "NETCONF", "info": "**Southbound** (down, toward devices): protocols such as NETCONF, RESTCONF, SSH/CLI or SNMP. In other SDN designs, OpenFlow programs the switches' forwarding tables directly."},
+    {"a": "CTL", "b": "SW1", "style": "dashed", "info": "**Southbound**: the controller pushes configuration down and collects state and telemetry back up."},
+    {"a": "CTL", "b": "WLC", "style": "dashed", "info": "**Southbound**: the controller manages the WLC, which in turn manages its APs."}
+  ],
+  "zones": [
+    {"label": "Applications (north)", "nodes": ["PY", "ITSM", "GUI"], "tone": "accent"},
+    {"label": "Devices (south)", "nodes": ["R1", "SW1", "WLC"], "tone": "muted"}
+  ]
+}
+```
+
+**📝 Exam-style questions — 22.3**
+
+**Q1.** A Python script asks Catalyst Center for a list of every device in the network. Which interface does the script use?
+
+- **A.** A southbound NETCONF API
+- **B.** A northbound REST API
+- **C.** A southbound OpenFlow API
+- **D.** A console connection to the controller
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Applications and scripts sit *above* the controller and talk to it through its northbound API, which on Catalyst Center is REST. **Why not the others:** NETCONF (A) and OpenFlow (C) are southbound: the controller uses them to talk *down* to devices. A console connection (D) is for managing the controller's own system, not for asking it about the network.
+</details>
+
+**Q2.** Which two are examples of southbound protocols a controller uses? (Choose two.)
+
+- **A.** NETCONF
+- **B.** OpenFlow
+- **C.** The REST API that an ITSM application calls
+- **D.** The controller's web dashboard
+- **E.** JSON
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Both are ways for a controller to program network devices. **Why not the others:** an application's REST API (C) and the dashboard (D) face north, toward people and software. JSON (E) is a data format, not a protocol; it's what REST APIs usually carry.
+</details>
+
+**Q3.** Which sequence describes a change made through a controller?
+
+- **A.** Application → southbound API → controller → northbound API → devices
+- **B.** Application → northbound API → controller → southbound API → devices
+- **C.** Devices → northbound API → controller → southbound API → application
+- **D.** Application → southbound API → devices, bypassing the controller
+
+<details><summary>Answer</summary>
+
+**Answer: B.** North is up toward the app, south is down toward the devices, and the controller translates in the middle. **Why not the others:** A swaps the two directions. C runs the change backwards, from the devices up to the app. And D cuts out the controller, which is the opposite of controller-based networking.
+</details>
 
 ## 22.4 APIs & REST
 
@@ -3973,6 +5601,93 @@ The reply carries a **status code** telling you what happened — worth recogniz
 
 *The shortcut: **4xx means you sent something wrong, 5xx means the server broke.* That one distinction tells you immediately whether to fix your script or go look at the controller.
 
+Here's a real conversation with Catalyst Center's REST API: log in, ask a question, and see what happens when the token runs out.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "A REST API conversation with Catalyst Center",
+  "actors": [
+    {"id": "PY", "kind": "host", "label": "Python script"},
+    {"id": "CC", "kind": "controller", "label": "Catalyst Center"}
+  ],
+  "messages": [
+    {"from": "PY", "to": "CC", "label": "POST /dna/system/api/v1/auth/token", "detail": "Authorization: Basic ZGV2bmV0dXNlcjpD...",
+     "text": "**Authenticate.** The script sends a username and password with **Basic** auth: just `user:password` Base64-encoded, which anyone can decode. That's why this only ever happens over HTTPS."},
+    {"from": "CC", "to": "PY", "label": "200 OK", "detail": "{\"Token\": \"eyJ0eXAiOiJKV1Qi...\"}", "dashed": true, "tone": "good", "states": {"PY": "has token"},
+     "text": "Success (2xx). The reply is JSON holding a **token**. From now on the script sends the token instead of the password."},
+    {"from": "PY", "to": "CC", "label": "GET /dna/intent/api/v1/network-device", "detail": "X-Auth-Token: eyJ0eXAiOiJKV1Qi...",
+     "text": "**Read** (the R in CRUD) the device list. The token rides along in a header on **this** request, because REST is stateless: the server doesn't remember the script between calls."},
+    {"from": "CC", "to": "PY", "label": "200 OK", "detail": "{\"response\": [{\"hostname\": \"SW1\", ...}]}", "dashed": true, "tone": "good",
+     "text": "The answer, as JSON the script can loop through: hostnames, models, software versions, management addresses."},
+    {"note": "An hour later the token expires", "over": ["PY", "CC"], "states": {"PY": "token expired"},
+     "text": "Tokens are short-lived on purpose: a stolen one stops working soon."},
+    {"from": "PY", "to": "CC", "label": "GET /dna/intent/api/v1/network-device", "detail": "X-Auth-Token: (expired)",
+     "text": "The script tries again with the old token."},
+    {"from": "CC", "to": "PY", "label": "401 Unauthorized", "dashed": true, "tone": "bad",
+     "text": "A **4xx** code: *your* side sent something wrong, here an expired token. The fix is in the script: repeat the POST to get a fresh token. A **5xx** would have meant the controller itself had broken."}
+  ]
+}
+```
+
+**📝 Exam-style questions — 22.4**
+
+**Q1.** Which HTTP method does a script use to retrieve the list of devices from a controller's REST API?
+
+- **A.** GET
+- **B.** POST
+- **C.** PUT
+- **D.** DELETE
+
+<details><summary>Answer</summary>
+
+**Answer: A.** GET reads data, the R in CRUD. **Why not the others:** POST (B) creates something new, PUT (C) updates or replaces something that exists, and DELETE (D) removes it. None of them is for simply reading.
+</details>
+
+**Q2.** A script that has worked for weeks suddenly gets HTTP **401** from the controller on every call. What should the engineer check first?
+
+- **A.** The controller's logs for a software crash
+- **B.** The credentials or token the script sends with each request
+- **C.** The spelling of the URL path
+- **D.** The JSON syntax in the request body
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 401 means "not authenticated": the request didn't carry valid credentials. An expired token or a changed password is the usual cause. **Why not the others:** a crash on the controller (A) would show up as a 5xx code. A misspelled path (C) gives 404 Not Found. Malformed JSON (D) gives 400 Bad Request.
+</details>
+
+**Q3.** Which two statements about REST APIs are true? (Choose two.)
+
+- **A.** They are stateless: each request carries everything needed to process it, including authentication.
+- **B.** They map create, read, update and delete operations onto HTTP methods.
+- **C.** The server keeps a session for each client, so credentials are only sent once.
+- **D.** They can only exchange data in XML.
+- **E.** DELETE is used to read a resource.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Stateless requests plus HTTP verbs mapped to CRUD are the two defining habits of REST. **Why not the others:** the server remembers nothing between calls (C), which is why a token goes with every request. REST APIs usually use JSON and can use XML (D); neither is mandatory. And DELETE removes a resource (E); GET reads it.
+</details>
+
+**Q4.** Refer to the exhibit. A script sends this request to a controller and receives a token in reply. Which two statements are true? (Choose two.)
+
+```
+POST /dna/system/api/v1/auth/token HTTP/1.1
+Host: 10.10.20.85
+Authorization: Basic ZGV2bmV0dXNlcjpDaXNjbzEyMyE=
+```
+
+- **A.** The credentials are only Base64-encoded, so the request must be sent over HTTPS.
+- **B.** The script must include the returned token in its later requests.
+- **C.** Basic authentication encrypts the password with AES.
+- **D.** After this request the controller remembers the script, so later requests need no credentials or token.
+- **E.** This POST creates a new network device on the controller.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Decoding that Base64 string gives `devnetuser:Cisco123!` in one step, so only HTTPS keeps it private. The token that comes back is what the script presents from now on. **Why not the others:** Base64 is an encoding, not encryption (C). REST is stateless (D); the controller recognizes the script only by the token in each request. And this POST creates a **token**, not a device (E): the URL ends in `/auth/token`.
+</details>
+
 ## 22.5 Data Formats: JSON, XML, YAML
 
 **JSON** (most common) — uses `{ }` and `key: value`:
@@ -3998,6 +5713,74 @@ enabled: true
 <device>Router1</device>
 ```
 
+**📝 Exam-style questions — 22.5**
+
+**Q1.** Refer to the exhibit. Why is this JSON invalid?
+
+```
+{
+  "hostname": "SW1",
+  "vlans": [10, 20, 30],
+  "managed": true,
+}
+```
+
+- **A.** Boolean values such as `true` must be in quotes.
+- **B.** There is a comma after the last key-value pair.
+- **C.** Arrays must use parentheses instead of square brackets.
+- **D.** Keys must not be in quotes.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** JSON doesn't allow a trailing comma after the last item in an object or array. Remove the comma after `true` and it's valid. **Why not the others:** `true` without quotes is the correct way to write a boolean (A); in quotes it would be the *string* "true". Arrays use square brackets (C). And JSON keys must be double-quoted strings (D).
+</details>
+
+**Q2.** Refer to the exhibit. Which two statements are true? (Choose two.)
+
+```
+{
+  "interfaces": [
+    {"name": "Gi0/1", "enabled": true, "vlan": 10},
+    {"name": "Gi0/2", "enabled": false, "vlan": 20}
+  ]
+}
+```
+
+- **A.** The value of `"interfaces"` is an array that holds two objects.
+- **B.** The value of `"enabled"` is a string.
+- **C.** The value of `"vlan"` for Gi0/2 is the number 20.
+- **D.** The outermost structure is an array.
+- **E.** Each object uses `=` between a key and its value.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** Square brackets hold an array, here of two `{ }` objects, and `20` without quotes is a number. **Why not the others:** `true` and `false` are booleans, not strings (B). The outermost `{ }` makes it an object (D). And JSON separates keys from values with a colon (E).
+</details>
+
+**Q3.** Which data format relies on indentation instead of brackets or tags, and is the language of Ansible playbooks?
+
+- **A.** JSON
+- **B.** XML
+- **C.** YAML
+- **D.** CSV
+
+<details><summary>Answer</summary>
+
+**Answer: C.** YAML uses indentation and dashes for lists, which makes it easy for people to read and write. **Why not the others:** JSON (A) uses braces and brackets. XML (B) uses opening and closing tags. CSV (D) is comma-separated rows, with no nesting at all.
+</details>
+
+**Q4.** Which of these is **not** a valid JSON value?
+
+- **A.** `"true"`
+- **B.** `true`
+- **C.** `null`
+- **D.** `'SW1'`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** JSON strings must use **double** quotes; single quotes are invalid. **Why not the others:** `"true"` (A) is a valid string that happens to contain the word true. `true` (B) is a valid boolean. `null` (C) is JSON's valid "no value".
+</details>
+
 ## 22.6 Automation Tools
 
 | Tool | Language | Style | Agent Needed? |
@@ -4011,9 +5794,74 @@ enabled: true
 
 **Ansible and Terraform are the two named in the current (v1.1) exam blueprint** — Puppet and Chef are worth recognizing, but they're the older, agent-based generation. **Why does "agentless" keep coming up as an advantage?** Because an agent is software you must install, update, and secure **on every single device** — and plenty of network gear won't let you install anything at all. Agentless tools connect over SSH or an API that the device *already* offers, so there's nothing to deploy before you can start. *See 22.9 for how Terraform's declarative style differs from a playbook that runs steps in order.*
 
+**📝 Exam-style questions — 22.6**
+
+**Q1.** Which tool is agentless and uses YAML playbooks?
+
+- **A.** Puppet
+- **B.** Chef
+- **C.** Ansible
+- **D.** Terraform
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Ansible connects over SSH or an API and runs playbooks written in YAML, with nothing to install on the devices. **Why not the others:** Puppet (A) and Chef (B) need an agent on each managed node. Terraform (D) is agentless too, but it uses its own language, HCL, not YAML playbooks.
+</details>
+
+**Q2.** Which two tools traditionally need an agent installed on every managed node? (Choose two.)
+
+- **A.** Ansible
+- **B.** Terraform
+- **C.** Puppet
+- **D.** Chef
+- **E.** Python with the Requests library
+
+<details><summary>Answer</summary>
+
+**Answer: C, D.** Puppet and Chef are the older, pull-based generation: an agent on each node checks in with a central server. **Why not the others:** Ansible (A) and Terraform (B) are agentless. A Python script calling a REST API (E) needs nothing on the device beyond the API it already offers.
+</details>
+
+**Q3.** Why does "agentless" matter so much for network automation?
+
+- **A.** Many network devices don't allow extra software to be installed, so tools that use SSH or an existing API can manage them straight away.
+- **B.** Agentless tools don't need any credentials to log in.
+- **C.** Agentless tools only work on Linux servers.
+- **D.** Agents are faster, so agentless tools are only for small networks.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** You can't install a Puppet agent on most switches, but every managed switch already speaks SSH or an API. **Why not the others:** agentless tools still log in with credentials (B), over SSH or an API. They manage network devices perfectly well (C). And speed isn't the trade-off (D); agentless tools run at large scale every day.
+</details>
+
 ## 22.7 Config Management Idea: Intent & Consistency
 
 Automation lets you describe the network you WANT ("intent"), and tools make reality match it — and keep it that way. No more "snowflake" devices that all drifted to slightly different settings.
+
+**📝 Exam-style questions — 22.7**
+
+**Q1.** What is configuration drift?
+
+- **A.** Devices that should be configured alike gradually become different through one-off manual changes.
+- **B.** A configuration moving from running-config to startup-config.
+- **C.** A device losing its configuration after a reload.
+- **D.** Configuration being pushed from a controller to its devices.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A quick fix here, a forgotten change there, and soon no two "identical" switches match. These "snowflakes" cause bugs that are very hard to explain. **Why not the others:** saving the config (B) is normal housekeeping. Losing an unsaved config (C) is a different problem. And a controller pushing config (D) is how you *prevent* drift.
+</details>
+
+**Q2.** What does intent-based management mean?
+
+- **A.** You describe the result you want, and the system works out the configuration and keeps reality matching it.
+- **B.** You type every command on every device yourself.
+- **C.** Devices pick their own configuration with no human input.
+- **D.** Configuration is only checked once, when it's first applied.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** "Cameras get VLAN 30 everywhere" is intent. The tooling translates it into commands and keeps checking that the network still matches. **Why not the others:** typing every command (B) is the traditional way. A human still sets the intent (C). And checking only once (D) would let drift creep back in; the "keep it that way" part is the point.
+</details>
 
 ---
 
@@ -4053,6 +5901,45 @@ Where it shows up in real networks:
 
 **The honest limits** — worth knowing, because the exam frames AI as an aid rather than a replacement. ML systems learn from **historical data**, so they inherit its blind spots: a network that was misconfigured for a year has learned that misconfiguration as "normal." They produce **probabilities, not certainties**, so they can be confidently wrong. And many models can't fully explain *why* they flagged something, which is uncomfortable when you're deciding whether to reroute production traffic. *AI is a very fast assistant that reads everything and never gets tired — not an engineer. A human still owns the decision.*
 
+**📝 Exam-style questions — 22.8**
+
+**Q1.** Which is an example of **generative** AI in network operations?
+
+- **A.** Predicting that an AP will fail within two weeks
+- **B.** Flagging a switch whose traffic pattern differs from its 90-day baseline
+- **C.** Drafting an ACL from a plain-English description of what should be allowed
+- **D.** Projecting when a WAN link will reach full capacity
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Generative AI *creates* something new: here a config, which a human then reviews. **Why not the others:** failure prediction (A), anomaly detection (B) and capacity forecasting (D) are all **predictive** AI: watching patterns in data and warning about what's coming.
+</details>
+
+**Q2.** Why can a machine-learning baseline catch problems that a fixed threshold such as "alert if latency > 100 ms" misses?
+
+- **A.** It learns what is normal for this network at each time of day, so it flags unusual changes even when they stay under any fixed number.
+- **B.** It ignores all the telemetry so it can't raise false alarms.
+- **C.** It uses higher thresholds than an engineer would choose.
+- **D.** It only alerts after a device has failed.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Latency creeping from 5 ms to 40 ms never crosses 100 ms, but it's far from *normal* for that link, and that's what a learned baseline notices. **Why not the others:** ML relies on telemetry (B); it's the input. It doesn't work by picking a bigger number (C). And warning *before* failure (D) is the whole aim of predictive analytics.
+</details>
+
+**Q3.** Which two are real limitations of AI and ML in network operations? (Choose two.)
+
+- **A.** A model trained on a network that was misconfigured for a year may treat that misconfiguration as normal.
+- **B.** Models give probabilities, so they can be confidently wrong.
+- **C.** Configurations written by generative AI are guaranteed to be correct.
+- **D.** ML needs no data to learn from.
+- **E.** AI removes the need for a human to approve changes.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Models inherit the blind spots of their historical data, and their outputs are probabilities, not certainties. **Why not the others:** generative AI produces *plausible* output, not guaranteed-correct output (C), which is why a human reviews it. Machine learning learns *from* data (D); no data, no model. And a human still owns the decision (E).
+</details>
+
 ## 22.9 Infrastructure as Code — Terraform & Friends
 
 Section 22.6 introduced automation tools. One idea underneath them deserves its own name, because it's how modern infrastructure is actually managed: **Infrastructure as Code (IaC)** — you describe the **desired state** in a text file, keep that file in version control, and let a tool make reality match it.
@@ -4068,6 +5955,96 @@ Section 22.6 introduced automation tools. One idea underneath them deserves its 
 **Declarative vs. procedural** is the distinction to hold onto. A **procedural** tool is a recipe: *"add this VLAN, then this interface."* Run it twice and you may get errors or duplicates. A **declarative** tool is a description: *"this network has VLANs 10, 20, 30."* The tool inspects what exists, computes the difference, and changes **only what doesn't match**. Run it ten times and nothing extra happens — a property called **idempotence**. *You describe the destination, not the driving directions.*
 
 Terraform is the exam's named example of this style: it keeps a **state file** recording what it built, so it always knows the gap between "what you asked for" and "what exists."
+
+Here's the declarative loop from Terraform's side, including the second run that changes nothing:
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Infrastructure as Code: plan, apply, and apply again",
+  "actors": [
+    {"id": "ENG", "kind": "host", "label": "Engineer"},
+    {"id": "GIT", "kind": "server", "label": "Git repo"},
+    {"id": "TF", "kind": "server", "label": "Terraform"},
+    {"id": "SW", "kind": "switch", "label": "SW1"}
+  ],
+  "messages": [
+    {"from": "ENG", "to": "GIT", "label": "commit vlans.tf", "detail": "SW1 has VLANs 10, 20, 30",
+     "text": "The engineer edits the **desired state** in a file. It describes the destination (*these VLANs exist*), not the steps to get there."},
+    {"note": "A teammate reviews and approves the change", "over": ["ENG", "GIT"],
+     "text": "Because it's a file in version control, the change gets a review, a date and an author, and the previous version is one click away."},
+    {"from": "ENG", "to": "TF", "label": "terraform plan",
+     "text": "Ask Terraform what it *would* do, before it does anything."},
+    {"from": "TF", "to": "SW", "label": "read current VLANs", "detail": "via the device's API",
+     "text": "Terraform checks what actually exists, and compares it with its **state file**, its record of what it built last time."},
+    {"from": "SW", "to": "TF", "label": "VLANs 10, 20", "dashed": true,
+     "text": "The switch reports what it has today."},
+    {"from": "TF", "to": "TF", "label": "diff: + VLAN 30", "tone": "accent",
+     "text": "Desired minus actual: only VLAN 30 is missing. The plan says *1 to add, 0 to change, 0 to destroy*."},
+    {"from": "ENG", "to": "TF", "label": "terraform apply",
+     "text": "Approve the plan."},
+    {"from": "TF", "to": "SW", "label": "create VLAN 30", "tone": "good", "states": {"SW": "VLANs 10,20,30"},
+     "text": "Terraform changes **only** what doesn't match. VLANs 10 and 20 are left alone."},
+    {"from": "TF", "to": "TF", "label": "update state file", "states": {"TF": "state saved"},
+     "text": "It records what now exists, so the next run starts from an accurate picture."},
+    {"from": "ENG", "to": "TF", "label": "terraform apply (again)",
+     "text": "What if someone runs it a second time?"},
+    {"from": "TF", "to": "TF", "label": "diff: no changes", "tone": "good",
+     "text": "Reality already matches the file, so nothing happens. That's **idempotence**: run it ten times, get the same result. A procedural script that says *add VLAN 30* might have errored or duplicated work."}
+  ]
+}
+```
+
+**📝 Exam-style questions — 22.9**
+
+**Q1.** Which statement describes a **declarative** automation tool?
+
+- **A.** You describe the desired end state, and the tool works out what must change to reach it.
+- **B.** You list each command in the exact order it must run.
+- **C.** The tool records keystrokes and replays them on each device.
+- **D.** The tool only reads configuration and never changes it.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Declarative means "describe the destination". The tool compares that with reality and changes only the difference. **Why not the others:** an ordered list of commands (B) is the procedural style, a recipe. Replaying keystrokes (C) is crude scripting with no idea of state. And a tool that never changes anything (D) is a monitoring tool, not configuration management.
+</details>
+
+**Q2.** An engineer runs `terraform apply` with an unchanged configuration file, right after a successful apply. What happens?
+
+- **A.** Terraform reports no changes, because the infrastructure already matches the desired state.
+- **B.** Terraform creates every resource a second time.
+- **C.** Terraform deletes everything and rebuilds it.
+- **D.** Terraform fails, because the resources already exist.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** That's idempotence: the desired state and the real state match, so the difference is empty. **Why not the others:** duplicates (B), a rebuild (C) and errors (D) are what can happen when you re-run a *procedural* script that blindly repeats its steps. Terraform compares before it acts.
+</details>
+
+**Q3.** What does Terraform's state file do?
+
+- **A.** It records what Terraform has built, so Terraform can work out the gap between what was asked for and what exists.
+- **B.** It stores the device's startup configuration.
+- **C.** It holds the YAML playbook Terraform runs.
+- **D.** It is the agent Terraform installs on each device.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The state file is Terraform's memory of the infrastructure it manages. **Why not the others:** it doesn't replace the device's own startup config (B). Terraform uses HCL files, not YAML playbooks (C), which belong to Ansible. And Terraform is agentless (D).
+</details>
+
+**Q4.** Which two benefits come from keeping network configuration as code in version control? (Choose two.)
+
+- **A.** Every change is recorded with who made it, when, and why.
+- **B.** A bad change can be rolled back by restoring the previous version of the file.
+- **C.** Changes no longer need to be tested.
+- **D.** Devices no longer need management access.
+- **E.** It requires installing an agent on every device.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** History and rollback are what turn invisible changes into accountable ones. **Why not the others:** code still needs testing (C); version control adds review, it doesn't replace testing. The tools still reach devices over SSH or an API (D). And IaC tools such as Terraform and Ansible are agentless (E).
+</details>
 
 ---
 
@@ -4090,6 +6067,95 @@ When something's broken, check the OSI layers **from the bottom up**:
 
 **Why troubleshoot from the BOTTOM (Layer 1) UP instead of top-down?** Because the layers *depend* on each other — each one is built on the layer below it. Layer 3 (IP) literally cannot work if Layer 1 (the cable) is unplugged, and Layer 7 (your app) cannot work if Layer 3 has no route. So a problem at a low layer **makes everything above it look broken too.** If you start at the top, you might spend an hour debugging a "DNS problem" (Layer 7) when the real issue is a dead cable (Layer 1) — you'd be trying to fix the *symptom* while ignoring the *cause*. Checking bottom-up means you fix the **foundation first**: confirm the cable, then the VLAN/link, then the IP, then the ports, then the app. *The lower stuff is also usually faster and cheaper to check* — glancing at a link light takes 2 seconds, so it's silly to debug complex software before verifying the wire. You rule out the simple, foundational causes before touching the complicated ones. (There's also a "divide and conquer" approach where you start in the middle with a ping, but bottom-up is the safest default and the one the exam loves.)
 
+Here's the method on a real ticket. Watch how each layer is ruled out before moving up:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Bottom-up: \"I can't open the intranet site\"",
+  "caption": "The PC is in VLAN 10. The intranet server and the DNS server sit behind R1. Press **Next**.",
+  "nodes": [
+    {"id": "PC", "kind": "host", "x": 0, "y": 1, "label": "PC", "sub": "10.10.10.25"},
+    {"id": "SW1", "kind": "switch", "x": 1.4, "y": 1, "label": "SW1"},
+    {"id": "R1", "kind": "router", "x": 2.8, "y": 1, "label": "R1", "sub": "10.10.10.1"},
+    {"id": "WEB", "kind": "server", "x": 4.2, "y": 0.3, "label": "intranet", "sub": "10.20.0.10"},
+    {"id": "DNS", "kind": "server", "x": 4.2, "y": 1.8, "label": "DNS", "sub": "10.20.0.53"}
+  ],
+  "links": [
+    {"a": "PC", "b": "SW1", "label": "Gi1/0/5"},
+    {"a": "SW1", "b": "R1"},
+    {"a": "R1", "b": "WEB"},
+    {"a": "R1", "b": "DNS"}
+  ],
+  "steps": [
+    {"title": "1. The ticket",
+     "text": "A user can't open `https://intranet.corp.local`. It's tempting to jump straight to the web server, but start at the bottom: every layer depends on the ones below it.",
+     "focus": ["PC"]},
+    {"title": "2. Layer 1: is it plugged in?",
+     "text": "The link light is on. `show interfaces gi1/0/5` on SW1 says **up/up** with no CRC errors. Two seconds of checking, and the cable is ruled out.",
+     "focus": ["PC", "SW1", "PC-SW1"],
+     "nodes": {"PC": {"badge": "L1 ok", "tone": "good"}}},
+    {"title": "3. Layer 2: right VLAN?",
+     "text": "`show vlan brief` puts Gi1/0/5 in VLAN 10, and `show mac address-table` has learned the PC's MAC on that port. Layer 2 is fine.",
+     "focus": ["PC", "SW1", "R1", "PC-SW1", "SW1-R1"],
+     "nodes": {"SW1": {"badge": "L2 ok", "tone": "good"}}},
+    {"title": "4. Layer 3: can it reach the server by IP?",
+     "text": "`ipconfig` shows 10.10.10.25/24 with gateway 10.10.10.1. `ping 10.10.10.1` works, and so does `ping 10.20.0.10`. Addressing and routing are fine.",
+     "nodes": {"R1": {"badge": "L3 ok", "tone": "good"}},
+     "packets": [{"path": ["PC", "SW1", "R1", "WEB"], "label": "ping 10.20.0.10", "tone": "good"}]},
+    {"title": "5. Layer 4: is the port open?",
+     "text": "`show access-lists` on R1 has nothing blocking TCP 443, and a port test from the PC to 10.20.0.10 on 443 connects. The service is listening and reachable.",
+     "packets": [{"path": ["PC", "SW1", "R1", "WEB"], "label": "TCP 443: open", "tone": "good"}]},
+    {"title": "6. Layer 7: what about the name?",
+     "text": "`ping intranet.corp.local` fails with *could not find host*. `ipconfig /all` shows the DNS server as **10.20.0.35**: a typo for 10.20.0.53. The PC's DNS queries go to an address where nothing answers.",
+     "nodes": {"PC": {"badge": "DNS typo", "tone": "bad"}},
+     "packets": [{"path": ["PC", "SW1", "R1"], "label": "DNS to 10.20.0.35?", "tone": "bad"}]},
+    {"title": "7. Fixed",
+     "text": "Correct the DNS server to 10.20.0.53 and the name resolves. Every layer below was proven good first, so there was no time wasted on the web server, which was never broken.",
+     "nodes": {"PC": {"badge": "fixed", "tone": "good"}},
+     "packets": [{"path": ["PC", "SW1", "R1", "DNS"], "label": "DNS query answered", "tone": "good"}]}
+  ]
+}
+```
+
+**📝 Exam-style questions — 23.1**
+
+**Q1.** A user reports that nothing on the network works from their desk. Using the bottom-up method, what should the engineer check first?
+
+- **A.** The link light and the cable between the PC and the switch
+- **B.** The PC's DNS server setting
+- **C.** The ACLs on the router
+- **D.** The router's routing table
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Bottom-up starts at Layer 1, and a dead link explains *everything* failing. It's also the quickest thing to check. **Why not the others:** DNS (B) is Layer 7, ACLs (C) affect Layer 3 and 4 traffic, and the routing table (D) is Layer 3. All three are worth checking later, but only once the layers below them are proven.
+</details>
+
+**Q2.** A PC has a link light, but its switch port is assigned to the wrong VLAN. At which layer does the bottom-up method find this problem?
+
+- **A.** Layer 1
+- **B.** Layer 2
+- **C.** Layer 3
+- **D.** Layer 7
+
+<details><summary>Answer</summary>
+
+**Answer: B.** VLAN membership is a Layer 2 setting on the switch; `show vlan brief` reveals it. **Why not the others:** Layer 1 (A) passed, since the link is up. The PC may then *fail* at Layer 3 (C), getting no DHCP address or failing to ping its gateway, but that's the symptom; the cause is a layer lower. Layer 7 (D) is far above where the fault is.
+</details>
+
+**Q3.** Why does the bottom-up method begin at Layer 1?
+
+- **A.** Each layer depends on the layers below it, so a low-layer fault makes everything above it look broken.
+- **B.** Layer 1 problems are the only ones that cause outages.
+- **C.** Application problems can't be diagnosed with show commands.
+- **D.** Cisco requires troubleshooting to follow the OSI model in order.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A dead cable makes DNS, routing and the application all fail together. Fixing the foundation first stops you chasing symptoms higher up. **Why not the others:** faults at any layer cause outages (B). Application problems are diagnosable (C), just not first. And there's no Cisco rule (D); bottom-up is simply the safest default, and divide-and-conquer from the middle with a ping is also valid.
+</details>
+
 ## 23.2 The Essential Troubleshooting Commands
 
 | Command | What It Tests |
@@ -4103,6 +6169,84 @@ When something's broken, check the OSI layers **from the bottom up**:
 | `show vlan brief` | Are ports in the right VLANs? |
 | `show interfaces` | Errors, drops, duplex mismatches? |
 | `show running-config` | What's actually configured? |
+
+`traceroute` finds the hop where packets stop. Here's how it works: it sends probes with a TTL that starts at 1 and grows by one each round.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "How traceroute finds each hop",
+  "actors": [
+    {"id": "R1", "kind": "router", "label": "R1"},
+    {"id": "R2", "kind": "router", "label": "R2 10.0.12.2"},
+    {"id": "R3", "kind": "router", "label": "R3 10.0.23.3"},
+    {"id": "SRV", "kind": "server", "label": "Server 10.30.0.10"}
+  ],
+  "messages": [
+    {"from": "R1", "to": "R2", "label": "UDP probe, TTL 1", "detail": "to 10.30.0.10, port 33434",
+     "text": "`R1# traceroute 10.30.0.10`. The first probe has a TTL of **1**. IOS sends three probes per TTL and shows a time for each."},
+    {"from": "R2", "to": "R1", "label": "ICMP Time Exceeded", "detail": "from 10.0.12.2", "dashed": true, "tone": "warn",
+     "text": "R2 decrements the TTL to 0, so it must drop the probe, and it reports back with **Time Exceeded**. That reply reveals R2's address: hop 1 is 10.0.12.2."},
+    {"from": "R1", "to": "R3", "label": "UDP probe, TTL 2",
+     "text": "Next round, TTL **2**. R2 decrements it to 1 and forwards it; R3 decrements it to 0."},
+    {"from": "R3", "to": "R1", "label": "ICMP Time Exceeded", "detail": "from 10.0.23.3", "dashed": true, "tone": "warn",
+     "text": "Hop 2 is 10.0.23.3."},
+    {"from": "R1", "to": "SRV", "label": "UDP probe, TTL 3",
+     "text": "TTL **3** gets all the way to the server."},
+    {"from": "SRV", "to": "R1", "label": "ICMP Port Unreachable", "dashed": true, "tone": "good",
+     "text": "The server isn't listening on that odd UDP port, so it answers **Port Unreachable**, which tells traceroute it has reached the destination. (Windows `tracert` sends ICMP echo requests instead and stops at the echo reply.)"},
+    {"note": "If a hop shows * * *", "over": ["R1", "R2", "R3", "SRV"],
+     "text": "Asterisks mean no reply came back within the timeout. A trace that shows hops 1 and 2 and then only asterisks points at hop 3 or the link to it: a missing route, an ACL, or a device that's down. Some devices also simply rate-limit or refuse to send ICMP errors, so one quiet hop in the middle of a working trace isn't always a fault."}
+  ]
+}
+```
+
+**📝 Exam-style questions — 23.2**
+
+**Q1.** Users can reach some remote networks but not 172.20.5.0/24. Which command shows the hop at which packets toward that network stop?
+
+- **A.** `ping 172.20.5.10`
+- **B.** `traceroute 172.20.5.10`
+- **C.** `show ip interface brief`
+- **D.** `show cdp neighbors`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Traceroute lists each router along the path, so the last hop that answers shows roughly where things stop. **Why not the others:** ping (A) only says yes or no for the whole path. `show ip interface brief` (C) checks the local interfaces. CDP (D) lists directly connected Cisco neighbors, not the path to a remote network.
+</details>
+
+**Q2.** A user plugged into SW1 Gi1/0/12 can't reach anything, but the port is up/up. Which command quickly confirms whether the port is in the expected VLAN?
+
+- **A.** `show vlan brief`
+- **B.** `show ip route`
+- **C.** `show running-config | include hostname`
+- **D.** `show cdp neighbors`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `show vlan brief` lists every VLAN and the access ports assigned to it. **Why not the others:** a Layer 2 switch's routing table (B) has nothing to do with port VLANs. C only shows the device's name. And CDP (D) shows neighboring Cisco devices, not which VLAN a user's port is in.
+</details>
+
+**Q3.** Refer to the exhibit. Which two statements are true? (Choose two.)
+
+```
+R1# show ip interface brief
+Interface              IP-Address      OK? Method Status                Protocol
+GigabitEthernet0/0     10.1.1.1        YES manual up                    up
+GigabitEthernet0/1     10.2.2.1        YES manual administratively down down
+GigabitEthernet0/2     unassigned      YES unset  up                    up
+```
+
+- **A.** Gi0/1 needs `no shutdown` before it can pass traffic.
+- **B.** Gi0/0 is working at Layers 1 and 2.
+- **C.** Gi0/2 has been shut down by an administrator.
+- **D.** Gi0/1 has a faulty cable.
+- **E.** Gi0/0 has no IP address.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** "Administratively down" means someone typed `shutdown`, or the interface was never enabled. Gi0/0 is up/up with an address, so its Layers 1 and 2 are fine. **Why not the others:** Gi0/2 (C) is up/up; it simply has no IP address. Gi0/1 (D) is shut down by configuration, which says nothing about the cable; you'd only learn that after `no shutdown`. And Gi0/0 has 10.1.1.1 (E).
+</details>
 
 ## 23.3 Ping — Your Best Friend
 
@@ -4132,6 +6276,117 @@ If step 4 works but step 5 fails, it's a **DNS** problem!
 
 *See the beauty?* By walking outward one hop at a time, **the exact step where pings start failing tells you which link in the chain is broken** — no guessing. This is the bottom-up layer method turned into five concrete commands, and it's why experienced engineers can pinpoint a fault in under a minute.
 
+Walk the five pings on a PC whose web browsing is broken:
+
+```diagram
+{
+  "type": "topology",
+  "title": "The ping ladder: walk outward until something fails",
+  "caption": "The PC is set to use DNS server 192.168.1.53. Press **Next**.",
+  "nodes": [
+    {"id": "PC", "kind": "host", "x": 0, "y": 1, "label": "PC", "sub": "192.168.1.47"},
+    {"id": "SW1", "kind": "switch", "x": 1.3, "y": 1, "label": "SW1"},
+    {"id": "R1", "kind": "router", "x": 2.6, "y": 1, "label": "Gateway", "sub": "192.168.1.1"},
+    {"id": "NET", "kind": "cloud", "x": 3.9, "y": 1, "label": "Internet"},
+    {"id": "G", "kind": "server", "x": 5.2, "y": 1, "label": "8.8.8.8"},
+    {"id": "DNS", "kind": "server", "x": 1.3, "y": 2.3, "label": "DNS?", "sub": "192.168.1.53"}
+  ],
+  "links": [
+    {"a": "PC", "b": "SW1"},
+    {"a": "SW1", "b": "R1"},
+    {"a": "R1", "b": "NET"},
+    {"a": "NET", "b": "G"},
+    {"a": "SW1", "b": "DNS", "style": "dashed"}
+  ],
+  "steps": [
+    {"title": "1. ping 127.0.0.1",
+     "text": "Loopback never leaves the PC. A reply proves the PC's own TCP/IP software works.",
+     "focus": ["PC"],
+     "nodes": {"PC": {"badge": "1: stack ok", "tone": "good"}}},
+    {"title": "2. ping 192.168.1.47 (own IP)",
+     "text": "Pinging its own address proves the network card has its address configured and the stack is using it.",
+     "focus": ["PC"],
+     "nodes": {"PC": {"badge": "2: own IP ok", "tone": "good"}}},
+    {"title": "3. ping 192.168.1.1 (gateway)",
+     "text": "The first ping that crosses a wire. Success proves the cable, the switch, the VLAN and the PC's address and mask all work.",
+     "packets": [{"path": ["PC", "SW1", "R1"], "label": "3: reply", "tone": "good"}]},
+    {"title": "4. ping 8.8.8.8 (remote, by IP)",
+     "text": "Success proves the gateway routes the PC out to other networks, and the replies find their way back (NAT and the return route both work).",
+     "packets": [{"path": ["PC", "SW1", "R1", "NET", "G"], "label": "4: reply", "tone": "good"}]},
+    {"title": "5. ping google.com (by name)",
+     "text": "*Ping request could not find host google.com.* Before it can ping, the PC must ask its DNS server for the address, and nothing at 192.168.1.53 answers. Step 4 worked and step 5 failed, so **everything but DNS is fine**. Fix the PC's DNS setting (or the DNS server), and you're done.",
+     "nodes": {"PC": {"badge": "5: DNS fails", "tone": "bad"}, "DNS": {"state": "down"}},
+     "packets": [{"path": ["PC", "SW1", "DNS"], "label": "who is google.com?", "tone": "bad"}]}
+  ]
+}
+```
+
+**📝 Exam-style questions — 23.3**
+
+**Q1.** From a PC, `ping 8.8.8.8` succeeds but `ping google.com` returns "could not find host". What is the most likely problem?
+
+- **A.** The PC has no default gateway.
+- **B.** The PC's DNS server is wrong or unreachable.
+- **C.** The PC's network card is faulty.
+- **D.** An ACL blocks all ICMP traffic.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Reaching a remote IP proves the cable, address, gateway and routing all work. The only thing a name adds is DNS, and that's what failed. **Why not the others:** without a gateway (A), `ping 8.8.8.8` would fail too. A faulty NIC (C) would break every ping. And an ACL blocking ICMP (D) would stop the ping to 8.8.8.8 as well; "could not find host" happens before any ping is even sent.
+</details>
+
+**Q2.** Refer to the exhibit. What most likely explains the first dot?
+
+```
+R1# ping 10.1.1.2
+Type escape sequence to abort.
+Sending 5, 100-byte ICMP Echos to 10.1.1.2, timeout is 2 seconds:
+.!!!!
+Success rate is 80 percent (4/5), round-trip min/avg/max = 1/1/2 ms
+```
+
+- **A.** R1 had to resolve 10.1.1.2's MAC address with ARP before it could send the first echo.
+- **B.** An ACL dropped the first packet.
+- **C.** There's a duplex mismatch on the link.
+- **D.** A routing loop delayed the first packet.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The first echo waits for ARP to finish and usually times out; once the ARP entry exists, the rest succeed. This is completely normal for a first ping to a neighbor. **Why not the others:** an ACL (B) would drop all five, not just the first. A duplex mismatch (C) causes scattered loss and errors, not exactly one lost first packet. And a routing loop (D) would make every packet expire, not just the first.
+</details>
+
+**Q3.** Refer to the exhibit. What does the output tell the engineer?
+
+```
+R1# ping 192.168.50.10
+Type escape sequence to abort.
+Sending 5, 100-byte ICMP Echos to 192.168.50.10, timeout is 2 seconds:
+U.U.U
+Success rate is 0 percent (0/5)
+```
+
+- **A.** A router on the path sent back ICMP Destination Unreachable messages.
+- **B.** The pings succeeded but were slow.
+- **C.** The destination replied with Time Exceeded.
+- **D.** The local interface is administratively down.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Each **U** is an ICMP Unreachable that came back, often because a router has no route to 192.168.50.10 or an ACL rejected the packet. The dots in between are normal: routers rate-limit how many Unreachables they send. **Why not the others:** success would show `!` (B). Time Exceeded (C) is shown as `&` and comes from a router, not the destination. And with the local interface down (D) there'd be no path to send anything, so no Unreachables would come back.
+</details>
+
+**Q4.** A PC can ping 127.0.0.1 and its own IP address, but a ping to its default gateway fails. Where is the problem most likely?
+
+- **A.** In the PC's TCP/IP software
+- **B.** Between the PC and the gateway: the cable, switch port, VLAN or the PC's address settings
+- **C.** On the internet, beyond the gateway
+- **D.** In DNS
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Steps 1 and 2 passed, so the PC itself is fine; step 3 is the first to cross the local network, and it failed. **Why not the others:** the TCP/IP software (A) was proven by the loopback ping. The internet (C) is beyond the gateway, which you can't even reach yet. And no name was used (D), so DNS isn't involved.
+</details>
+
 ## 23.4 Common Problems & Fixes
 
 | Symptom | Likely Cause | Fix |
@@ -4144,8 +6399,91 @@ If step 4 works but step 5 fails, it's a **DNS** problem!
 | Slow/errors on a link | Duplex mismatch | Set both ends the same |
 | Port shut by security | Port-security violation | `shutdown` then `no shutdown` |
 
+**📝 Exam-style questions — 23.4**
+
+**Q1.** PCs in VLAN 20 receive 169.254.x.x addresses. The DHCP server is on another subnet and works for every other VLAN. What is most likely missing?
+
+- **A.** `ip helper-address` on the VLAN 20 gateway interface
+- **B.** `ip helper-address` on the DHCP server's switch port
+- **C.** `ip dhcp excluded-address` on the router
+- **D.** A default gateway on the PCs
+
+<details><summary>Answer</summary>
+
+**Answer: A.** DHCP Discover is a broadcast, and routers don't forward broadcasts. `ip helper-address` on the interface that receives the broadcast (the VLAN 20 gateway) turns it into a unicast to the server. **Why not the others:** the relay belongs where the clients are, not near the server (B). Excluded addresses (C) only matter on an IOS DHCP server, and the server here works for other VLANs. The PCs can't get a gateway (D) until DHCP works, since DHCP is what hands it out.
+</details>
+
+**Q2.** Refer to the exhibit. An unauthorized device triggered port security on Gi1/0/7 and has been removed. How does the engineer bring the port back?
+
+```
+SW1# show interfaces gi1/0/7 status
+Port      Name   Status       Vlan  Duplex  Speed Type
+Gi1/0/7          err-disabled 10    auto    auto  10/100/1000BaseTX
+```
+
+- **A.** `shutdown`, then `no shutdown` on Gi1/0/7
+- **B.** `clear mac address-table dynamic`
+- **C.** `no switchport port-security` on Gi1/0/7
+- **D.** `copy running-config startup-config`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** An err-disabled port stays down until it's bounced with `shutdown` and `no shutdown` (or until `errdisable recovery` brings it back automatically, if configured). **Why not the others:** clearing the MAC table (B) doesn't touch the port's err-disabled state. Removing port security (C) disables the protection and still leaves the port err-disabled. Saving the config (D) changes nothing on the running port.
+</details>
+
+**Q3.** Two routers on the same link won't become OSPF neighbors. Which two mismatches cause this? (Choose two.)
+
+- **A.** Hello and dead timers
+- **B.** Router IDs that are different
+- **C.** Area IDs on the link
+- **D.** OSPF process IDs
+- **E.** Interface OSPF priorities
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** Neighbors must agree on the hello and dead timers and on the area of the link (along with subnet and authentication). **Why not the others:** router IDs (B) must be *different*; identical ones are the problem. The process ID (D) is local to each router and can differ freely. Priorities (E) only affect the DR/BDR election, not whether neighbors form.
+</details>
+
+**Q4.** Which combination of switchport modes on the two ends of a link fails to form a trunk?
+
+- **A.** `dynamic auto` and `dynamic auto`
+- **B.** `dynamic desirable` and `dynamic auto`
+- **C.** `trunk` and `dynamic auto`
+- **D.** `trunk` and `dynamic desirable`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Both sides are willing but neither asks, so the link stays an access link. **Why not the others:** in B, the desirable side actively asks and the auto side agrees. In C and D, the hard-coded trunk side sends DTP and the dynamic side agrees.
+</details>
+
 ## 23.5 Duplex & Speed Mismatch
 If one side is full-duplex and the other half-duplex, you'll see **errors and slowness**. Best practice: let both **auto-negotiate**, or set BOTH ends the same manually.
+
+**📝 Exam-style questions — 23.5**
+
+**Q1.** A switch port shows `Half-duplex, 100Mb/s` with a steadily rising count of late collisions. The router at the other end is hard-coded to 100 Mb/s full-duplex. What is the problem, and what fixes it?
+
+- **A.** A duplex mismatch; set both ends to the same duplex (or both to auto).
+- **B.** A speed mismatch; set the switch port to 1000 Mb/s.
+- **C.** A broken cable; replace it.
+- **D.** An STP loop; enable PortFast.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The switch port was left on auto, but the hard-coded router doesn't negotiate, so the switch could detect the speed but had to fall back to half-duplex. The half-duplex side then sees late collisions while the full-duplex side sees errors. Match both ends. **Why not the others:** the speeds already match (B), at 100 Mb/s, which is why the link is up at all. A bad cable (C) tends to cause CRC errors on both sides, not this clean half/full split. And an STP loop (D) shows up as broadcast storms and MAC flapping, not late collisions.
+</details>
+
+**Q2.** One end of a link is hard-coded to 100 Mb/s and the other to 1000 Mb/s. What happens?
+
+- **A.** The link doesn't come up.
+- **B.** The link comes up at 100 Mb/s with no errors.
+- **C.** The link comes up at 1000 Mb/s, but with collisions.
+- **D.** The link comes up and both ends switch to half-duplex.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Unlike duplex, the two ends must signal at the same speed to see each other at all. With a speed mismatch the port stays down (notconnect). **Why not the others:** neither side can adapt (B, C), because both are hard-coded. And duplex fallback (D) only happens after a link has come up at a matching speed.
+</details>
 
 ---
 
@@ -4185,6 +6523,65 @@ When you run `ipconfig /all`, four values tell you almost everything:
 - **Address correct, DNS blank or wrong** — `ping 8.8.8.8` succeeds but `ping google.com` fails. *That exact pairing is the classic signature of a DNS problem*, and it's a favorite exam scenario.
 
 Follow the layered method from 23.1: confirm the PC's own settings first, then the gateway, then beyond. Most "the internet is broken" tickets are answered by these four lines.
+
+**📝 Exam-style questions — 23.6**
+
+**Q1.** Which command shows the routing table on a Linux host?
+
+- **A.** `route print`
+- **B.** `ip route`
+- **C.** `ipconfig /displaydns`
+- **D.** `arp -a`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** On Linux, `ip route` lists the routes, including the default gateway. **Why not the others:** `route print` (A) is the Windows command. `ipconfig /displaydns` (C) shows the Windows DNS cache. `arp -a` (D) shows the ARP cache, not the routes.
+</details>
+
+**Q2.** Refer to the exhibit. What is the most likely cause?
+
+```
+Ethernet adapter Ethernet0:
+   DHCP Enabled. . . . . . . . . . . : Yes
+   Autoconfiguration IPv4 Address. . : 169.254.37.112(Preferred)
+   Subnet Mask . . . . . . . . . . . : 255.255.0.0
+   Default Gateway . . . . . . . . . :
+```
+
+- **A.** The PC asked for an address but no DHCP server answered.
+- **B.** The PC has a static address that conflicts with another host.
+- **C.** The DNS server is down.
+- **D.** The default gateway is configured on the wrong subnet.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 169.254.x.x is APIPA, the address a host gives itself when DHCP gets no answer. Look at the DHCP server, the VLAN, or a missing `ip helper-address`. **Why not the others:** DHCP is enabled (B), so this isn't a static address. DNS (C) has nothing to do with getting an IP address. And there's no gateway at all (D), because DHCP is what would have provided one.
+</details>
+
+**Q3.** A user can open files on a server in the same subnet but can't reach anything on the internet. `ipconfig` shows a correct address and mask, and the Default Gateway line is empty. What is the problem?
+
+- **A.** The PC has no default gateway, so it can't send traffic off its subnet.
+- **B.** The PC's DNS server is wrong.
+- **C.** The PC's subnet mask is wrong.
+- **D.** The PC has an APIPA address.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Local traffic doesn't need a gateway; everything off the subnet does. That exactly matches "local works, internet doesn't". **Why not the others:** a DNS problem (B) would still let the user reach internet hosts by IP, and the gateway is clearly missing here. The mask (C) is stated to be correct. And the address is correct, not 169.254.x.x (D).
+</details>
+
+**Q4.** Which two pairings of operating system and command are correct? (Choose two.)
+
+- **A.** Windows: `tracert` traces the path to a destination.
+- **B.** macOS: `tracert` traces the path to a destination.
+- **C.** Linux: `ip neighbor` shows the ARP cache.
+- **D.** Windows: `ip route` shows the routing table.
+- **E.** Linux: `ipconfig /release` releases the DHCP lease.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** Windows is the odd one out with `tracert`, and Linux shows its ARP cache with `ip neighbor`. **Why not the others:** macOS uses `traceroute` (B). Windows uses `route print` for the routing table (D). And `ipconfig /release` is Windows (E); on Linux you'd use `dhclient -r`.
+</details>
 
 ---
 
