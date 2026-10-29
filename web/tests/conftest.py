@@ -1,8 +1,20 @@
 import json
 import os
 import tempfile
+from pathlib import Path
 
 import pytest
+
+E2E_DIR = Path(__file__).resolve().parent / "e2e"
+
+
+def pytest_ignore_collect(collection_path, config):
+    # The browser suite needs Playwright and Chrome; skip its directory entirely unless asked for,
+    # so the unit suite runs anywhere (the Docker image has neither).
+    if collection_path == E2E_DIR or E2E_DIR in collection_path.parents:
+        wanted = os.environ.get("E2E") == "1" or "e2e" in (config.getoption("markexpr") or "")
+        return None if wanted else True
+    return None
 
 # Point the app at a throwaway database and content file before it's imported.
 _tmp = tempfile.mkdtemp(prefix="netlab-test-")
