@@ -1357,6 +1357,143 @@ section("CCNP switching extras");
   });
 }
 
+// ---------------------------------------------------------------- automation: RESTCONF and NETCONF (IOS-XE)
+// RFC 8040 (RESTCONF), RFC 6241 (NETCONF) and IOS-XE 17.x behaviour.
+section("RESTCONF");
+{
+  const xe = () => {
+    const t = lab([{ name: "CSR1", type: "router", model: "csr" }, { name: "WS", type: "pc", os: "linux" }], [["CSR1", "GigabitEthernet1", "WS", "eth0"]]);
+    t.conf("CSR1", "interface GigabitEthernet1", "ip address 10.0.0.1 255.255.255.0", "no shutdown", "exit",
+      "username admin privilege 15 secret Cisco123", "username ro privilege 1 secret Cisco123", "ip http secure-server", "ip http authentication local", "restconf");
+    t.run("WS", "ip addr add 10.0.0.10/24 dev eth0");
+    const call = (method, path, extra = {}) => t.net.restconf("CSR1", { method, path, user: "admin", pass: "Cisco123", host: "10.0.0.1",
+      accept: "application/yang-data+json", ...extra });
+    return { ...t, call };
+  };
+  const probe = lab([{ name: "CSR1", type: "router", model: "csr" }]);
+  probe.run("CSR1", "enable", "configure terminal");
+  if (!supports(probe, "CSR1", "restconf")) skip("RESTCONF", "no restconf yet");
+  else {
+    check("GET answers 200 with the namespace-qualified member", () => {
+      const r = xe().call("GET", "/restconf/data/Cisco-IOS-XE-native:native/hostname");
+      eq(r.status, 200);
+      eq(r.headers["Content-Type"], "application/yang-data+json");
+      eq(Object.keys(JSON.parse(r.body))[0], "Cisco-IOS-XE-native:hostname");
+    });
+    check("XML is the default encoding", () => {
+      const r = xe().call("GET", "/restconf/data/Cisco-IOS-XE-native:native/hostname", { accept: null });
+      eq(r.headers["Content-Type"], "application/yang-data+xml");
+      has(r.body, /^<hostname xmlns="http:\/\/cisco\.com\/ns\/yang\/Cisco-IOS-XE-native">/);
+    });
+    check("root discovery through /.well-known/host-meta", () => {
+      const r = xe().call("GET", "/.well-known/host-meta");
+      eq(r.status, 200);
+      has(r.body, /<Link rel='restconf' href='\/restconf'\/>/);
+    });
+    check("errors are ietf-restconf:errors with type, tag and message", () => {
+      const r = xe().call("GET", "/restconf/data/ietf-interfaces:interfaces/interface=Loopback77");
+      eq(r.status, 404);
+      const e = JSON.parse(r.body)["ietf-restconf:errors"].error[0];
+      eq(e["error-type"], "application");
+      eq(e["error-tag"], "invalid-value");
+      eq(typeof e["error-message"], "string");
+    });
+    check("bad credentials are 401 access-denied", () => {
+      const r = xe().call("GET", "/restconf/data/Cisco-IOS-XE-native:native/hostname", { pass: "nope" });
+      eq(r.status, 401);
+      eq(JSON.parse(r.body)["ietf-restconf:errors"].error[0]["error-tag"], "access-denied");
+    });
+    check("POST creates with 201 and a Location; POST again is 409 data-exists", () => {
+      const t = xe();
+      const body = JSON.stringify({ "ietf-interfaces:interface": { name: "Loopback5", type: "iana-if-type:softwareLoopback" } });
+      const r = t.call("POST", "/restconf/data/ietf-interfaces:interfaces", { contentType: "application/yang-data+json", data: body });
+      eq(r.status, 201);
+      has(r.headers.Location, "/restconf/data/ietf-interfaces:interfaces/interface=Loopback5");
+      const again = t.call("POST", "/restconf/data/ietf-interfaces:interfaces", { contentType: "application/yang-data+json", data: body });
+      eq(again.status, 409);
+      eq(JSON.parse(again.body)["ietf-restconf:errors"].error[0]["error-tag"], "data-exists");
+    });
+    check("PATCH and DELETE answer 204 No Content with no body", () => {
+      const t = xe();
+      const p = t.call("PATCH", "/restconf/data/Cisco-IOS-XE-native:native/hostname",
+        { contentType: "application/yang-data+json", data: '{"Cisco-IOS-XE-native:hostname": "XE1"}' });
+      eq(p.status, 204);
+      eq(p.body, "");
+      t.conf("CSR1", "interface Loopback9");
+      eq(t.call("DELETE", "/restconf/data/ietf-interfaces:interfaces/interface=Loopback9").status, 204);
+    });
+    check("a body without a YANG media type is 415", () => {
+      eq(xe().call("PUT", "/restconf/data/Cisco-IOS-XE-native:native/hostname",
+        { contentType: "application/x-www-form-urlencoded", data: '{"Cisco-IOS-XE-native:hostname": "X"}' }).status, 415);
+    });
+    check("malformed JSON is 400 malformed-message", () => {
+      const r = xe().call("PATCH", "/restconf/data/Cisco-IOS-XE-native:native/hostname", { contentType: "application/yang-data+json", data: "{" });
+      eq(r.status, 400);
+      eq(JSON.parse(r.body)["ietf-restconf:errors"].error[0]["error-tag"], "malformed-message");
+    });
+    check("a method RESTCONF doesn't define is 405", () => {
+      eq(xe().call("TRACE", "/restconf/data/Cisco-IOS-XE-native:native/hostname").status, 405);
+    });
+    check("curl refuses the self-signed certificate without -k (exit 60)", () => {
+      has(xe().run("WS", "curl -u admin:Cisco123 https://10.0.0.1/restconf/data/Cisco-IOS-XE-native:native/hostname"),
+        "curl: (60) SSL certificate problem: self-signed certificate");
+    });
+    check("no HTTPS server means Connection refused (curl exit 7)", () => {
+      const t = xe();
+      t.conf("CSR1", "no ip http secure-server");
+      has(t.run("WS", "curl -k https://10.0.0.1/restconf"), /^curl: \(7\) Failed to connect to 10\.0\.0\.1 port 443 after \d+ ms: Connection refused$/m);
+    });
+  }
+}
+
+section("NETCONF");
+{
+  const probe = lab([{ name: "CSR1", type: "router", model: "csr" }]);
+  probe.run("CSR1", "enable", "configure terminal");
+  if (!supports(probe, "CSR1", "netconf-yang")) skip("NETCONF", "no netconf-yang yet");
+  else {
+    const xe = () => {
+      const t = lab([{ name: "CSR1", type: "router", model: "csr" }, { name: "WS", type: "pc", os: "linux" }], [["CSR1", "GigabitEthernet1", "WS", "eth0"]]);
+      t.conf("CSR1", "interface GigabitEthernet1", "ip address 10.0.0.1 255.255.255.0", "no shutdown", "exit", "aaa new-model",
+        "aaa authentication login default local", "aaa authorization exec default local", "username admin privilege 15 secret Cisco123", "netconf-yang");
+      t.run("WS", "ip addr add 10.0.0.10/24 dev eth0", "netconf-console --host 10.0.0.1 -u admin -p Cisco123 -i");
+      return t;
+    };
+    check("hello advertises base:1.0 and base:1.1 and a session-id", () => {
+      const out = xe().run("WS", "hello");
+      has(out, /<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1\.0">/);
+      has(out, "<capability>urn:ietf:params:netconf:base:1.0</capability>");
+      has(out, "<capability>urn:ietf:params:netconf:base:1.1</capability>");
+      has(out, /<session-id>\d+<\/session-id>/);
+    });
+    check("rpc-reply is in the base namespace and echoes the message-id", () => {
+      const t = xe();
+      has(t.run("WS", "get-config -x /native/hostname"), /<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1\.0" message-id="1">\n {2}<data>/);
+      has(t.run("WS", "get-config -x /native/hostname"), /message-id="2"/);
+    });
+    check("a successful edit-config replies <ok/>", () => {
+      has(xe().run("WS", 'edit-config <config><native xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native"><hostname>XE2</hostname></native></config>'),
+        /<rpc-reply [^>]*>\n {2}<ok\/>\n<\/rpc-reply>/);
+    });
+    check("create on existing data is an rpc-error data-exists with severity error", () => {
+      const t = xe();
+      t.conf("CSR1", "interface Loopback3");
+      const out = t.run("WS", 'edit-config <config xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><native xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native"><interface><Loopback nc:operation="create"><name>3</name></Loopback></interface></native></config>');
+      has(out, "<rpc-error>");
+      has(out, "<error-tag>data-exists</error-tag>");
+      has(out, "<error-severity>error</error-severity>");
+    });
+    check("delete of missing data is data-missing", () => {
+      has(xe().run("WS", 'edit-config <config xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><native xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native"><interface><Loopback nc:operation="delete"><name>42</name></Loopback></interface></native></config>'),
+        "<error-tag>data-missing</error-tag>");
+    });
+    check("show netconf-yang sessions lists the session", () => {
+      const t = xe();
+      has(t.run("CSR1", "show netconf-yang sessions"), /^\d+ +netconf-ssh +admin +10\.0\.0\.10 +None$/m);
+    });
+  }
+}
+
 // ---------------------------------------------------------------- report
 for (const [name, why] of failures) console.error("FAIL: " + name + "\n  " + why.split("\n").join("\n  "));
 if (process.env.VERBOSE) {
