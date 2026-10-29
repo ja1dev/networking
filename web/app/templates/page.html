@@ -1,9 +1,9 @@
 {% from "_icons.html" import icon %}
 {% extends "base.html" %}
 {% block title %}{{ page.title }}{% endblock %}
-{% block topbar_extra %}<button class="icon-btn" type="button" data-toc-toggle aria-label="Contents" style="margin-left:auto">{{ icon("list", 22) }}</button>{% endblock %}
+{% block topbar_extra %}<button class="icon-btn toc-toggle" type="button" data-toc-toggle aria-label="Contents">{{ icon("list", 22) }}</button>{% endblock %}
 {% block body %}
-<div class="doc-layout">
+<div class="doc-layout" id="main">
   {% include "_toc.html" %}
   <article id="reader" data-doc="{{ doc.id }}" data-page="{{ page.id }}">
     <div class="crumbs">

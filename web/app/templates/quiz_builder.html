@@ -3,15 +3,15 @@
 {% block content %}
 <div class="page-head">
   <h1>Quiz</h1>
-  <p>Build a set from {{ sources.bank|sum(attribute='total') }} CCNA bank questions and {{ sources.ccnp|sum(attribute='total') }} CCNP exam-style questions. Practice mode explains each answer as you go. Exam mode is timed and only grades at the end.</p>
+  <p>{% for sid, groups in sources.items() %}{{ groups|sum(attribute='total') }} {{ "CCNA practice bank" if sid == "bank" else "CCNP exam-style" }} questions{{ " and " if not loop.last }}{% endfor %}. Practice mode explains each answer as you go; exam mode is timed and grades at the end.</p>
 </div>
 
 <form id="quiz-form" class="card stack">
-  <div>
+  <div{% if sources|length < 2 %} hidden{% endif %}>
     <label class="field">Question source</label>
     <div class="segmented" role="radiogroup">
-      {% for sid, stitle in SOURCE_TITLES.items() %}
-      <label><input type="radio" name="source" value="{{ sid }}" {{ 'checked' if sid == source }}>{{ stitle }}</label>
+      {% for sid in sources %}
+      <label><input type="radio" name="source" value="{{ sid }}" {{ 'checked' if sid == source }}>{{ SOURCE_TITLES[sid] }}</label>
       {% endfor %}
     </div>
   </div>

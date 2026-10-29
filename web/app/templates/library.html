@@ -1,30 +1,44 @@
+{% from "_icons.html" import icon %}
 {% extends "base.html" %}
 {% block title %}Read{% endblock %}
+{% set kit_names = KIT_TITLES if KIT_TITLES is defined else {"ccna": "CCNA", "ccnp": "CCNP"} %}
 {% block content %}
 <div class="page-head">
   <h1>Read</h1>
-  <p>The study guides, page by page. Questions inside the pages are live: answer them as you read and they count toward your stats.</p>
+  <p>The study guides, page by page. The questions inside each page are live: answer them as you read and they count toward your stats.</p>
 </div>
-<div class="grid grid-2">
-  {% for d in docs %}
-  <div class="card stack">
-    <div>
-      <h2 style="font-size:1.2rem;margin-bottom:4px"><a href="/read/{{ d.id }}">{{ d.title }}</a></h2>
-      <p class="muted small" style="margin:0">{{ d.blurb }}</p>
-    </div>
-    <div>
-      <div class="spread small muted"><span>{{ d.done }} of {{ d.total }} pages done</span><span>{{ pct(d.done, d.total) }}%</span></div>
-      <div class="progress {{ 'good' if d.done == d.total }}" style="margin-top:4px"><span style="width: {{ pct(d.done, d.total) }}%"></span></div>
-    </div>
-    <div class="row">
-      {% if d.resume %}
-      <a class="btn btn-primary" href="/read/{{ d.id }}/{{ d.resume.id }}">Resume: {{ d.resume.title|truncate(34) }}</a>
-      {% else %}
-      <a class="btn btn-primary" href="/read/{{ d.id }}/{{ d.first }}">Start reading</a>
-      {% endif %}
-      <a class="btn" href="/read/{{ d.id }}">Contents</a>
-    </div>
+{% set groups = [] %}
+{% for kit in ["ccnp", "ccna"] %}
+  {% set items = docs|selectattr("kit", "defined")|selectattr("kit", "equalto", kit)|list %}
+  {% if items %}{% set _ = groups.append((kit, items)) %}{% endif %}
+{% endfor %}
+{% if not groups %}{% set _ = groups.append(("", docs)) %}{% endif %}
+{% for kit, items in groups %}
+<section class="kit-section">
+  {% if groups|length > 1 %}<h2 class="section-title"><span class="kit-badge kit-{{ kit }}">{{ kit_names[kit] }}</span></h2>{% endif %}
+  <div class="grid grid-2">
+    {% for d in items %}
+    <article class="card doc-card stack">
+      <div>
+        <div class="muted tiny" style="margin-bottom:4px">{{ d.total }} pages{% if d.chapters %} · {{ d.chapters }} chapters{% endif %}</div>
+        <h2 class="doc-title"><a href="/read/{{ d.id }}">{{ d.title }}</a></h2>
+        <p class="muted small" style="margin:0">{{ d.blurb }}</p>
+      </div>
+      <div>
+        <div class="spread small muted"><span>{{ d.done }} of {{ d.total }} pages done</span><span>{{ pct(d.done, d.total) }}%</span></div>
+        <div class="progress {{ 'good' if d.done == d.total }}" style="margin-top:4px"><span style="width: {{ pct(d.done, d.total) }}%"></span></div>
+      </div>
+      <div class="row">
+        {% if d.resume %}
+        <a class="btn btn-primary" href="/read/{{ d.id }}/{{ d.resume.id }}" title="{{ d.resume.title }}"><span class="trunc">Resume: {{ d.resume.title }}</span></a>
+        {% else %}
+        <a class="btn btn-primary" href="/read/{{ d.id }}/{{ d.first }}">Start reading</a>
+        {% endif %}
+        <a class="btn" href="/read/{{ d.id }}">Contents</a>
+      </div>
+    </article>
+    {% endfor %}
   </div>
-  {% endfor %}
-</div>
+</section>
+{% endfor %}
 {% endblock %}

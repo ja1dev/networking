@@ -16,6 +16,14 @@ DOC_BLURBS = {
     "devnet": "Run every lab on Cisco's free DevNet sandboxes, no hardware needed",
 }
 SOURCE_TITLES = {"bank": "CCNA Practice Bank", "ccnp": "CCNP Exam-Style Questions"}
+SOURCE_KITS = {"bank": "ccna", "ccnp": "ccnp"}
+# What a reader studies for: one kit, or both side by side.
+TRACKS = [("ccnp", "CCNP"), ("ccna", "CCNA"), ("both", "Both")]
+KIT_TITLES = {"ccna": "CCNA", "ccnp": "CCNP"}
+
+
+def kits_for(track):
+    return {"ccna", "ccnp"} if track == "both" else {track}
 
 
 class Content:
@@ -28,7 +36,7 @@ class Content:
         self.decks = data["decks"]
         self.cards = data["cards"]
         self.drills = data["drills"]
-        self.labs_intro_html = data["labs"]["intro_html"]
+        self.labs_intro_html = data["labs"]["intro_html"]  # per kit
         self.labs = data["labs"]["labs"]
         self.stats = data["stats"]
         self.cards_by_id = {c["id"]: c for c in self.cards}
@@ -84,6 +92,27 @@ class Content:
             return None
         return "/read/%s/%s#q-%s" % (q["source"], q["page_id"], q["id"])
 
+    # -- tracks -----------------------------------------------------------
+    def doc_ids(self, kits):
+        return [d for d in DOC_ORDER if self.docs[d]["kit"] in kits]
+
+    def sources(self, kits):
+        # CCNP first: it's the track people move on to, so it leads when both are shown.
+        return [s for s in ("ccnp", "bank") if SOURCE_KITS[s] in kits]
+
+    def decks_for(self, kits):
+        return [d for d in self.decks if d["kit"] in kits]
+
+    def cards_for(self, kits):
+        return [c for c in self.cards if c["kit"] in kits]
+
+    def labs_for(self, kits):
+        return [l for l in self.labs if l["kit"] in kits]
+
+    def terminal_for(self, kits):
+        # The sandbox ("all") belongs to every track.
+        return [l for l in self.terminal_labs if l["track"] == "all" or l["track"] in kits]
+
     # -- search -----------------------------------------------------------
     @cached_property
     def _search_index(self):
@@ -93,19 +122,19 @@ class Content:
             chapters = {c["id"]: c["title"] for c in doc["chapters"]}
             for pid in doc["order"]:
                 p = doc["pages"][pid]
-                entries.append({"url": "/read/%s/%s" % (doc_id, pid), "title": p["title"],
+                entries.append({"url": "/read/%s/%s" % (doc_id, pid), "title": p["title"], "kit": doc["kit"],
                                 "crumb": "%s · %s" % (doc["title"], chapters[p["chapter"]]),
                                 "text": p["text"]})
         for lab in self.labs:
-            entries.append({"url": "/labs/%s" % lab["id"], "title": lab["title"],
-                            "crumb": "Lab Workbook", "text": lab["text"]})
+            entries.append({"url": "/labs/%s" % lab["id"], "title": lab["title"], "kit": lab["kit"],
+                            "crumb": KIT_TITLES[lab["kit"]] + " Lab Workbook", "text": lab["text"]})
         for lab in self.terminal_labs:
             text = " ".join([lab["summary"], lab["intro"]] + [t["title"] + " " + t["text"] for t in lab["tasks"]])
-            entries.append({"url": "/terminal/%s" % lab["id"], "title": lab["title"],
+            entries.append({"url": "/terminal/%s" % lab["id"], "title": lab["title"], "kit": lab["track"],
                             "crumb": "Terminal labs · " + lab["topic"], "text": re.sub(r"[`*|]", "", text)})
         for c in self.cards:
             text = re.sub(r"<[^>]+>", "", c["front_html"] + " — " + c["back_html"])
-            entries.append({"url": "/cards/browse?deck=%s#card-%s" % (c["deck"], c["id"]),
+            entries.append({"url": "/cards/browse?deck=%s#card-%s" % (c["deck"], c["id"]), "kit": c["kit"],
                             "title": html.unescape(re.sub(r"<[^>]+>", "", c["front_html"])),
                             "crumb": "Flashcards · " + self.deck_by_id[c["deck"]]["name"],
                             "text": html.unescape(text)})
@@ -114,12 +143,14 @@ class Content:
             e["title_lower"] = e["title"].lower()
         return entries
 
-    def search(self, query, limit=60):
+    def search(self, query, kits=("ccna", "ccnp"), limit=60):
         terms = [t for t in re.findall(r"[\w./:-]+", query.lower()) if t]
         if not terms:
             return []
         results = []
         for e in self._search_index:
+            if e["kit"] != "all" and e["kit"] not in kits:
+                continue
             if not all(t in e["lower"] or t in e["title_lower"] for t in terms):
                 continue
             score = sum(e["lower"].count(t) for t in terms)
@@ -155,6 +186,9 @@ def load_terminal_labs(path):
     with open(path, encoding="utf-8") as f:
         labs = json.load(f)
     for lab in labs:
+        # Labs written before the CCNP set are CCNA labs; the sandbox suits every track.
+        lab.setdefault("track", "all" if not lab["tasks"] else "ccna")
+        lab.setdefault("exam", "CCNA" if lab["track"] == "ccna" else "")
         lab["intro_html"] = _md(lab["intro"])
         for t in lab["tasks"]:
             t["text_html"] = _md(t["text"], inline=True)

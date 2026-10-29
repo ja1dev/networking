@@ -13,26 +13,67 @@
     <p><strong>Not simulated:</strong> MST, VTP, BGP, RIP, OSPF multi-process, NSSA and stub areas, route summarisation, IPv6 ACLs, EIGRP for IPv6, VRRP and GLBP, QoS, wireless and real timers (everything converges instantly). Use EVE-NG or the <a href="/labs">workbook labs</a> for those. Commands outside the list answer with the usual <code>% Invalid input</code>, just as an IOS image without the feature would.</p>
   </div>
 </details>
-<div class="grid grid-3">
-  {% for lab in labs %}
-  {% set row = progress.get(lab.id) %}
-  {% set n = row.passing|length if row else 0 %}
-  {% set total = lab.tasks|length %}
-  <a class="card lab-card" href="/terminal/{{ lab.id }}" style="color:inherit">
-    <div class="spread">
-      <span class="lab-num">{{ lab.topic }}{% if lab.minutes %} · ~{{ lab.minutes }} min{% endif %}</span>
-      {% if row and row.completed_at %}<span class="pill pill-good">{{ icon("check", 12) }} done</span>
-      {% elif row and row.state %}<span class="pill pill-accent">in progress</span>{% endif %}
-    </div>
-    <h3>{{ lab.title }}</h3>
-    <p class="muted small" style="margin:0">{{ lab.summary }}</p>
-    {% if total %}
-    <div class="progress {{ 'good' if n == total }}"><span style="width: {{ pct(n, total) }}%"></span></div>
-    <span class="muted tiny">{{ n }} / {{ total }} tasks passing</span>
-    {% else %}
-    <span class="muted tiny">{{ lab.devices|length }} devices, no tasks</span>
-    {% endif %}
-  </a>
+{% set order = ["ENCOR", "ENARSI", "CCNA", ""] %}
+{% set names = {"ENCOR": "ENCOR 350-401", "ENARSI": "ENARSI 300-410", "CCNA": "CCNA 200-301", "": "Sandbox"} %}
+{% set groups = [] %}
+{% for e in order %}
+  {% set items = labs|selectattr("exam", "defined")|selectattr("exam", "equalto", e)|list if e else labs|rejectattr("exam")|list %}
+  {% if items %}{% set _ = groups.append((e, items)) %}{% endif %}
+{% endfor %}
+{% if groups|length > 2 %}
+<div class="chips" role="group" aria-label="Filter labs by exam" id="lab-filter">
+  <button type="button" class="chip" data-filter="all" aria-pressed="true">All<span class="n">{{ labs|length }}</span></button>
+  {% for e, items in groups %}
+  <button type="button" class="chip" data-filter="{{ e|lower or 'sandbox' }}" aria-pressed="false">{{ e or "Sandbox" }}<span class="n">{{ items|length }}</span></button>
   {% endfor %}
 </div>
+{% endif %}
+{% for e, items in groups %}
+<section class="kit-section lab-group" id="{{ e|lower or 'sandbox' }}" data-group="{{ e|lower or 'sandbox' }}">
+  {% if groups|length > 1 %}<h2 class="section-title">{% if e %}<span class="kit-badge kit-{{ 'ccna' if e == 'CCNA' else 'ccnp' }}">{{ e }}</span>{% endif %} {{ names[e] }}</h2>{% endif %}
+  <div class="grid grid-cards">
+    {% for lab in items %}
+    {% set row = progress.get(lab.id) %}
+    {% set n = row.passing|length if row else 0 %}
+    {% set total = lab.tasks|length %}
+    <a class="card lab-card" href="/terminal/{{ lab.id }}" style="color:inherit">
+      <div class="spread">
+        <span class="lab-num">{{ lab.topic }}{% if lab.minutes %} · ~{{ lab.minutes }} min{% endif %}</span>
+        {% if row and row.completed_at %}<span class="pill pill-good">{{ icon("check", 12) }} done</span>
+        {% elif row and row.state %}<span class="pill pill-accent">in progress</span>{% endif %}
+      </div>
+      <h3>{{ lab.title }}</h3>
+      <p class="muted small" style="margin:0">{{ lab.summary }}</p>
+      {% if total %}
+      <div class="progress {{ 'good' if n == total }}"><span style="width: {{ pct(n, total) }}%"></span></div>
+      <span class="muted tiny">{{ n }} / {{ total }} tasks passing</span>
+      {% else %}
+      <span class="muted tiny">{{ lab.devices|length }} devices, no tasks</span>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}
+{% block scripts %}
+<script type="module">
+  // Chips show one exam's labs; the choice lives in the URL hash so links and reloads keep it.
+  const bar = document.getElementById("lab-filter");
+  if (bar) {
+    const groups = [...document.querySelectorAll(".lab-group")];
+    const apply = (key) => {
+      if (!bar.querySelector(`[data-filter="${key}"]`)) key = "all";
+      bar.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", c.dataset.filter === key ? "true" : "false"));
+      groups.forEach((g) => { g.hidden = key !== "all" && g.dataset.group !== key; });
+    };
+    bar.addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      history.replaceState(null, "", chip.dataset.filter === "all" ? location.pathname : "#" + chip.dataset.filter);
+      apply(chip.dataset.filter);
+    });
+    apply(location.hash.slice(1) || "all");
+  }
+</script>
 {% endblock %}
