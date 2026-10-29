@@ -4095,6 +4095,8 @@
  },
  {
   "id": "eigrp",
+  "track": "ccnp",
+  "exam": "ENARSI",
   "title": "EIGRP: neighbours, DUAL and load sharing",
   "topic": "EIGRP",
   "minutes": 25,

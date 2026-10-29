@@ -43,9 +43,10 @@ DOCS = [
      "title": "DevNet Lab Companion", "page_level": 1},
 ]
 BANK_FILE = "ccna/docs/CCNA_Practice_Questions.md"
-CARDS_FILE = "ccna/docs/CCNA_Flashcards.md"
 DRILLS_FILE = "ccna/docs/CCNA_Subnetting_Drills.md"
-LABS_FILE = "ccna/docs/CCNA_Lab_Workbook.md"
+# Each kit's flashcard deck and lab workbook. Kits are the two tracks a reader can switch between.
+CARDS_FILES = {"ccna": "ccna/docs/CCNA_Flashcards.md", "ccnp": "ccnp/docs/CCNP_Flashcards.md"}
+LABS_FILES = {"ccna": "ccna/docs/CCNA_Lab_Workbook.md", "ccnp": "ccnp/docs/CCNP_Lab_Workbook.md"}
 
 # The sources cross-reference each other by these counts; a mismatch means a
 # question block stopped parsing.
@@ -488,15 +489,17 @@ def build_bank(questions):
 # flashcards, drills, labs
 # ---------------------------------------------------------------------------
 
-def build_cards():
+def build_cards(kit):
     decks, cards = [], []
     deck = None
     q = None
-    for line in read_lines(CARDS_FILE):
+    for line in read_lines(CARDS_FILES[kit]):
         if line.startswith("## "):
             title = line[3:].strip()
-            deck = {"id": slugify(re.sub(r"^\d+\s*", "", title)), "title": title,
-                    "name": re.sub(r"^\d+\s*", "", title)}
+            slug = slugify(re.sub(r"^\d+\s*", "", title))
+            # CCNA deck ids predate the CCNP deck, so only the newer kit is prefixed.
+            deck = {"id": slug if kit == "ccna" else kit + "-" + slug, "title": title,
+                    "name": re.sub(r"^\d+\s*", "", title), "kit": kit}
             decks.append(deck)
         elif line.startswith("**Q:**"):
             q = line[6:].strip()
@@ -505,10 +508,11 @@ def build_cards():
                 raise ContentError("flashcard before any '## deck' heading: %s" % q)
             cards.append({
                 # Same key as the Anki build's GUID: editing an answer keeps the card.
-                "id": hashlib.sha256(("ccna-card::" + q).encode("utf-8")).hexdigest()[:16],
+                "id": hashlib.sha256((kit + "-card::" + q).encode("utf-8")).hexdigest()[:16],
                 "deck": deck["id"],
-                "front_html": render_inline(q, "ccna"),
-                "back_html": render_inline(line[6:].strip(), "ccna"),
+                "kit": kit,
+                "front_html": render_inline(q, kit),
+                "back_html": render_inline(line[6:].strip(), kit),
             })
             q = None
     if len({c["id"] for c in cards}) != len(cards):
@@ -600,26 +604,28 @@ def checkable_list(lines, start, lab_id, counter, kit):
     return i, markup, rendered
 
 
-def build_labs():
-    lines = read_lines(LABS_FILE)
+def build_labs(kit):
+    lines = read_lines(LABS_FILES[kit])
     _, chapters = split_headings(lines, 1)
-    intro_html = render("\n".join(strip_rules(chapters[0][1])), "ccna")
+    intro_html = render("\n".join(strip_rules(chapters[0][1])), kit)
     labs = []
     for title, body in chapters[1:]:
         lt = clean_title(title)
         lm = re.match(r"^Lab\s+(\d+)\s*[—-]\s*(.*)$", lt)
-        lab_id = "lab%s" % lm.group(1) if lm else slugify(lt)
+        lab_id = ("lab%s" % lm.group(1) if lm else slugify(lt))
+        if kit != "ccna":
+            lab_id = kit + "-" + lab_id
         body = strip_rules(body)
         # "**Guide sections:** 8.4 · **Time:** ~45 min · **Diagram:** ..." becomes
         # the lab's header strip.
         meta_html = ""
         if body and body[0].startswith("**Guide sections:**"):
-            meta_html = render_inline(body[0], "ccna")
+            meta_html = render_inline(body[0], kit)
             body = body[1:]
         # Swap the checkable lists for placeholders, then render the rest.
         out, slots, items, counter = [], [], [], [0]
         i = 0
-        renderer = PageRenderer("labs", "ccna", {})
+        renderer = PageRenderer("labs", kit, {})
         in_fence = False
         while i < len(body):
             line = body[i]
@@ -634,7 +640,7 @@ def build_labs():
                     out.append(body[i])
                     i += 1
                 if i < len(body) and LIST_ITEM.match(body[i]):
-                    end, markup, its = checkable_list(body, i, lab_id, counter, "ccna")
+                    end, markup, its = checkable_list(body, i, lab_id, counter, kit)
                     slots.append(markup)
                     items.extend(its)
                     out.extend(["", "XXCHECK%05dXX" % (len(slots) - 1), ""])
@@ -649,7 +655,7 @@ def build_labs():
                            lambda m: slots[int(m.group(1))], page_html)
         if "XXCHECK" in page_html:
             raise ContentError("checklist placeholder left in %s" % lab_id)
-        labs.append({"id": lab_id, "number": int(lm.group(1)) if lm else None,
+        labs.append({"id": lab_id, "kit": kit, "number": int(lm.group(1)) if lm else None,
                      "title": lm.group(2).strip() if lm else lt, "meta_html": meta_html,
                      "html": page_html, "items": [it["id"] for it in items],
                      "text": plain_text(page_html)})
@@ -663,9 +669,18 @@ def build():
     docs = {cfg["id"]: build_doc(cfg, questions) for cfg in DOCS}
     groups, bank_count = build_bank(questions)
     ccnp_count = sum(1 for q in questions.values() if q["source"] == "ccnp")
-    decks, cards = build_cards()
+    decks, cards = [], []
+    labs = {"intro_html": {}, "labs": []}
+    for kit in CARDS_FILES:
+        kit_decks, kit_cards = build_cards(kit)
+        decks += kit_decks
+        cards += kit_cards
+        kit_labs = build_labs(kit)
+        labs["intro_html"][kit] = kit_labs["intro_html"]
+        labs["labs"] += kit_labs["labs"]
+    if len({c["id"] for c in cards}) != len(cards):
+        raise ContentError("two flashcards share the same question text")
     drills = build_drills()
-    labs = build_labs()
     counts = {"ccna_bank": bank_count, "ccnp": ccnp_count, "drills": len(drills["drills"])}
     for key, want in EXPECTED.items():
         if counts[key] != want:

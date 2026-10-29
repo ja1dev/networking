@@ -1,5 +1,6 @@
-{% from "_icons.html" import icon %}<!doctype html>
-<html lang="en">
+{% from "_icons.html" import icon %}{% from "_track.html" import track_switch with context %}<!doctype html>
+{%- set cur_track = track if track is defined and track else "both" %}
+<html lang="en" data-track="{{ cur_track }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -15,39 +16,73 @@
 </script>
 </head>
 <body>
+{%- set sections = [
+  ("", [("home", "/", "home", "Dashboard")]),
+  ("Study", [("read", "/read", "book", "Read"), ("cards", "/cards", "cards", "Flashcards")]),
+  ("Practice", [("quiz", "/quiz", "quiz", "Quiz"), ("terminal", "/terminal", "terminal", "Terminal labs"),
+                ("labs", "/labs", "lab", "Workbook labs"), ("subnet", "/subnetting", "subnet", "Subnetting")]),
+] %}
+{%- set account = [("settings", "/settings", "settings", "Settings")] + ([("users", "/users", "users", "Users")] if user and user.is_admin else []) %}
+{%- set section_of = {"home": "", "read": "Study", "cards": "Study", "quiz": "Practice", "terminal": "Practice",
+                      "labs": "Practice", "subnet": "Practice", "search": "", "settings": "Account", "users": "Account"} %}
 <div class="reading-bar" hidden></div>
+<a class="skip-link" href="#main">Skip to content</a>
 <div class="shell">
-  <aside class="sidebar" id="sidebar">
-    <a class="brand" href="/">{{ icon("logo", 24) }} NetLab</a>
-    <nav class="nav" aria-label="Main">
-      <a href="/" class="{{ 'active' if nav == 'home' }}">{{ icon("home") }} Dashboard</a>
-      <a href="/read" class="{{ 'active' if nav == 'read' }}">{{ icon("book") }} Read</a>
-      <a href="/quiz" class="{{ 'active' if nav == 'quiz' }}">{{ icon("quiz") }} Quiz</a>
-      <a href="/cards" class="{{ 'active' if nav == 'cards' }}">{{ icon("cards") }} Flashcards</a>
-      <a href="/subnetting" class="{{ 'active' if nav == 'subnet' }}">{{ icon("subnet") }} Subnetting</a>
-      <a href="/terminal" class="{{ 'active' if nav == 'terminal' }}">{{ icon("terminal") }} Terminal</a>
-      <a href="/labs" class="{{ 'active' if nav == 'labs' }}">{{ icon("lab") }} Labs</a>
-      <a href="/search" class="{{ 'active' if nav == 'search' }}">{{ icon("search") }} Search</a>
-      <a href="/settings" class="{{ 'active' if nav == 'settings' }}">{{ icon("settings") }} Settings</a>
-      {% if user and user.is_admin %}<a href="/users" class="{{ 'active' if nav == 'users' }}">{{ icon("users") }} Users</a>{% endif %}
-    </nav>
-    <div class="sidebar-foot">
-      {% if AUTH_ENABLED and user %}<span class="who" title="Signed in as {{ user.username }}">{{ user.username }}</span>{% endif %}
-      <button class="icon-btn" type="button" data-theme-toggle title="Toggle dark mode" aria-label="Toggle dark mode">{{ icon("theme") }}</button>
-      {% if AUTH_ENABLED %}
-      <form method="post" action="/logout"><button class="icon-btn" type="submit" title="Sign out" aria-label="Sign out">{{ icon("logout") }}</button></form>
-      {% endif %}
+  <aside class="sidebar" id="sidebar" aria-label="Navigation">
+    <a class="brand" href="/">{{ icon("logo", 24) }}<span>NetLab</span></a>
+    <div class="sidebar-track">
+      <div class="nav-label">Studying for</div>
+      {{ track_switch() }}
     </div>
+    <nav class="nav" aria-label="Main">
+      {% for title, items in sections %}
+      <div class="nav-group{{ ' has-active' if section_of.get(nav) == title and title }}">
+        {% if title %}<div class="nav-label">{{ title }}</div>{% endif %}
+        {% for key, href, ic, label in items %}
+        <a href="{{ href }}" class="{{ 'active' if nav == key }}"{% if nav == key %} aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span></a>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </nav>
+    <nav class="nav nav-account" aria-label="Account">
+      {% for key, href, ic, label in account %}
+      <a href="{{ href }}" class="{{ 'active' if nav == key }}"{% if nav == key %} aria-current="page"{% endif %}>{{ icon(ic) }}<span>{{ label }}</span></a>
+      {% endfor %}
+    </nav>
   </aside>
   <div class="scrim" data-close-drawers></div>
   <div class="main">
     <header class="topbar">
-      <button class="icon-btn" type="button" data-nav-toggle aria-label="Open menu">{{ icon("menu", 22) }}</button>
-      <a class="brand" href="/">{{ icon("logo", 20) }} NetLab</a>
+      <button class="icon-btn topbar-menu" type="button" data-nav-toggle aria-label="Open menu">{{ icon("menu", 22) }}</button>
+      <a class="brand topbar-brand" href="/">{{ icon("logo", 20) }}<span>NetLab</span></a>
+      <div class="topbar-title">
+        {% if section_of.get(nav) %}<span class="topbar-section">{{ section_of.get(nav) }}</span><span class="topbar-sep" aria-hidden="true">/</span>{% endif %}
+        <span class="topbar-page">{{ self.title() }}</span>
+      </div>
+      {{ track_switch("track-compact") }}
       {% block topbar_extra %}{% endblock %}
+      {% if nav != "search" %}
+      <form class="topbar-search" action="/search" method="get" role="search">
+        {{ icon("search", 16) }}
+        <input type="search" name="q" placeholder="Search guides, labs, cards" aria-label="Search">
+        <kbd>/</kbd>
+      </form>
+      {% endif %}
+      <a class="icon-btn topbar-search-link" href="/search" aria-label="Search">{{ icon("search", 20) }}</a>
+      <button class="icon-btn topbar-theme" type="button" data-theme-toggle title="Toggle dark mode" aria-label="Toggle dark mode">{{ icon("theme") }}</button>
+      <details class="user-menu">
+        <summary class="icon-btn" aria-label="Account menu">{{ icon("user") }}{% if AUTH_ENABLED and user %}<span class="who" title="Signed in as {{ user.username }}">{{ user.username }}</span>{% endif %}</summary>
+        <div class="user-pop">
+          {% if AUTH_ENABLED and user %}<div class="user-pop-head">Signed in as <strong>{{ user.username }}</strong>{% if user.is_admin %} <span class="pill">admin</span>{% endif %}</div>{% endif %}
+          <a href="/settings">{{ icon("settings", 16) }} Settings</a>
+          <button type="button" class="user-pop-theme" data-theme-toggle>{{ icon("theme", 16) }} Dark / light mode</button>
+          {% if user and user.is_admin %}<a href="/users">{{ icon("users", 16) }} Users</a>{% endif %}
+          {% if AUTH_ENABLED %}<form method="post" action="/logout"><button type="submit">{{ icon("logout", 16) }} Sign out</button></form>{% endif %}
+        </div>
+      </details>
     </header>
     {% block body %}
-    <main class="content {% block content_class %}{% endblock %}">
+    <main class="content {% block content_class %}{% endblock %}" id="main">
       {% block content %}{% endblock %}
     </main>
     {% endblock %}

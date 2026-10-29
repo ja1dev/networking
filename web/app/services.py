@@ -10,7 +10,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from . import srs
-from .content import DOC_ORDER, SOURCE_TITLES, Content
+from .content import DOC_ORDER, SOURCE_KITS, SOURCE_TITLES, Content
 from .db import as_utc, utcnow
 from .models import (CardReview, CardState, DrillAttempt, LabItemCheck, LabProgress,
                      PageProgress, QuestionAttempt, QuizSession, ROLES, Setting, TerminalProgress,
@@ -18,6 +18,7 @@ from .models import (CardReview, CardState, DrillAttempt, LabItemCheck, LabProgr
 from .passwords import DUMMY_HASH, hash_password, verify_password
 
 SETTINGS = {
+    "track": {"default": "both", "type": str, "choices": ("ccnp", "ccna", "both")},
     "timezone": {"default": "UTC", "type": str},
     "new_cards_per_day": {"default": 20, "type": int, "min": 0, "max": 200},
     "exam_seconds_per_question": {"default": 72, "type": int, "min": 20, "max": 600},
@@ -160,6 +161,8 @@ def update_settings(db: Session, uid: int, values: dict) -> dict:
                 raise ServiceError("%s must be a whole number" % key)
             if not spec["min"] <= value <= spec["max"]:
                 raise ServiceError("%s must be between %d and %d" % (key, spec["min"], spec["max"]))
+        if "choices" in spec and value not in spec["choices"]:
+            raise ServiceError("%s must be one of %s" % (key, ", ".join(spec["choices"])))
         if key == "timezone":
             try:
                 ZoneInfo(str(value))
@@ -217,9 +220,11 @@ def set_page_note(db: Session, uid: int, doc_id: str, page_id: str, note: str):
     db.commit()
 
 
-def last_visited(db: Session, uid: int):
-    return db.scalars(select(PageProgress).where(PageProgress.user_id == uid,
-                                                 PageProgress.last_visited_at.is_not(None))
+def last_visited(db: Session, uid: int, doc_ids=None):
+    query = select(PageProgress).where(PageProgress.user_id == uid, PageProgress.last_visited_at.is_not(None))
+    if doc_ids is not None:
+        query = query.where(PageProgress.doc_id.in_(doc_ids))
+    return db.scalars(query
                       .order_by(PageProgress.last_visited_at.desc()).limit(1)).first()
 
 
@@ -426,8 +431,19 @@ def finish_quiz(db: Session, quiz: QuizSession) -> QuizSession:
     return quiz
 
 
-def recent_quizzes(db: Session, uid: int, limit=10):
-    return list(db.scalars(select(QuizSession).where(QuizSession.user_id == uid).order_by(QuizSession.created_at.desc()).limit(limit)))
+def recent_quizzes(db: Session, uid: int, limit=10, content: Content | None = None, kits=None):
+    """The newest quizzes, optionally only those drawn from the given kits' question sources."""
+    query = select(QuizSession).where(QuizSession.user_id == uid).order_by(QuizSession.created_at.desc())
+    if kits is None:
+        return list(db.scalars(query.limit(limit)))
+    out = []
+    for quiz in db.scalars(query):
+        first = content.questions.get(quiz.question_ids[0]) if quiz.question_ids else None
+        if first and SOURCE_KITS[first["source"]] in kits:
+            out.append(quiz)
+            if len(out) == limit:
+                break
+    return out
 
 
 def delete_quiz(db: Session, quiz: QuizSession):
@@ -484,14 +500,14 @@ def card_counts(db: Session, uid: int, content: Content) -> dict:
     return per
 
 
-def card_queue(db: Session, uid: int, content: Content, deck: str | None) -> dict:
+def card_queue(db: Session, uid: int, content: Content, deck: str | None, kits=("ccna", "ccnp")) -> dict:
     """Cards to study now: due learning + due reviews, then today's new cards."""
     if deck and deck not in content.deck_by_id:
         raise ServiceError("unknown deck")
     now = utcnow()
     tz = local_tz(db, uid)
     settings = get_settings(db, uid)
-    cards = [c for c in content.cards if not deck or c["deck"] == deck]
+    cards = [c for c in content.cards if c["deck"] == deck] if deck else content.cards_for(kits)
     states = card_states(db, uid)
     # Learn ahead: learning steps due in the next 20 minutes count as due now.
     horizon = now + timedelta(minutes=20)
@@ -736,31 +752,32 @@ def heatmap(activity: Counter, today, weeks=16) -> list:
     return cols
 
 
-def dashboard(db: Session, uid: int, content: Content) -> dict:
+def dashboard(db: Session, uid: int, content: Content, kits=("ccna", "ccnp")) -> dict:
     tz = local_tz(db, uid)
     today = utcnow().astimezone(tz).date()
     reading = []
-    for doc_id in DOC_ORDER:
+    for doc_id in content.doc_ids(kits):
         doc = content.docs[doc_id]
         prog = page_progress(db, uid, doc_id)
         done = sum(1 for pid in doc["order"] if prog.get(pid) and prog[pid].completed_at)
-        reading.append({"id": doc_id, "title": doc["title"], "done": done,
+        reading.append({"id": doc_id, "kit": doc["kit"], "title": doc["title"], "done": done,
                         "total": len(doc["order"])})
     results = latest_results(db, uid)
     sources = []
     weak = []
-    for source in ("bank", "ccnp"):
+    for source in content.sources(kits):
         groups = group_accuracy(content, results, source)
         answered = sum(g["answered"] for g in groups)
         correct = sum(g["correct"] for g in groups)
-        sources.append({"id": source, "title": SOURCE_TITLES[source],
+        sources.append({"id": source, "kit": SOURCE_KITS[source], "title": SOURCE_TITLES[source],
                         "total": sum(g["total"] for g in groups), "answered": answered,
                         "accuracy": (correct / answered) if answered else None})
         for g in groups:
             if g["answered"] >= 3 and g["accuracy"] < 0.85:
                 weak.append(dict(g, source=source))
     weak.sort(key=lambda g: g["accuracy"])
-    counts = card_counts(db, uid, content)
+    shown_decks = {d["id"] for d in content.decks_for(kits)}
+    counts = {k: v for k, v in card_counts(db, uid, content).items() if k in shown_decks}
     settings = get_settings(db, uid)
     new_left = max(0, settings["new_cards_per_day"] - new_cards_introduced_today(db, uid, tz))
     total_new = sum(d["new"] for d in counts.values())
@@ -775,14 +792,20 @@ def dashboard(db: Session, uid: int, content: Content) -> dict:
              "new_today": min(new_left, total_new),
              "studied": sum(d["total"] - d["new"] for d in counts.values()),
              "mature": sum(d["mature"] for d in counts.values()),
-             "total": len(content.cards), "reviews_today": reviews_today,
+             "total": len(content.cards_for(kits)), "reviews_today": reviews_today,
              "retention": retention}
     progress, checks = lab_status(db, uid)
-    labs_done = sum(1 for l in content.labs if progress.get(l["id"]) and progress[l["id"]].completed_at)
+    workbook = content.labs_for(kits)
+    labs_done = sum(1 for l in workbook if progress.get(l["id"]) and progress[l["id"]].completed_at)
     terminal = terminal_status(db, uid)
-    graded = [l for l in content.terminal_labs if l["tasks"]]
+    graded = [l for l in content.terminal_for(kits) if l["tasks"]]
+    by_exam = {}
+    for l in graded:
+        e = by_exam.setdefault(l["exam"] or "Other", {"done": 0, "total": 0})
+        e["total"] += 1
+        e["done"] += bool(terminal.get(l["id"]) and terminal[l["id"]].completed_at)
     activity = activity_by_day(db, uid, tz)
-    lv = last_visited(db, uid)
+    lv = last_visited(db, uid, {d for d in content.doc_ids(kits)})
     resume = None
     if lv and content.page(lv.doc_id, lv.page_id):
         resume = {"doc": lv.doc_id, "doc_title": content.docs[lv.doc_id]["title"],
@@ -790,12 +813,12 @@ def dashboard(db: Session, uid: int, content: Content) -> dict:
     return {
         "reading": reading, "sources": sources, "weak": weak[:6], "cards": cards,
         "subnetting": drill_stats(db, uid, days=7),
-        "labs": {"done": labs_done, "total": sum(1 for l in content.labs if l["items"]),
-                 "items_checked": sum(len(v) for v in checks.values())},
+        "labs": {"done": labs_done, "total": sum(1 for l in workbook if l["items"]),
+                 "items_checked": sum(len(v) for k, v in checks.items() if k in {l["id"] for l in workbook})},
         "terminal": {"done": sum(1 for l in graded if terminal.get(l["id"]) and terminal[l["id"]].completed_at),
-                     "total": len(graded)},
+                     "total": len(graded), "by_exam": by_exam},
         "streak": streak(activity, today), "today_count": activity.get(today, 0),
         "heatmap": heatmap(activity, today), "resume": resume,
-        "quizzes": recent_quizzes(db, uid, 5),
+        "quizzes": recent_quizzes(db, uid, 5, content, kits),
         "tz_is_default": db.get(Setting, (uid, "timezone")) is None,
     }
