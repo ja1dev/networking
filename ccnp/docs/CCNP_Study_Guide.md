@@ -196,6 +196,371 @@ Some examples you already know:
 
 The storm is identical in both. Only the size of the failure domain differs, and that was decided at design time.
 
+```diagram
+{
+  "type": "topology",
+  "title": "One looped desk switch, two very different blast radii",
+  "caption": "Left: VLAN 10 spans every access switch, with Layer 2 up to the distribution pair. Right: routed access, where VLAN 10 lives on one access switch. Step through the same mistake in both.",
+  "nodes": [
+    {
+      "id": "DA1",
+      "kind": "l3switch",
+      "x": 0,
+      "y": 0,
+      "label": "DIST1",
+      "sub": "STP root, SVI"
+    },
+    {
+      "id": "DA2",
+      "kind": "l3switch",
+      "x": 2,
+      "y": 0,
+      "label": "DIST2",
+      "sub": "HSRP standby"
+    },
+    {
+      "id": "AA1",
+      "kind": "switch",
+      "x": 0,
+      "y": 1.6,
+      "label": "ACC1",
+      "sub": "VLAN 10"
+    },
+    {
+      "id": "AA2",
+      "kind": "switch",
+      "x": 1,
+      "y": 1.6,
+      "label": "ACC2",
+      "sub": "VLAN 10"
+    },
+    {
+      "id": "AA3",
+      "kind": "switch",
+      "x": 2,
+      "y": 1.6,
+      "label": "ACC3",
+      "sub": "VLAN 10"
+    },
+    {
+      "id": "DSKA",
+      "kind": "switch",
+      "x": 1,
+      "y": 3.1,
+      "label": "Desk switch"
+    },
+    {
+      "id": "DB1",
+      "kind": "l3switch",
+      "x": 3.5,
+      "y": 0,
+      "label": "DIST1"
+    },
+    {
+      "id": "DB2",
+      "kind": "l3switch",
+      "x": 5.5,
+      "y": 0,
+      "label": "DIST2"
+    },
+    {
+      "id": "AB1",
+      "kind": "l3switch",
+      "x": 3.5,
+      "y": 1.6,
+      "label": "ACC1",
+      "sub": "VLAN 11"
+    },
+    {
+      "id": "AB2",
+      "kind": "l3switch",
+      "x": 4.5,
+      "y": 1.6,
+      "label": "ACC2",
+      "sub": "VLAN 10"
+    },
+    {
+      "id": "AB3",
+      "kind": "l3switch",
+      "x": 5.5,
+      "y": 1.6,
+      "label": "ACC3",
+      "sub": "VLAN 12"
+    },
+    {
+      "id": "DSKB",
+      "kind": "switch",
+      "x": 4.5,
+      "y": 3.1,
+      "label": "Desk switch"
+    }
+  ],
+  "links": [
+    {
+      "a": "DA1",
+      "b": "DA2"
+    },
+    {
+      "a": "AA1",
+      "b": "DA1"
+    },
+    {
+      "a": "AA1",
+      "b": "DA2"
+    },
+    {
+      "a": "AA2",
+      "b": "DA1"
+    },
+    {
+      "a": "AA2",
+      "b": "DA2"
+    },
+    {
+      "a": "AA3",
+      "b": "DA1"
+    },
+    {
+      "a": "AA3",
+      "b": "DA2"
+    },
+    {
+      "a": "AA2",
+      "b": "DSKA"
+    },
+    {
+      "a": "DB1",
+      "b": "DB2"
+    },
+    {
+      "a": "AB1",
+      "b": "DB1"
+    },
+    {
+      "a": "AB1",
+      "b": "DB2"
+    },
+    {
+      "a": "AB2",
+      "b": "DB1"
+    },
+    {
+      "a": "AB2",
+      "b": "DB2"
+    },
+    {
+      "a": "AB3",
+      "b": "DB1"
+    },
+    {
+      "a": "AB3",
+      "b": "DB2"
+    },
+    {
+      "a": "AB2",
+      "b": "DSKB"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Design A: L2 to distribution",
+      "nodes": [
+        "DA1",
+        "DA2",
+        "AA1",
+        "AA2",
+        "AA3",
+        "DSKA"
+      ],
+      "tone": "warn"
+    },
+    {
+      "label": "Design B: routed access",
+      "nodes": [
+        "DB1",
+        "DB2",
+        "AB1",
+        "AB2",
+        "AB3",
+        "DSKB"
+      ],
+      "tone": "good"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Same buildings, different boundary",
+      "text": "In **Design A** VLAN 10 (10.10.10.0/24) is trunked to all three access switches, and its gateway SVI lives on DIST1/DIST2. DIST1 is the STP root, so each access switch blocks its uplink to DIST2. In **Design B** every uplink is a routed /31 and ACC2 is VLAN 10's only switch and its gateway. Nothing is blocked: OSPF uses both uplinks.",
+      "links": {
+        "AA1-DA2": "blocked",
+        "AA2-DA2": "blocked",
+        "AA3-DA2": "blocked"
+      }
+    },
+    {
+      "title": "2. The same mistake in both buildings",
+      "text": "Someone plugs both ends of a patch cable into a desk switch under ACC2, and that port has no BPDU guard. One broadcast enters the loop and is copied forever, because Ethernet frames have no TTL.",
+      "nodes": {
+        "DSKA": {
+          "badge": "LOOP",
+          "tone": "bad"
+        },
+        "DSKB": {
+          "badge": "LOOP",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "DSKA",
+            "AA2"
+          ],
+          "label": "broadcast x thousands",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "DSKB",
+            "AB2"
+          ],
+          "label": "broadcast x thousands",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. Design A: the storm rides the trunks",
+      "text": "ACC2 floods every copy out of every port in VLAN 10, which includes its trunk to DIST1. DIST1 floods it down the trunks to ACC1 and ACC3 and across to DIST2. Every port in VLAN 10, in every closet, now carries the storm. **The failure domain is the whole VLAN.**",
+      "focus": [
+        "DA1",
+        "DA2",
+        "AA1",
+        "AA2",
+        "AA3",
+        "DSKA"
+      ],
+      "nodes": {
+        "AA1": {
+          "badge": "storm",
+          "tone": "bad"
+        },
+        "AA2": {
+          "badge": "storm",
+          "tone": "bad"
+        },
+        "AA3": {
+          "badge": "storm",
+          "tone": "bad"
+        },
+        "DA1": {
+          "badge": "storm",
+          "tone": "bad"
+        },
+        "DA2": {
+          "badge": "storm",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "AA2",
+            "DA1",
+            "AA1"
+          ],
+          "label": "broadcast",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "AA2",
+            "DA1",
+            "AA3"
+          ],
+          "label": "broadcast",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "DA1",
+            "DA2"
+          ],
+          "label": "broadcast",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. Design A: the distribution CPUs drown",
+      "text": "Both distribution switches have an SVI in VLAN 10, so every broadcast copy (ARP is the classic) is punted to their CPUs. A CPU pinned at 99% starts missing OSPF hellos toward the core. Now one user's patch cable can disturb routing for the whole building and beyond.",
+      "focus": [
+        "DA1",
+        "DA2"
+      ],
+      "nodes": {
+        "DA1": {
+          "badge": "CPU 99%",
+          "tone": "bad"
+        },
+        "DA2": {
+          "badge": "CPU 99%",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "5. Design B: the storm stops at the first router",
+      "text": "The same storm floods VLAN 10 on ACC2. But ACC2's uplinks are **routed** ports: a router never forwards a Layer 2 broadcast out of another interface. DIST1, DIST2, ACC1 and ACC3 see nothing. The ~48 users on ACC2 suffer, and at worst ACC2 itself struggles, so one subnet goes unreachable.",
+      "focus": [
+        "DB1",
+        "DB2",
+        "AB1",
+        "AB2",
+        "AB3",
+        "DSKB"
+      ],
+      "nodes": {
+        "AB2": {
+          "badge": "storm",
+          "tone": "bad"
+        },
+        "AB1": {
+          "badge": "calm",
+          "tone": "good"
+        },
+        "AB3": {
+          "badge": "calm",
+          "tone": "good"
+        },
+        "DB1": {
+          "badge": "calm",
+          "tone": "good"
+        },
+        "DB2": {
+          "badge": "calm",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "DSKB",
+            "AB2"
+          ],
+          "label": "broadcast stops here",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "6. Same storm, decided at design time",
+      "text": "Nothing in the storm differed. Only the **size of the failure domain** did, and that was fixed the day someone chose where Layer 2 ends. (BPDU guard on the desk port, Chapter 4, would have stopped both storms at the first BPDU.)"
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 1.2**
 
 **Q1.** VLAN 10 spans 12 access switches and the Layer 2/Layer 3 boundary is at the distribution layer. A looped patch cable on one desk switch causes a broadcast storm in VLAN 10. Which design change would shrink the failure domain of this kind of event the most?
@@ -248,6 +613,218 @@ You met this in CCNA (guide 1.7). At CCNP you need to know *why each layer does 
 | **Distribution** | Aggregate access, enforce policy, be the L2/L3 boundary | SVIs and FHRP gateways, route summarization, ACLs, STP root | End users |
 | **Core** | Move packets between distribution blocks as fast as possible | High-speed L3 links, fast-converging routing | Policy, filtering, anything that slows forwarding or fails often |
 
+```diagram
+{
+  "type": "topology",
+  "title": "Three-tier campus: click each layer to see its job",
+  "caption": "Two building blocks joined by a core. Click any switch or link.",
+  "nodes": [
+    {
+      "id": "CORE1",
+      "kind": "l3switch",
+      "x": 2.25,
+      "y": 0,
+      "label": "CORE1",
+      "sub": "core",
+      "info": "**Core.** One job: move packets between blocks as fast as possible and reconverge quickly. Only routed 10/40/100G links, no ACLs, no NAT, no users. Every packet between buildings crosses it, so any feature here is applied to everything, and any bug here hits every building at once."
+    },
+    {
+      "id": "CORE2",
+      "kind": "l3switch",
+      "x": 3.75,
+      "y": 0,
+      "label": "CORE2",
+      "sub": "core",
+      "info": "**Core (redundant peer).** Every distribution switch has an uplink to both cores, so losing one core halves capacity but cuts nobody off. ECMP in OSPF uses both at once."
+    },
+    {
+      "id": "D10A",
+      "kind": "l3switch",
+      "x": 0.5,
+      "y": 1.5,
+      "label": "D10-1",
+      "sub": "distribution",
+      "info": "**Distribution, building 10.** The Layer 2/Layer 3 boundary for this block: VLAN SVIs and the HSRP/VRRP gateways live here, along with the STP root, ACLs and QoS policy. It summarizes the block toward the core as **10.10.0.0/16**, so a subnet flapping in building 10 never reaches the core."
+    },
+    {
+      "id": "D10B",
+      "kind": "l3switch",
+      "x": 1.75,
+      "y": 1.5,
+      "label": "D10-2",
+      "sub": "distribution",
+      "info": "**Distribution peer.** Paired with D10-1 for redundancy: STP root and FHRP active for the even VLANs, backup for the odd ones (Chapter 4 and 9)."
+    },
+    {
+      "id": "D20A",
+      "kind": "l3switch",
+      "x": 4.25,
+      "y": 1.5,
+      "label": "D20-1",
+      "sub": "distribution",
+      "info": "**Distribution, building 20.** Same job for a different block. Advertises **10.20.0.0/16** toward the core."
+    },
+    {
+      "id": "D20B",
+      "kind": "l3switch",
+      "x": 5.5,
+      "y": 1.5,
+      "label": "D20-2",
+      "sub": "distribution",
+      "info": "**Distribution peer** for building 20."
+    },
+    {
+      "id": "A10A",
+      "kind": "switch",
+      "x": 0.5,
+      "y": 3,
+      "label": "A10-1",
+      "sub": "access",
+      "info": "**Access.** Connects endpoints: access ports, PoE for phones and APs, port security, 802.1X, QoS marking and trust, and BPDU guard. No inter-site routing and no complex policy."
+    },
+    {
+      "id": "A10B",
+      "kind": "switch",
+      "x": 1.75,
+      "y": 3,
+      "label": "A10-2",
+      "sub": "access",
+      "info": "**Access.** Dual-homed to both distribution switches, so losing one uplink or one distribution switch doesn't isolate the closet."
+    },
+    {
+      "id": "A20A",
+      "kind": "switch",
+      "x": 4.25,
+      "y": 3,
+      "label": "A20-1",
+      "sub": "access",
+      "info": "**Access** switch in building 20."
+    },
+    {
+      "id": "A20B",
+      "kind": "switch",
+      "x": 5.5,
+      "y": 3,
+      "label": "A20-2",
+      "sub": "access",
+      "info": "**Access** switch in building 20."
+    }
+  ],
+  "links": [
+    {
+      "a": "CORE1",
+      "b": "CORE2",
+      "style": "thick",
+      "info": "Core interconnect: routed, usually a Layer 3 EtherChannel."
+    },
+    {
+      "a": "D10A",
+      "b": "CORE1",
+      "info": "Routed point-to-point uplink. Only the summary 10.10.0.0/16 goes up it."
+    },
+    {
+      "a": "D10A",
+      "b": "CORE2"
+    },
+    {
+      "a": "D10B",
+      "b": "CORE1"
+    },
+    {
+      "a": "D10B",
+      "b": "CORE2"
+    },
+    {
+      "a": "D20A",
+      "b": "CORE1"
+    },
+    {
+      "a": "D20A",
+      "b": "CORE2"
+    },
+    {
+      "a": "D20B",
+      "b": "CORE1"
+    },
+    {
+      "a": "D20B",
+      "b": "CORE2"
+    },
+    {
+      "a": "D10A",
+      "b": "D10B"
+    },
+    {
+      "a": "D20A",
+      "b": "D20B"
+    },
+    {
+      "a": "A10A",
+      "b": "D10A",
+      "info": "Access uplink: an 802.1Q trunk in Layer 2 access, or a routed /31 in routed access (1.5)."
+    },
+    {
+      "a": "A10A",
+      "b": "D10B"
+    },
+    {
+      "a": "A10B",
+      "b": "D10A"
+    },
+    {
+      "a": "A10B",
+      "b": "D10B"
+    },
+    {
+      "a": "A20A",
+      "b": "D20A"
+    },
+    {
+      "a": "A20A",
+      "b": "D20B"
+    },
+    {
+      "a": "A20B",
+      "b": "D20A"
+    },
+    {
+      "a": "A20B",
+      "b": "D20B"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Core",
+      "nodes": [
+        "CORE1",
+        "CORE2"
+      ],
+      "tone": "purple"
+    },
+    {
+      "label": "Building 10 block",
+      "nodes": [
+        "D10A",
+        "D10B",
+        "A10A",
+        "A10B"
+      ],
+      "tone": "accent"
+    },
+    {
+      "label": "Building 20 block",
+      "nodes": [
+        "D20A",
+        "D20B",
+        "A20A",
+        "A20B"
+      ],
+      "tone": "good"
+    }
+  ]
+}
+```
+
 **Why should the core be "dumb and fast"?** Because the core is the one place where **everything** passes through. Any feature there — an ACL, a QoS policy, NAT — is applied to every packet in the network, and any bug in that feature can take down every building at once. Keep the core to one job (forward, converge fast) and push intelligence out to the distribution layer, where a mistake only affects one block. *The core is the spine of the network; you want it boring.*
 
 **Why is the distribution layer where summarization happens?** Because each distribution pair sits at the edge of a block — a building, a floor group — and knows every subnet inside it. If it advertises one summary (`10.20.0.0/16`) toward the core instead of 200 specific /24s, two good things happen: the core's routing table stays small, and a subnet flapping in that building **doesn't propagate** past the distribution layer, because the summary stays up as long as *any* component is up. *Summarization is how the distribution layer turns "something changed in building 20" into "nothing changed" for everyone else.*
@@ -269,6 +846,172 @@ Routing entry for 10.20.0.0/16
 4. While 10.20.7.0/24 is down, the core still forwards packets for 10.20.7.5 toward building 20. The distribution switch has no /24 for it, matches its own automatically created **discard route** (`10.20.0.0/16 is a summary, Null0`) and drops the packet there.
 
 The trade-off: one building's problem stays in that building, but traffic for a dead subnet travels as far as the distribution layer before it is dropped. That is almost always worth it.
+
+```diagram
+{
+  "type": "topology",
+  "title": "A flapping subnet behind a summary",
+  "caption": "DIST20 is the ABR for area 20 with `area 20 range 10.20.0.0 255.255.0.0`.",
+  "nodes": [
+    {
+      "id": "LAB",
+      "kind": "switch",
+      "x": 0,
+      "y": 0,
+      "label": "ACC-LAB",
+      "sub": "10.20.7.0/24"
+    },
+    {
+      "id": "ACC",
+      "kind": "switch",
+      "x": 0,
+      "y": 1.5,
+      "label": "Other ACCs",
+      "sub": "254 other /24s"
+    },
+    {
+      "id": "DIST20",
+      "kind": "l3switch",
+      "x": 1.6,
+      "y": 0,
+      "label": "DIST20",
+      "sub": "ABR area 20"
+    },
+    {
+      "id": "CORE1",
+      "kind": "l3switch",
+      "x": 3.2,
+      "y": 0,
+      "label": "CORE1",
+      "sub": "area 0"
+    },
+    {
+      "id": "USER",
+      "kind": "host",
+      "x": 4.8,
+      "y": 0,
+      "label": "User",
+      "sub": "building 30"
+    }
+  ],
+  "links": [
+    {
+      "a": "USER",
+      "b": "CORE1"
+    },
+    {
+      "a": "CORE1",
+      "b": "DIST20"
+    },
+    {
+      "a": "DIST20",
+      "b": "LAB"
+    },
+    {
+      "a": "DIST20",
+      "b": "ACC"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Area 20",
+      "nodes": [
+        "LAB",
+        "ACC"
+      ],
+      "tone": "accent"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. One summary instead of 256 routes",
+      "text": "DIST20 knows every /24 in building 20, but tells area 0 only one thing: a Type 3 LSA for **10.20.0.0/16**. CORE1's table has one line for the whole building.",
+      "packets": [
+        {
+          "path": [
+            "DIST20",
+            "CORE1"
+          ],
+          "label": "Type 3 10.20.0.0/16",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. The lab subnet starts flapping",
+      "text": "A bad cable makes 10.20.7.0/24 go down and up every few seconds. **Inside area 20** this is real news: the change floods as Type 1 LSAs and DIST20 reruns SPF every time.",
+      "nodes": {
+        "LAB": {
+          "badge": "flapping",
+          "tone": "bad"
+        },
+        "DIST20": {
+          "badge": "SPF",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "DIST20-LAB": "down"
+      }
+    },
+    {
+      "title": "3. The summary doesn't move",
+      "text": "The /16 stays advertised while **at least one** component /24 is up, and 254 are. So DIST20 sends area 0 nothing new, and CORE1 never reruns anything:\n\n`CORE1# show ip route 10.20.7.5` → `Routing entry for 10.20.0.0/16 ... type inter area`",
+      "nodes": {
+        "CORE1": {
+          "badge": "no change",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "4. Traffic for the dead subnet",
+      "text": "A user sends to 10.20.7.5. CORE1 follows the /16 to DIST20. DIST20 has no /24 for it, so it matches the discard route it built with the summary (`10.20.0.0/16 is a summary, Null0`) and drops the packet. That's the trade-off: the problem stays in building 20, at the cost of carrying doomed packets as far as DIST20.",
+      "nodes": {
+        "DIST20": {
+          "badge": "Null0 drop",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "USER",
+            "CORE1",
+            "DIST20"
+          ],
+          "label": "to 10.20.7.5",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. The cable is fixed",
+      "text": "10.20.7.0/24 comes back inside area 20 and traffic flows again. The core never knew anything happened.",
+      "nodes": {
+        "LAB": null,
+        "DIST20": null,
+        "CORE1": null
+      },
+      "links": {
+        "DIST20-LAB": null
+      },
+      "packets": [
+        {
+          "path": [
+            "USER",
+            "CORE1",
+            "DIST20",
+            "LAB"
+          ],
+          "label": "to 10.20.7.5",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ### When Do You Need a Separate Core?
 
@@ -339,6 +1082,135 @@ In a smaller site — one building, a few floors — the distribution and core r
 
 **Why is collapsed core the most common real-world campus design?** Because most sites don't have enough distribution blocks to justify a separate core (see the table above). Collapsing saves two or more expensive chassis, their power and cabling, and an entire tier of configuration — and you can always split the core out later if the site grows. *Hierarchy is a logical idea first; you only build the physical tier when the scale demands it.*
 
+```diagram
+{
+  "type": "topology",
+  "title": "Two-tier collapsed core: click to see what each box does",
+  "caption": "One building: the core and distribution roles live on the same pair of switches.",
+  "nodes": [
+    {
+      "id": "WAN",
+      "kind": "router",
+      "x": 1,
+      "y": 0,
+      "label": "WAN edge",
+      "sub": "MPLS + internet",
+      "info": "**WAN edge router.** Connects the site to other sites and the internet (1.7). It peers with the collapsed core over routed links."
+    },
+    {
+      "id": "DC",
+      "kind": "server",
+      "x": 4,
+      "y": 0,
+      "label": "Server room",
+      "sub": "10.1.200.0/24",
+      "info": "**Local servers or a small data center.** In a collapsed design they hang off the same core pair as the users."
+    },
+    {
+      "id": "CD1",
+      "kind": "l3switch",
+      "x": 1,
+      "y": 1.5,
+      "label": "CORE-DIST1",
+      "sub": "core + distribution",
+      "info": "**Collapsed core / distribution.** Does both jobs: it is the L2/L3 boundary (SVIs, FHRP, STP root) for the access switches *and* the fast routed hub for the WAN edge and servers. Often a StackWise Virtual pair (Chapter 2), so it behaves as one switch."
+    },
+    {
+      "id": "CD2",
+      "kind": "l3switch",
+      "x": 4,
+      "y": 1.5,
+      "label": "CORE-DIST2",
+      "sub": "core + distribution",
+      "info": "**Redundant peer.** The catch with collapsing: a failure here is a core failure *and* a distribution failure at once, so the pair must be redundant."
+    },
+    {
+      "id": "ACC1",
+      "kind": "switch",
+      "x": 0,
+      "y": 3,
+      "label": "ACC 1st floor",
+      "sub": "access"
+    },
+    {
+      "id": "ACC2",
+      "kind": "switch",
+      "x": 2.5,
+      "y": 3,
+      "label": "ACC 2nd floor",
+      "sub": "access"
+    },
+    {
+      "id": "ACC3",
+      "kind": "switch",
+      "x": 5,
+      "y": 3,
+      "label": "ACC 3rd floor",
+      "sub": "access",
+      "info": "**Access switch.** Exactly as in three-tier: endpoints, PoE, 802.1X, BPDU guard. Dual uplinks to the core pair."
+    }
+  ],
+  "links": [
+    {
+      "a": "WAN",
+      "b": "CD1"
+    },
+    {
+      "a": "WAN",
+      "b": "CD2"
+    },
+    {
+      "a": "DC",
+      "b": "CD1"
+    },
+    {
+      "a": "DC",
+      "b": "CD2"
+    },
+    {
+      "a": "CD1",
+      "b": "CD2",
+      "style": "thick",
+      "info": "Inter-switch link (or the StackWise Virtual link). With StackWise Virtual the two boxes become one logical switch."
+    },
+    {
+      "a": "ACC1",
+      "b": "CD1"
+    },
+    {
+      "a": "ACC1",
+      "b": "CD2"
+    },
+    {
+      "a": "ACC2",
+      "b": "CD1"
+    },
+    {
+      "a": "ACC2",
+      "b": "CD2"
+    },
+    {
+      "a": "ACC3",
+      "b": "CD1"
+    },
+    {
+      "a": "ACC3",
+      "b": "CD2"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Collapsed core",
+      "nodes": [
+        "CD1",
+        "CD2"
+      ],
+      "tone": "purple"
+    }
+  ]
+}
+```
+
 | Design | Fits | Pros | Cons |
 |--------|------|------|------|
 | **Two-tier (collapsed core)** | Single building, small/medium campus | Cheaper, fewer devices, simpler | Doesn't scale past a few blocks; core and distribution failures are the same failure |
@@ -408,6 +1280,193 @@ Routing entry for 10.99.0.0/16
 5. When DIST1 returns, the adjacency re-forms and the second next hop is added back.
 
 Compare the looped Layer 2 design. There, one uplink sits blocked by STP until it's needed, and losing the active gateway also means an FHRP failover (Chapter 9).
+
+```diagram
+{
+  "type": "topology",
+  "title": "Routed access: losing a distribution switch",
+  "caption": "ACC1 is the gateway for VLAN 10 (10.1.10.1/24) and runs OSPF with BFD (50 ms x 3) on both routed uplinks: Gi1/0/49 to DIST1 and Gi1/0/50 to DIST2.",
+  "nodes": [
+    {
+      "id": "NET",
+      "kind": "cloud",
+      "x": 2,
+      "y": 0,
+      "label": "10.99.0.0/16",
+      "sub": "rest of campus"
+    },
+    {
+      "id": "DIST1",
+      "kind": "l3switch",
+      "x": 1,
+      "y": 1.3,
+      "label": "DIST1",
+      "sub": "10.0.0.0/31"
+    },
+    {
+      "id": "DIST2",
+      "kind": "l3switch",
+      "x": 3,
+      "y": 1.3,
+      "label": "DIST2",
+      "sub": "10.0.0.2/31"
+    },
+    {
+      "id": "ACC1",
+      "kind": "l3switch",
+      "x": 2,
+      "y": 2.6,
+      "label": "ACC1",
+      "sub": "GW 10.1.10.1"
+    },
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 2,
+      "y": 3.9,
+      "label": "PC",
+      "sub": "10.1.10.25"
+    }
+  ],
+  "links": [
+    {
+      "a": "NET",
+      "b": "DIST1"
+    },
+    {
+      "a": "NET",
+      "b": "DIST2"
+    },
+    {
+      "a": "ACC1",
+      "b": "DIST1",
+      "label": "10.0.0.0/31"
+    },
+    {
+      "a": "ACC1",
+      "b": "DIST2",
+      "label": "10.0.0.2/31"
+    },
+    {
+      "a": "PC",
+      "b": "ACC1"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Two equal-cost next hops",
+      "text": "OSPF gives ACC1 two routes of metric 3 to 10.99.0.0/16, one per uplink:\n\n`* 10.0.0.0, via GigabitEthernet1/0/49`\n`  10.0.0.2, via GigabitEthernet1/0/50`\n\nNo STP blocks anything, because there's no Layer 2 between the switches.",
+      "nodes": {
+        "ACC1": {
+          "badge": "ECMP x2",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "2. Flows are hashed across both",
+      "text": "CEF hashes each flow (source and destination IP) onto one next hop. A given flow always uses the same uplink, so its packets never arrive out of order, and the two uplinks share the load.",
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ACC1",
+            "DIST1",
+            "NET"
+          ],
+          "label": "flow A",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "PC",
+            "ACC1",
+            "DIST2",
+            "NET"
+          ],
+          "label": "flow B",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "3. DIST1 hangs, but its port stays up",
+      "text": "DIST1's software freezes. The link light stays on, so Gi1/0/49 never goes down. Plain OSPF would keep sending flow A into a dead box until its **40-second** dead interval ran out.",
+      "nodes": {
+        "DIST1": {
+          "badge": "hung",
+          "tone": "bad",
+          "state": "down"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ACC1",
+            "DIST1"
+          ],
+          "label": "flow A: black hole",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. BFD notices in 150 ms",
+      "text": "BFD expects a packet from DIST1 every 50 ms. After 3 misses (**~150 ms**) it tells OSPF the neighbour is gone, and OSPF removes next hop 10.0.0.0 at once.",
+      "nodes": {
+        "ACC1": {
+          "badge": "1 next hop",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "ACC1-DIST1": "down"
+      }
+    },
+    {
+      "title": "5. Everything rides Gi1/0/50",
+      "text": "Every flow now hashes to the only next hop left. No STP reconvergence, no FHRP failover, no ARP change: the hosts' gateway is ACC1 itself, and it never moved.",
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ACC1",
+            "DIST2",
+            "NET"
+          ],
+          "label": "flow A",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "PC",
+            "ACC1",
+            "DIST2",
+            "NET"
+          ],
+          "label": "flow B",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "6. DIST1 comes back",
+      "text": "The OSPF adjacency re-forms over Gi1/0/49, the second next hop is installed again, and flows spread across both uplinks as before.",
+      "nodes": {
+        "DIST1": null,
+        "ACC1": {
+          "badge": "ECMP x2",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ACC1-DIST1": null
+      }
+    }
+  ]
+}
+```
 
 **So why isn't everyone using routed access?** Because some applications still need a VLAN to exist in more than one closet — wireless controllers in older designs, certain building-management systems, or an application that expects hosts in the same subnet. Routed access can't stretch a VLAN. That need, at scale, is exactly what overlays like **VXLAN** and **SD-Access** solve: run a routed underlay for stability, and stretch Layer 2 *virtually* on top of it (Chapters 13 and 14).
 
@@ -497,6 +1556,157 @@ Data centers carry mostly **east-west** traffic (server to server: app tier to d
 - Spine 3 fails. Every leaf loses one of its four uplinks: capacity drops to **300 Gbps** per leaf (a 25% loss). Every leaf can still reach every other leaf in two hops through spines 1, 2 and 4.
 - The fabric needs more bandwidth. Add a fifth spine and one more uplink per leaf: **500 Gbps** per leaf, with no change to how traffic flows.
 - The fabric needs more server ports. Add a leaf and cable it to all spines. Nothing else is touched.
+
+```diagram
+{
+  "type": "path",
+  "title": "Spine-leaf: every leaf has four equal paths to every other leaf",
+  "prompt": "Pick any two leaves: all four spine paths light up, because each is leaf → spine → leaf at the same cost (ECMP). Raise one spine's link costs to take it out of service, the way an engineer drains a spine before maintenance, and watch the other paths carry on.",
+  "metric": "OSPF cost",
+  "from": "L1",
+  "to": "L4",
+  "nodes": [
+    {
+      "id": "S1",
+      "kind": "l3switch",
+      "x": 0.6,
+      "y": 0,
+      "label": "Spine 1"
+    },
+    {
+      "id": "S2",
+      "kind": "l3switch",
+      "x": 2,
+      "y": 0,
+      "label": "Spine 2"
+    },
+    {
+      "id": "S3",
+      "kind": "l3switch",
+      "x": 3.4,
+      "y": 0,
+      "label": "Spine 3"
+    },
+    {
+      "id": "S4",
+      "kind": "l3switch",
+      "x": 4.8,
+      "y": 0,
+      "label": "Spine 4"
+    },
+    {
+      "id": "L1",
+      "kind": "switch",
+      "x": 0,
+      "y": 2.4,
+      "label": "Leaf 1"
+    },
+    {
+      "id": "L2",
+      "kind": "switch",
+      "x": 1.8,
+      "y": 2.4,
+      "label": "Leaf 2"
+    },
+    {
+      "id": "L3",
+      "kind": "switch",
+      "x": 3.6,
+      "y": 2.4,
+      "label": "Leaf 3"
+    },
+    {
+      "id": "L4",
+      "kind": "switch",
+      "x": 5.4,
+      "y": 2.4,
+      "label": "Leaf 4"
+    }
+  ],
+  "links": [
+    {
+      "a": "L1",
+      "b": "S1",
+      "cost": 1
+    },
+    {
+      "a": "L1",
+      "b": "S2",
+      "cost": 1
+    },
+    {
+      "a": "L1",
+      "b": "S3",
+      "cost": 1
+    },
+    {
+      "a": "L1",
+      "b": "S4",
+      "cost": 1
+    },
+    {
+      "a": "L2",
+      "b": "S1",
+      "cost": 1
+    },
+    {
+      "a": "L2",
+      "b": "S2",
+      "cost": 1
+    },
+    {
+      "a": "L2",
+      "b": "S3",
+      "cost": 1
+    },
+    {
+      "a": "L2",
+      "b": "S4",
+      "cost": 1
+    },
+    {
+      "a": "L3",
+      "b": "S1",
+      "cost": 1
+    },
+    {
+      "a": "L3",
+      "b": "S2",
+      "cost": 1
+    },
+    {
+      "a": "L3",
+      "b": "S3",
+      "cost": 1
+    },
+    {
+      "a": "L3",
+      "b": "S4",
+      "cost": 1
+    },
+    {
+      "a": "L4",
+      "b": "S1",
+      "cost": 1
+    },
+    {
+      "a": "L4",
+      "b": "S2",
+      "cost": 1
+    },
+    {
+      "a": "L4",
+      "b": "S3",
+      "cost": 1
+    },
+    {
+      "a": "L4",
+      "b": "S4",
+      "cost": 1
+    }
+  ]
+}
+```
 
 **Why is the underlay in a fabric almost always routed (OSPF, IS-IS or eBGP)?** Because the whole point is to use **every** spine link at once. Spanning tree would block all but one path to each spine; a routing protocol happily installs every equal-cost path. Workloads still often need Layer 2 adjacency (VM mobility across racks), so a **VXLAN overlay** carries Layer 2 over the routed fabric (Chapter 13). *This "routed underlay + overlay" pattern is the single most important architecture idea in modern Cisco design — SD-Access, SD-WAN and data-center fabrics all use it.*
 
@@ -866,6 +2076,117 @@ The sequence is:
 
 Without NSF, at step 2 CORE1 would have seen DIST1's adjacency drop (after its dead timer, or instantly if BFD was on). It would have flooded new LSAs, every router in the area would have rerun SPF, and traffic would have moved away from a box that was forwarding perfectly well.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "SSO + NSF: a supervisor crash that nobody else notices",
+  "actors": [
+    {
+      "id": "SUP1",
+      "kind": "controller",
+      "label": "DIST1 Sup 1"
+    },
+    {
+      "id": "SUP2",
+      "kind": "controller",
+      "label": "DIST1 Sup 2"
+    },
+    {
+      "id": "LC",
+      "kind": "switch",
+      "label": "DIST1 line cards"
+    },
+    {
+      "id": "CORE1",
+      "kind": "l3switch",
+      "label": "CORE1 (helper)"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SUP1",
+      "to": "SUP2",
+      "label": "Continuous sync: config, L2 state, FIB",
+      "states": {
+        "SUP1": "ACTIVE",
+        "SUP2": "STANDBY HOT",
+        "LC": "forwarding",
+        "CORE1": "FULL w/ DIST1"
+      },
+      "text": "SSO keeps the standby **fully booted** and copies everything it can: running config, Layer 2 protocol state, the FIB and adjacency tables. `show redundancy states` shows the peer as `STANDBY HOT`."
+    },
+    {
+      "from": "SUP1",
+      "to": "SUP1",
+      "label": "Supervisor 1 crashes",
+      "tone": "bad",
+      "states": {
+        "SUP1": "DOWN"
+      },
+      "text": "**t = 0.** The active supervisor dies. Its routing protocol sessions die with it: OSPF lives on the supervisor CPU."
+    },
+    {
+      "from": "SUP2",
+      "to": "SUP2",
+      "label": "Stateful switchover",
+      "tone": "good",
+      "states": {
+        "SUP2": "ACTIVE"
+      },
+      "text": "Sup 2 detects the failure and becomes active within about a second. It already has the config and the Layer 2 state, but **no OSPF neighbours** yet."
+    },
+    {
+      "note": "Keep forwarding on the last FIB",
+      "over": [
+        "SUP2",
+        "LC"
+      ],
+      "tone": "good",
+      "text": "This is the **NSF** half. The line cards never stopped: they keep forwarding with the FIB they already hold. Packets keep flowing through DIST1 the whole time."
+    },
+    {
+      "from": "SUP2",
+      "to": "CORE1",
+      "label": "Grace LSA (Type 9 opaque)",
+      "detail": "grace period 120 s, reason: switchover",
+      "text": "This is `nsf ietf` (RFC 3623). Before re-forming the adjacency, the new active supervisor tells CORE1: *I'm restarting, keep me in your SPF tree for the next 120 seconds* (the default grace period)."
+    },
+    {
+      "from": "CORE1",
+      "to": "CORE1",
+      "label": "Enter helper mode",
+      "states": {
+        "CORE1": "HELPER"
+      },
+      "text": "CORE1 is **NSF-aware**, which IOS XE is by default. It keeps advertising its adjacency with DIST1 as if nothing happened, so it floods no new LSA and no other router reruns SPF."
+    },
+    {
+      "from": "SUP2",
+      "to": "CORE1",
+      "label": "Hellos, then database exchange",
+      "text": "DIST1 re-forms the adjacency and gets CORE1's whole LSDB again, while traffic keeps flowing on the old FIB."
+    },
+    {
+      "from": "SUP2",
+      "to": "SUP2",
+      "label": "Rebuild RIB, refresh FIB, flush stale",
+      "text": "With a fresh database, DIST1 runs SPF, rebuilds its RIB, updates the FIB and removes any entries that are no longer valid."
+    },
+    {
+      "from": "SUP2",
+      "to": "CORE1",
+      "label": "Flush grace LSA (MaxAge)",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "CORE1": "FULL w/ DIST1"
+      },
+      "text": "Restart done. Flushing the grace LSA ends helper mode. Users saw no outage, and no router beyond CORE1 ever knew there had been a restart. **Without NSF**, CORE1 would have dropped the adjacency, flooded new LSAs, and the whole area would have rerouted around a box that was forwarding perfectly well."
+    }
+  ]
+}
+```
+
 ```
 ! Supervisor redundancy (default on most dual-sup platforms)
 SW(config)# redundancy
@@ -967,6 +2288,171 @@ Hosts are configured with **one** default gateway IP. If that router dies, the h
 
 Total loss: up to 10 seconds with default timers. Chapter 9 shows how to cut that to under a second with smaller timers or tracking.
 
+```diagram
+{
+  "type": "topology",
+  "title": "HSRP failover: the gateway moves, the hosts change nothing",
+  "caption": "HSRP group 10 on VLAN 10: virtual IP 10.1.10.1, virtual MAC 0000.0c07.ac0a (v1, group 10 = 0x0a).",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 0,
+      "label": "R1",
+      "sub": "10.1.10.2 prio 110"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 0,
+      "y": 2.2,
+      "label": "R2",
+      "sub": "10.1.10.3 prio 100"
+    },
+    {
+      "id": "SW",
+      "kind": "switch",
+      "x": 2,
+      "y": 1.1,
+      "label": "ACC1"
+    },
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 3.8,
+      "y": 1.1,
+      "label": "PC",
+      "sub": "GW 10.1.10.1"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "SW"
+    },
+    {
+      "a": "R2",
+      "b": "SW"
+    },
+    {
+      "a": "PC",
+      "b": "SW"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. R1 is active, R2 listens",
+      "text": "R1 has the higher priority (110), so it is **Active** and owns the virtual MAC. It sends a hello every **3 s**. R2 is **Standby** and resets a 10-second hold timer each time it hears one.",
+      "nodes": {
+        "R1": {
+          "badge": "Active",
+          "tone": "good"
+        },
+        "R2": {
+          "badge": "Standby",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "SW",
+            "R2"
+          ],
+          "label": "Hello (every 3 s)",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. The PC only knows the virtual MAC",
+      "text": "The PC's ARP cache maps 10.1.10.1 to **0000.0c07.ac0a**. ACC1 has learned that MAC on the port toward R1, so the PC's traffic goes to R1.",
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "SW",
+            "R1"
+          ],
+          "label": "to 0000.0c07.ac0a",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. t = 0: R1 loses power",
+      "text": "R1 is gone. R2 stops hearing hellos, but it can't know yet whether R1 is dead or a hello was just lost. It waits out the hold time.",
+      "nodes": {
+        "R1": {
+          "badge": "dead",
+          "tone": "bad",
+          "state": "down"
+        },
+        "R2": {
+          "badge": "hold 10 s...",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R1-SW": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "SW"
+          ],
+          "label": "frames go nowhere",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. t = 10 s: R2 becomes active",
+      "text": "The **10-second** hold time expires and R2 takes over the virtual IP and virtual MAC.",
+      "nodes": {
+        "R2": {
+          "badge": "Active",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "5. A gratuitous ARP moves the MAC",
+      "text": "R2 sends a gratuitous ARP for 10.1.10.1 **from 0000.0c07.ac0a**. Nobody asked for it; its job is to make ACC1 relearn the virtual MAC on the port toward R2.",
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "SW",
+            "PC"
+          ],
+          "label": "GARP 0000.0c07.ac0a",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. Hosts changed nothing",
+      "text": "Same gateway IP, same MAC in the ARP cache: the PC never noticed which router answered. Total loss was up to 10 s with default timers. Chapter 9 cuts that to under a second with smaller timers and tracking.",
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "SW",
+            "R2"
+          ],
+          "label": "to 0000.0c07.ac0a",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 | FHRP | Standard | Roles | Load balancing within one VLAN | Default timers (hello/hold) |
 |------|----------|-------|---------------------------------|------------------------------|
 | **HSRP** | Cisco | Active / Standby | No (split VLANs between routers instead) | 3 s / 10 s |
@@ -1067,6 +2553,64 @@ Switch#   Role    Mac Address     Priority Version  State
 3. Switch 1 is repaired and rejoins. It has the highest priority, but the election is **not preemptive**, so it does not take the active role back. Switch 2 stays active, switch 3 stays standby, and switch 1 joins as a **member**.
 4. To make switch 1 active again you would have to reload the active (switch 2) during a maintenance window. That is why you set priorities before go-live.
 
+```diagram
+{
+  "type": "compare",
+  "title": "Which switch becomes stack active, and which standby?",
+  "prompt": "All three switches booted together, so no switch is active yet and priority decides. Now replay step 3 of the worked example: tick **Already active** for switch 2 and see switch 1's priority 15 count for nothing, because the election is not preemptive. (Real platforms check a few hardware and software tie-breakers between priority and MAC; they're left out here.)",
+  "places": [
+    "Active",
+    "Standby"
+  ],
+  "fields": [
+    {
+      "id": "cur",
+      "label": "Already the active switch",
+      "kind": "bool",
+      "rule": "true"
+    },
+    {
+      "id": "prio",
+      "label": "Stack priority (1-15)",
+      "kind": "number",
+      "rule": "highest"
+    },
+    {
+      "id": "mac",
+      "label": "MAC address",
+      "kind": "mac",
+      "rule": "lowest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "Switch 1",
+      "values": {
+        "cur": false,
+        "prio": 15,
+        "mac": "7c21.0e5a.1b00"
+      }
+    },
+    {
+      "label": "Switch 2",
+      "values": {
+        "cur": false,
+        "prio": 14,
+        "mac": "7c21.0e5a.2c80"
+      }
+    },
+    {
+      "label": "Switch 3",
+      "values": {
+        "cur": false,
+        "prio": 1,
+        "mac": "7c21.0e5a.3d00"
+      }
+    }
+  ]
+}
+```
+
 **Why is a stack better than separate access switches?** Two reasons. First, **cross-stack EtherChannel**: an uplink bundle can use one port on switch 1 and one on switch 3, so losing a whole switch only loses half the uplink bandwidth — with no STP blocking, because the bundle is one logical link. Second, **operational simplicity**: eight switches managed as one. *A stack turns "eight devices, eight configs" into "one device with eight line cards."*
 
 **📝 Exam-style questions — 2.5**
@@ -1146,6 +2690,223 @@ Switch#   Role    Mac Address     Priority Version  State
 4. SW1, the old active, enters **recovery mode** and shuts all its ports except the SVL and DAD ports.
 5. SW2 alone forwards. Access switches lose one member of each MEC (multichassis EtherChannel) and carry on over the other.
 6. When the SVL is repaired, SW1 reloads and rejoins as standby.
+
+```diagram
+{
+  "type": "topology",
+  "title": "StackWise Virtual: when the SVL fails but both switches live",
+  "caption": "SW1 and SW2 are one logical switch, joined by the SVL (Te1/0/47-48) and a separate dual-active detection link (Te1/0/46, dashed). ACC1's Port-channel 1 is a multichassis EtherChannel (MEC): Te1/1/1 to SW1 and Te1/1/2 to SW2.",
+  "nodes": [
+    {
+      "id": "SW1",
+      "kind": "l3switch",
+      "x": 0,
+      "y": 0,
+      "label": "SW1",
+      "sub": "switch 1"
+    },
+    {
+      "id": "SW2",
+      "kind": "l3switch",
+      "x": 0,
+      "y": 2.4,
+      "label": "SW2",
+      "sub": "switch 2"
+    },
+    {
+      "id": "ACC1",
+      "kind": "switch",
+      "x": 2.4,
+      "y": 1.2,
+      "label": "ACC1",
+      "sub": "Po1 (MEC)"
+    },
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 4,
+      "y": 1.2,
+      "label": "PC",
+      "sub": "GW 10.1.10.1"
+    }
+  ],
+  "links": [
+    {
+      "a": "SW1",
+      "b": "SW2",
+      "id": "svl",
+      "style": "thick",
+      "label": "SVL"
+    },
+    {
+      "a": "SW1",
+      "b": "SW2",
+      "id": "dad",
+      "style": "dashed"
+    },
+    {
+      "a": "ACC1",
+      "b": "SW1"
+    },
+    {
+      "a": "ACC1",
+      "b": "SW2"
+    },
+    {
+      "a": "PC",
+      "b": "ACC1"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Two chassis, one switch",
+      "text": "SW1 runs the control plane; SW2 is its **SSO standby**. Both forward data. ACC1 sees one upstream switch and one EtherChannel, so STP blocks nothing and there's no HSRP: the gateway SVI 10.1.10.1 lives on the logical switch.",
+      "nodes": {
+        "SW1": {
+          "badge": "ACTIVE",
+          "tone": "good"
+        },
+        "SW2": {
+          "badge": "STANDBY HOT",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SW1",
+            "SW2"
+          ],
+          "label": "SVL heartbeat",
+          "tone": "accent",
+          "via": [
+            "svl"
+          ]
+        },
+        {
+          "path": [
+            "PC",
+            "ACC1",
+            "SW1"
+          ],
+          "label": "flow A",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "PC",
+            "ACC1",
+            "SW2"
+          ],
+          "label": "flow B",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "2. Both SVL cables are cut",
+      "text": "Both switches are still running, but the heartbeat over the SVL stops.",
+      "links": {
+        "svl": "down"
+      }
+    },
+    {
+      "title": "3. SW2 thinks SW1 died",
+      "text": "By SSO rules, a standby that stops hearing the active takes over. Now **both** switches are active with the same IP addresses, router ID and MACs: a dual-active split brain that would corrupt every neighbour's ARP, routing and MAC tables.",
+      "nodes": {
+        "SW1": {
+          "badge": "ACTIVE",
+          "tone": "warn"
+        },
+        "SW2": {
+          "badge": "ACTIVE",
+          "tone": "warn"
+        }
+      }
+    },
+    {
+      "title": "4. The DAD link tells the truth",
+      "text": "Each switch hears the other over the separate dual-active detection link (Te1/0/46). Both alive with the SVL down means **dual-active**, not a failure. (ePAgP through ACC1's EtherChannel can do the same check.)",
+      "packets": [
+        {
+          "path": [
+            "SW1",
+            "SW2"
+          ],
+          "label": "DAD: I'm active",
+          "tone": "warn",
+          "via": [
+            "dad"
+          ]
+        },
+        {
+          "path": [
+            "SW2",
+            "SW1"
+          ],
+          "label": "DAD: I'm active",
+          "tone": "warn",
+          "via": [
+            "dad"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "5. The old active steps aside",
+      "text": "SW1, the switch that was active before, enters **recovery mode** and shuts every port except the SVL and DAD ports. SW2 alone forwards. ACC1 just loses one MEC member, and its flows move to Te1/1/2 in milliseconds.",
+      "nodes": {
+        "SW1": {
+          "badge": "RECOVERY",
+          "tone": "bad",
+          "state": "dim"
+        },
+        "SW2": {
+          "badge": "ACTIVE",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ACC1-SW1": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ACC1",
+            "SW2"
+          ],
+          "label": "flow A",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "PC",
+            "ACC1",
+            "SW2"
+          ],
+          "label": "flow B",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "6. SVL repaired",
+      "text": "When the SVL comes back, SW1 reloads and rejoins as the standby. SW2 stays active: like every SSO pair, there's no preemption.",
+      "nodes": {
+        "SW1": {
+          "badge": "STANDBY HOT",
+          "tone": "accent"
+        }
+      },
+      "links": {
+        "svl": null,
+        "ACC1-SW1": null
+      }
+    }
+  ]
+}
+```
 
 **Worked example: losing a whole distribution switch.** Access switch ACC1 has Port-channel 1 with Te1/1/1 to SW1 (Te1/0/1) and Te1/1/2 to SW2 (Te2/0/1). To ACC1 it's one 20 Gbps uplink. SW1 loses power:
 
@@ -1229,6 +2990,133 @@ Software has to be upgraded, and a reboot costs minutes — which blows the five
 4. Commit the upgrade (or roll back if something's wrong).
 
 On IOS XE install mode, the whole sequence runs with one command, for example `install add file bootflash:<image>.bin activate issu commit`.
+
+```diagram
+{
+  "type": "topology",
+  "title": "ISSU: upgrading one supervisor at a time",
+  "caption": "A dual-supervisor chassis moving from 17.9 to 17.12 without an outage. The line cards forward throughout.",
+  "nodes": [
+    {
+      "id": "SUP1",
+      "kind": "controller",
+      "x": 0,
+      "y": 0,
+      "label": "Sup 1"
+    },
+    {
+      "id": "SUP2",
+      "kind": "controller",
+      "x": 0,
+      "y": 2.2,
+      "label": "Sup 2"
+    },
+    {
+      "id": "LC",
+      "kind": "switch",
+      "x": 2.6,
+      "y": 1.1,
+      "label": "Line cards",
+      "sub": "forwarding"
+    }
+  ],
+  "links": [
+    {
+      "a": "SUP1",
+      "b": "SUP2",
+      "label": "SSO sync"
+    },
+    {
+      "a": "SUP1",
+      "b": "LC"
+    },
+    {
+      "a": "SUP2",
+      "b": "LC"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Before: an SSO pair on 17.9",
+      "text": "Sup 1 is active, Sup 2 is hot standby, both on 17.9. ISSU needs that SSO pair: every step below is a switchover.",
+      "nodes": {
+        "SUP1": {
+          "badge": "17.9 ACTIVE",
+          "tone": "good"
+        },
+        "SUP2": {
+          "badge": "17.9 STANDBY",
+          "tone": "accent"
+        }
+      }
+    },
+    {
+      "title": "2. Upgrade the standby",
+      "text": "The new image is loaded onto the **standby**, which reboots on 17.12. The active keeps running the box; nothing is disrupted.",
+      "nodes": {
+        "SUP2": {
+          "badge": "17.12 booting",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "SUP1-SUP2": "dim",
+        "SUP2-LC": "dim"
+      }
+    },
+    {
+      "title": "3. Standby back, on the new code",
+      "text": "Sup 2 comes back as **STANDBY HOT** on 17.12 and resynchronizes. ISSU only works between releases Cisco supports for it, because the two versions must understand each other's state.",
+      "nodes": {
+        "SUP2": {
+          "badge": "17.12 STANDBY",
+          "tone": "accent"
+        }
+      },
+      "links": {
+        "SUP1-SUP2": null,
+        "SUP2-LC": null
+      }
+    },
+    {
+      "title": "4. Switchover",
+      "text": "A planned SSO switchover: the upgraded Sup 2 becomes active. The line cards keep forwarding, and NSF keeps the routing neighbours calm.",
+      "nodes": {
+        "SUP2": {
+          "badge": "17.12 ACTIVE",
+          "tone": "good"
+        },
+        "SUP1": {
+          "badge": "17.9 reload",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "SUP1-SUP2": "dim",
+        "SUP1-LC": "dim"
+      }
+    },
+    {
+      "title": "5. Upgrade the old active",
+      "text": "Sup 1 reboots on 17.12 and returns as the new standby.",
+      "nodes": {
+        "SUP1": {
+          "badge": "17.12 STANDBY",
+          "tone": "accent"
+        }
+      },
+      "links": {
+        "SUP1-SUP2": null,
+        "SUP1-LC": null
+      }
+    },
+    {
+      "title": "6. Commit",
+      "text": "Both supervisors run 17.12. **Commit** makes it permanent; until then you can roll back. On IOS XE install mode the whole thing is one command: `install add file bootflash:<image>.bin activate issu commit`."
+    }
+  ]
+}
+```
 
 **Why does ISSU need SSO underneath it?** Because each step in the sequence is a supervisor switchover. If the switchover weren't stateful, every step would be an outage. *ISSU is just SSO used on purpose, twice, with an upgrade in between.*
 
@@ -1364,6 +3252,82 @@ Catalyst 9000 switches support only 802.1Q, so the `encapsulation` command doesn
 3. Both sides agree on the encapsulation (802.1Q on modern switches) and become trunks. `show interfaces trunk` on SW1 shows Mode `desirable`, Status `trunking`. On SW2 it shows Mode `auto`.
 4. Change SW1 to `dynamic auto` too, and step 1 never happens. Each side only waits to be asked, so both ports operate as access ports in their access VLAN (VLAN 1 by default).
 
+```diagram
+{
+  "type": "sequence",
+  "title": "DTP: desirable asks, auto answers",
+  "actors": [
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "label": "SW1 Gi1/0/1 (desirable)"
+    },
+    {
+      "id": "SW2",
+      "kind": "switch",
+      "label": "SW2 Gi1/0/1 (auto)"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Link comes up, both in VTP domain CORP",
+      "over": [
+        "SW1",
+        "SW2"
+      ],
+      "states": {
+        "SW1": "access",
+        "SW2": "access"
+      },
+      "text": "Both ports start out as access ports. DTP will decide whether they become a trunk."
+    },
+    {
+      "from": "SW1",
+      "to": "SW2",
+      "label": "DTP: desirable, domain CORP",
+      "detail": "to 0100.0ccc.cccc, encapsulation 802.1Q",
+      "text": "`dynamic desirable` **actively asks** to trunk. DTP frames go to the Cisco multicast 0100.0ccc.cccc about every 30 s, and they carry the VTP domain name. A different domain name here would stop a dynamic trunk forming."
+    },
+    {
+      "from": "SW2",
+      "to": "SW1",
+      "label": "DTP: auto, domain CORP",
+      "dashed": true,
+      "text": "`dynamic auto` never starts the conversation, but it does **answer**. SW2 sees a request from a desirable neighbour in the same domain and agrees."
+    },
+    {
+      "note": "Both agree: trunk, 802.1Q",
+      "over": [
+        "SW1",
+        "SW2"
+      ],
+      "tone": "good",
+      "states": {
+        "SW1": "trunking",
+        "SW2": "trunking"
+      },
+      "text": "`show interfaces trunk` now shows Mode `desirable`, Status `trunking` on SW1, and Mode `auto` on SW2."
+    },
+    {
+      "from": "SW1",
+      "to": "SW2",
+      "label": "Tagged frames: VLANs 10, 20, 30",
+      "detail": "native VLAN 1 untagged",
+      "text": "Frames from every VLAN except the native VLAN cross with an 802.1Q tag."
+    },
+    {
+      "note": "What if SW1 were auto too?",
+      "over": [
+        "SW1",
+        "SW2"
+      ],
+      "tone": "warn",
+      "text": "Then the first DTP message above would never be a request. Each side only waits to be asked, so both ports stay `static access` in VLAN 1. Both sides are *willing*; nobody *asks*. The fix and best practice: `switchport mode trunk` plus `switchport nonegotiate` on both ends."
+    }
+  ]
+}
+```
+
 **Why is "trunk on one side, access on the other" a mismatch and not just "access"?** Because a static trunk doesn't wait for agreement. It sends tagged frames regardless, while the access side expects untagged frames in one VLAN. Traffic in the native VLAN may still work (it's untagged on both ends), while every other VLAN silently fails. Partial connectivity is the classic symptom of a trunking mismatch.
 
 **Why does `switchport nonegotiate` cause problems when the other side is dynamic?** With `nonegotiate`, the port sends no DTP at all. A neighbor in `dynamic auto` or `dynamic desirable` never hears a DTP reply, so it never becomes a trunk and stays access, while your side is a hard trunk: a mismatch.
@@ -1467,8 +3431,6 @@ Negotiation of Trunking: On
 
 ## 3.2 Native VLAN Mismatch
 
-![Native VLAN mismatch leaking frames between VLANs](images/c03_native_mismatch.png)
-
 **The problem this causes:** the native VLAN is the one setting both ends of a trunk must agree on without any tag to check it. Get it wrong and frames silently move from one VLAN into another.
 
 Each end of a trunk decides on its own which VLAN untagged frames belong to. If SW1's native VLAN is 10 and SW2's is 20, an untagged frame SW1 sends from VLAN 10 arrives at SW2 and is placed in **VLAN 20**. Traffic **leaks between VLANs**, which is both a security problem and very confusing.
@@ -1479,6 +3441,173 @@ Each end of a trunk decides on its own which VLAN untagged frames belong to. If 
 2. SW2 receives an untagged frame. It has no tag to read, so it uses **its own** native VLAN and puts the frame in **VLAN 20**.
 3. SW2 floods the broadcast to its VLAN 20 ports. PC-B receives an ARP from a host in a different VLAN and subnet. VLAN 10's broadcasts are now leaking into VLAN 20, and the same happens in reverse.
 4. Within seconds, the safety nets react. CDP logs the mismatch, and Rapid PVST+ notices that BPDUs for VLAN 10 arrive on a port whose native VLAN is 20. It marks the port **PVID-inconsistent** and blocks it for VLANs 10 and 20, as below. The leak stops, but so does all VLAN 10 and 20 traffic on that trunk until you fix the config.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Native VLAN mismatch: one frame changes VLAN mid-link",
+  "nodes": [
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 1,
+      "y": 0,
+      "label": "SW1",
+      "sub": "native VLAN 10"
+    },
+    {
+      "id": "SW2",
+      "kind": "switch",
+      "x": 4,
+      "y": 0,
+      "label": "SW2",
+      "sub": "native VLAN 20"
+    },
+    {
+      "id": "PCA",
+      "kind": "host",
+      "x": 1,
+      "y": 1.6,
+      "label": "PC-A",
+      "sub": "10.1.10.5 VLAN 10"
+    },
+    {
+      "id": "PCB",
+      "kind": "host",
+      "x": 3.3,
+      "y": 1.6,
+      "label": "PC-B",
+      "sub": "10.1.20.7 VLAN 20"
+    },
+    {
+      "id": "PCC",
+      "kind": "host",
+      "x": 4.9,
+      "y": 1.6,
+      "label": "PC-C",
+      "sub": "10.1.10.9 VLAN 10"
+    }
+  ],
+  "links": [
+    {
+      "a": "SW1",
+      "b": "SW2",
+      "label": "trunk Gi1/0/1"
+    },
+    {
+      "a": "PCA",
+      "b": "SW1"
+    },
+    {
+      "a": "PCB",
+      "b": "SW2"
+    },
+    {
+      "a": "PCC",
+      "b": "SW2"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Two ends, two opinions",
+      "text": "Each end of a trunk decides **on its own** which VLAN untagged frames belong to. SW1 says VLAN 10, SW2 says VLAN 20, and nothing in an untagged frame can settle the argument.",
+      "nodes": {
+        "SW1": {
+          "badge": "native 10",
+          "tone": "accent"
+        },
+        "SW2": {
+          "badge": "native 20",
+          "tone": "warn"
+        }
+      }
+    },
+    {
+      "title": "2. PC-A broadcasts an ARP",
+      "text": "PC-A (VLAN 10) asks for its gateway's MAC with a broadcast. SW1 floods it to every VLAN 10 port, including the trunk.",
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "SW1"
+          ],
+          "label": "ARP broadcast VLAN 10",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. It leaves untagged",
+      "text": "VLAN 10 is SW1's native VLAN, so the frame crosses the trunk **with no tag**.",
+      "packets": [
+        {
+          "path": [
+            "SW1",
+            "SW2"
+          ],
+          "label": "untagged",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "4. SW2 drops it into VLAN 20",
+      "text": "SW2 has no tag to read, so it uses **its own** native VLAN and floods the frame to VLAN 20. PC-B gets an ARP from a different subnet; PC-C, who really is in VLAN 10, never sees it. The same leak happens in reverse.",
+      "nodes": {
+        "PCB": {
+          "badge": "wrong VLAN",
+          "tone": "bad"
+        },
+        "PCC": {
+          "state": "dim"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SW2",
+            "PCB"
+          ],
+          "label": "lands in VLAN 20",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. The safety nets block the port",
+      "text": "CDP logs `%CDP-4-NATIVE_VLAN_MISMATCH ... (10), with SW2 GigabitEthernet1/0/1 (20)`. Rapid PVST+ BPDUs carry their VLAN, so SW2 sees VLAN 10's BPDU arrive on native VLAN 20, marks the port **PVID-inconsistent** and blocks it for VLANs 10 and 20 (`show spanning-tree inconsistentports`). The leak stops, but so does all VLAN 10 and 20 traffic on the trunk.",
+      "nodes": {
+        "SW2": {
+          "badge": "PVID inconsist",
+          "tone": "bad"
+        },
+        "PCB": null,
+        "PCC": null
+      },
+      "links": {
+        "SW1-SW2": "blocked"
+      }
+    },
+    {
+      "title": "6. Fix: match it, and make it unused",
+      "text": "`switchport trunk native vlan 999` on **both** ends. VLAN 999 carries no users, so a stray untagged frame lands nowhere useful, and double-tagging (VLAN hopping) attacks lose their trick.",
+      "nodes": {
+        "SW1": {
+          "badge": "native 999",
+          "tone": "good"
+        },
+        "SW2": {
+          "badge": "native 999",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "SW1-SW2": null
+      }
+    }
+  ]
+}
+```
 
 Cisco switches detect it in two ways:
 
@@ -1642,6 +3771,238 @@ VTP (CCNA guide 8.3) synchronizes the VLAN database from a server to clients. It
 3. Every switch in the domain replaces its VLAN database with the lab switch's: VLANs 10, 20 and 30 are deleted.
 4. Every access port in those VLANs becomes **inactive**, because its VLAN no longer exists. Users across the site lose connectivity.
 
+```diagram
+{
+  "type": "topology",
+  "title": "VTP v1/v2: the lab switch that deleted production",
+  "caption": "Domain CORP, no password. Production is at configuration revision 42 with VLANs 10, 20 and 30.",
+  "nodes": [
+    {
+      "id": "DIST1",
+      "kind": "l3switch",
+      "x": 2.5,
+      "y": 0,
+      "label": "DIST1",
+      "sub": "VTP server"
+    },
+    {
+      "id": "ACC1",
+      "kind": "switch",
+      "x": 1,
+      "y": 1.5,
+      "label": "ACC1",
+      "sub": "client"
+    },
+    {
+      "id": "ACC2",
+      "kind": "switch",
+      "x": 2.5,
+      "y": 1.5,
+      "label": "ACC2",
+      "sub": "client"
+    },
+    {
+      "id": "ACC3",
+      "kind": "switch",
+      "x": 4,
+      "y": 1.5,
+      "label": "ACC3",
+      "sub": "client"
+    },
+    {
+      "id": "LAB",
+      "kind": "switch",
+      "x": 1,
+      "y": 3,
+      "label": "LAB-SW",
+      "sub": "domain CORP"
+    }
+  ],
+  "links": [
+    {
+      "a": "DIST1",
+      "b": "ACC1"
+    },
+    {
+      "a": "DIST1",
+      "b": "ACC2"
+    },
+    {
+      "a": "DIST1",
+      "b": "ACC3"
+    },
+    {
+      "a": "ACC1",
+      "b": "LAB",
+      "label": "trunk"
+    }
+  ],
+  "zones": [
+    {
+      "label": "VTP domain CORP",
+      "nodes": [
+        "DIST1",
+        "ACC1",
+        "ACC2",
+        "ACC3",
+        "LAB"
+      ],
+      "tone": "accent",
+      "pad": 3
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Production: revision 42",
+      "text": "Every switch in CORP holds VLANs 10, 20 and 30 at configuration revision 42. The revision number goes up by one with every VLAN change on a server.",
+      "nodes": {
+        "DIST1": {
+          "badge": "rev 42",
+          "tone": "good"
+        },
+        "ACC1": {
+          "badge": "rev 42",
+          "tone": "good"
+        },
+        "ACC2": {
+          "badge": "rev 42",
+          "tone": "good"
+        },
+        "ACC3": {
+          "badge": "rev 42",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ACC1-LAB": "dim"
+      }
+    },
+    {
+      "title": "2. A lab switch is plugged in",
+      "text": "It was in domain CORP in the lab too, and has been changed many times: **revision 57**, holding only VLAN 1. It is plugged into a trunk port on ACC1 and advertises its database.",
+      "nodes": {
+        "LAB": {
+          "badge": "rev 57",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "ACC1-LAB": null
+      },
+      "packets": [
+        {
+          "path": [
+            "LAB",
+            "ACC1"
+          ],
+          "label": "VTP CORP rev 57",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. Higher revision wins, everywhere",
+      "text": "57 is higher than 42, so every switch believes the lab switch's database is newer. In v1/v2 this is true **even if the lab switch is a client**. The advertisement is relayed across the domain.",
+      "nodes": {
+        "DIST1": {
+          "badge": "rev 57",
+          "tone": "bad"
+        },
+        "ACC1": {
+          "badge": "rev 57",
+          "tone": "bad"
+        },
+        "ACC2": {
+          "badge": "rev 57",
+          "tone": "bad"
+        },
+        "ACC3": {
+          "badge": "rev 57",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ACC1",
+            "DIST1",
+            "ACC2"
+          ],
+          "label": "VTP CORP rev 57",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "DIST1",
+            "ACC3"
+          ],
+          "label": "VTP CORP rev 57",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. VLANs 10, 20 and 30 are gone",
+      "text": "Every switch replaced its VLAN database with the lab switch's. Every access port in VLAN 10, 20 or 30 is now **inactive**, because its VLAN no longer exists. Users across the site are offline, and `show vtp status` shows the lab switch's address as *last modified by*.",
+      "nodes": {
+        "DIST1": {
+          "badge": "VLAN 1 only",
+          "tone": "bad"
+        },
+        "ACC1": {
+          "badge": "inactive",
+          "tone": "bad"
+        },
+        "ACC2": {
+          "badge": "inactive",
+          "tone": "bad"
+        },
+        "ACC3": {
+          "badge": "inactive",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "5. The same plug-in under VTPv3",
+      "text": "In VTPv3 only the **primary server** can change the VLAN database, and every update names that primary. The lab switch isn't the domain's primary, and can't become it without an explicit `vtp primary` takeover, so its database isn't accepted and production keeps revision 42.",
+      "nodes": {
+        "DIST1": {
+          "badge": "primary",
+          "tone": "good"
+        },
+        "ACC1": {
+          "badge": "rev 42",
+          "tone": "good"
+        },
+        "ACC2": {
+          "badge": "rev 42",
+          "tone": "good"
+        },
+        "ACC3": {
+          "badge": "rev 42",
+          "tone": "good"
+        },
+        "LAB": {
+          "badge": "not primary",
+          "tone": "muted"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "LAB",
+            "ACC1"
+          ],
+          "label": "rejected",
+          "tone": "muted"
+        }
+      ]
+    }
+  ]
+}
+```
+
 The prevention under v1/v2 was to reset the revision to 0 before connecting any switch (change the domain name or set transparent mode, then change it back). VTPv3 makes it structural instead:
 
 **VTP version 3** addresses this and more:
@@ -1725,6 +4086,94 @@ EtherChannel bundles 2–8 active links into one logical **port-channel** (CCNA 
 
 **Read the matrix by three rules:** the protocols must match (LACP with LACP, PAgP with PAgP), at least one side must be the initiator (`passive`+`passive` and `auto`+`auto` never form), and **`on` only bundles with `on`**, because `on` sends no protocol frames at all.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "LACP: an active port and a passive port agree to bundle",
+  "actors": [
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "label": "SW1 Gi1/0/1 (active)"
+    },
+    {
+      "id": "SW2",
+      "kind": "switch",
+      "label": "SW2 Gi1/0/1 (passive)"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SW1",
+      "to": "SW2",
+      "label": "LACPDU: actor SW1, partner unknown",
+      "detail": "sys-prio 32768, key 1, Activity=active",
+      "states": {
+        "SW1": "(I) waiting",
+        "SW2": "(I) waiting"
+      },
+      "text": "`active` starts talking. The LACPDU describes the **actor** (this port): system priority and MAC, the port's key (its channel group), port priority and number, and state flags such as Activity and Aggregation. It knows nothing about the partner yet."
+    },
+    {
+      "from": "SW2",
+      "to": "SW1",
+      "label": "LACPDU: actor SW2, partner = SW1",
+      "detail": "Activity=passive, echoes SW1's details",
+      "dashed": true,
+      "text": "`passive` never starts, but it answers. SW2 describes itself and **echoes back** what it heard from SW1 as the partner information."
+    },
+    {
+      "note": "Partner matches: same key, aggregatable",
+      "over": [
+        "SW1",
+        "SW2"
+      ],
+      "states": {
+        "SW1": "attached"
+      },
+      "text": "SW1 checks that SW2 echoed its information correctly and that SW2 is aggregatable with a consistent key. If two members heard **different** partner system IDs, they're cabled to two different switches and won't bundle together."
+    },
+    {
+      "from": "SW1",
+      "to": "SW2",
+      "label": "LACPDU: Synchronization = 1",
+      "states": {
+        "SW2": "attached"
+      },
+      "text": "SW1 tells SW2 it has attached the port to the aggregator and is in sync."
+    },
+    {
+      "from": "SW2",
+      "to": "SW1",
+      "label": "LACPDU: Sync, Collecting, Distributing",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "SW1": "(P) bundled",
+        "SW2": "(P) bundled"
+      },
+      "text": "Both sides now collect and distribute frames on the port: it's in the bundle. `show etherchannel summary` shows `Gi1/0/1(P)`, and `show lacp neighbor` shows the partner's port state as **0x3D** (Activity, Aggregation, Sync, Collecting, Distributing set)."
+    },
+    {
+      "from": "SW1",
+      "to": "SW2",
+      "label": "LACPDU every 30 s (slow) or 1 s (fast)",
+      "detail": "timeout = 3 x interval",
+      "text": "LACPDUs keep flowing. Miss three in a row and the partner times out: **90 s** at the default slow rate, **3 s** with `lacp rate fast`. That's why fast rate catches a broken fibre strand far sooner."
+    },
+    {
+      "note": "Passive + passive?",
+      "over": [
+        "SW1",
+        "SW2"
+      ],
+      "tone": "warn",
+      "text": "If SW1 were `passive` too, the first LACPDU above would never be sent. Both ports stay stand-alone: `(I)` in `show etherchannel summary`, and no entry in `show lacp neighbor`."
+    }
+  ]
+}
+```
+
 **Why is `on` the most dangerous mode?** Because with no protocol, nothing checks that the other end has really bundled. If SW1 is `on` and SW2 has ports in individual mode (or bundled differently), SW1 sends frames over the members as one logical link while SW2 treats them as separate links. STP on SW2 sees separate ports, while SW1 hashes broadcasts out one member and floods them back from another: the ingredients for a **loop**. LACP and PAgP prevent this by refusing to bundle until both sides agree. *Negotiation isn't overhead — it's the safety check.*
 
 **How an `on`-mode mistake becomes a loop, step by step:** SW1 has Gi1/0/1–2 in `channel-group 1 mode on`. SW2's Gi1/0/1–2 are plain trunks (no channel-group).
@@ -1734,6 +4183,190 @@ EtherChannel bundles 2–8 active links into one logical **port-channel** (CCNA 
 3. SW2 sees two separate trunks. It hears BPDUs only on Gi1/0/1. On Gi1/0/2 it hears none, so STP on SW2 concludes nobody else is on that link and makes Gi1/0/2 **designated, forwarding**. Nothing blocks anywhere.
 4. A broadcast from SW2 goes out Gi1/0/1 **and** Gi1/0/2. SW1 receives both copies on Po1 and floods each out its other ports. A broadcast from SW1 that hashes to Gi1/0/1 arrives at SW2, which floods it out Gi1/0/2 straight back to SW1, which floods it again. Frames circle and multiply: a loop.
 5. On Catalyst switches the misconfig guard below usually catches this first and err-disables the bundle, which is far better than a loop.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Mode on facing plain trunks: how a bundle becomes a loop",
+  "caption": "SW1 has Gi1/0/1-2 in `channel-group 1 mode on`. SW2's Gi1/0/1-2 are ordinary trunks with no channel-group.",
+  "nodes": [
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 1,
+      "y": 0,
+      "label": "SW1",
+      "sub": "Po1 (mode on)"
+    },
+    {
+      "id": "SW2",
+      "kind": "switch",
+      "x": 4,
+      "y": 0,
+      "label": "SW2",
+      "sub": "two plain trunks"
+    },
+    {
+      "id": "H1",
+      "kind": "host",
+      "x": 1,
+      "y": 1.6,
+      "label": "H1"
+    },
+    {
+      "id": "H2",
+      "kind": "host",
+      "x": 4,
+      "y": 1.6,
+      "label": "H2"
+    }
+  ],
+  "links": [
+    {
+      "a": "SW1",
+      "b": "SW2",
+      "id": "m1"
+    },
+    {
+      "a": "SW1",
+      "b": "SW2",
+      "id": "m2"
+    },
+    {
+      "a": "H1",
+      "b": "SW1"
+    },
+    {
+      "a": "H2",
+      "b": "SW2"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. SW1 sees one port",
+      "text": "To SW1, Po1 is a single logical port. STP on SW1 has exactly one port toward SW2, and nothing to block there. No protocol checked that SW2 agrees.",
+      "nodes": {
+        "SW1": {
+          "badge": "Po1 = 1 port",
+          "tone": "accent"
+        },
+        "SW2": {
+          "badge": "2 ports",
+          "tone": "warn"
+        }
+      }
+    },
+    {
+      "title": "2. BPDUs go out one member",
+      "text": "SW1 sends its BPDUs on Po1, which physically means **one** member, say Gi1/0/1 (the first line).",
+      "packets": [
+        {
+          "path": [
+            "SW1",
+            "SW2"
+          ],
+          "label": "BPDU",
+          "tone": "accent",
+          "via": [
+            "m1"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "3. SW2 forwards on both",
+      "text": "SW2 hears BPDUs only on Gi1/0/1. On Gi1/0/2 it hears none, so STP concludes nobody else is on that link and makes Gi1/0/2 **designated, forwarding**. Nothing blocks anywhere.",
+      "links": {
+        "m1": "active",
+        "m2": "active"
+      }
+    },
+    {
+      "title": "4. Frames come straight back",
+      "text": "H1 sends a broadcast. SW1 hashes it onto Gi1/0/1. SW2 floods it to H2 **and out Gi1/0/2**, straight back into SW1's Po1. SW1 relearns H1's MAC on Po1 (MAC flapping) and floods the copy again. Every broadcast is duplicated, and with any third path between the switches the copies circle and multiply: a loop.",
+      "nodes": {
+        "SW1": {
+          "badge": "MAC flapping",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "H1",
+            "SW1",
+            "SW2",
+            "H2"
+          ],
+          "label": "broadcast",
+          "tone": "accent",
+          "via": [
+            null,
+            "m1",
+            null
+          ]
+        },
+        {
+          "path": [
+            "SW2",
+            "SW1",
+            "H1"
+          ],
+          "label": "copy returns",
+          "tone": "bad",
+          "via": [
+            "m2",
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "title": "5. Misconfig guard spots it",
+      "text": "SW2 sends BPDUs out **both** ports, each sourced from that port's own MAC. SW1's Po1 receives BPDUs from two different source MACs, which a real partner bundle would never do. EtherChannel misconfiguration guard (on by default) reacts.",
+      "packets": [
+        {
+          "path": [
+            "SW2",
+            "SW1"
+          ],
+          "label": "BPDU src ...:01",
+          "tone": "warn",
+          "via": [
+            "m1"
+          ]
+        },
+        {
+          "path": [
+            "SW2",
+            "SW1"
+          ],
+          "label": "BPDU src ...:02",
+          "tone": "warn",
+          "via": [
+            "m2"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "6. The bundle is err-disabled",
+      "text": "`%PM-4-ERR_DISABLE: channel-misconfig (STP) error detected on Po1, putting Gi1/0/1 in err-disable state`. Losing the link is far better than a loop. Fix: `channel-group 1 mode active` on both sides, so LACP refuses to bundle until both ends agree.",
+      "nodes": {
+        "SW1": {
+          "badge": "err-disabled",
+          "tone": "bad"
+        },
+        "SW2": null
+      },
+      "links": {
+        "m1": "down",
+        "m2": "down"
+      }
+    }
+  ]
+}
+```
 
 
 ### EtherChannel Misconfig Guard
@@ -1998,6 +4631,45 @@ SW1(config)# port-channel load-balance src-dst-ip     ! global hash input
 
 **Why do the system priority and port priority exist?** LACP supports up to **16** members per channel, but only **8** can be active; the rest are **hot-standby**. The two switches must agree on *which* 8, so the switch with the better (lower) **system priority** — or lower MAC on a tie — gets to decide, and it uses **port priority** to choose. *One side has to be in charge of the decision, or each side could pick a different eight.*
 
+```diagram
+{
+  "type": "compare",
+  "title": "Which switch decides the 8 active LACP members?",
+  "prompt": "SW1 and SW2 are joined by 10 links, but only 8 can be active. The switch with the better **system ID** (lowest system priority, then lowest MAC) decides, and uses its own port priorities to pick the 8. Put SW1's system priority back to the default 32768 and see the MAC decide.",
+  "winner": "Decides",
+  "fields": [
+    {
+      "id": "sysprio",
+      "label": "LACP system priority",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "mac",
+      "label": "System MAC",
+      "kind": "mac",
+      "rule": "lowest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "SW1",
+      "values": {
+        "sysprio": 100,
+        "mac": "7c21.0e5a.2c00"
+      }
+    },
+    {
+      "label": "SW2",
+      "values": {
+        "sysprio": 32768,
+        "mac": "7c21.0e5a.1b00"
+      }
+    }
+  ]
+}
+```
+
 **Worked example: choosing 8 of 10.** SW1 and SW2 are joined by 10 links, all in LACP channel-group 1.
 
 1. Compare **system priority**: SW1 is set to 100, SW2 is at the default 32768. Lower wins, so **SW1 decides** which members are active.
@@ -2162,6 +4834,55 @@ STP will always elect a root. The only question is whether **you** chose it.
 
 Lowest bridge ID wins, and priority is compared before MAC. DIST-1 becomes root. If DIST-1 fails, DIST-2 (28682) takes over. ACC-old has the lowest MAC, and with all priorities left at default **it** would have been root. In a campus, the root for each VLAN belongs at the **distribution layer**, and it must line up with the FHRP:
 
+```diagram
+{
+  "type": "compare",
+  "title": "Root bridge for VLAN 10: priority first, MAC only to break a tie",
+  "prompt": "Bridge priority here is the configured priority **plus the VLAN number** (the extended system ID), so 24576 becomes 24586 in VLAN 10. Lowest wins. Set all three to the default 32778 and the old access switch with the lowest MAC becomes root, which is exactly what you don't want.",
+  "places": [
+    "Root bridge",
+    "Root if it fails"
+  ],
+  "fields": [
+    {
+      "id": "prio",
+      "label": "Bridge priority (configured + 10)",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "mac",
+      "label": "MAC address",
+      "kind": "mac",
+      "rule": "lowest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "DIST-1 (root primary)",
+      "values": {
+        "prio": 24586,
+        "mac": "7c21.0e5a.1b00"
+      }
+    },
+    {
+      "label": "DIST-2 (root secondary)",
+      "values": {
+        "prio": 28682,
+        "mac": "7c21.0e5a.2c00"
+      }
+    },
+    {
+      "label": "ACC-old (default)",
+      "values": {
+        "prio": 32778,
+        "mac": "0011.2233.4455"
+      }
+    }
+  ]
+}
+```
+
 | VLAN | STP root | STP secondary | HSRP/VRRP active |
 |------|----------|---------------|------------------|
 | 10, 30, 50 (odd) | DIST-1 | DIST-2 | **DIST-1** |
@@ -2225,6 +4946,79 @@ ACC1(config-if)# spanning-tree vlan 10 cost 10000              ! 10,000 beats 20
 ```
 
 Option 2 is the more common real-world fix because it acts earlier in the decision order (cost before port ID) and works even when the two uplinks go to **different** upstream switches. Port priority only ever matters between parallel links to the **same** neighbor. Verify with `show spanning-tree vlan 10`: the Role column moves `Root` to Gi1/0/2 and `Altn` to Gi1/0/1.
+
+```diagram
+{
+  "type": "compare",
+  "title": "ACC1's root port: cost, then sender bridge ID, then sender port ID",
+  "prompt": "ACC1 has two uplinks to DIST-1 (the root) and one to DIST-2. As configured, the tie between the two DIST-1 links falls all the way to the **sender's** port number. Try the two fixes from the text: give Gi1/0/2 a sender port priority of 64 (set on DIST-1), or give it a cost of 10000 (set on ACC1).",
+  "winner": "Root port",
+  "fields": [
+    {
+      "id": "cost",
+      "label": "Root path cost (long)",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "sprio",
+      "label": "Sender bridge priority",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "smac",
+      "label": "Sender bridge MAC",
+      "kind": "mac",
+      "rule": "lowest"
+    },
+    {
+      "id": "pprio",
+      "label": "Sender port priority",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "pnum",
+      "label": "Sender port number",
+      "kind": "number",
+      "rule": "lowest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "Gi1/0/1 (to DIST-1 Gi1/0/10)",
+      "values": {
+        "cost": 20000,
+        "sprio": 24586,
+        "smac": "7c21.0e5a.1b00",
+        "pprio": 128,
+        "pnum": 10
+      }
+    },
+    {
+      "label": "Gi1/0/2 (to DIST-1 Gi1/0/11)",
+      "values": {
+        "cost": 20000,
+        "sprio": 24586,
+        "smac": "7c21.0e5a.1b00",
+        "pprio": 128,
+        "pnum": 11
+      }
+    },
+    {
+      "label": "Gi1/0/3 (to DIST-2 Gi1/0/10)",
+      "values": {
+        "cost": 22000,
+        "sprio": 28682,
+        "smac": "7c21.0e5a.2c00",
+        "pprio": 128,
+        "pnum": 10
+      }
+    }
+  ]
+}
+```
 
 > **Exam trap:** setting `port-priority` on ACC1's own uplinks does **nothing** to ACC1's root-port choice. ACC1 compares the priorities *DIST-1* advertises, not its own.
 
@@ -2319,6 +5113,108 @@ A new uplink is cabled between DIST-1 (root for VLAN 10) Gi1/0/12 and ACC2 Gi1/0
 6. ACC2 now repeats the same proposal/agreement on Gi1/0/50 with its downstream neighbor. The handshake ripples down the tree one link at a time.
 
 The whole sequence typically finishes in milliseconds per hop. It needs two things: a **point-to-point** link (next section) and edge ports correctly marked as edge.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "RSTP proposal, sync and agreement on a new uplink",
+  "caption": "A new link joins DIST-1 Gi1/0/12 (root for VLAN 10) to ACC2 Gi1/0/1. ACC2's downlink Gi1/0/50 leads to ACC3.",
+  "actors": [
+    {
+      "id": "DIST1",
+      "kind": "l3switch",
+      "label": "DIST-1 (root)"
+    },
+    {
+      "id": "ACC2",
+      "kind": "switch",
+      "label": "ACC2"
+    },
+    {
+      "id": "ACC3",
+      "kind": "switch",
+      "label": "ACC3"
+    }
+  ],
+  "messages": [
+    {
+      "from": "DIST1",
+      "to": "ACC2",
+      "label": "BPDU, proposal flag set",
+      "detail": "root 24586.7c21.0e5a.1b00, cost 0",
+      "states": {
+        "DIST1": "Gi12 DESG DIS",
+        "ACC2": "Gi1 DESG DIS",
+        "ACC3": "Gi1 ROOT FWD"
+      },
+      "text": "The link comes up. Both ends start as **designated, discarding**, and each sends BPDUs with the proposal flag: *I'd like to forward on this link.*"
+    },
+    {
+      "from": "ACC2",
+      "to": "DIST1",
+      "label": "BPDU, proposal (inferior)",
+      "dashed": true,
+      "text": "ACC2 proposes too, but its BPDU names a worse root path than DIST-1's, so DIST-1 ignores it."
+    },
+    {
+      "from": "ACC2",
+      "to": "ACC2",
+      "label": "Superior BPDU: Gi1/0/1 is root port",
+      "states": {
+        "ACC2": "Gi1 ROOT DIS"
+      },
+      "text": "DIST-1's BPDU comes from the root itself, so it's the best ACC2 has heard. Gi1/0/1 becomes ACC2's **root port**."
+    },
+    {
+      "from": "ACC2",
+      "to": "ACC2",
+      "label": "Sync: Gi1/0/50 to discarding",
+      "tone": "warn",
+      "states": {
+        "ACC3": "Gi1 cut off"
+      },
+      "text": "Before agreeing, ACC2 makes sure the new path can't form a loop through it: every **non-edge designated** port (Gi1/0/50) goes to discarding. Edge ports (the PCs on Gi1/0/2-48) are left alone, because they can't create a loop."
+    },
+    {
+      "from": "ACC2",
+      "to": "DIST1",
+      "label": "BPDU, agreement flag set",
+      "tone": "good",
+      "states": {
+        "ACC2": "Gi1 ROOT FWD"
+      },
+      "text": "ACC2 is in sync, so its root port moves to forwarding and it sends the **agreement**."
+    },
+    {
+      "from": "DIST1",
+      "to": "DIST1",
+      "label": "Gi1/0/12 straight to forwarding",
+      "tone": "good",
+      "states": {
+        "DIST1": "Gi12 DESG FWD"
+      },
+      "text": "DIST-1 receives the agreement and forwards immediately. **No timers**: no 15 s listening, no 15 s learning."
+    },
+    {
+      "from": "ACC2",
+      "to": "ACC3",
+      "label": "BPDU, proposal on Gi1/0/50",
+      "text": "The handshake ripples one hop down the tree: ACC2 proposes on its blocked downlink."
+    },
+    {
+      "from": "ACC3",
+      "to": "ACC2",
+      "label": "BPDU, agreement",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "ACC3": "Gi1 ROOT FWD"
+      },
+      "text": "ACC3 syncs its own non-edge designated ports, then agrees. ACC2's Gi1/0/50 forwards again. Each hop takes milliseconds, as long as every link is **point-to-point** (full duplex) and host ports are marked edge."
+    }
+  ]
+}
+```
 
 **And when a root port fails?** ACC1 has root port Gi1/0/1 and alternate Gi1/0/2. When Gi1/0/1 goes down, ACC1 makes Gi1/0/2 its root port and moves it **directly to forwarding**: an alternate port is, by definition, a loop-free backup path to the root. Then it sends a topology change so other switches flush their old MAC entries (below).
 
@@ -2511,6 +5407,213 @@ Instance Role Sts Cost      Prio.Nbr Vlans mapped
 Read it from the top: **`Boundary : boundary (RSTP)`** says the neighbor's BPDUs don't match this region. `show spanning-tree mst` flags the same port as **`Bound(RSTP)`** in its Type column. In the instance table, MSTI 2's role is **`Mstr`** (master): on a boundary port every MSTI simply copies the port's CIST role and state. The consequence is the real damage. ACC3 was supposed to send even VLANs up its *other* uplink. Now all instances follow the CIST at this link, and **load balancing is silently gone**.
 
 **Fix:** compare `show spanning-tree mst configuration` on both switches (the `digest` keyword shows the computed MD5 digest, which must match) and make the mapping identical.
+
+```diagram
+{
+  "type": "topology",
+  "title": "MST: two instances, then one mismatched VLAN map",
+  "caption": "Region CAMPUS, revision 1: instance 1 = VLANs 10, 30, 50 (root DIST-1); instance 2 = VLANs 20, 40, 60 (root DIST-2). The IST/CIST root is DIST-1.",
+  "nodes": [
+    {
+      "id": "DIST1",
+      "kind": "l3switch",
+      "x": 1,
+      "y": 0,
+      "label": "DIST-1",
+      "sub": "IST + MSTI 1 root"
+    },
+    {
+      "id": "DIST2",
+      "kind": "l3switch",
+      "x": 4,
+      "y": 0,
+      "label": "DIST-2",
+      "sub": "MSTI 2 root"
+    },
+    {
+      "id": "ACC1",
+      "kind": "switch",
+      "x": 1,
+      "y": 1.8,
+      "label": "ACC1"
+    },
+    {
+      "id": "ACC3",
+      "kind": "switch",
+      "x": 4,
+      "y": 1.8,
+      "label": "ACC3"
+    }
+  ],
+  "links": [
+    {
+      "a": "DIST1",
+      "b": "DIST2"
+    },
+    {
+      "a": "ACC1",
+      "b": "DIST1"
+    },
+    {
+      "a": "ACC1",
+      "b": "DIST2"
+    },
+    {
+      "a": "ACC3",
+      "b": "DIST1"
+    },
+    {
+      "a": "ACC3",
+      "b": "DIST2"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Region CAMPUS rev 1",
+      "nodes": [
+        "DIST1",
+        "DIST2",
+        "ACC1",
+        "ACC3"
+      ],
+      "tone": "accent",
+      "pad": 4
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Instance 1: odd VLANs go left",
+      "text": "DIST-1 is root for MSTI 1, so both access switches forward toward DIST-1 and block their uplink to DIST-2 for VLANs 10, 30 and 50.",
+      "nodes": {
+        "DIST1": {
+          "badge": "MSTI 1 root",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ACC1-DIST2": "blocked",
+        "ACC3-DIST2": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "ACC1",
+            "DIST1"
+          ],
+          "label": "VLAN 10",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "ACC3",
+            "DIST1"
+          ],
+          "label": "VLAN 30",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. Instance 2: even VLANs go right",
+      "text": "DIST-2 is root for MSTI 2, so the opposite uplinks block for VLANs 20, 40 and 60. Two instances, the same load balancing as PVST+, and **one** BPDU per port carrying both (as M-records).",
+      "nodes": {
+        "DIST1": null,
+        "DIST2": {
+          "badge": "MSTI 2 root",
+          "tone": "purple"
+        }
+      },
+      "links": {
+        "ACC1-DIST2": null,
+        "ACC3-DIST2": null,
+        "ACC1-DIST1": "blocked",
+        "ACC3-DIST1": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "ACC1",
+            "DIST2"
+          ],
+          "label": "VLAN 20",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "ACC3",
+            "DIST2"
+          ],
+          "label": "VLAN 40",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "3. ACC3 maps one VLAN differently",
+      "text": "ACC3 was configured with `instance 2 vlan 20,40`, missing 60. Name and revision match, but the VLAN-to-instance tables differ, so the **configuration digests** differ and ACC3 is now a region of its own. Nothing is logged. The only clue: `Boundary : boundary (RSTP)` in `show spanning-tree mst interface Gi1/0/1`.",
+      "nodes": {
+        "DIST2": null,
+        "ACC3": {
+          "badge": "new digest",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "ACC1-DIST1": null,
+        "ACC3-DIST1": null
+      }
+    },
+    {
+      "title": "4. At the boundary, only the CIST exists",
+      "text": "Instance 2 means nothing across a region boundary, so on ACC3's uplinks every MSTI copies the CIST role (`Mstr` in the output). The CIST root is DIST-1, so ACC3 forwards **all** VLANs toward DIST-1 and blocks Gi1/0/2 for all of them. Even VLANs from ACC3 now go left: load balancing is silently gone. ACC1 is unaffected.",
+      "nodes": {
+        "ACC3": {
+          "badge": "own region",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "ACC3-DIST2": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "ACC3",
+            "DIST1"
+          ],
+          "label": "VLAN 40 (wrong way)",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Fix: one identical map",
+      "text": "Make ACC3's mapping identical (`instance 2 vlan 20,40,60`), and compare `show spanning-tree mst configuration digest` on both sides. ACC3 rejoins region CAMPUS, and instance 2 (shown here) sends its even VLANs right again.",
+      "nodes": {
+        "ACC3": {
+          "badge": "in region",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ACC3-DIST2": null,
+        "ACC3-DIST1": "blocked",
+        "ACC1-DIST1": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "ACC3",
+            "DIST2"
+          ],
+          "label": "VLAN 40",
+          "tone": "purple"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ### MST Hop Count
 
@@ -2707,6 +5810,196 @@ Configured on **designated ports** facing switches that should never be on the p
 4. `show spanning-tree inconsistentports` lists Gi1/0/5 as **Root Inconsistent**. ACC5's users lose connectivity in VLAN 10, which is a far smaller failure than the whole campus.
 5. Once the lab switch is removed and the superior BPDUs stop, the port recovers by itself.
 
+```diagram
+{
+  "type": "topology",
+  "title": "A rogue switch claims root: what each guard does",
+  "caption": "DIST-1 is root for VLAN 10 (bridge priority 24586). A lab switch with priority 0 is plugged into ACC5 Gi1/0/24.",
+  "nodes": [
+    {
+      "id": "DIST1",
+      "kind": "l3switch",
+      "x": 1,
+      "y": 0,
+      "label": "DIST-1",
+      "sub": "24586"
+    },
+    {
+      "id": "DIST2",
+      "kind": "l3switch",
+      "x": 4,
+      "y": 0,
+      "label": "DIST-2",
+      "sub": "28682"
+    },
+    {
+      "id": "ACC5",
+      "kind": "switch",
+      "x": 2.5,
+      "y": 1.6,
+      "label": "ACC5",
+      "sub": "32778"
+    },
+    {
+      "id": "LAB",
+      "kind": "switch",
+      "x": 2.5,
+      "y": 3.2,
+      "label": "LAB-SW",
+      "sub": "priority 0"
+    }
+  ],
+  "links": [
+    {
+      "a": "DIST1",
+      "b": "DIST2"
+    },
+    {
+      "a": "ACC5",
+      "b": "DIST1",
+      "label": "to Gi1/0/5"
+    },
+    {
+      "a": "ACC5",
+      "b": "DIST2",
+      "label": "to Gi1/0/5"
+    },
+    {
+      "a": "ACC5",
+      "b": "LAB",
+      "label": "Gi1/0/24"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. A stable tree",
+      "text": "DIST-1 is root. ACC5's root port faces DIST-1 and its uplink to DIST-2 is an alternate port, discarding.",
+      "nodes": {
+        "DIST1": {
+          "badge": "ROOT",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ACC5-DIST2": "blocked",
+        "ACC5-LAB": "dim"
+      }
+    },
+    {
+      "title": "2. The lab switch arrives",
+      "text": "A technician plugs a lab switch with priority 0 into Gi1/0/24. In VLAN 10 its bridge priority is 0 + 10 = **10**, far better than 24586, so its BPDUs are **superior**: they announce a better root.",
+      "nodes": {
+        "LAB": {
+          "badge": "claims root",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "ACC5-LAB": null
+      },
+      "packets": [
+        {
+          "path": [
+            "LAB",
+            "ACC5"
+          ],
+          "label": "BPDU: root prio 10",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. With no guards: the campus re-centres on a lab bench",
+      "text": "ACC5 believes it and relays the superior BPDU to both distribution switches. The lab switch becomes root for VLAN 10, DIST-1 and DIST-2 point their root ports down at ACC5, and the link between them blocks. Every VLAN 10 frame in the campus now heads for a lab bench.",
+      "nodes": {
+        "LAB": {
+          "badge": "ROOT",
+          "tone": "bad"
+        },
+        "DIST1": {
+          "badge": "not root",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "ACC5-DIST2": null,
+        "DIST1-DIST2": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "ACC5",
+            "DIST1"
+          ],
+          "label": "superior BPDU",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "ACC5",
+            "DIST2"
+          ],
+          "label": "superior BPDU",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. Rewind, with root guard on the DIST downlinks",
+      "text": "Now `spanning-tree guard root` is on DIST-1 and DIST-2 Gi1/0/5. A superior BPDU arrives there, and instead of accepting a new root each port goes **root-inconsistent**: `%SPANTREE-2-ROOTGUARD_BLOCK: Root guard blocking port GigabitEthernet1/0/5 on VLAN0010.` ACC5's users lose VLAN 10; the rest of the campus never notices. The ports recover by themselves once the superior BPDUs stop.",
+      "nodes": {
+        "LAB": {
+          "badge": "claims root",
+          "tone": "warn"
+        },
+        "DIST1": {
+          "badge": "ROOT",
+          "tone": "good"
+        },
+        "ACC5": {
+          "badge": "isolated",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "DIST1-DIST2": null,
+        "ACC5-DIST1": "blocked",
+        "ACC5-DIST2": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "ACC5",
+            "DIST1"
+          ],
+          "label": "superior BPDU",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Better still: BPDU guard at the edge",
+      "text": "Gi1/0/24 is a user port, so it should be PortFast with BPDU guard. Then the **first** BPDU err-disables it: `%PM-4-ERR_DISABLE: bpduguard error detected on Gi1/0/24`. Nothing upstream ever sees the lab switch, and ACC5's users keep working. Root guard stays as the second line of defence for links where switches *are* allowed.",
+      "nodes": {
+        "LAB": {
+          "badge": "cut off",
+          "tone": "muted"
+        },
+        "ACC5": {
+          "badge": "Gi24 err-dis",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ACC5-LAB": "down",
+        "ACC5-DIST1": null,
+        "ACC5-DIST2": "blocked"
+      }
+    }
+  ]
+}
+```
+
 ### Loop Guard — "Silence Is Not Permission"
 
 ```
@@ -2730,6 +6023,155 @@ Protects **root and alternate ports** (the ports that *receive* BPDUs). If BPDUs
 
 4. No loop forms. When the fiber is repaired and BPDUs arrive again, the port goes back to alternate on its own.
 
+```diagram
+{
+  "type": "topology",
+  "title": "Loop guard and the broken fibre strand",
+  "caption": "ACC1's Gi1/0/2 to DIST-2 is an alternate (discarding) port for VLAN 10. DIST-1 is root.",
+  "nodes": [
+    {
+      "id": "DIST1",
+      "kind": "l3switch",
+      "x": 1,
+      "y": 0,
+      "label": "DIST-1",
+      "sub": "root"
+    },
+    {
+      "id": "DIST2",
+      "kind": "l3switch",
+      "x": 4,
+      "y": 0,
+      "label": "DIST-2"
+    },
+    {
+      "id": "ACC1",
+      "kind": "switch",
+      "x": 2.5,
+      "y": 1.8,
+      "label": "ACC1"
+    }
+  ],
+  "links": [
+    {
+      "a": "DIST1",
+      "b": "DIST2"
+    },
+    {
+      "a": "ACC1",
+      "b": "DIST1",
+      "label": "Gi1/0/1"
+    },
+    {
+      "a": "ACC1",
+      "b": "DIST2",
+      "label": "Gi1/0/2"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The alternate port keeps listening",
+      "text": "Gi1/0/2 discards, but it keeps **receiving** DIST-2's BPDUs every 2 s. Those BPDUs are the only reason it stays blocked: they prove a better path exists on that link.",
+      "nodes": {
+        "DIST1": {
+          "badge": "ROOT",
+          "tone": "good"
+        },
+        "ACC1": {
+          "badge": "Gi2 ALTN",
+          "tone": "accent"
+        }
+      },
+      "links": {
+        "ACC1-DIST2": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "DIST2",
+            "ACC1"
+          ],
+          "label": "BPDU every 2 s",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. One strand breaks",
+      "text": "The strand carrying DIST-2's transmissions to ACC1 breaks. ACC1's strand toward DIST-2 still works, so the port **stays up**. ACC1 simply stops hearing BPDUs.",
+      "packets": [
+        {
+          "path": [
+            "DIST2",
+            "ACC1"
+          ],
+          "label": "BPDUs never arrive",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. Without loop guard: a loop",
+      "text": "After 3 missed hellos (6 s in RSTP) ACC1 ages out the stored BPDU, decides nobody upstream is there, and makes Gi1/0/2 **designated, forwarding**. DIST-2's end is designated and forwarding too. Frames now circle ACC1 → DIST-2 → DIST-1 → ACC1.",
+      "nodes": {
+        "ACC1": {
+          "badge": "Gi2 DESG FWD",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "ACC1-DIST2": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "ACC1",
+            "DIST2",
+            "DIST1",
+            "ACC1"
+          ],
+          "label": "loop",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. With loop guard: blocked instead",
+      "text": "With `spanning-tree guard loop` (or `loopguard default`), the same silence puts Gi1/0/2 into **loop-inconsistent** for VLAN 10: `%SPANTREE-2-LOOPGUARD_BLOCK: Loop guard blocking port GigabitEthernet1/0/2 on VLAN0010.` Silence is not permission. No loop forms.",
+      "nodes": {
+        "ACC1": {
+          "badge": "loop-inconsist",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "ACC1-DIST2": "blocked"
+      }
+    },
+    {
+      "title": "5. Fibre repaired",
+      "text": "BPDUs arrive again, and the port goes back to alternate on its own. No manual recovery is needed.",
+      "nodes": {
+        "ACC1": {
+          "badge": "Gi2 ALTN",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "DIST2",
+            "ACC1"
+          ],
+          "label": "BPDU every 2 s",
+          "tone": "accent"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Why can't root guard and loop guard be used on the same port?** Because they protect opposite port roles. Root guard belongs on **designated** ports (which send BPDUs, and should never receive superior ones). Loop guard belongs on **root/alternate** ports (which receive BPDUs, and must keep receiving them). IOS refuses to enable both on one interface.
 
 ### UDLD — Unidirectional Link Detection
@@ -2745,6 +6187,98 @@ A **unidirectional link** is one where traffic flows one way only — classicall
 3. SW1's transmit strand breaks. SW2 stops hearing SW1 entirely. SW1 still hears SW2, but SW2's messages no longer list SW1.
 4. SW1 sees that its own identity is missing from the echo: the link is unidirectional, so SW1 **err-disables** Gi1/0/49. SW2 has stopped hearing SW1 altogether. In aggressive mode it tries to re-establish contact with 8 UDLD messages, one per second, and when none is answered it err-disables its end too.
 5. With the port down, STP and routing see an ordinary link failure and converge around it. No loop and no traffic black hole.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "UDLD aggressive: catching a one-way fibre",
+  "actors": [
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "label": "SW1 Gi1/0/49"
+    },
+    {
+      "id": "SW2",
+      "kind": "switch",
+      "label": "SW2 Gi1/0/49"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SW1",
+      "to": "SW2",
+      "label": "UDLD: I'm SW1; I hear SW2",
+      "detail": "device SW1, port Gi1/0/49, echo: SW2 Gi1/0/49",
+      "states": {
+        "SW1": "bidirectional",
+        "SW2": "bidirectional"
+      },
+      "text": "Every 15 s each side sends its own identity plus the list of neighbours it hears on that port."
+    },
+    {
+      "from": "SW2",
+      "to": "SW1",
+      "label": "UDLD: I'm SW2; I hear SW1",
+      "detail": "device SW2, port Gi1/0/49, echo: SW1 Gi1/0/49",
+      "dashed": true,
+      "text": "Each switch checks that the other lists **it** in the echo. Seeing yourself echoed proves frames flow both ways."
+    },
+    {
+      "note": "SW1's transmit strand breaks",
+      "over": [
+        "SW1",
+        "SW2"
+      ],
+      "tone": "bad",
+      "text": "Light still arrives at SW1 from SW2, so both ports stay **up**. STP alone can't see this."
+    },
+    {
+      "from": "SW1",
+      "to": "SW2",
+      "label": "UDLD: I'm SW1; I hear SW2",
+      "drop": true,
+      "tone": "bad",
+      "text": "SW1's messages no longer reach SW2."
+    },
+    {
+      "from": "SW2",
+      "to": "SW1",
+      "label": "UDLD: I'm SW2; I hear nobody",
+      "detail": "echo list is empty",
+      "dashed": true,
+      "text": "SW2 has aged SW1 out of its neighbour list, so its echo no longer names SW1."
+    },
+    {
+      "from": "SW1",
+      "to": "SW1",
+      "label": "My own ID is missing: unidirectional",
+      "tone": "bad",
+      "states": {
+        "SW1": "err-disabled"
+      },
+      "text": "SW1 still hears SW2, but SW2 no longer hears SW1. The link works one way only, so SW1 **err-disables** Gi1/0/49."
+    },
+    {
+      "from": "SW2",
+      "to": "SW1",
+      "label": "8 re-establish probes, 1 per second",
+      "tone": "warn",
+      "text": "SW2 has lost SW1 altogether. In **aggressive** mode it tries to re-establish contact with 8 messages, one per second. None is answered. (In normal mode it would only log and mark the port.)"
+    },
+    {
+      "from": "SW2",
+      "to": "SW2",
+      "label": "No answer: err-disable",
+      "tone": "bad",
+      "states": {
+        "SW2": "err-disabled"
+      },
+      "text": "SW2 err-disables its end too. With the port down, STP and routing see an ordinary link failure and converge around it: no loop and no black hole."
+    }
+  ]
+}
+```
 
 | Mode | When the link is detected unidirectional |
 |------|-----------------------------------------|
@@ -2992,6 +6526,123 @@ R1 (10.0.12.1) and R2 (10.0.12.2) share the link 10.0.12.0/24 and both run `rout
 
 **Worked example: the timer trap.** An engineer wants fewer hellos on a link and sets `ip hello-interval eigrp 100 20` on R2 only. EIGRP does **not** adjust the hold time automatically, so R2 still advertises a hold time of 15 s while now sending hellos every 20 s. R1 waits 15 s, hears nothing and drops the neighbour. A Hello then arrives and the adjacency comes back, so it flaps over and over. The log shows `%DUAL-5-NBRCHANGE: ... is down: holding time expired`. The fix is to raise the hold time too: `ip hold-time eigrp 100 60`. *The rule: hello and hold don't have to match between neighbours, but on each router the hold time must be comfortably longer than that router's own hello interval (3× is the convention).*
 
+```diagram
+{
+  "type": "sequence",
+  "title": "Two EIGRP routers become neighbours, then the timer trap",
+  "caption": "R1 (10.0.12.1) and R2 (10.0.12.2) on 10.0.12.0/24, both in `router eigrp 100`.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 10.0.12.1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2 10.0.12.2"
+    }
+  ],
+  "messages": [
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Hello",
+      "detail": "224.0.0.10, AS 100, K 1 0 1 0 0, hold 15",
+      "states": {
+        "R1": "no neighbour",
+        "R2": "no neighbour"
+      },
+      "text": "Hellos go to 224.0.0.10 every 5 s and are **not** acknowledged. Each one carries the AS number, the K-values and the sender's hold time."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Hello",
+      "detail": "AS and K-values match, same subnet",
+      "dashed": true,
+      "states": {
+        "R1": "nbr R2, init",
+        "R2": "nbr R1, init"
+      },
+      "text": "R1 checks R2's hello: same AS? same K-values? is 10.0.12.2 in R1's own subnet? authentication? All yes, so R2 goes into R1's **neighbor table**. R2 does the same with R1's hello."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Update, INIT flag (empty)",
+      "detail": "reliable: sequence number, needs an Ack",
+      "dashed": true,
+      "text": "Each side opens the reliable exchange with an empty Update carrying the INIT flag. Updates, Queries and Replies use **RTP**: each carries a sequence number and must be acknowledged."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Update, INIT flag + Ack",
+      "text": "R1 sends its own INIT Update and acknowledges R2's in the same packet."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Ack",
+      "dashed": true,
+      "text": "R2 acknowledges. The neighbours are now ready to swap routes."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Update: full topology table",
+      "text": "R1 sends its whole topology table. EIGRP sends the full table **once**, at the start, and never again on a timer. A lost Update is retransmitted after the RTO (a column in `show ip eigrp neighbors`)."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Ack + Update: full topology table",
+      "dashed": true,
+      "text": "R2 acknowledges R1's Update and sends its own topology."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Ack",
+      "tone": "good",
+      "states": {
+        "R1": "nbr R2 up",
+        "R2": "nbr R1 up"
+      },
+      "text": "Both topology tables are complete. From now on only **changes** are sent, reliably, and hellos keep flowing just to say *still here*."
+    },
+    {
+      "note": "Trap: R2 sets ip hello-interval eigrp 100 20",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "tone": "warn",
+      "text": "Someone wants fewer hellos and changes only the hello interval on R2. EIGRP does **not** raise the hold time to match, so R2 still tells R1 to wait just 15 s."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Hello (now every 20 s), hold 15",
+      "detail": "hello 20 s, advertised hold still 15 s",
+      "dashed": true,
+      "text": "R1 resets its countdown to 15 s with each hello, but the next one is 20 s away."
+    },
+    {
+      "from": "R1",
+      "to": "R1",
+      "label": "15 s, no hello: R2 is down",
+      "tone": "bad",
+      "states": {
+        "R1": "R2 flapping"
+      },
+      "text": "R1 logs `%DUAL-5-NBRCHANGE: EIGRP-IPv4 100: Neighbor 10.0.12.2 (GigabitEthernet0/1) is down: holding time expired` and drops every route via R2. The next hello brings it back, and it flaps forever. Fix: `ip hold-time eigrp 100 60` on R2, so its hold time is 3x its hello."
+    }
+  ]
+}
+```
+
 ### The Three Tables
 
 | Table | Command | What's in it |
@@ -3074,7 +6725,245 @@ DUAL (the **Diffusing Update Algorithm**) is the heart of EIGRP. It needs four t
 
 **The feasibility condition:** a neighbour is a feasible successor only if its **RD is lower than the current FD**.
 
-![DUAL at R1: R2 is successor, R3 feasible successor, R4 not a backup](images/c05_dual.png)
+```diagram
+{
+  "type": "topology",
+  "title": "DUAL at R1: successor, feasible successor, and two failures",
+  "caption": "Feasibility condition: a neighbour is a feasible successor only if its reported distance (RD) is lower than R1's feasible distance (FD = 3000).",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 1,
+      "label": "R1",
+      "sub": "FD = 3000"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.2,
+      "y": 0,
+      "label": "R2",
+      "sub": "RD 1000"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 2.2,
+      "y": 1,
+      "label": "R3",
+      "sub": "RD 2500"
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 2.2,
+      "y": 2,
+      "label": "R4",
+      "sub": "RD 3500"
+    },
+    {
+      "id": "DST",
+      "kind": "cloud",
+      "x": 4.4,
+      "y": 1,
+      "label": "10.9.9.0/24",
+      "sub": "destination"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "total 3000"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "label": "total 4000"
+    },
+    {
+      "a": "R1",
+      "b": "R4",
+      "label": "total 3600"
+    },
+    {
+      "a": "R2",
+      "b": "DST"
+    },
+    {
+      "a": "R3",
+      "b": "DST"
+    },
+    {
+      "a": "R4",
+      "b": "DST"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Three neighbours, three reported distances",
+      "text": "Each neighbour tells R1 its **own** distance to 10.9.9.0/24 (its RD). R1 adds the cost of the link to that neighbour to get a total for each path. `show ip eigrp topology all-links` would show all three."
+    },
+    {
+      "title": "2. R2 is the successor",
+      "text": "Lowest total wins: 3000 via R2. R2 is the **successor**, installed in the routing table, and 3000 becomes R1's **feasible distance**.",
+      "nodes": {
+        "R2": {
+          "badge": "SUCCESSOR",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2",
+            "DST"
+          ],
+          "label": "to 10.9.9.5",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. R3 passes the test",
+      "text": "R3's RD is **2500 < 3000**. A neighbour closer to the destination than R1 can't be routing through R1, so its path is provably loop-free. R3 is a **feasible successor**, a pre-approved backup.",
+      "nodes": {
+        "R3": {
+          "badge": "FEAS. SUCC.",
+          "tone": "warn"
+        }
+      },
+      "focus": [
+        "R1",
+        "R3",
+        "R1-R3",
+        "R3-DST",
+        "DST"
+      ]
+    },
+    {
+      "title": "4. R4 fails it, despite a better total",
+      "text": "R4's RD is **3500**, not below 3000. R4's path *might* be fine, but it *could* run back through R1, and EIGRP can't prove otherwise. So R4 is no backup, even though its total (3600) beats R3's (4000).",
+      "nodes": {
+        "R4": {
+          "badge": "not a backup",
+          "tone": "bad"
+        }
+      },
+      "focus": [
+        "R1",
+        "R4",
+        "R1-R4",
+        "R4-DST",
+        "DST"
+      ]
+    },
+    {
+      "title": "5. Failure 1: the link to R2 drops",
+      "text": "R1 has a feasible successor, so it simply **promotes R3**: metric 4000, no Query sent, and the route stays **passive** the whole time. Recovery takes as long as noticing the link is down. R1 then sends an Update to tell its neighbours its distance changed.",
+      "nodes": {
+        "R2": {
+          "state": "dim",
+          "badge": "lost",
+          "tone": "muted"
+        },
+        "R3": {
+          "badge": "SUCCESSOR",
+          "tone": "good"
+        },
+        "R1": {
+          "badge": "PASSIVE",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R2": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R3",
+            "DST"
+          ],
+          "label": "to 10.9.9.5",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. Failure 2: the link to R3 drops too",
+      "text": "Now there's no feasible successor: R4 never passed the test (its 3500 is still not below the FD, which stays 3000 until the route goes active). The route goes **active** and R1 **Queries** every remaining neighbour.",
+      "nodes": {
+        "R3": {
+          "state": "dim",
+          "badge": "lost",
+          "tone": "muted"
+        },
+        "R1": {
+          "badge": "ACTIVE",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "R1-R3": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R4"
+          ],
+          "label": "Query 10.9.9.0/24",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "7. R4 replies",
+      "text": "R4's own path doesn't depend on R1, so it **Replies** with its distance, 3500. R1 must collect a Reply from *every* neighbour it queried. If one never answers, the route becomes stuck in active (SIA, Chapter 26).",
+      "packets": [
+        {
+          "path": [
+            "R4",
+            "R1"
+          ],
+          "label": "Reply: RD 3500",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "8. Installed via R4, passive again",
+      "text": "With all Replies in, R1 installs the route via R4 at metric **3600** (its new FD) and goes passive. That's the *diffusing* in DUAL: the question spreads out, the answers flow back.",
+      "nodes": {
+        "R4": {
+          "badge": "SUCCESSOR",
+          "tone": "good"
+        },
+        "R1": {
+          "badge": "PASSIVE",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R4",
+            "DST"
+          ],
+          "label": "to 10.9.9.5",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 | Neighbour | RD (their distance) | Total via them | Verdict |
 |-----------|---------------------|----------------|---------|
@@ -3567,6 +7456,154 @@ R1 runs SPF with itself at the root:
 
 R1's results: R3 at cost 5, R2 at cost 8 **via R3** (not the direct link), R4 at cost 9 via R3. Every prefix attached to R4 is installed with cost 9 and next hop R3. If the R3–R2 link fails, every router floods the change, every router reruns SPF, and R1's path to R2 becomes the direct link at cost 10.
 
+```diagram
+{
+  "type": "topology",
+  "title": "SPF by hand: R1 builds its shortest-path tree",
+  "caption": "Badges show each router's distance from R1. A ? means tentative; final means locked in.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 1,
+      "label": "R1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.4,
+      "y": 0,
+      "label": "R2"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 2.4,
+      "y": 2,
+      "label": "R3"
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 4.8,
+      "y": 0,
+      "label": "R4",
+      "sub": "LAN 10.4.4.0/24"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "10"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "label": "5"
+    },
+    {
+      "a": "R3",
+      "b": "R2",
+      "label": "3"
+    },
+    {
+      "a": "R2",
+      "b": "R4",
+      "label": "1"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Start at R1",
+      "text": "R1 is the root at distance 0. Its neighbours go on the tentative list at their link costs: R2 at **10**, R3 at **5**.",
+      "nodes": {
+        "R1": {
+          "badge": "0 final",
+          "tone": "good"
+        },
+        "R2": {
+          "badge": "10 ?",
+          "tone": "warn"
+        },
+        "R3": {
+          "badge": "5 ?",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R1-R2": "active",
+        "R1-R3": "active"
+      }
+    },
+    {
+      "title": "2. R3 is closest: lock it in",
+      "text": "The nearest tentative router is R3 (5), so it becomes final. From R3, R2 is reachable at 5 + 3 = **8**, which beats the tentative 10. R2's entry becomes 8 via R3.",
+      "nodes": {
+        "R3": {
+          "badge": "5 final",
+          "tone": "good"
+        },
+        "R2": {
+          "badge": "8 ? via R3",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R1-R2": "dim",
+        "R3-R2": "active"
+      }
+    },
+    {
+      "title": "3. R2 is next",
+      "text": "R2 (8) is now the nearest tentative router, so it becomes final. From R2, R4 is reachable at 8 + 1 = **9**.",
+      "nodes": {
+        "R2": {
+          "badge": "8 final",
+          "tone": "good"
+        },
+        "R4": {
+          "badge": "9 ?",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R2-R4": "active"
+      }
+    },
+    {
+      "title": "4. R4 final: the tree is done",
+      "text": "R4 (9) becomes final and nothing is left. R1 reaches R3 at 5, R2 at 8 **via R3** (not the direct link), and R4 at 9, also via R3. The direct R1-R2 link isn't on the tree at all.",
+      "nodes": {
+        "R4": {
+          "badge": "9 final",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "5. The R3-R2 link fails",
+      "text": "Every router floods the change and **every router reruns SPF**. R1's new tree uses the direct link: R2 at 10, R4 at 11. EIGRP with a feasible successor would just have switched; OSPF recomputes.",
+      "nodes": {
+        "R2": {
+          "badge": "10 final",
+          "tone": "good"
+        },
+        "R4": {
+          "badge": "11 final",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R3-R2": "down",
+        "R1-R2": "active"
+      }
+    }
+  ]
+}
+```
+
 *Compare with EIGRP:* OSPF had to re-run the whole calculation on every router. EIGRP with a feasible successor would just have switched. That's the "pre-computed backup" versus "recomputed by SPF" row in the table below.
 
 ### EIGRP vs OSPF — the Comparison Table
@@ -3742,6 +7779,61 @@ Three more packets through the same table, step by step:
 2. **To 172.16.4.4:** only 0.0.0.0/0 covers it, so it takes the **static default**.
 3. **Same prefix, two sources:** now suppose OSPF *also* learns 10.1.0.0/16. Both EIGRP (AD 90) and OSPF (AD 110) offer the identical /16, so step 2 applies and only the EIGRP route enters the routing table. The OSPF copy isn't thrown away. It stays in OSPF's own database, and if the EIGRP route disappears, OSPF offers it again and it's installed with AD 110.
 
+```diagram
+{
+  "type": "compare",
+  "title": "Which route carries a packet to 10.1.1.5?",
+  "prompt": "All three routes cover 10.1.1.5. The router asks longest prefix first, then administrative distance, then metric. Change the OSPF route to length 16: now it's the **same prefix** as EIGRP's, and AD decides. Give the static route length 24 too and see AD 1 win.",
+  "winner": "Used for 10.1.1.5",
+  "fields": [
+    {
+      "id": "len",
+      "label": "Prefix length",
+      "kind": "number",
+      "rule": "highest"
+    },
+    {
+      "id": "ad",
+      "label": "Administrative distance",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "metric",
+      "label": "Metric",
+      "kind": "number",
+      "rule": "lowest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "10.1.0.0/16 via EIGRP",
+      "values": {
+        "len": 16,
+        "ad": 90,
+        "metric": 3072
+      }
+    },
+    {
+      "label": "10.1.1.0/24 via OSPF",
+      "values": {
+        "len": 24,
+        "ad": 110,
+        "metric": 20
+      }
+    },
+    {
+      "label": "0.0.0.0/0 static",
+      "values": {
+        "len": 0,
+        "ad": 1,
+        "metric": 0
+      }
+    }
+  ]
+}
+```
+
 **Story Time 📖:** Longest match is how a post office sorts mail. A letter addressed to "Flat 4, 12 Oak Street, Springfield" goes to the most specific match it has, the Oak Street sorting slot, not the generic "Springfield" slot. The "Everywhere else" bin (the default route) is only for letters nothing else matches. AD is different: it's how the post office chooses between two delivery companies that both offer the same Oak Street route. It picks the one it trusts more.
 
 ### Administrative Distance Reference
@@ -3880,6 +7972,173 @@ The routing table on R1 sends everything (including the default route) to the MP
 1. **Guest 10.50.3.7 → 8.8.8.8, arriving on Gi0/2.** The interface has a policy, so R1 checks route-map sequence 10. ACL GUEST-NET permits source 10.50.0.0/16, so it matches. 203.0.113.1 is on a connected, up subnet, so the packet goes to **203.0.113.1** (the internet link). The routing table is never consulted.
 2. **Staff 10.20.1.1 → 8.8.8.8, arriving on Gi0/2.** The ACL doesn't match, so the packet falls through the route map and is routed **normally**, via 10.0.99.1.
 3. **Guest 10.50.3.7 → 8.8.8.8, with the internet link down.** The sequence matches, but 203.0.113.1 is no longer reachable. The `set` is skipped and the packet is routed normally via 10.0.99.1.
+
+```diagram
+{
+  "type": "topology",
+  "title": "PBR: guests go out the internet link, everyone else follows the routing table",
+  "caption": "`route-map WAN-POLICY` (match GUEST-NET, `set ip next-hop 203.0.113.1`) is applied with `ip policy` on Gi0/2, where users arrive.",
+  "nodes": [
+    {
+      "id": "GUEST",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "Guest",
+      "sub": "10.50.3.7"
+    },
+    {
+      "id": "STAFF",
+      "kind": "host",
+      "x": 0,
+      "y": 2,
+      "label": "Staff",
+      "sub": "10.20.1.1"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.8,
+      "y": 1,
+      "label": "R1",
+      "sub": "policy on Gi0/2"
+    },
+    {
+      "id": "MPLS",
+      "kind": "cloud",
+      "x": 3.6,
+      "y": 0,
+      "label": "MPLS WAN",
+      "sub": "next hop 10.0.99.1"
+    },
+    {
+      "id": "ISP",
+      "kind": "cloud",
+      "x": 3.6,
+      "y": 2,
+      "label": "Internet link",
+      "sub": "next hop 203.0.113.1"
+    },
+    {
+      "id": "WEB",
+      "kind": "server",
+      "x": 5.4,
+      "y": 1,
+      "label": "8.8.8.8"
+    }
+  ],
+  "links": [
+    {
+      "a": "GUEST",
+      "b": "R1"
+    },
+    {
+      "a": "STAFF",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "MPLS"
+    },
+    {
+      "a": "R1",
+      "b": "ISP"
+    },
+    {
+      "a": "MPLS",
+      "b": "WEB"
+    },
+    {
+      "a": "ISP",
+      "b": "WEB"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The routing table's answer",
+      "text": "R1's routing table, default route included, sends everything to the MPLS WAN at 10.0.99.1. Without PBR every packet would go that way.",
+      "nodes": {
+        "MPLS": {
+          "badge": "RIB: 0.0.0.0/0",
+          "tone": "accent"
+        }
+      }
+    },
+    {
+      "title": "2. A guest packet matches",
+      "text": "10.50.3.7 → 8.8.8.8 arrives on Gi0/2, which has a policy. Sequence 10's ACL permits 10.50.0.0/16, so it matches. 203.0.113.1 is on a connected, up subnet, so the packet goes **there**; the routing table is never consulted. `show route-map WAN-POLICY` counts it under *Policy routing matches*.",
+      "nodes": {
+        "R1": {
+          "badge": "match: set",
+          "tone": "purple"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "GUEST",
+            "R1",
+            "ISP",
+            "WEB"
+          ],
+          "label": "10.50.3.7 → 8.8.8.8",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "3. A staff packet falls through",
+      "text": "10.20.1.1 → 8.8.8.8 arrives on the same interface, but the ACL doesn't match. A packet that matches no sequence is simply **routed normally**, via 10.0.99.1. PBR is an override, not a replacement.",
+      "nodes": {
+        "R1": {
+          "badge": "no match",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "STAFF",
+            "R1",
+            "MPLS",
+            "WEB"
+          ],
+          "label": "10.20.1.1 → 8.8.8.8",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "4. Internet link down: guests fall back",
+      "text": "The guest packet still matches, but 203.0.113.1 is no longer reachable, so the `set` is skipped and the packet is routed normally via MPLS. (The routing protocols never knew about the policy, which is why Chapter 25 adds tracking.)",
+      "nodes": {
+        "R1": {
+          "badge": "set skipped",
+          "tone": "warn"
+        },
+        "ISP": {
+          "state": "down"
+        }
+      },
+      "links": {
+        "R1-ISP": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "GUEST",
+            "R1",
+            "MPLS",
+            "WEB"
+          ],
+          "label": "10.50.3.7 → 8.8.8.8",
+          "tone": "warn"
+        }
+      ]
+    }
+  ]
+}
+```
 
 Now swap `set ip next-hop` for **`set ip default next-hop 203.0.113.1`** and send two guest packets:
 
@@ -4075,6 +8334,243 @@ Following the diagram from left to right:
 3. **R5** redistributes EIGRP routes. Because area 2 is an NSSA (6.3), they enter as **Type 7**.
 4. **ABR2** translates each Type 7 into a **Type 5** and floods it to the rest of the domain. In the translated LSA, **ABR2 itself** is the advertising router, not R5. Area 0 routers already know how to reach ABR2 from its Type 1 LSA, so nothing more is needed there. Routers in **area 1** don't have ABR2's Type 1, so **ABR1** advertises a **Type 4** into area 1 saying "ABR2, the router advertising these externals, is reachable through me."
 
+```diagram
+{
+  "type": "topology",
+  "title": "Which router speaks which LSA, and how far it travels",
+  "caption": "Area 2 is an NSSA. Click any router to see its role. Step through to watch each LSA type flood.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 1,
+      "label": "R1",
+      "sub": "internal",
+      "info": "**Internal router**: every interface in area 1. It holds area 1's full map (Type 1 and 2 LSAs) and sees everything else as Type 3 summaries and Type 5 externals."
+    },
+    {
+      "id": "ABR1",
+      "kind": "router",
+      "x": 1.3,
+      "y": 1,
+      "label": "ABR1",
+      "sub": "areas 1 + 0",
+      "info": "**ABR** (and backbone router): interfaces in area 0 and area 1. It turns area 1's detail into Type 3s for area 0, sends area 0's Type 3s into area 1, and originates **Type 4**s so area 1 can find routers that advertise externals. `show ip ospf` says *It is an area border router*."
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 2.6,
+      "y": 1,
+      "label": "R3",
+      "sub": "backbone",
+      "info": "**Backbone router**: all interfaces in area 0. Every inter-area route crosses area 0, which keeps OSPF's distance-vector-style inter-area exchange loop-free."
+    },
+    {
+      "id": "ABR2",
+      "kind": "router",
+      "x": 3.9,
+      "y": 1,
+      "label": "ABR2",
+      "sub": "areas 0 + 2",
+      "info": "**NSSA ABR**: translates area 2's Type 7 LSAs into Type 5 for the rest of the domain, becoming their advertising router."
+    },
+    {
+      "id": "R5",
+      "kind": "router",
+      "x": 5.2,
+      "y": 1,
+      "label": "R5",
+      "sub": "ASBR",
+      "info": "**ASBR** inside an NSSA: redistributes EIGRP routes into OSPF. Inside an NSSA they must be **Type 7**, because Type 5 isn't allowed there."
+    },
+    {
+      "id": "EIGRP",
+      "kind": "cloud",
+      "x": 5.2,
+      "y": 2.5,
+      "label": "EIGRP domain",
+      "sub": "172.16.0.0/16"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "ABR1"
+    },
+    {
+      "a": "ABR1",
+      "b": "R3"
+    },
+    {
+      "a": "R3",
+      "b": "ABR2"
+    },
+    {
+      "a": "ABR2",
+      "b": "R5"
+    },
+    {
+      "a": "R5",
+      "b": "EIGRP",
+      "style": "dashed",
+      "label": "redistribute"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Area 1",
+      "nodes": [
+        "R1"
+      ],
+      "tone": "good"
+    },
+    {
+      "label": "Area 0",
+      "nodes": [
+        "R3"
+      ],
+      "tone": "accent"
+    },
+    {
+      "label": "Area 2 (NSSA)",
+      "nodes": [
+        "R5"
+      ],
+      "tone": "purple"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Type 1 and 2 stay home",
+      "text": "R1 describes its links in a **Type 1** (Router) LSA; a DR on any area 1 LAN adds a **Type 2** (Network). Both flood only within area 1, and become `O` routes there.",
+      "focus": [
+        "R1",
+        "ABR1",
+        "R1-ABR1"
+      ],
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ABR1"
+          ],
+          "label": "Type 1 + Type 2",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. ABR1 summarizes area 1 into Type 3s",
+      "text": "ABR1 works out each area 1 prefix and its cost, and floods it into area 0 as a **Type 3** (Summary). ABR2 passes Type 3s on into area 2 as well: an NSSA still takes inter-area routes. Routers see them as `O IA`.",
+      "nodes": {
+        "ABR1": {
+          "badge": "1/2 → 3",
+          "tone": "accent"
+        },
+        "R3": {
+          "badge": "O IA",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ABR1",
+            "R3",
+            "ABR2",
+            "R5"
+          ],
+          "label": "Type 3 10.1.0.0/24",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. R5 redistributes as Type 7",
+      "text": "R5 redistributes EIGRP's 172.16.0.0/16. Area 2 is an NSSA, so the external enters as a **Type 7**, which floods only within area 2 (`O N2` there).",
+      "nodes": {
+        "ABR1": null,
+        "R3": null,
+        "R5": {
+          "badge": "ASBR",
+          "tone": "purple"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "EIGRP",
+            "R5",
+            "ABR2"
+          ],
+          "label": "Type 7 172.16.0.0/16",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. ABR2 translates 7 into 5",
+      "text": "ABR2 translates the Type 7 into a **Type 5** (External) and floods it through the rest of the domain. In the Type 5, **ABR2 itself** is the advertising router, not R5. Area 0 routers already reach ABR2 from its Type 1, so nothing else is needed there.",
+      "nodes": {
+        "ABR2": {
+          "badge": "7 → 5",
+          "tone": "warn"
+        },
+        "R3": {
+          "badge": "O E2",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ABR2",
+            "R3",
+            "ABR1"
+          ],
+          "label": "Type 5 adv-rtr ABR2",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. ABR1 adds a Type 4 for area 1",
+      "text": "The Type 5 floods into area 1 too, but R1 has never seen ABR2's Type 1 LSA (it lives in area 0). So ABR1 originates a **Type 4** (ASBR summary): *ABR2 is reachable through me, at this cost.* Type 5 says what's out there; Type 4 says how to reach the router that said it.",
+      "nodes": {
+        "ABR1": {
+          "badge": "Type 4",
+          "tone": "warn"
+        },
+        "R1": {
+          "badge": "O E2",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ABR1",
+            "R1"
+          ],
+          "label": "Type 5 172.16.0.0/16",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "ABR1",
+            "R1"
+          ],
+          "label": "Type 4: ABR2 via me",
+          "tone": "accent"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Why is a Type 4 needed at all?** A Type 5 says "network X is reachable via ASBR R5" — but routers in area 1 have never seen R5's Type 1 LSA (it's in another area), so they have no idea how to reach R5. The ABR fills the gap with a Type 4: "R5 is reachable through me, at this cost." *Type 5 says what's out there; Type 4 says how to get to the router that said it.* (When an NSSA ABR translates Type 7 to Type 5, **the ABR itself** becomes the advertising router, so other areas just need a path to the ABR.)
 
 ### E1 versus E2
@@ -4099,6 +8595,87 @@ For the **same prefix**, OSPF also prefers an E1 route over an E2 route whatever
 | E1, A seed 30, B seed 20 | 30 + 10 = **40** | 20 + 50 = **70** | **A** | E1 counts the trip to the ASBR, so the genuinely closer exit wins |
 
 The middle row is the trap: with E2, a router can pick a far-away exit because the seed metric is all it compares. When several exits advertise the same prefixes, use E1 so every router uses the exit nearest to it.
+
+```diagram
+{
+  "type": "path",
+  "title": "E1: the external seed plus the trip to the ASBR",
+  "prompt": "Two ASBRs redistribute 172.16.0.0/16 as **E1**, so each path costs its seed metric (the last hop) plus the internal cost to reach that ASBR: 30 + 10 = 40 via ASBR-A against 20 + 50 = 70 via ASBR-B. Set the four internal links to 0 to see what **E2** compares: the seeds alone, so the far-away ASBR-B wins.",
+  "metric": "Cost",
+  "from": "R1",
+  "to": "EXT",
+  "nodes": [
+    {
+      "id": "R1",
+      "x": 0,
+      "y": 1
+    },
+    {
+      "id": "R2",
+      "x": 1.5,
+      "y": 0
+    },
+    {
+      "id": "R3",
+      "x": 1.5,
+      "y": 2
+    },
+    {
+      "id": "ASBRA",
+      "x": 3,
+      "y": 0,
+      "label": "ASBR-A"
+    },
+    {
+      "id": "ASBRB",
+      "x": 3,
+      "y": 2,
+      "label": "ASBR-B"
+    },
+    {
+      "id": "EXT",
+      "kind": "cloud",
+      "x": 4.6,
+      "y": 1,
+      "label": "172.16.0.0/16"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "cost": 5
+    },
+    {
+      "a": "R2",
+      "b": "ASBRA",
+      "cost": 5
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "cost": 25
+    },
+    {
+      "a": "R3",
+      "b": "ASBRB",
+      "cost": 25
+    },
+    {
+      "a": "ASBRA",
+      "b": "EXT",
+      "cost": 30,
+      "label": "seed"
+    },
+    {
+      "a": "ASBRB",
+      "b": "EXT",
+      "cost": 20,
+      "label": "seed"
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 6.2**
 
@@ -4178,6 +8755,185 @@ ENCOR 3.2.b asks for **multiple normal areas**; Chapter 5.7 summarised the speci
 | Totally stubby (`no-summary` added on the ABR) | `O` plus `O*IA 0.0.0.0/0` | 50 + 1 = 51 |
 
 R1 can still reach every one of those destinations in all three cases. Anything it no longer knows about matches the default and goes to the ABR, which is exactly where it would have gone anyway.
+
+```diagram
+{
+  "type": "topology",
+  "title": "What reaches R1 under each area type",
+  "caption": "The network has 50 prefixes in area 1, 400 in other areas and 2,000 externals from the ASBR.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 1,
+      "label": "R1",
+      "sub": "area 1"
+    },
+    {
+      "id": "ABR1",
+      "kind": "router",
+      "x": 1.8,
+      "y": 1,
+      "label": "ABR1",
+      "sub": "areas 0 + 1"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 3.6,
+      "y": 1,
+      "label": "R3",
+      "sub": "area 0"
+    },
+    {
+      "id": "ASBR",
+      "kind": "router",
+      "x": 5.4,
+      "y": 1,
+      "label": "ASBR",
+      "sub": "2,000 externals"
+    }
+  ],
+  "links": [
+    {
+      "a": "ASBR",
+      "b": "R3"
+    },
+    {
+      "a": "R3",
+      "b": "ABR1"
+    },
+    {
+      "a": "ABR1",
+      "b": "R1"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Area 0",
+      "nodes": [
+        "ASBR",
+        "R3"
+      ],
+      "tone": "accent"
+    },
+    {
+      "label": "Area 1",
+      "nodes": [
+        "R1"
+      ],
+      "tone": "good"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Normal area: everything",
+      "text": "ABR1 floods **Type 3**s for the 400 inter-area prefixes and a **Type 4** for the ASBR, and the ASBR's **Type 5**s flood straight through. R1 holds `O`, `O IA` and `O E2` routes: 50 + 400 + 2,000.",
+      "nodes": {
+        "R1": {
+          "badge": "2,450 routes",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ASBR",
+            "R3",
+            "ABR1",
+            "R1"
+          ],
+          "label": "Type 5 x 2,000",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "ABR1",
+            "R1"
+          ],
+          "label": "Type 3 x 400 + Type 4",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. Stub: externals stop at the ABR",
+      "text": "With `area 1 stub` on **every** area 1 router, ABR1 blocks Type 4 and 5 and injects a **Type 3 default** instead. R1 keeps the inter-area detail: 50 + 400 + 1.",
+      "nodes": {
+        "ABR1": {
+          "badge": "stub",
+          "tone": "good"
+        },
+        "R1": {
+          "badge": "451 routes",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ASBR",
+            "R3",
+            "ABR1"
+          ],
+          "label": "Type 5 stops here",
+          "tone": "muted"
+        },
+        {
+          "path": [
+            "ABR1",
+            "R1"
+          ],
+          "label": "Type 3 x 400 + default",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. Totally stubby: one default",
+      "text": "Add `no-summary` on the ABR only (`area 1 stub no-summary`). Now ABR1 blocks Type 3 as well, apart from the default. R1 holds its own area plus `O*IA 0.0.0.0/0`: 50 + 1. It can still reach all 2,450 destinations, because everything it doesn't know goes to ABR1, where it was going anyway.",
+      "nodes": {
+        "ABR1": {
+          "badge": "no-summary",
+          "tone": "good"
+        },
+        "R1": {
+          "badge": "51 routes",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ABR1",
+            "R1"
+          ],
+          "label": "Type 3 default only",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. Forget the stub flag on R1",
+      "text": "The stub setting travels as a flag (the E-bit) in every **hello**. If R1 lacks `area 1 stub`, the flags disagree and OSPF refuses the adjacency: `debug ip ospf hello` shows *mismatched Stub/Transit area option bit*. Two routers that disagree on whether externals may exist would build different databases.",
+      "nodes": {
+        "ABR1": {
+          "badge": "stub",
+          "tone": "good"
+        },
+        "R1": {
+          "badge": "no stub flag",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "ABR1-R1": "down"
+      }
+    }
+  ]
+}
+```
 
 ### Originating a Default Into Normal Areas
 
@@ -4374,6 +9130,17 @@ ABR1(config-router)# area 1 range 10.1.0.0 255.255.252.0    ! one /22 instead of
 
 The first 6 bits are identical in all four, and the last 2 bits take every combination. So the common part is 8 + 8 + 6 = **22** bits: **10.1.0.0/22**, mask 255.255.252.0. The summary covers exactly these four /24s and nothing else. If area 1 had only 10.1.0.0–10.1.2.0, the /22 would also claim 10.1.3.0/24, which doesn't exist. That's legal, and the Null0 route below is what makes it safe.
 
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "10.1.3.0",
+  "prefix": 22,
+  "title": "Find the summary for 10.1.0.0 to 10.1.3.0",
+  "prompt": "At /22 the network is 10.1.0.0, the mask 255.255.252.0, and the range runs up to 10.1.3.255: exactly the four /24s. Slide to /23 and 10.1.3.0 lands in 10.1.2.0/23, which misses 10.1.0.0 and 10.1.1.0. Slide to /21 and the summary also claims 10.1.4.0 to 10.1.7.255."
+}
+```
+
 **Story Time 📖:** A summary is like a postcode. A sorting office in another city doesn't need every street name in your town. "All of 10.1.x up to 10.1.3.x → ABR1" is enough to get the packet to the right town, and ABR1 knows the streets.
 
 The `area` number is the area **the routes live in** (area 1), not the area the summary is sent to. Now area 0 sees a single `O IA 10.1.0.0/22`. On ABR1 itself a new route appears:
@@ -4384,6 +9151,130 @@ O        10.1.0.0/22 is a summary, 00:01:12, Null0
 ```
 
 **Why does the ABR install a summary route pointing at Null0?** To prevent a loop. Suppose 10.1.3.0/24 goes down. Other areas still route 10.1.3.x toward ABR1 (the /22 summary is still advertised). ABR1 has no /24 anymore, so without the discard route it would follow its **default route** — possibly straight back into area 0, which sends it back to ABR1, and so on until the TTL dies. The Null0 summary catches anything inside the /22 that has no more specific route and **drops it** on the spot. *A summary is a promise; the Null0 route makes sure the router can't keep that promise by bouncing traffic in circles.*
+
+```diagram
+{
+  "type": "topology",
+  "title": "Why the ABR's summary points at Null0",
+  "caption": "ABR1 has `area 1 range 10.1.0.0 255.255.252.0`. Like every router in area 0, it has a default route toward EDGE.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 1,
+      "label": "R1",
+      "sub": "10.1.0-3.0/24"
+    },
+    {
+      "id": "ABR1",
+      "kind": "router",
+      "x": 1.8,
+      "y": 1,
+      "label": "ABR1",
+      "sub": "area 1 range /22"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 3.6,
+      "y": 1,
+      "label": "R3",
+      "sub": "area 0"
+    },
+    {
+      "id": "EDGE",
+      "kind": "router",
+      "x": 5.4,
+      "y": 1,
+      "label": "EDGE",
+      "sub": "default origin"
+    }
+  ],
+  "links": [
+    {
+      "a": "EDGE",
+      "b": "R3"
+    },
+    {
+      "a": "R3",
+      "b": "ABR1"
+    },
+    {
+      "a": "ABR1",
+      "b": "R1"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. One summary into area 0",
+      "text": "ABR1 advertises **10.1.0.0/22** as one Type 3. R3 routes anything in 10.1.0.0-10.1.3.255 to ABR1, and everything else (the default, `O*E2`) toward EDGE. ABR1's own default also points back at R3.",
+      "packets": [
+        {
+          "path": [
+            "ABR1",
+            "R3"
+          ],
+          "label": "Type 3 10.1.0.0/22",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. 10.1.3.0/24 goes down",
+      "text": "One component dies, but three are still up, so the /22 stays advertised. Area 0 can't see that 10.1.3.0/24 is gone: that's the price of summarizing.",
+      "nodes": {
+        "R1": {
+          "badge": "10.1.3.0 down",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "3. Without a discard route: a loop",
+      "text": "A packet for 10.1.3.9 reaches ABR1 via the /22. ABR1 has no /24 for it, so it follows its **default** back to R3, which follows the /22 back to ABR1... The packet bounces until its TTL reaches zero, wasting the link both ways.",
+      "nodes": {
+        "ABR1": {
+          "badge": "→ default?",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R3",
+            "ABR1",
+            "R3",
+            "ABR1"
+          ],
+          "label": "to 10.1.3.9 (TTL--)",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. The real behaviour: Null0",
+      "text": "ABR1 automatically installs `O 10.1.0.0/22 is a summary, Null0`. A packet for 10.1.3.9 matches the /22 discard route, which is longer than the default, and is **dropped on the spot**. The summary is a promise, and Null0 stops ABR1 breaking it by bouncing traffic in circles.",
+      "nodes": {
+        "ABR1": {
+          "badge": "Null0 drop",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R3",
+            "ABR1"
+          ],
+          "label": "to 10.1.3.9",
+          "tone": "warn"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ### External Summary at the ASBR
 
@@ -4486,6 +9377,36 @@ How ABR1 checks each area 1 prefix against NO-LAB before creating a Type 3 for a
 1. **10.1.3.0/24:** seq 5 matches exactly and says deny, so no Type 3 is created. Area 0 never hears of it.
 2. **10.1.2.0/24:** seq 5 doesn't match. Seq 10 (`0.0.0.0/0 le 32`, meaning any prefix of any length) matches and says permit, so the Type 3 is created.
 3. Every other area 1 prefix takes the same path as step 2.
+
+```diagram
+{
+  "type": "match",
+  "kind": "prefix-list",
+  "name": "NO-LAB",
+  "title": "ABR1 checks each area 1 prefix against NO-LAB",
+  "prompt": "`area 1 filter-list prefix NO-LAB out` runs every area 1 prefix through this list before ABR1 creates a Type 3 for area 0. Try the lab /24, a normal /24, and a /25 inside the lab range: seq 5 has no `ge` or `le`, so it matches only the exact /24. Without seq 10, every prefix would fall to the implicit deny and area 0 would learn nothing from area 1.",
+  "rules": [
+    {
+      "seq": 5,
+      "action": "deny",
+      "prefix": "10.1.3.0/24"
+    },
+    {
+      "seq": 10,
+      "action": "permit",
+      "prefix": "0.0.0.0/0",
+      "le": 32
+    }
+  ],
+  "input": "10.1.3.0/24",
+  "tries": [
+    "10.1.3.0/24",
+    "10.1.2.0/24",
+    "10.1.3.0/25",
+    "10.1.0.0/22"
+  ]
+}
+```
 
 On a router in area 0, `show ip ospf database summary 10.1.3.0` now returns nothing, and `show ip route 10.1.3.0` says `% Network not in table`.
 
@@ -4927,6 +9848,130 @@ R1 and R2 are connected on Gi0/1. Users report that nothing beyond R2 is reachab
 3. **Why it sticks:** in EXSTART/EXCHANGE the routers send Database Description packets that list their LSAs. R1 offers packets up to 1500 bytes. R2 sees that the MTU advertised in R1's packets exceeds its own and rejects them, so the exchange never finishes.
 4. **Fix:** make the MTU match on both ends (`mtu 1500` on R2's Gi0/1). The neighbour moves through EXCHANGE and LOADING to **FULL** within seconds, and the routes appear. `ip ospf mtu-ignore` would also bring it up, but it hides the real problem: large packets would still be dropped on that link.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "OSPF stuck in EXSTART: an MTU mismatch, packet by packet",
+  "caption": "R1 (RID 3.3.3.3) has MTU 1500 on Gi0/1; R2 (RID 2.2.2.2) has MTU 1400.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 MTU 1500"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2 MTU 1400"
+    }
+  ],
+  "messages": [
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Hello, RID 3.3.3.3",
+      "detail": "to 224.0.0.5, seen: (none)",
+      "states": {
+        "R1": "DOWN",
+        "R2": "INIT"
+      },
+      "text": "Hellos go to 224.0.0.5 every 10 s. Area, subnet, timers, authentication and stub flags all match, so R2 accepts it. **MTU isn't in the hello**, so nothing complains yet."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Hello, seen 3.3.3.3",
+      "dashed": true,
+      "states": {
+        "R1": "EXSTART"
+      },
+      "text": "R1 sees its own RID in R2's hello: two-way communication. The routers will be adjacent, so R1 moves straight on to EXSTART."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Hello, seen 2.2.2.2",
+      "states": {
+        "R2": "EXSTART"
+      },
+      "text": "R2 reaches two-way and EXSTART too."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "DBD (I, M, MS) MTU 1500",
+      "drop": true,
+      "tone": "bad",
+      "text": "EXSTART decides master and slave: each side sends an empty Database Description claiming to be master, and the higher RID wins. R1 (3.3.3.3) should win. But R2 sees an interface MTU of 1500 in the DBD, bigger than its own 1400, and **discards it** (`debug ip ospf adj`: *Nbr 3.3.3.3 has larger interface MTU*)."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "DBD (I, M, MS) MTU 1400",
+      "dashed": true,
+      "text": "R1 accepts R2's DBD (1400 fits within 1500), but R1 has the higher RID, so it rejects R2's claim to be master and keeps waiting for R2 to agree to be slave."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "DBD retransmit (every 5 s)",
+      "drop": true,
+      "tone": "bad",
+      "text": "R1 keeps resending its DBD, and R2 keeps discarding it. Neither side ever gets past EXSTART: `show ip ospf neighbor` shows **EXSTART** indefinitely, and no routes are exchanged."
+    },
+    {
+      "note": "Fix: mtu 1500 on R2's Gi0/1",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "tone": "good",
+      "text": "Make the MTU match. `ip ospf mtu-ignore` would also bring the adjacency up, but large packets would still be dropped on that link, so it hides the real problem."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "DBD (I, M, MS) MTU 1500",
+      "tone": "good",
+      "text": "Now R2 accepts it, sees the higher RID and agrees to be **slave**."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "DBD (slave): my LSA headers",
+      "dashed": true,
+      "states": {
+        "R1": "EXCHANGE",
+        "R2": "EXCHANGE"
+      },
+      "text": "Master and slave are settled, and the routers list the LSA headers in their databases."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "LSR: send me the LSAs I lack",
+      "dashed": true,
+      "states": {
+        "R1": "LOADING",
+        "R2": "LOADING"
+      },
+      "text": "Each side requests the LSAs it's missing or holds an older copy of."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "LSU (the LSAs), then LSAck",
+      "tone": "good",
+      "states": {
+        "R1": "FULL",
+        "R2": "FULL"
+      },
+      "text": "The full LSAs arrive and are acknowledged. With identical databases both routers are **FULL**, and the routes appear within seconds."
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 6.9**
 
 **Q1.** R1 shows R2 stuck in EXSTART and the state never progresses. Which command most directly proves the likely cause?
@@ -5020,8 +10065,6 @@ BGP (Border Gateway Protocol, version 4) answers all three. It's an **EGP** — 
 
 **Why "path vector"?** Every BGP route carries the **list of autonomous systems** it has passed through — the `AS_PATH`. That list does two jobs. It's a **rough distance** (fewer ASes is usually better), and it's a **loop detector**: a router that sees its **own AS number** in an incoming path rejects the route, because accepting it would mean routing through itself.
 
-![AS_PATH loop prevention: R1 rejects a path that already contains AS 65001](images/c07_aspath.png)
-
 **Story Time 📖:** Think of a passport that gets a stamp at every border it crosses. Each country you pass through adds its stamp. If a border officer opens your passport and finds *their own country's* stamp from this same trip, they know you've gone round in a circle and turn you back. The AS_PATH is that passport: every AS adds its number as it passes the route on, and an AS that finds its own number refuses the route. Fewer stamps usually means a more direct journey, which is why path length also works as a rough distance.
 
 **Worked example: a loop being stopped.** R1 in AS 65001 advertises 198.51.100.0/24.
@@ -5030,6 +10073,116 @@ BGP (Border Gateway Protocol, version 4) answers all three. It's an **EGP** — 
 2. AS 65002 passes it to AS 65003 with AS_PATH **65002 65001** (each AS adds itself to the front).
 3. AS 65003 also peers with AS 65001 and sends the route back with AS_PATH **65003 65002 65001**.
 4. R1 sees **65001**, its own AS, in the path. It drops the route silently. A route to its own network through two other companies would be a loop.
+
+```diagram
+{
+  "type": "topology",
+  "title": "AS_PATH loop prevention: a router rejects its own AS number",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0.5,
+      "y": 0,
+      "label": "R1",
+      "sub": "AS 65001"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 4.5,
+      "y": 0,
+      "label": "R2",
+      "sub": "AS 65002"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 2.5,
+      "y": 1.8,
+      "label": "R3",
+      "sub": "AS 65003"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "eBGP"
+    },
+    {
+      "a": "R2",
+      "b": "R3",
+      "label": "eBGP"
+    },
+    {
+      "a": "R3",
+      "b": "R1",
+      "label": "eBGP"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. R1 advertises 198.51.100.0/24",
+      "text": "R1 sends its prefix to AS 65002. Over eBGP a router adds **its own AS** to the front of the AS_PATH, so the path is just `65001`.",
+      "nodes": {
+        "R1": {
+          "badge": "origin",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "AS_PATH 65001",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. AS 65002 passes it on",
+      "text": "R2 prepends 65002 and advertises it to AS 65003: `65002 65001`. The list is both a rough distance (two ASes away) and a record of every AS the route has crossed.",
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R3"
+          ],
+          "label": "AS_PATH 65002 65001",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. AS 65003 sends it back to R1",
+      "text": "R3 also peers with AS 65001, so it advertises the route there too: `65003 65002 65001`.",
+      "packets": [
+        {
+          "path": [
+            "R3",
+            "R1"
+          ],
+          "label": "65003 65002 65001",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. R1 sees 65001 and drops it",
+      "text": "R1 finds **its own AS** in the path. Accepting it would mean reaching its own network through two other companies: a loop. It discards the route silently. (R2 would do the same with any path containing 65002.) No hop counts, no feasibility maths, no shared map: the path itself is the proof.",
+      "nodes": {
+        "R1": {
+          "badge": "own AS: drop",
+          "tone": "bad"
+        }
+      }
+    }
+  ]
+}
+```
 
 *No hop counts, no feasibility maths, no shared map — the path itself is the proof.* That is why BGP needs no areas and no SPF to stay loop-free across tens of thousands of independent networks.
 
@@ -5104,6 +10257,105 @@ BGP (Border Gateway Protocol, version 4) answers all three. It's an **EGP** — 
 **Why do private ASNs exist?** For the same reason private IP addresses do (CCNA guide 11.4). An enterprise that connects to a single ISP still needs an ASN to run BGP, but the outside world never needs to see it — the ISP strips the private ASN (`remove-private-as`) and advertises the customer's prefixes as part of its own AS.
 
 For example, the customer uses private AS 65001 and its ISP uses AS 64500 (a documentation number standing in for a real public ASN). The customer advertises 198.51.100.0/24 to the ISP with AS_PATH **65001**. The ISP has `remove-private-as` on that neighbour, so when it advertises the prefix to the rest of the internet, the path is just **64500**. To the world, the customer's block simply belongs to the ISP's AS.
+
+```diagram
+{
+  "type": "topology",
+  "title": "remove-private-as: the customer's AS vanishes at the ISP",
+  "nodes": [
+    {
+      "id": "CUST",
+      "kind": "router",
+      "x": 0,
+      "y": 0,
+      "label": "R1",
+      "sub": "AS 65001 (private)"
+    },
+    {
+      "id": "ISP",
+      "kind": "router",
+      "x": 2.5,
+      "y": 0,
+      "label": "ISP",
+      "sub": "AS 64500"
+    },
+    {
+      "id": "NET",
+      "kind": "cloud",
+      "x": 5,
+      "y": 0,
+      "label": "Internet",
+      "sub": "e.g. AS 64510"
+    }
+  ],
+  "links": [
+    {
+      "a": "CUST",
+      "b": "ISP"
+    },
+    {
+      "a": "ISP",
+      "b": "NET"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The customer advertises with its private AS",
+      "text": "R1 runs BGP with private AS 65001 and advertises 198.51.100.0/24 to its single ISP with AS_PATH `65001`.",
+      "packets": [
+        {
+          "path": [
+            "CUST",
+            "ISP"
+          ],
+          "label": "AS_PATH 65001",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. The ISP strips it",
+      "text": "With `neighbor ... remove-private-as` toward the internet, the ISP removes 65001 and prepends its own AS. The world sees `64500`: to everyone else, the customer's block simply belongs to the ISP's AS.",
+      "nodes": {
+        "ISP": {
+          "badge": "strips 65001",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ISP",
+            "NET"
+          ],
+          "label": "AS_PATH 64500",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. Without it",
+      "text": "The path would leave as `64500 65001`, leaking a private number onto the internet, exactly like leaking a 10.x address. Private ASNs (64512-65534 and 4200000000-4294967294) work for the same reason private IPs do: they only have to be unique where they're used.",
+      "nodes": {
+        "ISP": {
+          "badge": "no strip",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ISP",
+            "NET"
+          ],
+          "label": "AS_PATH 64500 65001",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 7.2**
 
@@ -5207,6 +10459,98 @@ The hold time is **negotiated**: each side proposes one in its OPEN and **both u
 4. **Established.** The ISP's KEEPALIVE arrives. The routers now swap their tables in UPDATE messages, and from then on send only changes, plus a KEEPALIVE every 60 seconds.
 
 **What if R1 had typed `remote-as 65020` by mistake?** At step 3 the OPEN says 65002, which isn't what R1 expects. R1 sends a NOTIFICATION (error 2/2, "bad peer AS"), closes TCP and goes back to **Idle**. A few seconds later it tries again, and fails the same way. That's the "reaches OpenSent, then resets" pattern in the trap below.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "A remote-as typo: TCP works, the OPEN is refused",
+  "caption": "R1 (203.0.113.1, AS 65001) was configured with `neighbor 203.0.113.2 remote-as 65020`. The ISP really is AS 65002.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 expects AS 65020"
+    },
+    {
+      "id": "ISP",
+      "kind": "router",
+      "label": "ISP AS 65002"
+    }
+  ],
+  "messages": [
+    {
+      "from": "R1",
+      "to": "ISP",
+      "label": "TCP SYN to port 179",
+      "states": {
+        "R1": "Connect",
+        "ISP": "Active"
+      },
+      "text": "R1 has a connected route to 203.0.113.2, so it opens TCP to port 179. Connectivity is fine, so this part works."
+    },
+    {
+      "from": "ISP",
+      "to": "R1",
+      "label": "SYN-ACK",
+      "dashed": true,
+      "text": "The ISP accepts the connection."
+    },
+    {
+      "from": "R1",
+      "to": "ISP",
+      "label": "ACK",
+      "states": {
+        "R1": "OpenSent",
+        "ISP": "OpenSent"
+      },
+      "text": "TCP is up."
+    },
+    {
+      "from": "R1",
+      "to": "ISP",
+      "label": "OPEN: AS 65001, hold 180, ID 1.1.1.1",
+      "states": {
+        "ISP": "OpenConfirm"
+      },
+      "text": "R1 introduces itself. The ISP expects AS 65001 from this neighbour, so R1's OPEN is fine."
+    },
+    {
+      "from": "ISP",
+      "to": "R1",
+      "label": "OPEN: AS 65002, hold 180, ID 2.2.2.2",
+      "dashed": true,
+      "text": "The ISP introduces itself as AS 65002."
+    },
+    {
+      "from": "R1",
+      "to": "R1",
+      "label": "65002 is not the 65020 I expect",
+      "tone": "bad",
+      "text": "R1 compares *My AS* in the OPEN with its `remote-as`. They differ, so R1 refuses the session."
+    },
+    {
+      "from": "R1",
+      "to": "ISP",
+      "label": "NOTIFICATION 2/2: bad peer AS",
+      "tone": "bad",
+      "states": {
+        "R1": "Idle",
+        "ISP": "Idle"
+      },
+      "text": "R1 sends error code 2 (OPEN message error), subcode 2 (bad peer AS), closes TCP and returns to Idle. Its log: `%BGP-3-NOTIFICATION: sent to neighbor 203.0.113.2 active 2/2 (peer in wrong AS) 2 bytes FDEA`. FDEA is 65002 in hex, the AS the ISP actually sent."
+    },
+    {
+      "note": "Retry, fail, repeat",
+      "over": [
+        "R1",
+        "ISP"
+      ],
+      "tone": "warn",
+      "text": "A few seconds later R1 tries again and fails the same way. **Reaching OpenSent and then dropping to Idle** means TCP works but the OPEN is rejected: a wrong `remote-as` or a duplicate router ID. A neighbour that never gets out of Idle/Active has a reachability, ACL or MD5 problem instead. Fix: `neighbor 203.0.113.2 remote-as 65002`."
+    }
+  ]
+}
+```
 
 **Timer negotiation, with numbers:** if the ISP had `timers bgp 10 30` and R1 kept the defaults (60/180), both sides would use the lower hold time, **30 s**, with keepalives every **10 s**. The ISP has asked for fast failure detection, and R1 goes along with it.
 
@@ -5831,6 +11175,192 @@ AS 65001 has two edge routers. R1 connects to ISP-A and R2 to ISP-B, and R1 and 
 3. Steps 0–1 tie. At **step 2**, 200 beats 100, so R2 picks **the path via R1**. It never gets as far as step 8 (eBGP over iBGP), which on its own would have favoured its own ISP-B link.
 4. Result: traffic from the whole AS leaves through ISP-A, and ISP-B is the backup. *That's why LOCAL_PREF, not weight, is the tool for AS-wide exit policy. Weight on R1 would have changed nothing on R2.*
 
+```diagram
+{
+  "type": "topology",
+  "title": "LOCAL_PREF steers the whole AS out of one exit",
+  "caption": "AS 65001: R1 peers with ISP-A, R2 with ISP-B, and R1 and R2 are iBGP neighbours (R1 uses next-hop-self). Both ISPs advertise 10.20.0.0/16.",
+  "nodes": [
+    {
+      "id": "ISPA",
+      "kind": "cloud",
+      "x": 0,
+      "y": 0,
+      "label": "ISP-A",
+      "sub": "AS 65002"
+    },
+    {
+      "id": "ISPB",
+      "kind": "cloud",
+      "x": 5,
+      "y": 0,
+      "label": "ISP-B",
+      "sub": "AS 65003"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1,
+      "y": 1.6,
+      "label": "R1",
+      "sub": "AS 65001"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 4,
+      "y": 1.6,
+      "label": "R2",
+      "sub": "AS 65001"
+    },
+    {
+      "id": "CORE",
+      "kind": "l3switch",
+      "x": 2.5,
+      "y": 3,
+      "label": "CORE",
+      "sub": "users"
+    }
+  ],
+  "links": [
+    {
+      "a": "ISPA",
+      "b": "R1",
+      "label": "eBGP"
+    },
+    {
+      "a": "ISPB",
+      "b": "R2",
+      "label": "eBGP"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "iBGP"
+    },
+    {
+      "a": "CORE",
+      "b": "R1"
+    },
+    {
+      "a": "CORE",
+      "b": "R2"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Both ISPs offer the same prefix",
+      "text": "10.20.0.0/16 arrives at R1 from ISP-A and at R2 from ISP-B, each with the default LOCAL_PREF of 100.",
+      "packets": [
+        {
+          "path": [
+            "ISPA",
+            "R1"
+          ],
+          "label": "10.20.0.0/16",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "ISPB",
+            "R2"
+          ],
+          "label": "10.20.0.0/16",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. R1 raises LOCAL_PREF to 200",
+      "text": "R1's inbound route-map `FROM-ISP-A` sets `local-preference 200` on every route from ISP-A.",
+      "nodes": {
+        "R1": {
+          "badge": "LP 200",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "3. LOCAL_PREF travels over iBGP",
+      "text": "R1 advertises its best path to R2 over iBGP **with the LOCAL_PREF attached**. That's the difference from weight, which never leaves the router.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "LP 200, next hop R1",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. R2 prefers the path through R1",
+      "text": "R2 has two paths: its own eBGP path (LP 100) and the iBGP path via R1 (LP 200). Weight ties, so **step 2, LOCAL_PREF**, decides: 200 wins. The algorithm never reaches step 8 (eBGP over iBGP), which alone would have favoured R2's own link.",
+      "nodes": {
+        "R2": {
+          "badge": "best via R1",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ISPB-R2": "dim"
+      }
+    },
+    {
+      "title": "5. The whole AS leaves via ISP-A",
+      "text": "Traffic for 10.20.0.0/16 from anywhere in AS 65001 exits through ISP-A, even traffic that reaches R2 first. ISP-B is now the backup.",
+      "packets": [
+        {
+          "path": [
+            "CORE",
+            "R1",
+            "ISPA"
+          ],
+          "label": "to 10.20.1.1",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "R2",
+            "R1",
+            "ISPA"
+          ],
+          "label": "R2's traffic",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. ISP-A fails",
+      "text": "R1 loses its eBGP path and withdraws it from R2. R2's only remaining path is its own, so it becomes best and traffic moves to ISP-B.",
+      "nodes": {
+        "R1": null,
+        "R2": {
+          "badge": "best: own",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "ISPA-R1": "down",
+        "ISPB-R2": null
+      },
+      "packets": [
+        {
+          "path": [
+            "CORE",
+            "R2",
+            "ISPB"
+          ],
+          "label": "to 10.20.1.1",
+          "tone": "warn"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### Worked Example: What Prepending Actually Does
 
 R1 advertises 198.51.100.0/24 to both ISPs and applies `TO-ISP-B` (three extra prepends) toward ISP-B.
@@ -5839,6 +11369,159 @@ R1 advertises 198.51.100.0/24 to both ISPs and applies `TO-ISP-B` (three extra p
 2. ISP-B receives AS_PATH **65001 65001 65001 65001** (the normal entry plus three prepends).
 3. A distant AS 65030 that hears both via its own upstreams sees something like `65002 65001` (length 2) and `65003 65001 65001 65001 65001` (length 5). Assuming its policy doesn't decide first, step 5 picks the path via ISP-A.
 4. **The catch:** ISP-B itself may still send traffic straight down its link to you. ISPs commonly set a higher LOCAL_PREF on customer routes than on routes from other providers, and step 2 comes before step 5. That's why prepending *influences* inbound traffic and doesn't control it.
+
+```diagram
+{
+  "type": "topology",
+  "title": "AS-path prepending: a request, not a command",
+  "caption": "R1 (AS 65001) advertises 198.51.100.0/24 to both ISPs, with route-map `TO-ISP-B` prepending 65001 three extra times toward ISP-B.",
+  "nodes": [
+    {
+      "id": "FAR",
+      "kind": "router",
+      "x": 2.5,
+      "y": 0,
+      "label": "Remote AS",
+      "sub": "AS 65030"
+    },
+    {
+      "id": "ISPB",
+      "kind": "router",
+      "x": 0.5,
+      "y": 1.3,
+      "label": "ISP-B",
+      "sub": "AS 65003"
+    },
+    {
+      "id": "ISPA",
+      "kind": "router",
+      "x": 4.5,
+      "y": 1.3,
+      "label": "ISP-A",
+      "sub": "AS 65002"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2.5,
+      "y": 2.6,
+      "label": "R1",
+      "sub": "AS 65001"
+    }
+  ],
+  "links": [
+    {
+      "a": "FAR",
+      "b": "ISPA"
+    },
+    {
+      "a": "FAR",
+      "b": "ISPB"
+    },
+    {
+      "a": "ISPA",
+      "b": "R1"
+    },
+    {
+      "a": "ISPB",
+      "b": "R1"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. To ISP-A: the normal path",
+      "text": "R1 adds its AS once when it advertises over eBGP: ISP-A receives `65001`.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISPA"
+          ],
+          "label": "AS_PATH 65001",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. To ISP-B: padded",
+      "text": "The outbound route-map adds three more copies of R1's **own** AS: `65001 65001 65001 65001`. Prepending your own number makes the path longer without lying about who's on it, and without tripping anyone's loop check.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISPB"
+          ],
+          "label": "65001 65001 65001 65001",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. A distant AS compares lengths",
+      "text": "AS 65030 hears `65002 65001` (length 2) and `65003 65001 65001 65001 65001` (length 5). If its own policy doesn't decide first, step 5 (shortest AS_PATH) picks ISP-A.",
+      "nodes": {
+        "FAR": {
+          "badge": "picks ISP-A",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ISPA",
+            "FAR"
+          ],
+          "label": "65002 65001",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "ISPB",
+            "FAR"
+          ],
+          "label": "65003 65001 x4",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "4. Its traffic arrives via ISP-A",
+      "text": "Routes flow one way, traffic the other: by changing what it **told** the world, R1 changed how the world sends traffic **to** it.",
+      "packets": [
+        {
+          "path": [
+            "FAR",
+            "ISPA",
+            "R1"
+          ],
+          "label": "to 198.51.100.10",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. The catch: ISP-B's own traffic",
+      "text": "ISP-B, like most providers, gives customer routes a higher LOCAL_PREF than routes from other providers. LOCAL_PREF is step 2, long before AS_PATH length at step 5, so ISP-B still sends its own traffic straight down its link to R1. Prepending *influences* inbound traffic; it can't *force* it.",
+      "nodes": {
+        "ISPB": {
+          "badge": "LP customer",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ISPB",
+            "R1"
+          ],
+          "label": "ISP-B's own traffic",
+          "tone": "warn"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **After changing policy, it doesn't apply to routes already exchanged.** BGP doesn't re-evaluate history; you must ask for a refresh:
 
@@ -6060,6 +11743,259 @@ The CCNA guide gave three reasons to synchronize clocks: log correlation, certif
 | **16** | **Unsynchronized.** Nobody should believe this clock |
 
 **Worked example — stratum down a campus.** A GPS receiver (stratum 0) feeds a public time server at 192.0.2.10 (stratum 1). CORE1 syncs to it and becomes **stratum 2**. The access switches sync to CORE1 and become **stratum 3**. If a switch shows `stratum 4` instead, it is following something one step further away than you designed, for example CORE1 lost its upstream and is now following its peer CORE2, which makes CORE1 stratum 3 and the switch stratum 4.
+
+```diagram
+{
+  "type": "topology",
+  "title": "NTP strata down a campus",
+  "caption": "Each core has its own upstream server and peers with the other core (dashed, `ntp peer`); each access switch uses both cores as servers.",
+  "nodes": [
+    {
+      "id": "GPS",
+      "kind": "cloud",
+      "x": 1,
+      "y": 0,
+      "label": "GPS",
+      "sub": "reference"
+    },
+    {
+      "id": "PPS",
+      "kind": "cloud",
+      "x": 4,
+      "y": 0,
+      "label": "PPS",
+      "sub": "reference"
+    },
+    {
+      "id": "S1",
+      "kind": "server",
+      "x": 1,
+      "y": 1.3,
+      "label": "192.0.2.10"
+    },
+    {
+      "id": "S2",
+      "kind": "server",
+      "x": 4,
+      "y": 1.3,
+      "label": "192.0.2.11"
+    },
+    {
+      "id": "CORE1",
+      "kind": "l3switch",
+      "x": 1,
+      "y": 2.6,
+      "label": "CORE1",
+      "sub": "10.255.0.1"
+    },
+    {
+      "id": "CORE2",
+      "kind": "l3switch",
+      "x": 4,
+      "y": 2.6,
+      "label": "CORE2",
+      "sub": "10.255.0.2"
+    },
+    {
+      "id": "ACC1",
+      "kind": "switch",
+      "x": 1,
+      "y": 3.9,
+      "label": "ACC1"
+    },
+    {
+      "id": "ACC2",
+      "kind": "switch",
+      "x": 4,
+      "y": 3.9,
+      "label": "ACC2"
+    }
+  ],
+  "links": [
+    {
+      "a": "GPS",
+      "b": "S1"
+    },
+    {
+      "a": "PPS",
+      "b": "S2"
+    },
+    {
+      "a": "S1",
+      "b": "CORE1",
+      "label": "ntp server"
+    },
+    {
+      "a": "S2",
+      "b": "CORE2",
+      "label": "ntp server"
+    },
+    {
+      "a": "CORE1",
+      "b": "CORE2",
+      "style": "dashed"
+    },
+    {
+      "a": "ACC1",
+      "b": "CORE1"
+    },
+    {
+      "a": "ACC1",
+      "b": "CORE2"
+    },
+    {
+      "a": "ACC2",
+      "b": "CORE1"
+    },
+    {
+      "a": "ACC2",
+      "b": "CORE2"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Stratum counts hops from the reference",
+      "text": "The GPS and PPS references are **stratum 0**; they're never on the network. The servers wired to them are **stratum 1**. Each core syncs to its server and becomes **stratum 2**. A lower number means closer to the truth.",
+      "nodes": {
+        "GPS": {
+          "badge": "st 0",
+          "tone": "good"
+        },
+        "PPS": {
+          "badge": "st 0",
+          "tone": "good"
+        },
+        "S1": {
+          "badge": "st 1",
+          "tone": "good"
+        },
+        "S2": {
+          "badge": "st 1",
+          "tone": "good"
+        },
+        "CORE1": {
+          "badge": "st 2",
+          "tone": "accent"
+        },
+        "CORE2": {
+          "badge": "st 2",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "CORE1",
+            "S1"
+          ],
+          "label": "NTP request UDP 123",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "S1",
+            "CORE1"
+          ],
+          "label": "reply T2, T3",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. Access switches poll the cores",
+      "text": "ACC1 and ACC2 sync to a core and become **stratum 3**. In `show ntp associations` the source they chose is marked `*` (sys.peer) and the other core `+` (candidate). `reach 377` means all of the last 8 polls were answered.",
+      "nodes": {
+        "ACC1": {
+          "badge": "st 3",
+          "tone": "accent"
+        },
+        "ACC2": {
+          "badge": "st 3",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ACC1",
+            "CORE1"
+          ],
+          "label": "NTP request",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "ACC2",
+            "CORE2"
+          ],
+          "label": "NTP request",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. CORE1 loses its upstream",
+      "text": "192.0.2.10 becomes unreachable. Instead of drifting, CORE1 follows its **peer** CORE2 (stratum 2), which makes CORE1 **stratum 3**. That's why the cores peer: neither is a single point of failure.",
+      "nodes": {
+        "CORE1": {
+          "badge": "st 3",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "S1-CORE1": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "CORE2",
+            "CORE1"
+          ],
+          "label": "peer: time from S2",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "4. Access switches pick the better core",
+      "text": "ACC1 now hears CORE1 at stratum 3 and CORE2 at stratum 2. NTP's selection favours the source closer to the reference, so ACC1 moves its `*` to CORE2 and stays stratum 3. A switch configured with **only** CORE1 would have dropped to stratum 4: the reason every switch gets both cores.",
+      "nodes": {
+        "ACC1": {
+          "badge": "st 3",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ACC1",
+            "CORE2"
+          ],
+          "label": "NTP request",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "5. The upstream returns",
+      "text": "CORE1 reaches 192.0.2.10 again and goes back to stratum 2. NTP corrects small offsets by slewing the clock faster or slower rather than jumping it, so log timestamps never run backwards.",
+      "nodes": {
+        "CORE1": {
+          "badge": "st 2",
+          "tone": "accent"
+        },
+        "ACC1": {
+          "badge": "st 3",
+          "tone": "accent"
+        }
+      },
+      "links": {
+        "S1-CORE1": null
+      }
+    }
+  ]
+}
+```
 
 ### How One NTP Poll Works
 
@@ -6326,8 +12262,6 @@ access-list 20 permit 10.0.0.0 0.255.255.255
 
 ## 8.4 PTP — Precision Time Protocol
 
-![PTP Sync, Follow_Up, Delay_Req and Delay_Resp timestamps t1–t4](images/c08_ptp_exchange.png)
-
 ### The Four-Message Exchange
 
 PTP calculates offset and delay from four timestamps:
@@ -6358,6 +12292,84 @@ With all four numbers the slave can compute:
 - Offset = [(60 − 0) − (60 − 100)] ÷ 2 = (60 + 40) ÷ 2 = **50 µs** ✓
 
 The slave now knows it is 50 µs ahead and corrects itself. It does this many times per second, so drift never builds up.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "PTP delay-request exchange: four timestamps, one correction",
+  "caption": "Real one-way delay 10 µs each way; the slave's clock is 50 µs ahead. Each timestamp is read on the clock that took it.",
+  "actors": [
+    {
+      "id": "MS",
+      "kind": "server",
+      "label": "Master (GM or BC)"
+    },
+    {
+      "id": "SL",
+      "kind": "host",
+      "label": "Slave (ordinary clock)"
+    }
+  ],
+  "messages": [
+    {
+      "from": "MS",
+      "to": "SL",
+      "label": "Sync",
+      "detail": "t1 = 0 (master), t2 = 60 (slave)",
+      "states": {
+        "MS": "MASTER",
+        "SL": "offset ?"
+      },
+      "text": "The master sends Sync and records **t1 = 0** (master clock), timestamped in hardware as it leaves the port. It arrives 10 µs later: master time 10, but the slave's clock reads 10 + 50, so the slave records **t2 = 60**."
+    },
+    {
+      "from": "MS",
+      "to": "SL",
+      "label": "Follow_Up (carries t1 = 0)",
+      "dashed": true,
+      "text": "A **two-step** clock sends t1 in a separate Follow_Up, because the exact departure time is only known once the Sync has left. A one-step clock writes t1 into the Sync itself."
+    },
+    {
+      "from": "SL",
+      "to": "MS",
+      "label": "Delay_Req",
+      "detail": "t3 = 100 (slave)",
+      "text": "The slave sends Delay_Req and records **t3 = 100** on its own clock (master time 50)."
+    },
+    {
+      "from": "MS",
+      "to": "SL",
+      "label": "Delay_Resp (carries t4 = 60)",
+      "dashed": true,
+      "text": "The master stamps the Delay_Req's arrival, **t4 = 60** (master time 50 + 10), and sends it back. The slave now has all four numbers."
+    },
+    {
+      "note": "delay 10 µs, offset +50 µs",
+      "over": [
+        "MS",
+        "SL"
+      ],
+      "tone": "good",
+      "states": {
+        "SL": "offset +50 µs"
+      },
+      "text": "Mean path delay = [(t2 − t1) + (t4 − t3)] ÷ 2 = [(60 − 0) + (60 − 100)] ÷ 2 = **10 µs**.\n\nOffset = [(t2 − t1) − (t4 − t3)] ÷ 2 = [60 − (−40)] ÷ 2 = **50 µs**.\n\nThe slave steers its clock back 50 µs, and repeats the exchange many times a second, so drift never builds up."
+    },
+    {
+      "note": "What if a switch queues the Sync 40 µs?",
+      "over": [
+        "MS",
+        "SL"
+      ],
+      "tone": "warn",
+      "states": {
+        "SL": "offset 70? wrong"
+      },
+      "text": "Then t2 = 100. Delay = [(100 − 0) + (60 − 100)] ÷ 2 = 30 µs and offset = 70 µs: **20 µs wrong**, half the delay it couldn't see, because the math assumes the path is symmetric. A transparent clock fixes this by writing its 40 µs residence time into the correction field, which the slave subtracts from t2."
+    }
+  ]
+}
+```
 
 **Why does this math depend on the path being symmetric?** Because dividing by two assumes the trip out took as long as the trip back. If a switch in the path held the Sync for 40 µs in a queue but forwarded the Delay_Req immediately, the slave would blame half of that 40 µs on its own clock. That's the problem the PTP-aware clock types below exist to fix.
 
@@ -6402,6 +12414,88 @@ Every PTP clock advertises itself in **Announce** messages, and every port indep
 4. Clock identity: …:AA is lower than …:BB, so **GM-A wins**.
 
 Now the administrator sets `ptp priority1 100` on GM-B. Step 1 is no longer a tie: 100 beats 128, so **GM-B wins before clock class is even looked at**. This is exactly how you pin the grandmaster, the way you'd lower STP priority to pin the root bridge. The catch is that priority1 beats quality: give a free-running clock priority1 0 and it wins over GPS, so lower priority1 only on a clock you trust.
+
+```diagram
+{
+  "type": "compare",
+  "title": "Best Master Clock Algorithm: who becomes grandmaster?",
+  "prompt": "Every PTP port compares the Announce messages it hears in this order, lowest value wins at every step. GM-A and GM-B are identical GPS-locked models, so it falls to clock identity. Now set GM-B's **priority1 to 100**: it wins before clock class is even looked at. Then give SW1 priority1 0 and watch a free-running clock beat GPS, which is why you only lower priority1 on a clock you trust.",
+  "winner": "Grandmaster",
+  "fields": [
+    {
+      "id": "p1",
+      "label": "Priority1",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "cls",
+      "label": "Clock class (6 = GPS-locked, 248 = free-running)",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "acc",
+      "label": "Clock accuracy (33 = 0x21, within 100 ns)",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "var",
+      "label": "Offset scaled log variance",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "p2",
+      "label": "Priority2",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "id",
+      "label": "Clock identity (from the MAC)",
+      "kind": "mac",
+      "rule": "lowest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "GM-A (GPS)",
+      "values": {
+        "p1": 128,
+        "cls": 6,
+        "acc": 33,
+        "var": 20061,
+        "p2": 128,
+        "id": "001d.c100.00aa"
+      }
+    },
+    {
+      "label": "GM-B (GPS)",
+      "values": {
+        "p1": 128,
+        "cls": 6,
+        "acc": 33,
+        "var": 20061,
+        "p2": 128,
+        "id": "001d.c100.00bb"
+      }
+    },
+    {
+      "label": "SW1 (free-running)",
+      "values": {
+        "p1": 128,
+        "cls": 248,
+        "acc": 254,
+        "var": 65535,
+        "p2": 128,
+        "id": "001d.c100.0011"
+      }
+    }
+  ]
+}
+```
 
 ### Interpreting a PTP Configuration
 
@@ -6565,6 +12659,171 @@ interface TenGigabitEthernet1/0/1
 7. **NAT before routing on the way in:** the table says 203.0.113.20:51344 → 10.1.1.57:51344, so the destination is rewritten.
 8. **Routing** looks up 10.1.1.57 (connected on Gi0/0/0), and the reply is delivered.
 
+```diagram
+{
+  "type": "topology",
+  "title": "One web request through PAT, and a port collision",
+  "caption": "Gi0/0/0 is `ip nat inside`, Gi0/0/1 `ip nat outside`. `ip nat inside source list NAT-USERS pool USERS overload` (pool 203.0.113.20-23).",
+  "nodes": [
+    {
+      "id": "H57",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "Host",
+      "sub": "10.1.1.57"
+    },
+    {
+      "id": "H61",
+      "kind": "host",
+      "x": 0,
+      "y": 1.8,
+      "label": "Host",
+      "sub": "10.1.1.61"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.8,
+      "y": 0.9,
+      "label": "R1",
+      "sub": "PAT"
+    },
+    {
+      "id": "NET",
+      "kind": "cloud",
+      "x": 3.5,
+      "y": 0.9,
+      "label": "Internet"
+    },
+    {
+      "id": "WEB",
+      "kind": "server",
+      "x": 5.2,
+      "y": 0.9,
+      "label": "Web server",
+      "sub": "142.250.72.14"
+    }
+  ],
+  "links": [
+    {
+      "a": "H57",
+      "b": "R1"
+    },
+    {
+      "a": "H61",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "NET"
+    },
+    {
+      "a": "NET",
+      "b": "WEB"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. A packet leaves the host",
+      "text": "10.1.1.57:51344 → 142.250.72.14:443. It arrives on Gi0/0/0, an inside interface, so any inbound ACL there sees the **private** source.",
+      "packets": [
+        {
+          "path": [
+            "H57",
+            "R1"
+          ],
+          "label": "src 10.1.1.57:51344",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. Routing first",
+      "text": "Inside to outside, the router **routes before it translates**. The default route points out Gi0/0/1, which is `ip nat outside`, so translation is needed.",
+      "nodes": {
+        "R1": {
+          "badge": "route: Gi0/0/1",
+          "tone": "accent"
+        }
+      }
+    },
+    {
+      "title": "3. NAT rewrites the source",
+      "text": "The source matches ACL NAT-USERS, so R1 takes 203.0.113.20 from pool USERS. Port 51344 is free there, so it keeps it (**port preservation**). A new translation-table entry appears:\n\n`tcp 203.0.113.20:51344  10.1.1.57:51344  142.250.72.14:443  142.250.72.14:443`\n\nAn outbound ACL on Gi0/0/1 now sees 203.0.113.20, not 10.1.1.57.",
+      "nodes": {
+        "R1": {
+          "badge": "+1 translation",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "NET",
+            "WEB"
+          ],
+          "label": "src 203.0.113.20:51344",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. The reply comes back",
+      "text": "142.250.72.14:443 replies to **203.0.113.20:51344**. An inbound ACL on Gi0/0/1 runs before NAT, so it sees that **public** destination. That's why outside ACLs must be written for global addresses.",
+      "packets": [
+        {
+          "path": [
+            "WEB",
+            "NET",
+            "R1"
+          ],
+          "label": "dst 203.0.113.20:51344",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "5. NAT before routing on the way in",
+      "text": "Outside to inside, NAT runs first: the table maps 203.0.113.20:51344 back to 10.1.1.57:51344. Only then does R1 route, on the real inside address, and 10.1.1.57 is connected on Gi0/0/0.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "H57"
+          ],
+          "label": "dst 10.1.1.57:51344",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "6. A second host picks the same port",
+      "text": "10.1.1.61 also opens a connection from source port 51344. 203.0.113.20:51344 is taken, and two flows can't share it or the replies couldn't be told apart. IOS gives this flow another free port on the same address (here 1024). Each **(address, port)** pair on the outside stays unique.",
+      "nodes": {
+        "R1": {
+          "badge": "+1 translation",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "H61",
+            "R1",
+            "NET",
+            "WEB"
+          ],
+          "label": "10.1.1.61 → .20:1024",
+          "tone": "warn"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Worked example — the ACL that blocks a working server.** You publish the web server with `ip nat inside source static 10.1.1.10 203.0.113.10` and put this inbound ACL on the outside interface:
 
 ```
@@ -6573,6 +12832,45 @@ ip access-list extended FROM-ISP
 ```
 
 A client sends to 203.0.113.10:443. The ACL runs **before** NAT, sees destination 203.0.113.10, finds no match, and the implicit deny drops the packet. `show ip nat translations` shows the static entry is fine, which is why this is so confusing. The fix is to match what the ACL actually sees: `permit tcp any host 203.0.113.10 eq 443`.
+
+```diagram
+{
+  "type": "match",
+  "kind": "extended",
+  "name": "FROM-ISP",
+  "title": "The inbound ACL that blocks a working server",
+  "prompt": "This ACL is inbound on the **outside** interface, so it runs before NAT. A client on the internet sends to the server's public address, 203.0.113.10:443, which is the first try. The line was written for the private address, so the packet falls to the implicit deny. The second try is what the author imagined, a packet addressed to 10.1.1.10, but that never arrives from outside. The fix is `permit tcp any host 203.0.113.10 eq 443`.",
+  "rules": [
+    {
+      "action": "permit",
+      "proto": "tcp",
+      "src": "any",
+      "dst": "host 10.1.1.10",
+      "port": "eq 443"
+    }
+  ],
+  "input": {
+    "proto": "tcp",
+    "src": "198.51.100.80",
+    "dst": "203.0.113.10",
+    "port": 443
+  },
+  "tries": [
+    {
+      "proto": "tcp",
+      "src": "198.51.100.80",
+      "dst": "203.0.113.10",
+      "port": 443
+    },
+    {
+      "proto": "tcp",
+      "src": "198.51.100.80",
+      "dst": "10.1.1.10",
+      "port": 443
+    }
+  ]
+}
+```
 
 ### Try It — Every Flavor in One Router
 
