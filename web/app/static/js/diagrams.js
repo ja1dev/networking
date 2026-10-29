@@ -216,6 +216,10 @@ function drawTopology(svg, spec, onPick) {
     }
     nodes.set(n.id, { g, badge, kind });
   }
+  // A moving packet's label is centred on it, so it can poke past a node at the edge of the drawing.
+  const pktHalf = Math.max(0, ...(spec.steps || []).flatMap((st) => (st.packets || []).map((p) => (p.label || "").length * 4.6)));
+  box.x0 = Math.min(box.x0, ...spec.nodes.map((n) => n.x * UX - pktHalf));
+  box.x1 = Math.max(box.x1, ...spec.nodes.map((n) => n.x * UX + pktHalf));
   const P = 18;
   svg.setAttribute("viewBox", `${box.x0 - P} ${box.y0 - P} ${box.x1 - box.x0 + 2 * P} ${box.y1 - box.y0 + 2 * P}`);
   svg.dataset.width = box.x1 - box.x0 + 2 * P;
@@ -448,9 +452,9 @@ function mountSequence(fig, spec) {
     } else if (m.from !== m.to) {
       const lo = Math.min(at[m.from], at[m.to]), hi = Math.max(at[m.from], at[m.to]);
       widen(lo, hi, textW(m) + 34);
-    } else if (at[m.from] < gaps.length) {
-      widen(at[m.from], at[m.from] + 1, textW(m) + 70);
     }
+    // A self-message's label may run across the lifelines to its right (it has a halo), so it
+    // only needs the drawing to reach far enough, which the bounds below take care of.
   }
   const col = {};
   let x = 0;
@@ -517,7 +521,7 @@ function mountSequence(fig, spec) {
     if (m.detail) svgEl("text", { x: mx, y: y + 16, class: "dg-msg-detail" }, g).textContent = m.detail;
     return g;
   });
-  fitWidth(wrap, svg, 0.7, 1);  // a ladder is tall already; never blow it up
+  fitWidth(wrap, svg, 0.66, 1);  // a ladder is tall already; never blow it up
   fig.append(wrap);
   const caption = h("div", { class: "dg-step", "aria-live": "polite" });
   const go = (i) => {
@@ -681,6 +685,8 @@ function mountPath(fig, spec) {
   const from = pick("Path from", spec.from), to = pick("Path to", spec.to);
   const ends = h("div", { class: "dg-ends" }, h("label", {}, "From ", from), h("label", {}, "To ", to));
   const metric = spec.metric || "Cost";
+  // "Cost" reads as "cost" mid-sentence; acronyms and symbols ("OSPF cost", "Σ delay") stay as written.
+  const noun = /^[A-Z][a-z]/.test(metric) ? metric[0].toLowerCase() + metric.slice(1) : metric;
   const editors = h("div", { class: "dg-costs" });
   spec.links.forEach((l, i) => {
     if (l.editable === false) return;
@@ -721,7 +727,7 @@ function mountPath(fig, spec) {
   from.addEventListener("change", update);
   to.addEventListener("change", update);
   fig.append(wrap, ends, result, h("details", { class: "dg-costs-box", open: true },
-    h("summary", {}, `Change the ${metric.toLowerCase()}s`), editors), h("div", { class: "dg-actions" }, reset), info.panel);
+    h("summary", {}, `Change each link's ${noun}`), editors), h("div", { class: "dg-actions" }, reset), info.panel);
 
   function update() {
     costLabels.forEach(({ t, bg }, i) => {
@@ -737,7 +743,7 @@ function mountPath(fig, spec) {
     });
     if (costs.some(([a, b]) => a === null || b === null)) {
       result.className = "dg-result bad";
-      result.textContent = `Every ${metric.toLowerCase()} must be a number of 0 or more.`;
+      result.textContent = `Every ${noun} must be a number of 0 or more.`;
       return;
     }
     if (from.value === to.value) {
@@ -757,7 +763,7 @@ function mountPath(fig, spec) {
     const names = (p) => p.nodes.map((id) => nodeName(spec, id)).join(" → ");
     result.className = "dg-result good";
     result.textContent = r.paths.length === 1
-      ? `Best path: ${names(r.paths[0])}, total ${metric.toLowerCase()} ${r.cost}.`
+      ? `Best path: ${names(r.paths[0])}, total ${noun} ${r.cost}.`
       : `${r.paths.length} equal-cost paths (total ${r.cost}), traffic is shared across them: ${r.paths.map(names).join(";  ")}.`;
   }
   update();

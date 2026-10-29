@@ -5,7 +5,8 @@ import re
 def test_counts_match_the_kits(content):
     s = content["stats"]
     assert s["ccna_bank"] == 152
-    assert s["ccnp"] == 814
+    assert s["ccnp"] == 820
+    assert s["ccna"] == 528
     assert s["drills"] == 60
     kit_cards = {k: sum(1 for c in content["cards"] if c["kit"] == k) for k in ("ccna", "ccnp")}
     assert kit_cards == {"ccna": 299, "ccnp": 575}

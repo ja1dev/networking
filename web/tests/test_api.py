@@ -128,9 +128,9 @@ def test_drills_labs_pages_settings(client):
     assert client.post("/api/labs/lab3/complete", json={"completed": True}).json()["ok"]
     assert client.put("/api/labs/lab3/note", json={"note": "vlan 10"}).json()["ok"]
     assert "vlan 10" in client.get("/labs/lab3").text
-    assert client.post("/api/pages/read", json={"doc": "ccna", "page": "1-1"}).json()["ok"]
-    assert client.put("/api/pages/note", json={"doc": "ccna", "page": "1-1", "note": "my note"}).json()["ok"]
-    assert "my note" in client.get("/read/ccna/1-1").text
+    assert client.post("/api/pages/read", json={"doc": "ccna", "page": "24-1"}).json()["ok"]
+    assert client.put("/api/pages/note", json={"doc": "ccna", "page": "24-1", "note": "my note"}).json()["ok"]
+    assert "my note" in client.get("/read/ccna/24-1").text
     assert client.post("/api/pages/read", json={"doc": "ccna", "page": "zz"}).status_code == 400
     assert client.post("/api/settings", json={"timezone": "Nowhere/Land"}).status_code == 400
     assert client.post("/api/settings", json={"exam_seconds_per_question": 5}).status_code == 400
@@ -240,7 +240,7 @@ def test_sections_complete_through_their_questions(client, content):
 
 
 def test_sections_without_questions_complete_when_read(client):
-    html = client.get("/read/ccna/1-2").text
+    html = client.get("/read/ccna/24-2").text
     assert "This section completes when you reach the end of it." in html
-    assert client.post("/api/pages/read", json={"doc": "ccna", "page": "1-2"}).json()["ok"]
-    assert "Section complete: read to the end." in client.get("/read/ccna/1-2").text
+    assert client.post("/api/pages/read", json={"doc": "ccna", "page": "24-2"}).json()["ok"]
+    assert "Section complete: read to the end." in client.get("/read/ccna/24-2").text
