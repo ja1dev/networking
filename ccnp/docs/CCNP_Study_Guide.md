@@ -40143,6 +40143,186 @@ The rules that decide what happens to each packet:
 
 Packet 3 shows the most-forgotten fact about PBR: it only affects traffic **arriving on the interfaces where you applied it**.
 
+```diagram
+{
+  "type": "topology",
+  "title": "PBR on Gi0/2.20: three packets, then a dead next hop",
+  "caption": "R1's routing table has one route, `0.0.0.0/0 via 10.0.0.2` (MPLS). `PBR-GUEST` is applied **inbound** on the guest subinterface only. Press **Next**.",
+  "nodes": [
+    {
+      "id": "Guest",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "Guest PC",
+      "sub": "10.20.4.7",
+      "info": "On VLAN 20, behind R1's Gi0/2.20, where `ip policy route-map PBR-GUEST` is applied."
+    },
+    {
+      "id": "Corp",
+      "kind": "host",
+      "x": 0,
+      "y": 2.4,
+      "label": "Corp PC",
+      "sub": "10.30.1.1",
+      "info": "On VLAN 30, behind Gi0/2.30. That subinterface has **no** `ip policy`, so PBR never sees these packets."
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2.3,
+      "y": 1.2,
+      "label": "R1",
+      "sub": "ip policy on Gi0/2.20",
+      "info": "```\nroute-map PBR-GUEST permit 10\n match ip address GUEST-WEB\n set ip next-hop verify-availability 203.0.113.1 10 track 1\n```\n`GUEST-WEB` permits TCP 80 and 443 from 10.20.0.0/16."
+    },
+    {
+      "id": "MPLS",
+      "kind": "router",
+      "x": 4.6,
+      "y": 0,
+      "label": "MPLS router",
+      "sub": "10.0.0.2",
+      "info": "The routing table's answer for everything: `S* 0.0.0.0/0 [1/0] via 10.0.0.2`."
+    },
+    {
+      "id": "BB",
+      "kind": "router",
+      "x": 4.6,
+      "y": 2.4,
+      "label": "Broadband",
+      "sub": "203.0.113.1",
+      "info": "The policy's answer for guest web traffic. Tracked by IP SLA 1 (ICMP echo every 5 s)."
+    }
+  ],
+  "links": [
+    {
+      "a": "Guest",
+      "b": "R1",
+      "label": "Gi0/2.20 (VLAN 20)"
+    },
+    {
+      "a": "Corp",
+      "b": "R1",
+      "label": "Gi0/2.30 (VLAN 30)"
+    },
+    {
+      "a": "R1",
+      "b": "MPLS",
+      "label": "Gi0/0 · default route"
+    },
+    {
+      "a": "R1",
+      "b": "BB",
+      "label": "Gi0/1 · PBR next hop"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Two exits, one routing table",
+      "text": "R1's routing table only knows one way out: the default route to the MPLS router. PBR is a second opinion that runs **before** that lookup, and only for packets arriving on Gi0/2.20.",
+      "nodes": {
+        "R1": {
+          "badge": "PBR-GUEST in"
+        }
+      }
+    },
+    {
+      "title": "2. Guest web traffic: policy-routed",
+      "text": "10.20.4.7 → 93.184.216.34, TCP 443. Clause 10 is a **permit**, `GUEST-WEB` matches, and track 1 is up, so R1 sends it to **203.0.113.1**. The routing table is never consulted. `debug ip policy` shows `FIB policy match` then `FIB policy routed`.",
+      "focus": [
+        "Guest",
+        "R1",
+        "BB",
+        "Guest-R1",
+        "R1-BB"
+      ],
+      "packets": [
+        {
+          "path": [
+            "Guest",
+            "R1",
+            "BB"
+          ],
+          "label": "10.20.4.7 → :443",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. Guest ping: no match, normal routing",
+      "text": "10.20.9.9 → 10.1.1.5, ICMP echo. `GUEST-WEB` only permits TCP 80/443, so no clause matches. That isn't a drop: the packet is **routed normally**, to 10.0.0.2. The debug says `policy rejected(no match) - normal forwarding`.",
+      "focus": [
+        "Guest",
+        "R1",
+        "MPLS",
+        "Guest-R1",
+        "R1-MPLS"
+      ],
+      "packets": [
+        {
+          "path": [
+            "Guest",
+            "R1",
+            "MPLS"
+          ],
+          "label": "ICMP → 10.1.1.5"
+        }
+      ]
+    },
+    {
+      "title": "4. Corporate web traffic: PBR never runs",
+      "text": "10.30.1.1 → 93.184.216.34, TCP 443, the same kind of traffic as packet 2. It arrives on Gi0/2.30, which has no `ip policy`, so the route map is never even checked. PBR only affects packets **arriving** where it's applied.",
+      "focus": [
+        "Corp",
+        "R1",
+        "MPLS",
+        "Corp-R1",
+        "R1-MPLS"
+      ],
+      "packets": [
+        {
+          "path": [
+            "Corp",
+            "R1",
+            "MPLS"
+          ],
+          "label": "10.30.1.1 → :443"
+        }
+      ]
+    },
+    {
+      "title": "5. The broadband upstream dies",
+      "text": "The ISP behind 203.0.113.1 fails. Gi0/1 stays up and 203.0.113.1 still answers ARP, so plain `set ip next-hop` would keep sending guests into a dead end. With `verify-availability ... track 1`, the IP SLA probe fails, track 1 goes **Down**, the `set` is skipped, and guest web traffic **falls through to normal routing**. `show route-map` shows the next hop as `[down]`.",
+      "nodes": {
+        "BB": {
+          "badge": "dead",
+          "tone": "bad"
+        },
+        "R1": {
+          "badge": "track 1 Down",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R1-BB": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "Guest",
+            "R1",
+            "MPLS"
+          ],
+          "label": "10.20.4.7 → :443",
+          "tone": "warn"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Why is PBR applied inbound only?** Because by the time a packet would leave an interface, the routing decision has *already been made* — that's how the router chose the outbound interface. PBR has to run **before** the routing lookup to replace it, and the only place that happens is on ingress. *To change the decision, you have to get in before it's made.*
 
 ### The `set` Options and Their Order
@@ -40338,6 +40518,191 @@ A **VRF** (Virtual Routing and Forwarding instance) gives a router a completely 
 
 Same router, same destination address, three different outcomes — decided entirely by the interface the packet came in on.
 
+```diagram
+{
+  "type": "topology",
+  "title": "One destination, three tables: VRF-Lite lookups on R1",
+  "caption": "Two parallel subinterfaces on one trunk carry RED and BLUE to R1. Both VRFs contain a 10.1.1.0/24. Press **Next** to send a packet to 10.1.1.5 three ways.",
+  "nodes": [
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 0,
+      "y": 1,
+      "label": "R2",
+      "sub": "trunk peer",
+      "info": "The next router. Its subinterfaces .10 and .20 sit in RED and BLUE too, so each VRF runs hop by hop over its own VLAN."
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2.5,
+      "y": 1,
+      "label": "R1",
+      "sub": "RED · BLUE · global",
+      "info": "Three separate routing and CEF tables. `show ip route vrf RED`, `show ip route vrf BLUE` and plain `show ip route` each answer for one of them."
+    },
+    {
+      "id": "Red",
+      "kind": "server",
+      "x": 4.6,
+      "y": 0,
+      "label": "RED server",
+      "sub": "10.1.1.5",
+      "info": "Behind Gi0/1, `vrf forwarding RED`, 10.1.1.1/24."
+    },
+    {
+      "id": "Blue",
+      "kind": "server",
+      "x": 4.6,
+      "y": 2,
+      "label": "BLUE server",
+      "sub": "10.1.1.5",
+      "info": "Behind Gi0/2, `vrf forwarding BLUE`, also 10.1.1.1/24. Legal, because it's a different table."
+    },
+    {
+      "id": "Mgmt",
+      "kind": "host",
+      "x": 2.5,
+      "y": 2.8,
+      "label": "Mgmt PC",
+      "sub": "Gi0/0 · global table",
+      "info": "Behind Gi0/0, which has no `vrf forwarding`, so it belongs to the global table."
+    }
+  ],
+  "links": [
+    {
+      "a": "R2",
+      "b": "R1",
+      "id": "v10",
+      "label": "Gi0/3.10 · RED"
+    },
+    {
+      "a": "R2",
+      "b": "R1",
+      "id": "v20",
+      "label": "Gi0/3.20 · BLUE"
+    },
+    {
+      "a": "R1",
+      "b": "Red",
+      "label": "Gi0/1 · 10.1.1.0/24"
+    },
+    {
+      "a": "R1",
+      "b": "Blue",
+      "label": "Gi0/2 · 10.1.1.0/24"
+    },
+    {
+      "a": "Mgmt",
+      "b": "R1"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The packet carries no VRF; the interface decides",
+      "text": "Nothing in the IP header says RED or BLUE. R1 picks the table from the **ingress interface's** `vrf forwarding` setting, then looks up the destination in that table only.",
+      "nodes": {
+        "R1": {
+          "badge": "3 tables"
+        }
+      }
+    },
+    {
+      "title": "2. Arrives on Gi0/3.10: RED's table",
+      "text": "Gi0/3.10 is in RED. RED's FIB has 10.1.1.0/24 connected on Gi0/1, so R1 ARPs in RED's ARP table and delivers to the RED server.",
+      "focus": [
+        "R2",
+        "R1",
+        "Red",
+        "v10",
+        "R1-Red"
+      ],
+      "nodes": {
+        "Red": {
+          "badge": "RED FIB",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R1",
+            "Red"
+          ],
+          "label": "to 10.1.1.5 (RED)",
+          "tone": "good",
+          "via": [
+            "v10",
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "title": "3. Same address on Gi0/3.20: BLUE's table",
+      "text": "Exactly the same destination, 10.1.1.5, but it arrived on a BLUE interface, so it's looked up in BLUE and leaves by Gi0/2 to a **different host**. RED's table was never consulted.",
+      "focus": [
+        "R2",
+        "R1",
+        "Blue",
+        "v20",
+        "R1-Blue"
+      ],
+      "nodes": {
+        "Red": null,
+        "Blue": {
+          "badge": "BLUE FIB",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R1",
+            "Blue"
+          ],
+          "label": "to 10.1.1.5 (BLUE)",
+          "tone": "accent",
+          "via": [
+            "v20",
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "title": "4. Arrives on a global interface: no route",
+      "text": "The global table has no 10.1.1.0/24 at all, so the packet is dropped (unless a global default route sends it somewhere else). The same trap catches you at the CLI: a plain `ping 10.1.1.5` on R1 uses the global table and fails. Use `ping vrf RED 10.1.1.5`.",
+      "focus": [
+        "Mgmt",
+        "R1",
+        "Mgmt-R1"
+      ],
+      "nodes": {
+        "Blue": null,
+        "R1": {
+          "badge": "no route",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "Mgmt",
+            "R1"
+          ],
+          "label": "to 10.1.1.5",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### Configuring VRFs and Interfaces
 
 ```
@@ -40496,6 +40861,90 @@ router bgp 65000
 
 Remove the `import 65000:1` from SHARED and step 3 only works one way: RED can send to SHARED, but SHARED's replies have no route back.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "Route-target leaking between RED and SHARED",
+  "caption": "BGP runs on R1 only to copy routes between VRFs. Each step is one export or import.",
+  "actors": [
+    {
+      "id": "RED",
+      "kind": "router",
+      "label": "VRF RED"
+    },
+    {
+      "id": "BGP",
+      "kind": "router",
+      "label": "BGP 65000 on R1"
+    },
+    {
+      "id": "SH",
+      "kind": "router",
+      "label": "VRF SHARED"
+    }
+  ],
+  "messages": [
+    {
+      "from": "RED",
+      "to": "BGP",
+      "label": "export 10.1.1.0/24",
+      "detail": "RT 65000:1",
+      "text": "`redistribute connected` under `address-family ipv4 vrf RED` puts RED's subnet into BGP, tagged with RED's export target **65000:1**."
+    },
+    {
+      "from": "SH",
+      "to": "BGP",
+      "label": "export 192.168.100.0/24",
+      "detail": "RT 65000:100",
+      "text": "SHARED's subnets go in the same way, tagged **65000:100**."
+    },
+    {
+      "note": "Compare each route's RT with each VRF's imports",
+      "over": [
+        "RED",
+        "BGP",
+        "SH"
+      ],
+      "text": "RED imports 65000:1 and **65000:100**. SHARED imports 65000:100 and **65000:1**. One matching target is enough to copy a route in."
+    },
+    {
+      "from": "BGP",
+      "to": "RED",
+      "label": "import 192.168.100.0/24",
+      "detail": "RT 65000:100 matches",
+      "tone": "good",
+      "text": "SHARED's route carries 65000:100, which RED imports. It appears in `show ip route vrf RED` as a **B** route pointing out SHARED's interface."
+    },
+    {
+      "from": "BGP",
+      "to": "SH",
+      "label": "import 10.1.1.0/24",
+      "detail": "RT 65000:1 matches",
+      "tone": "good",
+      "text": "RED's route carries 65000:1, which SHARED imports, so SHARED has a route back. Requests from RED get replies."
+    },
+    {
+      "note": "Later: SHARED loses 'import 65000:1'",
+      "over": [
+        "RED",
+        "SH"
+      ],
+      "tone": "warn",
+      "text": "Someone tidies up SHARED's config and removes `route-target import 65000:1`. BGP re-runs the import check."
+    },
+    {
+      "from": "BGP",
+      "to": "SH",
+      "label": "import 10.1.1.0/24",
+      "detail": "no import matches RT 65000:1",
+      "tone": "bad",
+      "drop": true,
+      "text": "Nothing in SHARED imports 65000:1 any more, so RED's route is withdrawn from SHARED. RED can still **send** to 192.168.100.0/24, but SHARED has no route back: requests arrive and replies vanish. `show ip route vrf SHARED 10.1.1.0` proves it."
+    }
+  ]
+}
+```
+
 **Why must leaking always be configured in both directions?** For the same reason PBR is one-way: each table answers only for its own lookups. If RED learns how to reach SHARED but SHARED has no route back to RED, requests arrive and replies vanish. **Leaking also reintroduces the overlap problem**: if RED and BLUE both use 10.1.1.0/24 and both leak into SHARED, SHARED cannot tell them apart. *Every hole you punch between VRFs needs a return path and unique addresses on both sides.*
 
 | Symptom | Cause | Command that proves it |
@@ -40617,6 +41066,129 @@ You might think a failed link would be noticed instantly, and if the cable is pl
 | 40 s | OSPF dead timer expires; only now does R1 drop the adjacency and reconverge | Long since rerouted |
 
 The traffic lost drops from about 40 seconds' worth to well under a second's.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "BFD brings a session up, then catches a dead neighbour in 150 ms",
+  "caption": "R1 and R2 are OSPF neighbours through a provider switch, with `bfd interval 50 min_rx 50 multiplier 3` and echo mode off, so detection runs on control packets.",
+  "actors": [
+    {
+      "id": "OSPF",
+      "kind": "router",
+      "label": "OSPF on R1"
+    },
+    {
+      "id": "BFD1",
+      "kind": "router",
+      "label": "BFD on R1"
+    },
+    {
+      "id": "BFD2",
+      "kind": "router",
+      "label": "BFD on R2"
+    }
+  ],
+  "messages": [
+    {
+      "note": "OSPF registers as a BFD client",
+      "over": [
+        "OSPF",
+        "BFD1"
+      ],
+      "states": {
+        "OSPF": "FULL",
+        "BFD1": "Down",
+        "BFD2": "Down"
+      },
+      "text": "`bfd all-interfaces` under `router ospf 1`: once the adjacency to 10.0.12.2 is up, OSPF asks BFD to watch that neighbour."
+    },
+    {
+      "from": "BFD1",
+      "to": "BFD2",
+      "label": "Control: State Down",
+      "detail": "UDP 3784 · My Disc 1 · Your Disc 0",
+      "text": "The RFC 5880 three-way handshake starts. R1 doesn't know R2's discriminator (session ID) yet, so Your Discriminator is 0."
+    },
+    {
+      "from": "BFD2",
+      "to": "BFD1",
+      "label": "Control: State Init",
+      "detail": "My Disc 1 · Your Disc 1",
+      "states": {
+        "BFD2": "Init"
+      },
+      "text": "R2 heard a Down packet, so it moves to **Init**: \"I hear you, do you hear me?\""
+    },
+    {
+      "from": "BFD1",
+      "to": "BFD2",
+      "label": "Control: State Up",
+      "states": {
+        "BFD1": "Up"
+      },
+      "text": "R1 heard Init, so both directions work: R1 goes **Up**."
+    },
+    {
+      "from": "BFD2",
+      "to": "BFD1",
+      "label": "Control: State Up",
+      "detail": "every 50 ms from now on",
+      "states": {
+        "BFD2": "Up"
+      },
+      "tone": "good",
+      "text": "R2 receives Up while in Init and goes Up too. `show bfd neighbors` now shows `Up Up`. From here, each side sends a control packet every 50 ms."
+    },
+    {
+      "note": "t = 0: R2 loses power",
+      "over": [
+        "BFD2"
+      ],
+      "states": {
+        "BFD2": "no power"
+      },
+      "tone": "bad",
+      "text": "R1's Gi0/0 stays **up**, because its link is to the switch, and the switch port is fine. Nothing at Layer 1 or 2 tells R1 anything."
+    },
+    {
+      "note": "50, 100, 150 ms: no packets arrive",
+      "over": [
+        "BFD1",
+        "BFD2"
+      ],
+      "text": "R1 expects a packet every 50 ms. The detection time is the remote multiplier × the remote's transmit interval: 3 × 50 = 150 ms."
+    },
+    {
+      "from": "BFD1",
+      "to": "BFD1",
+      "label": "Detection time expired",
+      "detail": "3 × 50 ms = 150 ms",
+      "states": {
+        "BFD1": "Down"
+      },
+      "tone": "bad",
+      "text": "No packet for 150 ms, so R1's session goes **Down** with diagnostic 1 (Control Detection Time Expired). BFD itself changes no routes."
+    },
+    {
+      "from": "BFD1",
+      "to": "OSPF",
+      "label": "Session to 10.0.12.2 down",
+      "tone": "bad",
+      "text": "BFD tells every registered client (`Registered protocols` in `show bfd neighbors details`). If OSPF hadn't registered, nothing would happen until the dead timer."
+    },
+    {
+      "from": "OSPF",
+      "to": "OSPF",
+      "label": "Drop adjacency, run SPF",
+      "states": {
+        "OSPF": "DOWN"
+      },
+      "text": "OSPF logs `Nbr 2.2.2.2 ... from FULL to DOWN, Neighbor Down: BFD node down`, floods a new router LSA and reroutes, about 150 ms after the failure instead of 40 s."
+    }
+  ]
+}
+```
 
 **Worked example — negotiated timers.** The two ends don't have to be configured the same. (This example assumes echo mode is off, e.g. `no bfd echo` on the interface; with echo mode on, detection runs on the echo packets as shown in the output below.) Say R1 has `bfd interval 50 min_rx 50 multiplier 3` and R2 has `bfd interval 100 min_rx 200 multiplier 3`.
 
@@ -41167,6 +41739,119 @@ EIGRP neighbors find each other with hellos to **224.0.0.10** (IP protocol **88*
 
 Step 2 is where most "no neighbor" faults live; step 4 is where the flapping-neighbor faults live (below).
 
+```diagram
+{
+  "type": "sequence",
+  "title": "Two EIGRP routers become neighbours",
+  "caption": "R1 (10.1.12.1) and R2 (10.1.12.2) on Gi0/1, AS 100, default K values. The last two steps show the one-way-ACL fault from the table below.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 10.1.12.1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2 10.1.12.2"
+    }
+  ],
+  "messages": [
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Hello",
+      "detail": "to 224.0.0.10 · AS 100 · K 1 0 1 0 0 · hold 15",
+      "text": "Multicast to 224.0.0.10 (IP protocol 88) every 5 s. It carries the AS number, the K values and R1's **own** hold time (15 s)."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Hello",
+      "detail": "to 224.0.0.10 · AS 100 · K 1 0 1 0 0 · hold 15",
+      "text": "R1 checks R2's hello: same AS? same K values? valid authentication? Is 10.1.12.2 in Gi0/1's subnet? An AS mismatch fails silently; the others are logged. All pass, so R1 adds R2 to its neighbour table and logs `%DUAL-5-NBRCHANGE ... is up: new adjacency`."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Update (INIT flag)",
+      "detail": "unicast to 10.1.12.2 · reliable",
+      "text": "An **empty** update with the INIT flag, sent by **unicast**: \"I've seen you; let's synchronise.\" It's reliable, so it needs an acknowledgement."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Update (INIT flag)",
+      "detail": "unicast · also ACKs R1's INIT",
+      "text": "R2 does the same. Its packet also acknowledges R1's INIT (the ACK number rides along in the header)."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "ACK",
+      "dashed": true,
+      "detail": "hello with ack number",
+      "text": "An EIGRP ACK is just a hello with a non-zero acknowledgement number, sent unicast."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Update: full topology table",
+      "detail": "successor routes, with R2's metric (the RD)",
+      "text": "R2 sends every route in its topology table, in as many unicast updates as it takes. RTP retransmits anything that isn't acknowledged."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "ACK",
+      "dashed": true,
+      "text": "Acknowledged."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Update: full topology table",
+      "detail": "successor routes, with R1's metric",
+      "text": "R1 sends its table the other way. Each route arrives carrying R1's own metric, which R2 records as R1's **reported distance**."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "ACK",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "R1": "synced",
+        "R2": "synced"
+      },
+      "text": "Synchronised. From now on only **changes** are sent (partial, bounded updates), and hellos every 5 s keep the neighbour alive."
+    },
+    {
+      "note": "Later: an ACL lets hellos through but blocks unicast EIGRP",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "tone": "warn",
+      "text": "For example an ACL that permits only traffic to 224.0.0.10. Hellos still arrive, so the neighbour stays listed, but reliable unicast packets don't."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Update (retransmitted 16 times)",
+      "detail": "never acknowledged",
+      "tone": "bad",
+      "drop": true,
+      "states": {
+        "R1": "retry limit",
+        "R2": "flapping"
+      },
+      "text": "With no ACK, RTP keeps retransmitting. After 16 tries R1 gives up and tears the neighbour down with `retry limit exceeded`. The hellos bring it straight back, and the cycle repeats: a **flapping** neighbour with a growing `Q Cnt`. `permit eigrp any any` fixes it."
+    }
+  ]
+}
+```
+
 | Must match / must work | Doesn't have to match |
 |------------------------|------------------------|
 | **AS number** | Hello / hold timers |
@@ -41452,7 +42137,246 @@ The rule in that last row is the **feasibility condition (FC)**: *a neighbor qua
 
 ### Worked example
 
-![DUAL on R1: three neighbors, one successor, one feasible successor, one rejected path](images/c26_dual.png)
+```diagram
+{
+  "type": "topology",
+  "title": "DUAL on R1: successor, feasible successor, and the path it refuses",
+  "caption": "Link labels are R1's cost to each neighbour; each neighbour's own distance to 10.9.9.0/24 is its **reported distance (RD)**. Press **Next**, or click a device.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 1.5,
+      "label": "R1",
+      "info": "Runs DUAL for 10.9.9.0/24. It never sees the paths beyond its neighbours, only each neighbour's reported distance."
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.4,
+      "y": 0,
+      "label": "R2",
+      "sub": "RD 1000"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 2.4,
+      "y": 1.5,
+      "label": "R3",
+      "sub": "RD 2500"
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 2.4,
+      "y": 3,
+      "label": "R4",
+      "sub": "RD 3500",
+      "info": "R4 is farther from 10.9.9.0/24 than R1 is (3500 > 3000). Its best path **might** run back through R1, and R1 can't tell."
+    },
+    {
+      "id": "Net",
+      "kind": "cloud",
+      "x": 4.6,
+      "y": 1.5,
+      "label": "10.9.9.0/24"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "Gi0/1 · cost 2000"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "label": "Gi0/2 · cost 1500"
+    },
+    {
+      "a": "R1",
+      "b": "R4",
+      "label": "Gi0/3 · cost 100"
+    },
+    {
+      "a": "R2",
+      "b": "Net"
+    },
+    {
+      "a": "R3",
+      "b": "Net"
+    },
+    {
+      "a": "R4",
+      "b": "Net",
+      "style": "dashed",
+      "info": "R1 can't see this path. It only knows that R4 is 3500 away."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Each neighbour reports its distance",
+      "text": "Every neighbour advertises its own metric to 10.9.9.0/24. That's the **reported distance (RD)**: 1000 from R2, 2500 from R3, 3500 from R4.",
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R1"
+          ],
+          "label": "RD 1000"
+        },
+        {
+          "path": [
+            "R3",
+            "R1"
+          ],
+          "label": "RD 2500"
+        },
+        {
+          "path": [
+            "R4",
+            "R1"
+          ],
+          "label": "RD 3500"
+        }
+      ]
+    },
+    {
+      "title": "2. Add the cost to reach each neighbour",
+      "text": "Total via R2 = 1000 + 2000 = **3000**. Via R3 = 2500 + 1500 = **4000**. Via R4 = 3500 + 100 = **3600**.",
+      "nodes": {
+        "R2": {
+          "badge": "total 3000"
+        },
+        "R3": {
+          "badge": "total 4000"
+        },
+        "R4": {
+          "badge": "total 3600"
+        }
+      }
+    },
+    {
+      "title": "3. Lowest total: the successor sets the FD",
+      "text": "3000 is lowest, so R2 is the **successor** and **FD = 3000**. That route goes into the routing table.",
+      "nodes": {
+        "R2": {
+          "badge": "Successor",
+          "tone": "good"
+        },
+        "R1": {
+          "badge": "FD 3000"
+        }
+      },
+      "links": {
+        "R1-R2": "active",
+        "R2-Net": "active"
+      }
+    },
+    {
+      "title": "4. R3: RD 2500 < FD 3000, so it's a feasible successor",
+      "text": "Compare R3's **RD**, not its total, with the FD. 2500 < 3000: R3 is strictly closer to the destination than R1, so its path can't loop back through R1. It's kept ready as a backup.",
+      "focus": [
+        "R1",
+        "R3",
+        "Net",
+        "R1-R3",
+        "R3-Net"
+      ],
+      "nodes": {
+        "R3": {
+          "badge": "FS: 2500<3000",
+          "tone": "purple"
+        }
+      }
+    },
+    {
+      "title": "5. R4: RD 3500 ≥ FD 3000, so it's rejected",
+      "text": "R4's total (3600) beats R3's (4000), but its RD isn't below the FD. R1 can't prove R4's path avoids R1, so R4 is **not** a feasible successor. Plain `show ip eigrp topology` doesn't even list it; `all-links` does.",
+      "focus": [
+        "R1",
+        "R4",
+        "Net",
+        "R1-R4",
+        "R4-Net"
+      ],
+      "nodes": {
+        "R4": {
+          "badge": "not an FS",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "6. R2 fails: R3 takes over instantly",
+      "text": "The successor is gone, but a feasible successor exists, so R1 promotes R3 **locally**: no queries, the route stays **passive**, and convergence takes well under a second.",
+      "nodes": {
+        "R2": {
+          "badge": "down",
+          "tone": "bad",
+          "state": "down"
+        },
+        "R3": {
+          "badge": "Successor",
+          "tone": "good"
+        },
+        "R1": {
+          "badge": "Passive",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R2": "down",
+        "R2-Net": "dim",
+        "R1-R3": "active",
+        "R3-Net": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R3",
+            "Net"
+          ],
+          "label": "to 10.9.9.0/24",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "7. If R3 failed too, R1 would have to ask",
+      "text": "With no feasible successor left, R1 can't safely pick R4 on its own. The route goes **active** and R1 **queries** R4 (and every other neighbour), then waits for every reply before choosing. That's the slow path, and the subject of 26.7.",
+      "nodes": {
+        "R3": {
+          "badge": "down",
+          "tone": "bad",
+          "state": "down"
+        },
+        "R1": {
+          "badge": "Active",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R1-R3": "down",
+        "R3-Net": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R4"
+          ],
+          "label": "Query 10.9.9.0/24",
+          "tone": "warn"
+        }
+      ]
+    }
+  ]
+}
+```
 
 R1 has three paths to 10.9.9.0/24:
 
@@ -41591,6 +42515,155 @@ When a route goes **active**, the query **diffuses**. Each queried neighbor that
 
 The adjacency that was reset is **R2–R5**, right next to the real problem. The R1–R2 adjacency, which was healthy, survives. That's exactly what SIA-query/SIA-reply was designed to achieve.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "A query diffuses, and SIA-Query keeps the reset close to the fault",
+  "caption": "R1 has lost its successor for 10.9.9.0/24 and has no feasible successor. R3's only path was through R1; R2 must ask R5, which sits on an overloaded WAN link.",
+  "actors": [
+    {
+      "id": "R3",
+      "kind": "router",
+      "label": "R3"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2"
+    },
+    {
+      "id": "R5",
+      "kind": "router",
+      "label": "R5"
+    }
+  ],
+  "messages": [
+    {
+      "note": "t = 0: successor lost, no FS",
+      "over": [
+        "R3",
+        "R1",
+        "R2"
+      ],
+      "states": {
+        "R1": "Active"
+      },
+      "text": "R1 marks 10.9.9.0/24 **active**. It can't finish until every neighbour replies."
+    },
+    {
+      "from": "R1",
+      "to": "R3",
+      "label": "Query 10.9.9.0/24",
+      "text": "\"Do you have a path?\""
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Query 10.9.9.0/24",
+      "text": "The same question to R2."
+    },
+    {
+      "from": "R3",
+      "to": "R1",
+      "label": "Reply: unreachable",
+      "detail": "infinite metric",
+      "dashed": true,
+      "text": "R3's only path ran through R1, and it has nothing else, so it answers at once with an infinite metric."
+    },
+    {
+      "from": "R2",
+      "to": "R5",
+      "label": "Query 10.9.9.0/24",
+      "states": {
+        "R2": "Active"
+      },
+      "text": "R2 has no feasible successor either, so it goes active and asks its own neighbour. It can't reply to R1 until R5 replies to it: the query has **diffused**."
+    },
+    {
+      "from": "R5",
+      "to": "R2",
+      "label": "Reply",
+      "detail": "lost on the overloaded WAN link",
+      "tone": "bad",
+      "drop": true,
+      "text": "R5's reply is lost on the congested link."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "SIA-Query",
+      "detail": "t = 90 s: still working?",
+      "tone": "warn",
+      "text": "Half the 3-minute active timer has passed. R1 asks R2 to prove it's alive and still working."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "SIA-Reply",
+      "detail": "waiting on my own neighbour",
+      "dashed": true,
+      "text": "\"Yes, I'm waiting on my own neighbour.\" R1's timer for R2 resets, and the healthy R1–R2 adjacency survives."
+    },
+    {
+      "from": "R2",
+      "to": "R5",
+      "label": "SIA-Query",
+      "detail": "t = 90 s on R2's timer",
+      "tone": "warn",
+      "text": "R2's own timer for R5 has reached 90 s, so R2 asks R5 the same question."
+    },
+    {
+      "note": "No answer",
+      "over": [
+        "R5"
+      ],
+      "tone": "bad",
+      "text": "R5 still doesn't respond."
+    },
+    {
+      "from": "R2",
+      "to": "R2",
+      "label": "R5 declared stuck-in-active",
+      "detail": "t = 180 s · reset R2–R5",
+      "tone": "bad",
+      "states": {
+        "R5": "reset"
+      },
+      "text": "R2's timer for R5 reaches 180 s with no answer. R2 logs `%DUAL-3-SIA` and resets the **R2–R5** adjacency, right next to the real problem."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Reply",
+      "detail": "unreachable (or R2's new path)",
+      "dashed": true,
+      "states": {
+        "R2": "Passive"
+      },
+      "text": "With R5 gone, R2 can finish its own computation and answer R1."
+    },
+    {
+      "note": "Every reply in: route passive again",
+      "over": [
+        "R3",
+        "R1",
+        "R2"
+      ],
+      "states": {
+        "R1": "Passive"
+      },
+      "tone": "good",
+      "text": "R1 finishes DUAL: a new successor, or (here) unreachable. Fix the cause by bounding the query domain with **stubs** and **summaries**, not by raising `timers active-time`."
+    }
+  ]
+}
+```
+
 That's **stuck-in-active (SIA)**. The protocol bounds the wait:
 
 | Time | Event |
@@ -41702,6 +42775,272 @@ The routing result is the same in both cases, because no branch could ever have 
 3. When the hub later goes active for a route, it **skips stub peers** when sending queries.
 4. The branch still receives every update from the hub, and still advertises only the route types its keywords allow (table below).
 
+```diagram
+{
+  "type": "topology",
+  "title": "Stub branches: from 201 queries to one",
+  "caption": "HUB1 loses 10.50.0.0/16 and has no feasible successor. Three branches stand in for its 200. Press **Next**.",
+  "nodes": [
+    {
+      "id": "DC",
+      "kind": "cloud",
+      "x": 3,
+      "y": 0,
+      "label": "10.50.0.0/16"
+    },
+    {
+      "id": "HUB1",
+      "kind": "router",
+      "x": 1.8,
+      "y": 1.5,
+      "label": "HUB1"
+    },
+    {
+      "id": "HUB2",
+      "kind": "router",
+      "x": 4.2,
+      "y": 1.5,
+      "label": "HUB2",
+      "info": "The other hub. It has its own path to 10.50.0.0/16, so it's the only router that can actually help."
+    },
+    {
+      "id": "B1",
+      "kind": "router",
+      "x": 0,
+      "y": 3,
+      "label": "Branch 1"
+    },
+    {
+      "id": "B2",
+      "kind": "router",
+      "x": 1.8,
+      "y": 3,
+      "label": "Branch 2"
+    },
+    {
+      "id": "B3",
+      "kind": "router",
+      "x": 3.6,
+      "y": 3,
+      "label": "Branch 200"
+    }
+  ],
+  "links": [
+    {
+      "a": "DC",
+      "b": "HUB1"
+    },
+    {
+      "a": "DC",
+      "b": "HUB2"
+    },
+    {
+      "a": "HUB1",
+      "b": "HUB2"
+    },
+    {
+      "a": "HUB1",
+      "b": "B1"
+    },
+    {
+      "a": "HUB1",
+      "b": "B2"
+    },
+    {
+      "a": "HUB1",
+      "b": "B3"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Without stub: HUB1 asks everyone",
+      "text": "The route goes active and HUB1 queries **all 201 neighbours**. No branch could ever offer a path to the data centre, but HUB1 doesn't know that, and must wait for every reply.",
+      "nodes": {
+        "HUB1": {
+          "badge": "Active",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "DC-HUB1": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "HUB1",
+            "B1"
+          ],
+          "label": "Query",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "HUB1",
+            "B2"
+          ],
+          "label": "Query",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "HUB1",
+            "B3"
+          ],
+          "label": "Query",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "HUB1",
+            "HUB2"
+          ],
+          "label": "Query",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "2. 200 useless answers, 200 chances to stall",
+      "text": "Each branch replies \"unreachable\". If one branch is on a slow, lossy link, its reply is late and the route can go **stuck-in-active**. Only HUB2's answer contained a path.",
+      "packets": [
+        {
+          "path": [
+            "B1",
+            "HUB1"
+          ],
+          "label": "Reply: ∞"
+        },
+        {
+          "path": [
+            "B2",
+            "HUB1"
+          ],
+          "label": "Reply: ∞"
+        },
+        {
+          "path": [
+            "B3",
+            "HUB1"
+          ],
+          "label": "Reply: ∞"
+        },
+        {
+          "path": [
+            "HUB2",
+            "HUB1"
+          ],
+          "label": "Reply: via HUB2",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. eigrp stub connected summary on every branch",
+      "text": "Each branch now sets the **stub flag** in its hellos. HUB1 records them as stub peers: `show ip eigrp neighbors detail` shows `Stub Peer Advertising (CONNECTED SUMMARY) Routes` and `Suppressing queries`.",
+      "nodes": {
+        "HUB1": null,
+        "B1": {
+          "badge": "stub"
+        },
+        "B2": {
+          "badge": "stub"
+        },
+        "B3": {
+          "badge": "stub"
+        }
+      },
+      "links": {
+        "DC-HUB1": null
+      },
+      "packets": [
+        {
+          "path": [
+            "B1",
+            "HUB1"
+          ],
+          "label": "Hello (stub flag)"
+        },
+        {
+          "path": [
+            "B2",
+            "HUB1"
+          ],
+          "label": "Hello (stub flag)"
+        },
+        {
+          "path": [
+            "B3",
+            "HUB1"
+          ],
+          "label": "Hello (stub flag)"
+        }
+      ]
+    },
+    {
+      "title": "4. The same failure: one query",
+      "text": "HUB1 skips stub peers when it queries. One query, to HUB2, and one reply to wait for.",
+      "nodes": {
+        "HUB1": {
+          "badge": "Active",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "DC-HUB1": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "HUB1",
+            "HUB2"
+          ],
+          "label": "Query",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. Converged, and the branches still learn everything",
+      "text": "HUB2 replies with its path, HUB1 goes passive with a new successor, and the branches get the change in an ordinary **update**. A stub still receives every route; it just never gets asked, and never offers transit.",
+      "nodes": {
+        "HUB1": {
+          "badge": "Passive",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "HUB1-HUB2": "active",
+        "DC-HUB2": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "HUB2",
+            "HUB1"
+          ],
+          "label": "Reply: via HUB2",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "HUB1",
+            "B1"
+          ],
+          "label": "Update"
+        },
+        {
+          "path": [
+            "HUB1",
+            "B3"
+          ],
+          "label": "Update"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Why does marking a spoke as a stub bound the query domain?** Because the stub announces itself in its hello, and the hub then **never sends it queries**. The hub knows the stub has no alternate paths to offer, so it doesn't wait on spokes that can't help. A hub with 500 stub spokes can recompute a lost route by querying only the other hubs. *The stub keyword is a promise: "I'm never a transit path, so don't ask me."*
 
 The keywords control **what the stub advertises** (it still receives everything):
@@ -41796,6 +43135,199 @@ Using 26.6's numbers (FD 3000) with `variance 2`, so the limit is 6000:
 3. Take each path that is a **successor or feasible successor** and check whether its total is below the ceiling. R3: 4000 < 6000 → in. R4 isn't a feasible successor, so it's never even considered.
 4. Install the surviving paths, up to `maximum-paths`.
 5. Work out the **traffic share**: the better path gets more. Metrics 3000 and 4000 are in the ratio 3 : 4, so the shares are the inverse, **4 : 3**. Roughly 4 of every 7 flows use R2 and 3 use R3. (CEF shares per destination by default, so it's flows that are split, not individual packets.)
+
+```diagram
+{
+  "type": "topology",
+  "title": "variance 2: two paths carry traffic, one never does",
+  "caption": "The same three paths as 26.6. FD = 3000 via R2. Press **Next**.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 1.5,
+      "label": "R1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.4,
+      "y": 0,
+      "label": "R2",
+      "sub": "RD 1000"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 2.4,
+      "y": 1.5,
+      "label": "R3",
+      "sub": "RD 2500"
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 2.4,
+      "y": 3,
+      "label": "R4",
+      "sub": "RD 3500"
+    },
+    {
+      "id": "Net",
+      "kind": "cloud",
+      "x": 4.6,
+      "y": 1.5,
+      "label": "10.9.9.0/24"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "total 3000"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "label": "total 4000"
+    },
+    {
+      "a": "R1",
+      "b": "R4",
+      "label": "total 3600"
+    },
+    {
+      "a": "R2",
+      "b": "Net"
+    },
+    {
+      "a": "R3",
+      "b": "Net"
+    },
+    {
+      "a": "R4",
+      "b": "Net",
+      "style": "dashed"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. variance 1 (the default): equal cost only",
+      "text": "Only paths equal to the FD are installed, so everything goes via R2. R3 waits as a feasible successor.",
+      "nodes": {
+        "R2": {
+          "badge": "Successor",
+          "tone": "good"
+        },
+        "R3": {
+          "badge": "FS (idle)",
+          "tone": "purple"
+        }
+      },
+      "links": {
+        "R1-R2": "active",
+        "R2-Net": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2",
+            "Net"
+          ],
+          "label": "all flows",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. variance 2: the ceiling is 2 × 3000 = 6000",
+      "text": "A path is installed if it's a **feasible successor** and its metric is below variance × FD. R3: an FS, and 4000 < 6000, so it's in. Traffic is shared in inverse proportion to the metric (3000 : 4000 → 4 : 3), per destination with CEF.",
+      "nodes": {
+        "R1": {
+          "badge": "limit 6000"
+        },
+        "R3": {
+          "badge": "4000 < 6000",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R3": "active",
+        "R3-Net": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2",
+            "Net"
+          ],
+          "label": "≈4 of 7 flows",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "R1",
+            "R3",
+            "Net"
+          ],
+          "label": "≈3 of 7 flows",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. R4 is never even considered",
+      "text": "R4's 3600 is below the ceiling and better than R3's 4000, but R4 isn't a feasible successor. Traffic sent to R4 could loop back through R1, so variance ignores it. Raising variance to 128 wouldn't change that.",
+      "focus": [
+        "R1",
+        "R4",
+        "Net",
+        "R1-R4",
+        "R4-Net"
+      ],
+      "nodes": {
+        "R4": {
+          "badge": "not an FS",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "R1-R4": "dim"
+      }
+    },
+    {
+      "title": "4. traffic-share min across-interfaces",
+      "text": "Both paths stay installed, but only the best one carries traffic. Lose R2 and R3 is already in the routing table: instant failover, with no load sharing.",
+      "nodes": {
+        "R3": {
+          "badge": "idle backup",
+          "tone": "purple"
+        },
+        "R4": null
+      },
+      "links": {
+        "R1-R3": null,
+        "R3-Net": null,
+        "R1-R4": null
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2",
+            "Net"
+          ],
+          "label": "all flows",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **Exam trap:** "what variance makes R3's path usable?" Divide and round up: 4000 ÷ 3000 = 1.33, so **variance 2** is the smallest that works. Variance must be a whole number (1–128).
 
@@ -41935,6 +43467,65 @@ Work the effect through R1's paths from 26.6. Suppose R1 wants R3 (total 4000) t
 - **Raising delay on R1's link to R2** raises R1's cost to R2 and therefore the **total (FD candidate)** via R2. It does **not** change R2's RD, because RD is R2's own distance. Push R1's cost to R2 past 3000 (total > 4000) and R3 becomes the successor. R2 can stay a feasible successor as long as its RD (1000) is below the new FD (4000).
 - **An offset list `in` on the R2 interface** adds to the metric as received from R2, so both the RD R1 records for R2 and the total via R2 rise. That can **remove R2 as a feasible successor**, if its adjusted RD reaches the FD. Offsetting a path makes it less preferred *and* can stop it qualifying as a backup.
 - **Changing `bandwidth`** works only if it changes the **minimum** bandwidth along the path, and it has side effects. QoS percentages, OSPF cost and EIGRP's own pacing (below) all read it. That's why **delay is the preferred knob**: it's additive, predictable and used by nothing else.
+
+```diagram
+{
+  "type": "path",
+  "title": "With equal bandwidth, EIGRP's choice is the delay sum",
+  "prompt": "Every link here is GigabitEthernet, so the bandwidth term (10⁷ ÷ 1,000,000 = 10) is the same on every path, and the metric is 256 × (10 + Σ delay). Costs are each link's **delay in tens of µs** (1 = the Gi default of 10 µs). Both paths start equal. Type `delay 200` on R1's link to R3 by setting that link to 200, or raise R2–R4, and watch the best path move. Delay adds up hop by hop; bandwidth never does.",
+  "metric": "Delay",
+  "from": "R1",
+  "to": "R4",
+  "nodes": [
+    {
+      "id": "R1",
+      "x": 0,
+      "y": 1
+    },
+    {
+      "id": "R2",
+      "x": 2,
+      "y": 0
+    },
+    {
+      "id": "R3",
+      "x": 2,
+      "y": 2
+    },
+    {
+      "id": "R4",
+      "x": 4,
+      "y": 1
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "cost": 1,
+      "label": "Gi0/1"
+    },
+    {
+      "a": "R2",
+      "b": "R4",
+      "cost": 1,
+      "label": "Gi"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "cost": 1,
+      "label": "Gi0/2"
+    },
+    {
+      "a": "R3",
+      "b": "R4",
+      "cost": 1,
+      "label": "Gi"
+    }
+  ]
+}
+```
 
 ### EIGRP Bandwidth Pacing — `ip bandwidth-percent eigrp`
 
@@ -42285,15 +43876,123 @@ The CCNA list (area, subnet, timers, authentication, MTU) still applies. Two mor
 **Worked example — stuck in EXSTART.** A new link between R1 and R2 never reaches FULL:
 
 ```
-R1# show ip ospf neighbor
+R2# show ip ospf neighbor
 Neighbor ID     Pri   State           Dead Time   Address         Interface
-2.2.2.2           1   EXSTART/DR      00:00:36    10.1.12.2       GigabitEthernet0/1
+1.1.1.1           1   EXSTART/BDR     00:00:36    10.1.12.1       GigabitEthernet0/1
 ```
 
-1. **Read the state.** EXSTART means hellos match (otherwise there'd be no neighbor at all) but the database exchange can't start. Think MTU first.
+1. **Read the state.** EXSTART means hellos match (otherwise there'd be no neighbor at all) but the database exchange can't start. Think MTU first. (R1 typically shows the same neighbour stuck in **EXCHANGE**; the diagram below shows why the two ends differ.)
 2. **Compare IP MTUs:** `show ip interface Gi0/1 | include MTU` gives `MTU is 1500 bytes` on R1 and `MTU is 1400 bytes` on R2 (someone set `ip mtu 1400` there for a tunnel test). Use `show ip interface`, not `show interface`: `ip mtu` doesn't change the `MTU 1500 bytes` that `show interface` reports, and OSPF uses the IP MTU.
 3. **Why that blocks it:** each DBD packet carries the sender's interface MTU. R2 sees R1 advertise 1500, larger than its own 1400, and refuses R1's DBDs, because R1 could send it LSA packets too big for R2 to receive. The exchange never progresses.
 4. **Fix:** set the same MTU on both ends. `ip ospf mtu-ignore` would also bring the adjacency up, but it hides the mismatch rather than fixing it, so it's a last resort.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Why an MTU mismatch freezes the database exchange",
+  "caption": "R1 (RID 1.1.1.1, IP MTU 1500) and R2 (RID 2.2.2.2, `ip mtu 1400`) on Gi0/1. Hellos don't carry the MTU; Database Description (DBD) packets do.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 · MTU 1500"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2 · MTU 1400"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Hellos match: 2-Way, DR elected, start ExStart",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "states": {
+        "R1": "ExStart",
+        "R2": "ExStart"
+      },
+      "text": "Area, timers, mask and authentication all agree, so the neighbour comes up. R2 (higher RID) is DR. Now they must agree who leads the database exchange."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "DBD (I, M, MS) seq 5521",
+      "detail": "Interface MTU 1500",
+      "text": "Each side opens by claiming to be master (the I, M and MS bits set, no LSA headers). The DBD carries the sender's **interface MTU**."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "DBD (I, M, MS) seq 8830",
+      "detail": "Interface MTU 1400",
+      "text": "R2 makes the same claim. 2.2.2.2 > 1.1.1.1, so R2 will be master."
+    },
+    {
+      "note": "R2: 1500 > my 1400, reject R1's DBDs",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "tone": "bad",
+      "text": "RFC 2328: a DBD advertising an MTU larger than the receiving interface can take is **rejected**. R1 could later send LSU packets too big for R2 to receive without fragmentation."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "DBD seq 8830, MS clear",
+      "detail": "Interface MTU 1500 · LSA headers",
+      "tone": "bad",
+      "drop": true,
+      "states": {
+        "R1": "Exchange"
+      },
+      "text": "R1 accepts R2's DBD (1400 fits within 1500), agrees to be slave, echoes R2's sequence number with its LSA headers, and moves to **Exchange**. R2 discards it."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "DBD (I, M, MS) seq 8830 again",
+      "detail": "retransmitted every 5 s",
+      "tone": "warn",
+      "text": "R2 never got an acceptable answer, so it stays in **ExStart** and retransmits its opening DBD every 5 s (the retransmit interval)."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "DBD seq 8830 (resent)",
+      "detail": "Interface MTU 1500",
+      "tone": "bad",
+      "drop": true,
+      "text": "As slave, R1 treats it as a duplicate and resends its last DBD, which R2 rejects again."
+    },
+    {
+      "note": "Stuck: R1 EXCHANGE, R2 EXSTART",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "tone": "bad",
+      "text": "That's why the two ends can show different states. After many retransmissions the adjacency is torn down (`Too many retransmissions`) and the whole cycle starts again."
+    },
+    {
+      "note": "Fix: the same IP MTU on both ends",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "states": {
+        "R1": "Full",
+        "R2": "Full"
+      },
+      "tone": "good",
+      "text": "`no ip mtu` on R2 (or 1400 on both). The DBDs are accepted, the exchange runs through Exchange and Loading, and both reach **Full**. `ip ospf mtu-ignore` would also work, but only hides the mismatch."
+    }
+  ]
+}
+```
 
 **Worked example — stub flag mismatch.** R4 (internal router in Area 1) has no neighbors after a change:
 
@@ -42496,6 +44195,203 @@ OSPF-1 ADJ Gi0/1: Rcv pkt from 10.1.12.2 : Mismatch Authentication type.
 
 That non-preemption is why "I set priority 255 on the hub but a spoke is still DR" happens: the priority only counts at the next election.
 
+```diagram
+{
+  "type": "topology",
+  "title": "Broadcast versus point-to-point: who forms a full adjacency",
+  "caption": "Four routers share one Ethernet segment (OSPF type **broadcast**); R4 and R5 also share a link set to **point-to-point**. All priorities are the default 1. Press **Next**.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 0,
+      "label": "R1",
+      "sub": "RID 1.1.1.1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 3.2,
+      "y": 0,
+      "label": "R2",
+      "sub": "RID 2.2.2.2"
+    },
+    {
+      "id": "SW",
+      "kind": "switch",
+      "x": 1.6,
+      "y": 1.2,
+      "label": "SW",
+      "sub": "10.1.1.0/24"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 0,
+      "y": 2.4,
+      "label": "R3",
+      "sub": "RID 3.3.3.3"
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 3.2,
+      "y": 2.4,
+      "label": "R4",
+      "sub": "RID 4.4.4.4"
+    },
+    {
+      "id": "R5",
+      "kind": "router",
+      "x": 5,
+      "y": 2.4,
+      "label": "R5",
+      "sub": "p2p · RID 5.5.5.5"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "SW"
+    },
+    {
+      "a": "R2",
+      "b": "SW"
+    },
+    {
+      "a": "R3",
+      "b": "SW"
+    },
+    {
+      "a": "R4",
+      "b": "SW"
+    },
+    {
+      "a": "R4",
+      "b": "R5",
+      "info": "`ip ospf network point-to-point` on both ends: no election, no Type 2 LSA, and no 40 s wait timer."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Hellos to 224.0.0.5 announce priority and RID",
+      "text": "On Ethernet the default type is broadcast. Each router lists the neighbours it has heard in its hellos. Once two routers see themselves in each other's hellos they're **2-Way**, and the election can run.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "SW",
+            "R4"
+          ],
+          "label": "Hello pri 1"
+        },
+        {
+          "path": [
+            "R4",
+            "SW",
+            "R2"
+          ],
+          "label": "Hello pri 1"
+        }
+      ]
+    },
+    {
+      "title": "2. Highest priority wins; ties go to the highest RID",
+      "text": "Everyone is priority 1, so the RID decides: **R4 is DR**, **R3 is BDR**. The election isn't preemptive: a priority-255 router plugged in later waits for the next election.",
+      "nodes": {
+        "R4": {
+          "badge": "DR",
+          "tone": "good"
+        },
+        "R3": {
+          "badge": "BDR",
+          "tone": "accent"
+        }
+      }
+    },
+    {
+      "title": "3. DROTHERs go FULL only with the DR and BDR",
+      "text": "R1 and R2 are **DROTHERs**. Each forms FULL adjacencies with R4 and R3 only, and the R1–R2 pair stays at **2-Way** for good. That's normal. Here: 5 adjacencies instead of a full mesh of 6; with 20 routers, 37 instead of 190. `show ip ospf neighbor` on R1: `FULL/DR`, `FULL/BDR`, `2WAY/DROTHER`.",
+      "nodes": {
+        "R1": {
+          "badge": "DROTHER"
+        },
+        "R2": {
+          "badge": "DROTHER"
+        }
+      }
+    },
+    {
+      "title": "4. A change: the DROTHER tells only the DR and BDR",
+      "text": "R1's link changes. It sends its LSU to **224.0.0.6** (AllDRouters), which only the DR and BDR listen to.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "SW",
+            "R4"
+          ],
+          "label": "LSU → 224.0.0.6",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "R1",
+            "SW",
+            "R3"
+          ],
+          "label": "LSU → 224.0.0.6",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. The DR floods it to everyone",
+      "text": "R4 re-floods the LSA to **224.0.0.5** (AllSPFRouters). The DR also originates the segment's **Type 2 network LSA**. The BDR just listens, ready to take over if the DR fails.",
+      "packets": [
+        {
+          "path": [
+            "R4",
+            "SW",
+            "R2"
+          ],
+          "label": "LSU → 224.0.0.5",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "R4",
+            "SW",
+            "R1"
+          ],
+          "label": "LSU → 224.0.0.5",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. Point-to-point: no election at all",
+      "text": "On the R4–R5 link there's nobody else to coordinate. No DR, no BDR, no Type 2 LSA: the neighbour shows `FULL/  -`. Timers are still 10/40, which is why a p2p end facing a broadcast end **does** form an adjacency, and then routes go missing.",
+      "focus": [
+        "R4",
+        "R5",
+        "R4-R5"
+      ],
+      "nodes": {
+        "R5": {
+          "badge": "FULL/-",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R4-R5": "active"
+      }
+    }
+  ]
+}
+```
+
 OSPF behaves differently depending on what it believes the link is. The network type is set per interface with `ip ospf network <type>`, or `ospfv3 network` in v3:
 
 | Network type | Default on | Hello/Dead | DR/BDR? | Neighbors | Next hop for routes across it |
@@ -42655,6 +44551,262 @@ And on R9 in Area 0, R6's 198.51.100.0/24 appears as **`O E2`**, because R2 tran
 3. R9 redistributes 192.0.2.0/24 as a **Type 5** in Area 0. When R2 would flood it into Area 1, the NSSA rule stops it.
 4. R2 sends Area 0's internal prefixes (172.16.0.0/24) into Area 1 as **Type 3** LSAs, because a plain NSSA blocks externals, not inter-area routes.
 
+```diagram
+{
+  "type": "topology",
+  "title": "What the ABR lets into Area 1, area type by area type",
+  "caption": "R9 (Area 0) redistributes 192.0.2.0/24; Area 0 also holds 172.16.0.0/24. R2 is the ABR, R4 an internal Area 1 router, and R6 may redistribute 198.51.100.0/24. Press **Next** to change Area 1's type.",
+  "nodes": [
+    {
+      "id": "EXT",
+      "kind": "cloud",
+      "x": 4,
+      "y": 0,
+      "label": "Internet edge",
+      "sub": "192.0.2.0/24"
+    },
+    {
+      "id": "R9",
+      "kind": "router",
+      "x": 2,
+      "y": 0,
+      "label": "R9",
+      "sub": "ASBR · Area 0",
+      "info": "Redistributes 192.0.2.0/24 as a Type 5 LSA. Area 0 also contains 172.16.0.0/24."
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 0,
+      "y": 0,
+      "label": "R2",
+      "sub": "ABR 0 / 1",
+      "info": "Decides which LSAs cross into Area 1, according to `area 1 stub`, `stub no-summary`, `nssa` and so on."
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 0,
+      "y": 2.4,
+      "label": "R4",
+      "sub": "internal · Area 1",
+      "info": "The router whose routing table the worked example shows."
+    },
+    {
+      "id": "R6",
+      "kind": "router",
+      "x": 2,
+      "y": 2.4,
+      "label": "R6",
+      "sub": "Area 1"
+    },
+    {
+      "id": "EXT2",
+      "kind": "cloud",
+      "x": 4,
+      "y": 2.4,
+      "label": "Partner",
+      "sub": "198.51.100.0/24"
+    }
+  ],
+  "links": [
+    {
+      "a": "EXT",
+      "b": "R9"
+    },
+    {
+      "a": "R9",
+      "b": "R2",
+      "label": "Area 0"
+    },
+    {
+      "a": "R2",
+      "b": "R4",
+      "label": "Area 1"
+    },
+    {
+      "a": "R4",
+      "b": "R6"
+    },
+    {
+      "a": "R6",
+      "b": "EXT2"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Normal area: everything is flooded in",
+      "text": "R2 passes Area 0's prefixes in as **Type 3** and floods R9's **Type 5** (plus a Type 4 saying how to reach R9). R4 sees `O`, `O IA 172.16.0.0/24` and `O E2 192.0.2.0/24`.",
+      "nodes": {
+        "R2": {
+          "badge": "normal"
+        },
+        "R4": {
+          "badge": "O, IA, E2"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R9",
+            "R2",
+            "R4"
+          ],
+          "label": "Type 5: 192.0.2.0/24"
+        },
+        {
+          "path": [
+            "R2",
+            "R4"
+          ],
+          "label": "Type 3: 172.16.0.0/24"
+        }
+      ]
+    },
+    {
+      "title": "2. Stub: Types 4 and 5 stop; a default replaces them",
+      "text": "`area 1 stub` on every Area 1 router. R2 blocks the Type 5 (and Type 4) and injects a **Type 3 default** automatically. R4: `O IA 172.16.0.0/24` and `O*IA 0.0.0.0/0`, no E2.",
+      "nodes": {
+        "R2": {
+          "badge": "stub",
+          "tone": "accent"
+        },
+        "R4": {
+          "badge": "IA + O*IA",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R9",
+            "R2"
+          ],
+          "label": "Type 5 blocked",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "R2",
+            "R4"
+          ],
+          "label": "Type 3: 0.0.0.0/0",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "R2",
+            "R4"
+          ],
+          "label": "Type 3: 172.16.0.0/24"
+        }
+      ]
+    },
+    {
+      "title": "3. Totally stubby: only the default",
+      "text": "`area 1 stub no-summary` on **R2 only** (the others keep plain `stub`). The Type 3s are blocked too, except the default. R4's only inter-area route is `O*IA 0.0.0.0/0`.",
+      "nodes": {
+        "R2": {
+          "badge": "stub no-summ",
+          "tone": "accent"
+        },
+        "R4": {
+          "badge": "O*IA only",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R9",
+            "R2"
+          ],
+          "label": "Type 5 blocked",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "R2",
+            "R4"
+          ],
+          "label": "Type 3: default only",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. NSSA: R6 may now redistribute",
+      "text": "A stub area can't contain an ASBR. `area 1 nssa` allows one: R6 redistributes 198.51.100.0/24 as a **Type 7**, which only exists inside the NSSA. R4 sees it as `O N2`.",
+      "nodes": {
+        "R2": {
+          "badge": "NSSA",
+          "tone": "purple"
+        },
+        "R6": {
+          "badge": "ASBR",
+          "tone": "purple"
+        },
+        "R4": {
+          "badge": "sees O N2"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "EXT2",
+            "R6",
+            "R4",
+            "R2"
+          ],
+          "label": "Type 7: 198.51.100.0/24",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "5. R2 translates Type 7 into Type 5",
+      "text": "As the NSSA's translator (the ABR with the highest RID, if there are several), R2 floods a **Type 5** for 198.51.100.0/24 into Area 0. R9 sees the same prefix as `O E2`.",
+      "nodes": {
+        "R9": {
+          "badge": "sees O E2"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R9"
+          ],
+          "label": "Type 5: 198.51.100.0/24",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. A plain NSSA gets no automatic default",
+      "text": "R9's Type 5 is still blocked at R2, and no default appears, because the NSSA has its own way out through R6 and Cisco makes you choose. `area 1 nssa default-information-originate` on R2 sends a **Type 7** default; `area 1 nssa no-summary` (totally NSSA) sends a Type 3 one.",
+      "nodes": {
+        "R4": {
+          "badge": "no default",
+          "tone": "warn"
+        },
+        "R9": null
+      },
+      "packets": [
+        {
+          "path": [
+            "R9",
+            "R2"
+          ],
+          "label": "Type 5 blocked",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Why block Type 4 along with Type 5?** A Type 4 LSA only says "here's how to reach ASBR X", and it exists so routers can use the Type 5s that ASBR originates. Block the Type 5s and the Type 4s are useless.
 
 **Why doesn't a plain NSSA get an automatic default route, when a stub area does?** Because an NSSA, unlike a stub area, may have a **way out of its own**: the local ASBR's external connection. Injecting a default automatically could pull traffic toward the ABR that should leave through the local ASBR, or the reverse. Cisco makes you decide, with `default-information-originate`. **Totally NSSA** does get the automatic default, because `no-summary` has removed inter-area routes, and without a default nothing outside the area would be reachable.
@@ -42756,7 +44908,185 @@ router ospf 1
 
 OSPF's rule: **every area must attach to Area 0**, and Area 0 must be contiguous. A **virtual link** is the repair when that can't be done physically: a logical Area 0 adjacency tunneled through a **transit area**.
 
-![Virtual link through transit Area 1 connects Area 2 to the backbone](images/c27_virtual_link.png)
+```diagram
+{
+  "type": "topology",
+  "title": "A virtual link gives Area 2 a door to the backbone",
+  "caption": "Area 2 hangs off Area 1 and doesn't touch Area 0. Solid lines are physical links; the purple arc is the virtual link, OSPF_VL0, which belongs to Area 0. Press **Next**.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 0,
+      "label": "R1",
+      "sub": "Area 0"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.6,
+      "y": 0,
+      "label": "R2",
+      "sub": "ABR 0/1 · RID 2.2.2.2"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 2.6,
+      "y": 2.6,
+      "label": "R3",
+      "sub": "Area 1/2 · RID 3.3.3.3"
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 5,
+      "y": 2.6,
+      "label": "R4",
+      "sub": "Area 2 · 10.2.0.0/16"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "Area 0"
+    },
+    {
+      "a": "R2",
+      "b": "R3",
+      "id": "p23",
+      "label": "Area 1 (transit)"
+    },
+    {
+      "a": "R3",
+      "b": "R4",
+      "label": "Area 2"
+    },
+    {
+      "a": "R2",
+      "b": "R3",
+      "id": "vl",
+      "style": "tunnel",
+      "info": "`area 1 virtual-link 3.3.3.3` on R2 and `area 1 virtual-link 2.2.2.2` on R3. A point-to-point Area 0 link, tunnelled through Area 1."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Area 2 is cut off from Area 0",
+      "text": "R3 has interfaces in Areas 1 and 2 but none in Area 0, so it isn't a real ABR. It won't summarise Area 2 into the rest of the network, and R1 never learns 10.2.0.0/16.",
+      "nodes": {
+        "R3": {
+          "badge": "not an ABR",
+          "tone": "warn"
+        },
+        "R1": {
+          "badge": "no 10.2/16",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "vl": "dim"
+      }
+    },
+    {
+      "title": "2. Configure the virtual link with router IDs",
+      "text": "`area 1 virtual-link 3.3.3.3` on R2, `area 1 virtual-link 2.2.2.2` on R3: the **transit area** number and the far end's **router ID**, never an interface address.",
+      "nodes": {
+        "R2": {
+          "badge": "VL → 3.3.3.3"
+        },
+        "R3": {
+          "badge": "VL → 2.2.2.2"
+        }
+      }
+    },
+    {
+      "title": "3. Unicast OSPF across Area 1",
+      "text": "Each router finds the other's RID in Area 1's SPF tree and sends it Area 0 hellos as **unicast**, routed across Area 1. The transit area must be a normal area, never stub or NSSA.",
+      "focus": [
+        "R2",
+        "R3",
+        "p23",
+        "vl"
+      ],
+      "packets": [
+        {
+          "path": [
+            "R3",
+            "R2"
+          ],
+          "label": "unicast Area 0 hello",
+          "via": [
+            "p23"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "4. FULL over OSPF_VL0: R3 becomes an ABR",
+      "text": "The pair forms a FULL **Area 0** adjacency and syncs Area 0's LSDB. `show ip ospf virtual-links`: `Virtual Link OSPF_VL0 to router 2.2.2.2 is up`, `Adjacency State FULL (Hello suppressed)`.",
+      "nodes": {
+        "R2": {
+          "badge": "FULL"
+        },
+        "R3": {
+          "badge": "ABR",
+          "tone": "good"
+        },
+        "R1": null
+      },
+      "links": {
+        "vl": "active"
+      }
+    },
+    {
+      "title": "5. Area 2's prefixes reach the backbone",
+      "text": "R3 now originates Type 3 summaries for Area 2 into Area 0, over the virtual link, and R2 floods them to R1. Data still travels over the physical Area 1 path; the virtual link's cost is R3's intra-area cost to R2.",
+      "nodes": {
+        "R1": {
+          "badge": "O IA 10.2/16",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R3",
+            "R2",
+            "R1"
+          ],
+          "label": "Type 3: 10.2.0.0/16",
+          "tone": "good",
+          "via": [
+            "vl",
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "title": "6. The classic fault: an interface address instead of a RID",
+      "text": "`area 1 virtual-link 10.1.23.2` on R3: no router has RID 10.1.23.2, so the link stays **down** and Area 2 vanishes again. Fix it with `area 1 virtual-link 2.2.2.2`.",
+      "nodes": {
+        "R3": {
+          "badge": "VL → 10.1.23.2",
+          "tone": "bad"
+        },
+        "R1": {
+          "badge": "no 10.2/16",
+          "tone": "bad"
+        },
+        "R2": null
+      },
+      "links": {
+        "vl": "down"
+      }
+    }
+  ]
+}
+```
 
 ```
 ! On R2 (ABR between Area 0 and Area 1)
@@ -42908,6 +45238,79 @@ Routing entry for 192.0.2.0/24
 **Same metrics, tie case (E2):** if both ASBRs set 20, E2 sees a tie and falls back to the forwarding metric: R3 (10) beats R4 (30). That's the `forward metric` value in `show ip route`.
 
 One more rule: if R5 holds both an E1 and an E2 route for the same prefix, the **E1 wins regardless of the numbers**, because type 1 ranks above type 2 in the table.
+
+```diagram
+{
+  "type": "compare",
+  "title": "Which OSPF route to 192.0.2.0/24 does R5 install?",
+  "prompt": "OSPF compares **route type first** and the metric only within a type. **Metric compared** is the total cost for O and O IA, the external metric plus the internal cost to the ASBR for E1, and the external metric alone for E2. Start: three E2 routes, and R4's external metric 10 wins although R4 is the farthest away. Try: set R3 to **O E1** with 30 (20 + 10): any E1 beats every E2. Set R4 to 20: the E2s tie and the lowest **forwarding metric** (internal cost to the ASBR) wins. Set any route to **O IA** or **O**: it wins whatever its metric. (Only E2 ties use the forwarding metric; equal E1 or intra-area costs would load-share.)",
+  "winner": "Installed route",
+  "fields": [
+    {
+      "id": "type",
+      "label": "Route type",
+      "kind": "choice",
+      "rule": "order",
+      "options": [
+        {
+          "value": "O",
+          "label": "O (intra-area)"
+        },
+        {
+          "value": "IA",
+          "label": "O IA (inter-area)"
+        },
+        {
+          "value": "E1",
+          "label": "O E1 / N1"
+        },
+        {
+          "value": "E2",
+          "label": "O E2 / N2"
+        }
+      ]
+    },
+    {
+      "id": "cost",
+      "label": "Metric compared",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "fwd",
+      "label": "Forwarding metric",
+      "kind": "number",
+      "rule": "lowest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "via R3 (ASBR)",
+      "values": {
+        "type": "E2",
+        "cost": 20,
+        "fwd": 10
+      }
+    },
+    {
+      "label": "via R4 (ASBR)",
+      "values": {
+        "type": "E2",
+        "cost": 10,
+        "fwd": 30
+      }
+    },
+    {
+      "label": "via R8 (ASBR)",
+      "values": {
+        "type": "E2",
+        "cost": 20,
+        "fwd": 15
+      }
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 27.7**
 
@@ -43235,6 +45638,186 @@ Chapter 7 covered the BGP foundations: path-vector routing, eBGP between directl
 - Full mesh: 10 × 9 / 2 = **45** iBGP sessions, and adding an 11th router means touching all 10 existing routers.
 - One route reflector with 9 clients: **9** sessions, and adding a router means configuring only the new router and the RR.
 
+```diagram
+{
+  "type": "topology",
+  "title": "iBGP split horizon: why R3 never hears about 8.8.8.0/24",
+  "caption": "Lines are **BGP sessions**, not cables (the IGP connects everything underneath). AS 65001 has three routers; R1 and R3 have no session yet. Press **Next**.",
+  "nodes": [
+    {
+      "id": "ISP",
+      "kind": "router",
+      "x": 3.8,
+      "y": 1.2,
+      "label": "ISP",
+      "sub": "AS 65100"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.9,
+      "y": 1.2,
+      "label": "R1",
+      "sub": "border · 1.1.1.1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 0,
+      "y": 0,
+      "label": "R2",
+      "sub": "2.2.2.2"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 0,
+      "y": 2.4,
+      "label": "R3",
+      "sub": "3.3.3.3"
+    }
+  ],
+  "links": [
+    {
+      "a": "ISP",
+      "b": "R1",
+      "label": "eBGP"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "iBGP"
+    },
+    {
+      "a": "R2",
+      "b": "R3",
+      "label": "iBGP"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "label": "iBGP (not configured)",
+      "style": "dashed"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. R1 learns the route over eBGP",
+      "text": "The ISP advertises 8.8.8.0/24 with AS_PATH `65100`. A route learned from an **eBGP** peer may be sent to every peer.",
+      "nodes": {
+        "R1": {
+          "badge": "best (eBGP)",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R3": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "ISP",
+            "R1"
+          ],
+          "label": "8.8.8.0/24 · 65100"
+        }
+      ]
+    },
+    {
+      "title": "2. R1 tells its iBGP peer R2",
+      "text": "R1 sends it to R2. Inside the AS nothing is prepended: the AS_PATH is still `65100`.",
+      "nodes": {
+        "R2": {
+          "badge": "learned (iBGP)"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "8.8.8.0/24 · 65100"
+        }
+      ]
+    },
+    {
+      "title": "3. R2 may not pass it to another iBGP peer",
+      "text": "R2 learned the route from an **iBGP** peer, so the split-horizon rule forbids sending it to R3. R3 never hears about 8.8.8.0/24. That rule exists because iBGP has no loop detection: a route circling between iBGP peers would carry the same AS_PATH every time round.",
+      "focus": [
+        "R2",
+        "R3",
+        "R2-R3"
+      ],
+      "nodes": {
+        "R2": {
+          "badge": "split horizon",
+          "tone": "warn"
+        },
+        "R3": {
+          "badge": "no route",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "4. Fix 1: the full mesh",
+      "text": "Add the R1–R3 session. Now R1 tells R3 directly, because every iBGP router must hear the route from the router that learned it. Cost: n(n−1)/2 sessions, 45 for ten routers.",
+      "nodes": {
+        "R2": {
+          "badge": "learned (iBGP)"
+        },
+        "R3": {
+          "badge": "learned",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R3": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R3"
+          ],
+          "label": "8.8.8.0/24 · 65100",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. Fix 2: make R2 a route reflector",
+      "text": "Instead of the extra session, `neighbor 3.3.3.3 route-reflector-client` (and the same for 1.1.1.1) on R2. A route reflector is allowed to pass iBGP routes on, marking them with ORIGINATOR_ID and CLUSTER_LIST so loops are still caught (28.7).",
+      "nodes": {
+        "R2": {
+          "badge": "RR",
+          "tone": "purple"
+        },
+        "R3": {
+          "badge": "reflected",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R3": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2",
+            "R3"
+          ],
+          "label": "8.8.8.0/24",
+          "tone": "purple"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Why peer iBGP on loopbacks?** Because the session should survive any single link failure. A loopback never goes down, and the IGP finds *some* path to it as long as one exists. Peering on a physical interface IP ties the session to that one cable. Two pieces of configuration make it work:
 
 ```
@@ -43339,6 +45922,152 @@ router bgp 65001
 3. Add `neighbor 2.2.2.2 next-hop-self` on R1, then `clear ip bgp 2.2.2.2 soft out` so R1 resends its routes.
 4. R2 now receives the route with next hop **1.1.1.1**, R1's loopback. R2's OSPF already has 1.1.1.1/32, so the lookup succeeds and the path becomes best.
 5. Traffic from R2 to 8.8.8.8 goes to 1.1.1.1 using OSPF, and R1 forwards it to the ISP.
+
+```diagram
+{
+  "type": "topology",
+  "title": "next-hop-self turns an inaccessible route into a best path",
+  "caption": "R1 and R2 peer over iBGP between loopbacks; OSPF inside AS 65001 knows the loopbacks but not the ISP link 203.0.113.0/30. Press **Next**.",
+  "nodes": [
+    {
+      "id": "Net",
+      "kind": "cloud",
+      "x": 4.8,
+      "y": 0,
+      "label": "8.8.8.0/24"
+    },
+    {
+      "id": "ISP",
+      "kind": "router",
+      "x": 4.8,
+      "y": 1.6,
+      "label": "ISP",
+      "sub": "203.0.113.1 · AS 65100"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2.4,
+      "y": 1.6,
+      "label": "R1",
+      "sub": "Lo0 1.1.1.1",
+      "info": "The border router. It reaches 203.0.113.1 directly, so the eBGP route is fine here."
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 0,
+      "y": 1.6,
+      "label": "R2",
+      "sub": "Lo0 2.2.2.2",
+      "info": "An internal router. Its routing table holds OSPF routes to 1.1.1.1/32 and the internal subnets, nothing about the ISP link."
+    }
+  ],
+  "links": [
+    {
+      "a": "Net",
+      "b": "ISP"
+    },
+    {
+      "a": "ISP",
+      "b": "R1",
+      "label": "eBGP · 203.0.113.0/30"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "OSPF + iBGP"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. eBGP: the next hop is the ISP",
+      "text": "R1 learns 8.8.8.0/24 with **next hop 203.0.113.1**. R1 is directly connected to it, so the route is valid and best.",
+      "nodes": {
+        "R1": {
+          "badge": "best",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ISP",
+            "R1"
+          ],
+          "label": "NH 203.0.113.1"
+        }
+      ]
+    },
+    {
+      "title": "2. iBGP passes the next hop on unchanged",
+      "text": "R1 advertises the route to R2 without touching the next hop. That's the iBGP default: the original next hop is often the better forwarding answer.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "NH 203.0.113.1",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. R2 can't resolve 203.0.113.1",
+      "text": "R2 looks up 203.0.113.1 in its routing table and finds nothing, because OSPF doesn't carry the ISP link. Best-path step 0 fails: `203.0.113.1 (inaccessible)` and `no best path`. Nothing is installed, so R2 can't reach 8.8.8.8.",
+      "focus": [
+        "R2"
+      ],
+      "nodes": {
+        "R2": {
+          "badge": "inaccessible",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "4. neighbor 2.2.2.2 next-hop-self on R1",
+      "text": "R1 now rewrites the next hop to its own update source, 1.1.1.1, and `clear ip bgp 2.2.2.2 soft out` resends the route. R2 already has 1.1.1.1/32 from OSPF, so the path becomes **best**.",
+      "nodes": {
+        "R1": {
+          "badge": "next-hop-self"
+        },
+        "R2": {
+          "badge": "best",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "NH 1.1.1.1",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. Traffic follows the recursive lookup",
+      "text": "R2 sends traffic for 8.8.8.8 toward 1.1.1.1 using OSPF (`1.1.1.1 (metric 2)` in `show ip bgp`), and R1 hands it to the ISP. The other fix would be to advertise 203.0.113.0/30 into OSPF as a passive interface.",
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R1",
+            "ISP",
+            "Net"
+          ],
+          "label": "to 8.8.8.8",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 R2's view after the fix:
 
@@ -44205,6 +46934,221 @@ Reading it: `from 2.2.2.2` says who **sent** the route (the RR); `1.1.1.1` befor
 
 **The loop check in action:** if the route were ever reflected back to R1 (for example by a second RR), R1 would see its own RID as the originator and discard it. A second RR in the same cluster would see its cluster ID already in the CLUSTER_LIST and discard it too.
 
+```diagram
+{
+  "type": "topology",
+  "title": "Route reflector R2: what gets reflected to whom",
+  "caption": "R1 and R3 are R2's **clients**; R4 and R5 are **non-clients**, so they still keep a full mesh with each other and with R2. Lines are BGP sessions. Press **Next**.",
+  "nodes": [
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.4,
+      "y": 0,
+      "label": "R2",
+      "sub": "RR · 2.2.2.2",
+      "info": "`neighbor 1.1.1.1 route-reflector-client` and `neighbor 3.3.3.3 route-reflector-client`. Clients need no special configuration."
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 4.8,
+      "y": 1.6,
+      "label": "R1",
+      "sub": "client · border"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 3.2,
+      "y": 1.6,
+      "label": "R3",
+      "sub": "client"
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 0,
+      "y": 1.6,
+      "label": "R4",
+      "sub": "non-client"
+    },
+    {
+      "id": "R5",
+      "kind": "router",
+      "x": 1.6,
+      "y": 1.6,
+      "label": "R5",
+      "sub": "non-client"
+    },
+    {
+      "id": "ISP",
+      "kind": "router",
+      "x": 4.8,
+      "y": 3.1,
+      "label": "ISP",
+      "sub": "AS 65100"
+    }
+  ],
+  "links": [
+    {
+      "a": "R2",
+      "b": "R1"
+    },
+    {
+      "a": "R2",
+      "b": "R3"
+    },
+    {
+      "a": "R2",
+      "b": "R4"
+    },
+    {
+      "a": "R2",
+      "b": "R5"
+    },
+    {
+      "a": "R4",
+      "b": "R5"
+    },
+    {
+      "a": "ISP",
+      "b": "R1",
+      "label": "eBGP"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. A client learns a route",
+      "text": "R1 learns 8.8.8.0/24 from the ISP and sends it to its only iBGP peer, the RR, with `next-hop-self` (next hop 1.1.1.1).",
+      "packets": [
+        {
+          "path": [
+            "ISP",
+            "R1",
+            "R2"
+          ],
+          "label": "8.8.8.0/24"
+        }
+      ]
+    },
+    {
+      "title": "2. From a client: reflect to everyone",
+      "text": "A route from a **client** goes to all other clients and all non-clients. R2 adds **ORIGINATOR_ID 1.1.1.1** and prepends its cluster ID to **CLUSTER_LIST** (2.2.2.2). It changes nothing else: next hop 1.1.1.1, LOCAL_PREF and AS_PATH are untouched.",
+      "nodes": {
+        "R2": {
+          "badge": "reflects",
+          "tone": "purple"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R3"
+          ],
+          "label": "Orig 1.1.1.1 CL 2.2.2.2",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "R2",
+            "R4"
+          ],
+          "label": "Orig 1.1.1.1",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "R2",
+            "R5"
+          ],
+          "label": "Orig 1.1.1.1",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "3. Receivers still obey split horizon",
+      "text": "R3 installs the route (`from 2.2.2.2`, `Originator: 1.1.1.1, Cluster list: 2.2.2.2`) but passes it on to no one: `Not advertised to any peer`. R4 and R5 don't pass it to each other either. If the route ever came back to R1, R1 would see its own RID as originator and drop it.",
+      "nodes": {
+        "R2": null,
+        "R3": {
+          "badge": "installed",
+          "tone": "good"
+        },
+        "R4": {
+          "badge": "installed",
+          "tone": "good"
+        },
+        "R5": {
+          "badge": "installed",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "4. A non-client advertises a route",
+      "text": "R4 originates 10.40.0.0/16. Being a non-client, it sends it to **every** iBGP peer it has: the RR and R5.",
+      "nodes": {
+        "R3": null,
+        "R4": {
+          "badge": "origin"
+        },
+        "R5": null
+      },
+      "packets": [
+        {
+          "path": [
+            "R4",
+            "R2"
+          ],
+          "label": "10.40.0.0/16"
+        },
+        {
+          "path": [
+            "R4",
+            "R5"
+          ],
+          "label": "10.40.0.0/16"
+        }
+      ]
+    },
+    {
+      "title": "5. From a non-client: clients only",
+      "text": "R2 reflects it to R1 and R3 only. R5 already has it straight from R4 over the non-client full mesh, so another copy would only be a duplicate.",
+      "nodes": {
+        "R2": {
+          "badge": "clients only",
+          "tone": "purple"
+        },
+        "R5": {
+          "badge": "has it already"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R1"
+          ],
+          "label": "10.40.0.0/16",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "R2",
+            "R3"
+          ],
+          "label": "10.40.0.0/16",
+          "tone": "purple"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Exam traps:**
 
 - An RR **doesn't change the next hop** or any other attribute when it reflects. Clients still need a route to the original next hop, so `next-hop-self` belongs on the **border** router.
@@ -44272,6 +47216,62 @@ Four filter tools can be attached to a neighbor, `in` or `out`:
 | **AS-path access list** | AS_PATH via regex | `neighbor X filter-list N in|out` |
 | **Route map** | anything (prefix lists, AS-path lists, communities…) — and can **set** attributes | `neighbor X route-map NAME in|out` |
 | Distribute list | standard/extended ACL (legacy) | `neighbor X distribute-list N in|out` |
+
+```diagram
+{
+  "type": "match",
+  "kind": "prefix-list",
+  "name": "ISP-IN",
+  "title": "An inbound prefix list on an ISP session",
+  "prompt": "Applied with `neighbor 203.0.113.1 prefix-list ISP-IN in`. It refuses a default route, anything inside RFC 1918 space, and anything more specific than /24, and accepts everything else up to /24. Each line matches on **prefix and length**. Try the buttons, then type your own prefix.",
+  "rules": [
+    {
+      "seq": 5,
+      "action": "deny",
+      "prefix": "0.0.0.0/0"
+    },
+    {
+      "seq": 10,
+      "action": "deny",
+      "prefix": "10.0.0.0/8",
+      "le": 32
+    },
+    {
+      "seq": 15,
+      "action": "deny",
+      "prefix": "172.16.0.0/12",
+      "le": 32
+    },
+    {
+      "seq": 20,
+      "action": "deny",
+      "prefix": "192.168.0.0/16",
+      "le": 32
+    },
+    {
+      "seq": 25,
+      "action": "deny",
+      "prefix": "0.0.0.0/0",
+      "ge": 25
+    },
+    {
+      "seq": 30,
+      "action": "permit",
+      "prefix": "0.0.0.0/0",
+      "le": 24
+    }
+  ],
+  "input": "8.8.8.0/24",
+  "tries": [
+    "8.8.8.0/24",
+    "0.0.0.0/0",
+    "10.1.0.0/16",
+    "172.20.5.0/24",
+    "198.51.100.128/25",
+    "1.0.0.0/8"
+  ]
+}
+```
 
 Prefix lists and route-map logic are Chapter 23's subject. What's specific to BGP is the **AS-path regex**:
 
@@ -44857,6 +47857,156 @@ Traffic from site 1 to site 2 follows **CE1 → PE1 → P1 → P2 → PE2 → CE
 
 The reply travels a *different* LSP (toward 1.1.1.1), built from the labels each router advertised for PE1's loopback.
 
+```diagram
+{
+  "type": "topology",
+  "title": "Push, swap, pop: one packet along the LSP to 4.4.4.4",
+  "caption": "PE1 pings PE2's loopback over plain MPLS transport (no VPN yet). Labels are shown in brackets. Press **Next**.",
+  "nodes": [
+    {
+      "id": "PE1",
+      "kind": "router",
+      "x": 0,
+      "y": 1,
+      "label": "PE1",
+      "sub": "1.1.1.1",
+      "info": "FIB: 4.4.4.4/32 via P1, out label 18 (P1's binding)."
+    },
+    {
+      "id": "P1",
+      "kind": "router",
+      "x": 1.9,
+      "y": 1,
+      "label": "P1",
+      "sub": "3.3.3.3",
+      "info": "LFIB: in 18 → out 21, Gi0/2 toward P2."
+    },
+    {
+      "id": "P2",
+      "kind": "router",
+      "x": 3.8,
+      "y": 1,
+      "label": "P2",
+      "sub": "2.2.2.2",
+      "info": "LFIB: in 21 → **Pop Label**, Gi0/2 toward PE2, because PE2 advertised implicit-null (label 3) for 4.4.4.4/32."
+    },
+    {
+      "id": "PE2",
+      "kind": "router",
+      "x": 5.7,
+      "y": 1,
+      "label": "PE2",
+      "sub": "4.4.4.4 · egress PE",
+      "info": "Owns 4.4.4.4/32 and advertises implicit-null for it: \"pop before sending to me\"."
+    }
+  ],
+  "links": [
+    {
+      "a": "PE1",
+      "b": "P1"
+    },
+    {
+      "a": "P1",
+      "b": "P2"
+    },
+    {
+      "a": "P2",
+      "b": "PE2"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. PE1 pushes label 18",
+      "text": "An IP lookup on PE1 says 4.4.4.4/32 goes via P1, and P1 advertised label **18** for it. PE1 pushes 18 (S = 1, TTL copied from the IP header) and sends the frame with EtherType 0x8847.",
+      "nodes": {
+        "PE1": {
+          "badge": "push 18"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PE1",
+            "P1"
+          ],
+          "label": "[18] IP to 4.4.4.4"
+        }
+      ]
+    },
+    {
+      "title": "2. P1 swaps 18 for 21",
+      "text": "P1 reads only the label. Its LFIB says in 18 → out **21** toward P2. It swaps, decrements the label TTL and forwards, without ever looking at the IP header.",
+      "nodes": {
+        "P1": {
+          "badge": "swap 18→21"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "P1",
+            "P2"
+          ],
+          "label": "[21] IP to 4.4.4.4"
+        }
+      ]
+    },
+    {
+      "title": "3. P2 pops: penultimate hop popping",
+      "text": "PE2 advertised **implicit-null (3)** for its own loopback, so P2's LFIB says `Pop Label`. P2 removes the label and sends a plain IP packet. Popping instead of swapping costs P2 nothing extra.",
+      "nodes": {
+        "P2": {
+          "badge": "pop (PHP)",
+          "tone": "purple"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "P2",
+            "PE2"
+          ],
+          "label": "IP to 4.4.4.4 (no label)",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. PE2 does one IP lookup",
+      "text": "PE2 receives an ordinary IP packet for its own loopback. Without PHP it would have done a label lookup just to discover \"this is mine, pop it\", and then the IP lookup. PHP saves that first lookup on every packet.",
+      "nodes": {
+        "PE2": {
+          "badge": "IP lookup",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "5. The reply uses a different LSP",
+      "text": "LSPs are one-way. The reply to 1.1.1.1 follows the labels advertised for **PE1's** loopback: PE2 pushes 17 (P2's label), P2 swaps 17 → 16 (P1's label), and P1 pops, because PE1 advertised implicit-null.",
+      "nodes": {
+        "PE1": null,
+        "P1": null,
+        "P2": null,
+        "PE2": {
+          "badge": "push 17"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PE2",
+            "P2"
+          ],
+          "label": "[17] reply to 1.1.1.1",
+          "tone": "accent"
+        }
+      ]
+    }
+  ]
+}
+```
+
 In `show mpls forwarding-table`, PHP shows up as **`Pop Label`** (older IOS: `Pop tag`):
 
 ```
@@ -44948,6 +48098,150 @@ No router asked for anything and no router needed the whole picture: each just a
 
 **Why must the LDP router ID be reachable — and why is it usually a loopback?** Because the TCP session goes to the transport address, which defaults to the LDP router ID. If R1's LDP ID is 1.1.1.1 but nobody has a route to 1.1.1.1, hellos still arrive (they're link-local multicast) yet the TCP session can never open — LDP sits forever in discovery. That's why you advertise loopbacks into the IGP and pin the ID: `mpls ldp router-id Loopback0 force`.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "LDP between P1 and P2: discovery, session, labels",
+  "caption": "P1's LDP ID is 3.3.3.3 and P2's is 2.2.2.2; each transport address defaults to its LDP router ID (a loopback).",
+  "actors": [
+    {
+      "id": "P1",
+      "kind": "router",
+      "label": "P1 · LDP ID 3.3.3.3"
+    },
+    {
+      "id": "P2",
+      "kind": "router",
+      "label": "P2 · LDP ID 2.2.2.2"
+    }
+  ],
+  "messages": [
+    {
+      "from": "P1",
+      "to": "P2",
+      "label": "LDP Hello",
+      "detail": "UDP 646 → 224.0.0.2 · transport 3.3.3.3",
+      "states": {
+        "P1": "Non-existent",
+        "P2": "Non-existent"
+      },
+      "text": "Sent on every interface with `mpls ip`, every 5 s (hold 15 s). Link-local multicast, so it arrives even if the transport address isn't routable yet."
+    },
+    {
+      "from": "P2",
+      "to": "P1",
+      "label": "LDP Hello",
+      "detail": "UDP 646 → 224.0.0.2 · transport 2.2.2.2",
+      "text": "Each side has discovered the other. `show mpls ldp discovery` shows `xmit/recv`."
+    },
+    {
+      "note": "Higher transport address opens TCP: P1",
+      "over": [
+        "P1",
+        "P2"
+      ],
+      "text": "3.3.3.3 > 2.2.2.2, so P1 plays the **active** role. It needs a route to 2.2.2.2; without one, discovery works but the session never forms (`no route to transport addr`)."
+    },
+    {
+      "from": "P1",
+      "to": "P2",
+      "label": "TCP SYN",
+      "detail": "3.3.3.3:38211 → 2.2.2.2:646",
+      "text": "P1 connects from an ephemeral port to port 646 on P2's transport address."
+    },
+    {
+      "from": "P2",
+      "to": "P1",
+      "label": "TCP SYN-ACK",
+      "dashed": true,
+      "text": "P2 is listening on 646."
+    },
+    {
+      "from": "P1",
+      "to": "P2",
+      "label": "TCP ACK",
+      "states": {
+        "P1": "Initialized",
+        "P2": "Initialized"
+      },
+      "text": "The TCP session is up; LDP's own handshake starts."
+    },
+    {
+      "from": "P1",
+      "to": "P2",
+      "label": "Initialization",
+      "detail": "LDP ID 3.3.3.3:0 · hold 180 s",
+      "states": {
+        "P1": "OpenSent"
+      },
+      "text": "Session parameters: protocol version, keepalive (hold) time, label distribution mode, and the LDP ID with label space `:0`."
+    },
+    {
+      "from": "P2",
+      "to": "P1",
+      "label": "Initialization",
+      "detail": "LDP ID 2.2.2.2:0",
+      "states": {
+        "P2": "OpenRec"
+      },
+      "text": "P2 accepts the parameters and answers with its own."
+    },
+    {
+      "from": "P2",
+      "to": "P1",
+      "label": "KeepAlive",
+      "dashed": true,
+      "states": {
+        "P1": "OpenRec"
+      },
+      "text": "Confirms P2 accepted P1's Initialization."
+    },
+    {
+      "from": "P1",
+      "to": "P2",
+      "label": "KeepAlive",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "P1": "Operational",
+        "P2": "Operational"
+      },
+      "text": "Each side has seen the other's KeepAlive. `show mpls ldp neighbor`: `State: Oper`."
+    },
+    {
+      "from": "P2",
+      "to": "P1",
+      "label": "Address",
+      "detail": "10.0.23.2 · 10.0.24.2 · 2.2.2.2",
+      "text": "P2's interface addresses. P1 uses them to map \"IGP next hop 10.0.23.2\" to \"LDP peer 2.2.2.2\": the `Addresses bound to peer` list."
+    },
+    {
+      "from": "P2",
+      "to": "P1",
+      "label": "Label Mapping",
+      "detail": "4.4.4.4/32 → 21",
+      "tone": "good",
+      "text": "Downstream unsolicited: nobody asked. P2 advertises its local label for every IGP prefix, including PE2's loopback."
+    },
+    {
+      "from": "P1",
+      "to": "P2",
+      "label": "Label Mapping",
+      "detail": "1.1.1.1/32 → 16",
+      "tone": "good",
+      "text": "P1 advertises its own bindings too. P2 will use this one to reach PE1's loopback (its LFIB: in 17 → out 16)."
+    },
+    {
+      "from": "P1",
+      "to": "P2",
+      "label": "Label Mapping",
+      "detail": "4.4.4.4/32 → 18",
+      "text": "P1 even advertises 4.4.4.4 back to P2. P2 keeps it in its LIB (liberal retention) but doesn't use it, because the IGP says PE2 is P2's next hop for 4.4.4.4."
+    }
+  ]
+}
+```
+
 ### LIB versus LFIB
 
 | Table | Contains | Command |
@@ -44964,6 +48258,63 @@ P1# show mpls ldp bindings 4.4.4.4 32
 ```
 
 P1 (LDP ID 3.3.3.3) has two LDP neighbours, PE1 (1.1.1.1) and P2 (2.2.2.2), so it holds two remote bindings — never one from itself. The IGP's next hop to 4.4.4.4 is P2, so the LFIB swaps P1's local 18 for P2's **21**; PE1's label 19 sits unused in the LIB. P1 keeps both remote bindings but the LFIB uses only the one from whichever neighbour the IGP says is the next hop to 4.4.4.4. **Why keep labels you aren't using?** Cisco runs LDP in **liberal retention** mode: if the IGP reconverges and the best next hop changes, the label from the new next hop is already in the LIB, so the LFIB updates instantly instead of waiting for a fresh label request. *The IGP picks the path; LDP just makes sure a label is ready for whichever path it picks.*
+
+```diagram
+{
+  "type": "path",
+  "title": "The IGP picks the path; LDP's labels are already waiting",
+  "prompt": "OSPF costs from P1 to PE2's loopback. P1's LIB holds a label for 4.4.4.4/32 from **both** neighbours: 21 from P2 and 19 from PE1. The LFIB uses the label from whichever neighbour the IGP chooses. Raise P1–P2 to 200 (or fail it with a huge cost) and the best path moves through PE1 and its backup link: P1's LFIB then swaps 18 → **19** at once, because liberal retention kept PE1's label.",
+  "metric": "Cost",
+  "from": "P1",
+  "to": "PE2",
+  "nodes": [
+    {
+      "id": "PE1",
+      "x": 0,
+      "y": 1
+    },
+    {
+      "id": "P1",
+      "x": 2,
+      "y": 0
+    },
+    {
+      "id": "P2",
+      "x": 4,
+      "y": 0
+    },
+    {
+      "id": "PE2",
+      "x": 6,
+      "y": 1
+    }
+  ],
+  "links": [
+    {
+      "a": "PE1",
+      "b": "P1",
+      "cost": 10
+    },
+    {
+      "a": "P1",
+      "b": "P2",
+      "cost": 10,
+      "label": "P2's label 21"
+    },
+    {
+      "a": "P2",
+      "b": "PE2",
+      "cost": 10
+    },
+    {
+      "a": "PE1",
+      "b": "PE2",
+      "cost": 100,
+      "label": "backup · PE1's label 19"
+    }
+  ]
+}
+```
 
 ### What the configuration looks like
 
@@ -45216,6 +48567,91 @@ This is the single most-asked L3VPN concept. They sound alike and do completely 
 | SHARED | **65000:999** | 65000:100, 65000:200 | Shared services + both customers' routes |
 
 Walk one route through: CUST_A's 10.1.1.0/24 leaves PE1 tagged RT 65000:100. CUST_A on other PEs imports it (match on 65000:100). SHARED imports it (match on 65000:100). CUST_B does **not** — none of its imports is 65000:100. So A reaches the services, the services can answer A, and A and B stay invisible to each other. The one design rule this exposes: the SHARED VRF now holds routes from *both* customers, so the customer subnets that meet there **must not overlap** — a VRF is still one routing table.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "RD and RT: one route, three import decisions",
+  "caption": "Customer A's 10.1.1.0/24 has arrived from CE1 into VRF CUST_A on PE1. PE2 holds three VRFs: CUST_A (imports 65000:100, 65000:999), SHARED (imports 65000:100, 65000:200) and CUST_B (imports 65000:200, 65000:999).",
+  "actors": [
+    {
+      "id": "PE1",
+      "kind": "router",
+      "label": "PE1"
+    },
+    {
+      "id": "PE2",
+      "kind": "router",
+      "label": "PE2 MP-BGP"
+    },
+    {
+      "id": "VA",
+      "kind": "router",
+      "label": "CUST_A"
+    },
+    {
+      "id": "VS",
+      "kind": "router",
+      "label": "SHARED"
+    },
+    {
+      "id": "VB",
+      "kind": "router",
+      "label": "CUST_B"
+    }
+  ],
+  "messages": [
+    {
+      "from": "PE1",
+      "to": "PE1",
+      "label": "Export from CUST_A",
+      "detail": "RD + RT 65000:100",
+      "text": "On the way into MP-BGP, PE1 prepends CUST_A's **RD** to make the prefix unique (`65000:100:10.1.1.0/24`) and attaches CUST_A's export **RT** as an extended community."
+    },
+    {
+      "from": "PE1",
+      "to": "PE2",
+      "label": "VPNv4 update",
+      "detail": "RT 65000:100",
+      "text": "One update over the iBGP `vpnv4` session: `65000:100:10.1.1.0/24`, RT 65000:100, a VPN label, next hop 1.1.1.1. The RT only arrives if `send-community extended` (or `both`) is on."
+    },
+    {
+      "from": "PE2",
+      "to": "VA",
+      "label": "import",
+      "detail": "65000:100 ✓",
+      "tone": "good",
+      "text": "CUST_A on PE2 imports 65000:100. One matching RT is enough: the route is copied in, the RD is stripped, and CUST_A holds a plain 10.1.1.0/24."
+    },
+    {
+      "from": "PE2",
+      "to": "VS",
+      "label": "import",
+      "detail": "65000:100 ✓",
+      "tone": "good",
+      "text": "SHARED also imports 65000:100, so the shared DNS/NTP servers can reply to Customer A."
+    },
+    {
+      "from": "PE2",
+      "to": "VB",
+      "label": "import",
+      "detail": "no match ✗",
+      "tone": "bad",
+      "drop": true,
+      "text": "CUST_B imports 65000:200 and 65000:999, neither of which is on the route. Customer B never sees Customer A. The RD played no part in any of these decisions."
+    },
+    {
+      "note": "SHARED exports 65000:999; both import it",
+      "over": [
+        "VA",
+        "VS",
+        "VB"
+      ],
+      "text": "So A and B both reach the services, and neither reaches the other. SHARED now holds both customers' routes, so their subnets that meet there must not overlap: a VRF is still one routing table."
+    }
+  ]
+}
+```
 
 > **Exam trap:** the RD and RT are often configured with the **same number** (e.g. both 65000:100). That's a convention, not a requirement — they're unrelated fields. A question showing matching RDs but mismatched RTs is testing whether you know that **only the RTs decide import**.
 
@@ -45470,6 +48906,245 @@ Topology: **CE1 → PE1 (1.1.1.1) → P1 → P2 → PE2 (4.4.4.4) → CE2**. CE2
 | **CE2** | IP | Plain IP | Delivered |
 
 Notice the VPN label 24 is never touched by P1 or P2. And notice what P1 and P2 *don't* need: any route to 10.2.2.0/24, any VRF, any BGP.
+
+```diagram
+{
+  "type": "topology",
+  "title": "MPLS L3VPN end to end: routes by MP-BGP, packets by two labels",
+  "caption": "CE2's LAN 10.2.2.0/24 is in VRF CUST_A. The purple arc is the iBGP `vpnv4` session between the PEs, not a tunnel. Press **Next**: control plane first, then one packet.",
+  "nodes": [
+    {
+      "id": "CE1",
+      "kind": "router",
+      "x": 0,
+      "y": 0,
+      "label": "CE1",
+      "sub": "site 1"
+    },
+    {
+      "id": "PE1",
+      "kind": "router",
+      "x": 0.9,
+      "y": 1.25,
+      "label": "PE1",
+      "sub": "1.1.1.1",
+      "info": "VRF CUST_A: 10.2.2.0/24 via 4.4.4.4, VPN label 24. Global FIB: 4.4.4.4/32 via P1, LDP label 18."
+    },
+    {
+      "id": "P1",
+      "kind": "router",
+      "x": 2.3,
+      "y": 2.5,
+      "label": "P1",
+      "sub": "3.3.3.3",
+      "info": "No VRFs, no BGP. LFIB: 18 → 21."
+    },
+    {
+      "id": "P2",
+      "kind": "router",
+      "x": 3.7,
+      "y": 2.5,
+      "label": "P2",
+      "sub": "2.2.2.2",
+      "info": "No VRFs, no BGP. LFIB: 21 → Pop."
+    },
+    {
+      "id": "PE2",
+      "kind": "router",
+      "x": 5.1,
+      "y": 1.25,
+      "label": "PE2",
+      "sub": "4.4.4.4",
+      "info": "Allocated VPN label 24 for CUST_A's 10.2.2.0/24. LFIB: `24  No Label  10.2.2.0/24[V]  Gi0/2`."
+    },
+    {
+      "id": "CE2",
+      "kind": "router",
+      "x": 6,
+      "y": 0,
+      "label": "CE2",
+      "sub": "10.2.2.0/24"
+    }
+  ],
+  "links": [
+    {
+      "a": "CE1",
+      "b": "PE1"
+    },
+    {
+      "a": "PE1",
+      "b": "P1"
+    },
+    {
+      "a": "P1",
+      "b": "P2"
+    },
+    {
+      "a": "P2",
+      "b": "PE2"
+    },
+    {
+      "a": "PE2",
+      "b": "CE2"
+    },
+    {
+      "a": "PE1",
+      "b": "PE2",
+      "id": "bgp",
+      "style": "tunnel",
+      "label": "MP-BGP vpnv4 session"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. CE2 advertises its LAN",
+      "text": "CE2 (AS 65102) sends 10.2.2.0/24 to PE2 over eBGP. It goes into VRF CUST_A.",
+      "packets": [
+        {
+          "path": [
+            "CE2",
+            "PE2"
+          ],
+          "label": "10.2.2.0/24"
+        }
+      ]
+    },
+    {
+      "title": "2. PE2 → PE1 over MP-BGP",
+      "text": "PE2 allocates **VPN label 24**, adds RD 65000:100 and RT 65000:100, sets next hop 4.4.4.4, and sends the VPNv4 route to PE1. PE1 imports it into CUST_A (the RT matches) and tells CE1.",
+      "links": {
+        "bgp": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PE2",
+            "PE1"
+          ],
+          "label": "VPNv4 · label 24",
+          "tone": "purple",
+          "via": [
+            "bgp"
+          ]
+        },
+        {
+          "path": [
+            "PE1",
+            "CE1"
+          ],
+          "label": "10.2.2.0/24"
+        }
+      ]
+    },
+    {
+      "title": "3. LDP has already built the LSP to 4.4.4.4",
+      "text": "Independently: PE2 advertised implicit-null to P2, P2 advertised 21 to P1, P1 advertised 18 to PE1. The core knows nothing about 10.2.2.0/24.",
+      "nodes": {
+        "PE1": {
+          "badge": "out 18"
+        },
+        "P1": {
+          "badge": "18 → 21"
+        },
+        "P2": {
+          "badge": "21 → pop"
+        }
+      },
+      "links": {
+        "bgp": null
+      }
+    },
+    {
+      "title": "4. CE1 sends a plain IP packet",
+      "text": "To 10.2.2.10. CE1 doesn't know MPLS exists.",
+      "packets": [
+        {
+          "path": [
+            "CE1",
+            "PE1"
+          ],
+          "label": "IP to 10.2.2.10"
+        }
+      ]
+    },
+    {
+      "title": "5. PE1 pushes two labels",
+      "text": "A lookup in CUST_A's FIB gives next hop 4.4.4.4 with VPN label 24. PE1 pushes **24** (bottom, S = 1) and then **18** (top, from LDP). The packet is now 8 bytes bigger.",
+      "focus": [
+        "PE1",
+        "P1",
+        "PE1-P1"
+      ],
+      "packets": [
+        {
+          "path": [
+            "PE1",
+            "P1"
+          ],
+          "label": "[18 | 24] IP"
+        }
+      ]
+    },
+    {
+      "title": "6. P1 swaps only the top label",
+      "text": "18 → 21. The VPN label underneath is never read by a P router.",
+      "focus": [
+        "P1",
+        "P2",
+        "P1-P2"
+      ],
+      "packets": [
+        {
+          "path": [
+            "P1",
+            "P2"
+          ],
+          "label": "[21 | 24] IP"
+        }
+      ]
+    },
+    {
+      "title": "7. P2 pops the top label (PHP)",
+      "text": "21 → pop, so only the VPN label is left when the packet reaches PE2.",
+      "focus": [
+        "P2",
+        "PE2",
+        "P2-PE2"
+      ],
+      "packets": [
+        {
+          "path": [
+            "P2",
+            "PE2"
+          ],
+          "label": "[24] IP",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "8. PE2 reads the VPN label and delivers",
+      "text": "Label 24 means \"VRF CUST_A, 10.2.2.0/24, out Gi0/2\". PE2 pops it and sends plain IP to CE2: `No Label` is correct here, because CE2 doesn't run MPLS.",
+      "nodes": {
+        "PE2": {
+          "badge": "24 → CUST_A",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PE2",
+            "CE2"
+          ],
+          "label": "IP to 10.2.2.10",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 How PE2 knows what to do with label 24 — its LFIB has an entry for the VPN label it allocated:
 
@@ -45754,6 +49429,172 @@ Two addresses per router, and you must keep them straight:
 
 Spoke 1 knew to put **198.51.100.1** on the outside because it has a static NHRP mapping for the hub (10.0.0.1 → 198.51.100.1). For any *other* tunnel address, it has to ask — that's 30.3.
 
+```diagram
+{
+  "type": "topology",
+  "title": "One mGRE interface: what the internet actually carries",
+  "caption": "Solid lines are the internet underlay; purple arcs are Tunnel0 (mGRE, 10.0.0.0/24). Press **Next** to follow one packet from PC1 to the hub's LAN.",
+  "nodes": [
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "PC1",
+      "sub": "10.11.0.5"
+    },
+    {
+      "id": "S1",
+      "kind": "router",
+      "x": 1.5,
+      "y": 0,
+      "label": "Spoke 1",
+      "sub": "NBMA 203.0.113.11",
+      "info": "Tunnel0 10.0.0.11. `ip nhrp nhs 10.0.0.1 nbma 198.51.100.1 multicast`: the one mapping it knows in advance."
+    },
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 3,
+      "y": 1.2,
+      "label": "Internet",
+      "info": "Only ever sees the outer header: public NBMA addresses, protocol 47 (GRE)."
+    },
+    {
+      "id": "Hub",
+      "kind": "router",
+      "x": 4.5,
+      "y": 0,
+      "label": "Hub",
+      "sub": "NBMA 198.51.100.1",
+      "info": "Tunnel0 10.0.0.1, `tunnel mode gre multipoint`, no `tunnel destination`."
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 6,
+      "y": 0,
+      "label": "Server",
+      "sub": "10.10.0.9"
+    },
+    {
+      "id": "S2",
+      "kind": "router",
+      "x": 1.5,
+      "y": 2.4,
+      "label": "Spoke 2",
+      "sub": "NBMA 203.0.113.12",
+      "info": "Tunnel0 10.0.0.12, on the same tunnel subnet as everyone else."
+    }
+  ],
+  "links": [
+    {
+      "a": "PC1",
+      "b": "S1"
+    },
+    {
+      "a": "S1",
+      "b": "INET"
+    },
+    {
+      "a": "INET",
+      "b": "Hub"
+    },
+    {
+      "a": "Hub",
+      "b": "SRV"
+    },
+    {
+      "a": "S2",
+      "b": "INET"
+    },
+    {
+      "a": "S1",
+      "b": "Hub",
+      "id": "t1",
+      "style": "tunnel",
+      "label": "Tunnel0"
+    },
+    {
+      "a": "S2",
+      "b": "Hub",
+      "id": "t2",
+      "style": "tunnel"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. PC1 sends an ordinary packet",
+      "text": "Source 10.11.0.5, destination 10.10.0.9. Nothing about it knows a tunnel exists.",
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "S1"
+          ],
+          "label": "10.11.0.5 → 10.10.0.9"
+        }
+      ]
+    },
+    {
+      "title": "2. Spoke 1 routes it into Tunnel0",
+      "text": "The routing table says 10.10.0.0/24 via **10.0.0.1** on Tunnel0. To build the GRE packet, Spoke 1 needs 10.0.0.1's internet address, and its static NHRP mapping says **198.51.100.1**.",
+      "nodes": {
+        "S1": {
+          "badge": "NH 10.0.0.1"
+        }
+      }
+    },
+    {
+      "title": "3. GRE wraps it in an internet header",
+      "text": "Outer IP 203.0.113.11 → 198.51.100.1, then a GRE header (key 100), then the original packet untouched. The internet routes on the outer header only.",
+      "links": {
+        "t1": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "S1",
+            "INET",
+            "Hub"
+          ],
+          "label": "GRE .11 → 198.51.100.1",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. The hub unwraps it and routes the inner packet",
+      "text": "The hub strips the outer header and GRE, and forwards 10.11.0.5 → 10.10.0.9 like any other packet.",
+      "packets": [
+        {
+          "path": [
+            "Hub",
+            "SRV"
+          ],
+          "label": "10.11.0.5 → 10.10.0.9",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. One interface, many far ends",
+      "text": "Spoke 2 sits on the same tunnel subnet, reached through the same Tunnel0. But for 10.0.0.12 Spoke 1 has **no mapping** and no broadcast to ask with. That gap is what NHRP fills (30.3).",
+      "nodes": {
+        "S1": {
+          "badge": "10.0.0.12 = ?",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "t1": null,
+        "t2": "active"
+      }
+    }
+  ]
+}
+```
+
 **Story Time 📖:** A point-to-point GRE tunnel is a **dedicated phone line** to one friend: pick it up and you're connected to them and only them. An mGRE tunnel is **one phone with a contacts list**: one handset, any number of people — but you need to look up the number before you can dial. NHRP is the contacts list.
 
 **📝 Exam-style questions — 30.2**
@@ -45796,6 +49637,107 @@ Spoke 1 knew to put **198.51.100.1** on the outside because it has a static NHRP
 4. The hub stores a **dynamic** entry 10.0.0.11 → 203.0.113.11 and, because of `ip nhrp map multicast dynamic`, adds 203.0.113.11 to its list of places to send multicast (routing hellos).
 5. The hub sends a **Registration Reply**. Spoke 1 now shows the hub as `UP`.
 6. Spoke 1 re-registers every 100 s (one-third of 300), so the hub's entry never expires while the spoke is alive. If the spoke dies, the entry ages out after 300 s.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "NHRP registration: a spoke checks in with the hub",
+  "caption": "Spoke 1: tunnel 10.0.0.11, NBMA 203.0.113.11. Hub (NHS): tunnel 10.0.0.1, NBMA 198.51.100.1. `ip nhrp holdtime 300`, EIGRP over the tunnel.",
+  "actors": [
+    {
+      "id": "S1",
+      "kind": "router",
+      "label": "Spoke 1 (NHC)"
+    },
+    {
+      "id": "Hub",
+      "kind": "router",
+      "label": "Hub (NHS)"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Tunnel0 up; NHS 10.0.0.1 = 198.51.100.1",
+      "over": [
+        "S1",
+        "Hub"
+      ],
+      "states": {
+        "S1": "NHS: probing",
+        "Hub": "no entry"
+      },
+      "text": "The spoke's only static knowledge is the hub's two addresses. That's why adding a spoke never needs a hub change."
+    },
+    {
+      "from": "S1",
+      "to": "Hub",
+      "label": "IKE / IPsec negotiation",
+      "detail": "203.0.113.11 ↔ 198.51.100.1 (if protected)",
+      "dashed": true,
+      "text": "With `tunnel protection`, IPsec between the NBMA addresses comes up first, so NHRP itself travels encrypted inside GRE."
+    },
+    {
+      "from": "S1",
+      "to": "Hub",
+      "label": "NHRP Registration Request",
+      "detail": "10.0.0.11 = 203.0.113.11 · hold 300 s",
+      "text": "\"I'm 10.0.0.11 and you can reach me at 203.0.113.11, for 300 s.\" It carries the NHRP authentication string, which must match, and the network ID."
+    },
+    {
+      "note": "Hub stores a dynamic mapping",
+      "over": [
+        "S1",
+        "Hub"
+      ],
+      "states": {
+        "Hub": "10.0.0.11 dyn"
+      },
+      "text": "`show ip nhrp` on the hub: `10.0.0.11/32 via 10.0.0.11 ... Type: dynamic, Flags: registered ... NBMA address: 203.0.113.11`. Because of `ip nhrp map multicast dynamic`, 203.0.113.11 joins the list of places multicasts are copied to."
+    },
+    {
+      "from": "Hub",
+      "to": "S1",
+      "label": "NHRP Registration Reply",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "S1": "NHS: UP"
+      },
+      "text": "Registration accepted. `show ip nhrp nhs` on the spoke shows the hub as up, and `show dmvpn` shows the peer `UP`."
+    },
+    {
+      "from": "Hub",
+      "to": "S1",
+      "label": "EIGRP Hello",
+      "detail": "224.0.0.10, unicast to 203.0.113.11 inside GRE",
+      "text": "The hub's hello to 224.0.0.10 is copied, GRE-encapsulated, to every registered spoke. Without `map multicast dynamic` this never happens: NHRP looks perfect, but no adjacency forms."
+    },
+    {
+      "from": "S1",
+      "to": "Hub",
+      "label": "EIGRP Hello",
+      "tone": "good",
+      "text": "The spoke's hellos go to the hub because of `ip nhrp map multicast 198.51.100.1` (the `multicast` keyword in the one-line `nhs` form). The adjacency forms and routes flow."
+    },
+    {
+      "from": "S1",
+      "to": "Hub",
+      "label": "Registration Request (refresh)",
+      "detail": "t = 100 s, then every 100 s",
+      "text": "Re-registration every one-third of the holdtime keeps the hub's entry alive."
+    },
+    {
+      "note": "If the spoke dies: entry expires after 300 s",
+      "over": [
+        "S1",
+        "Hub"
+      ],
+      "tone": "warn",
+      "text": "No refreshes arrive, the mapping ages out, and the hub stops sending that spoke multicasts."
+    }
+  ]
+}
+```
 
 The result on the hub:
 
@@ -45910,6 +49852,263 @@ Hub# show ip nhrp
 4. Spoke 2 sends a **Resolution Reply** straight to Spoke 1 (negotiating IPsec with 203.0.113.11 first): "10.0.0.12 is at 203.0.113.12."
 5. Spoke 1 caches 10.0.0.12 → 203.0.113.12. New packets are GRE-encapsulated with outer destination **203.0.113.12** — direct.
 6. Spoke 2 does the same in reverse for its return traffic, and the entries age out with the holdtime when the traffic stops.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Phase 1 versus Phase 2: same packet, different path",
+  "caption": "Solid lines are the internet; purple arcs are tunnels. Press **Next** to send PC1's traffic to PC2 under each phase.",
+  "nodes": [
+    {
+      "id": "Hub",
+      "kind": "router",
+      "x": 2,
+      "y": 0,
+      "label": "Hub",
+      "sub": "Tu0 10.0.0.1"
+    },
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 2,
+      "y": 1.2,
+      "label": "Internet"
+    },
+    {
+      "id": "S1",
+      "kind": "router",
+      "x": 0,
+      "y": 2.2,
+      "label": "Spoke 1",
+      "sub": "10.0.0.11 · 203.0.113.11"
+    },
+    {
+      "id": "S2",
+      "kind": "router",
+      "x": 4,
+      "y": 2.2,
+      "label": "Spoke 2",
+      "sub": "10.0.0.12 · 203.0.113.12"
+    },
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0,
+      "y": 3.4,
+      "label": "PC1",
+      "sub": "10.11.0.10"
+    },
+    {
+      "id": "PC2",
+      "kind": "host",
+      "x": 4,
+      "y": 3.4,
+      "label": "PC2",
+      "sub": "10.12.0.10"
+    }
+  ],
+  "links": [
+    {
+      "a": "Hub",
+      "b": "INET"
+    },
+    {
+      "a": "S1",
+      "b": "INET"
+    },
+    {
+      "a": "S2",
+      "b": "INET"
+    },
+    {
+      "a": "S1",
+      "b": "PC1"
+    },
+    {
+      "a": "S2",
+      "b": "PC2"
+    },
+    {
+      "a": "S1",
+      "b": "Hub",
+      "id": "t1",
+      "style": "tunnel"
+    },
+    {
+      "a": "S2",
+      "b": "Hub",
+      "id": "t2",
+      "style": "tunnel"
+    },
+    {
+      "a": "S1",
+      "b": "S2",
+      "id": "t12",
+      "style": "tunnel",
+      "label": "spoke-to-spoke"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Phase 1: the spokes run point-to-point GRE",
+      "text": "Each spoke's tunnel has `tunnel destination` set to the hub, so a spoke-to-spoke tunnel can't exist. Every packet goes up to the hub and back down: two internet crossings, all of it through the hub's bandwidth. The hub may summarise freely.",
+      "nodes": {
+        "S1": {
+          "badge": "p2p GRE"
+        },
+        "S2": {
+          "badge": "p2p GRE"
+        }
+      },
+      "links": {
+        "t12": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "S1",
+            "Hub",
+            "S2",
+            "PC2"
+          ],
+          "label": "to 10.12.0.10",
+          "via": [
+            null,
+            "t1",
+            "t2",
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "title": "2. Phase 2: the route's next hop is Spoke 2",
+      "text": "Spokes use mGRE. The hub passes routes on with the **original next hop** (EIGRP: `no ip next-hop-self`, `no ip split-horizon`), so Spoke 1 has 10.12.0.0/24 via **10.0.0.12**, but no NHRP entry for it yet.",
+      "nodes": {
+        "S1": {
+          "badge": "via 10.0.0.12"
+        },
+        "S2": {
+          "badge": "mGRE"
+        }
+      }
+    },
+    {
+      "title": "3. Resolve, and keep forwarding via the hub meanwhile",
+      "text": "Spoke 1 sends an **NHRP Resolution Request** for 10.0.0.12 to its NHS. The hub has Spoke 2's registration and forwards the request to Spoke 2. The data packets keep flowing through the hub, so users see no gap.",
+      "packets": [
+        {
+          "path": [
+            "S1",
+            "Hub",
+            "S2"
+          ],
+          "label": "Resolution Request",
+          "tone": "purple",
+          "via": [
+            "t1",
+            "t2"
+          ]
+        },
+        {
+          "path": [
+            "PC1",
+            "S1",
+            "Hub",
+            "S2",
+            "PC2"
+          ],
+          "label": "data (via hub)",
+          "via": [
+            null,
+            "t1",
+            "t2",
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "title": "4. Spoke 2 answers Spoke 1 directly",
+      "text": "Spoke 2 brings up IPsec with 203.0.113.11 and sends the **Resolution Reply** straight there: 10.0.0.12 is at 203.0.113.12.",
+      "packets": [
+        {
+          "path": [
+            "S2",
+            "INET",
+            "S1"
+          ],
+          "label": "Resolution Reply",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. Direct spoke-to-spoke tunnel",
+      "text": "Spoke 1 caches 10.0.0.12 → 203.0.113.12 and sends new packets with outer destination 203.0.113.12. The hub is out of the data path. Entries age out with the holdtime once traffic stops.",
+      "nodes": {
+        "S1": {
+          "badge": "cached",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "t12": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "S1",
+            "S2",
+            "PC2"
+          ],
+          "label": "to 10.12.0.10",
+          "tone": "good",
+          "via": [
+            null,
+            "t12",
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "title": "6. Phase 2 with a summary at the hub: stuck on the hub",
+      "text": "If the hub sent only 10.0.0.0/8 or a default, Spoke 1's next hop would be **10.0.0.1**. That's already resolved, so nothing ever triggers a resolution, and traffic hairpins forever. That's why Phase 2 can't summarise, and why Phase 3 moved the trigger to NHRP Redirect (30.5).",
+      "nodes": {
+        "S1": {
+          "badge": "via 10.0.0.1",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "t12": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "S1",
+            "Hub",
+            "S2",
+            "PC2"
+          ],
+          "label": "to 10.12.0.10",
+          "tone": "warn",
+          "via": [
+            null,
+            "t1",
+            "t2",
+            null
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 30.4**
 
@@ -46443,6 +50642,162 @@ Two hub-side defaults get in the way, because the hub has **one** interface faci
 
 **Worked example — split horizon on the hub.** Spoke 1 advertises 10.11.0.0/24 to the hub; it arrives on the hub's Tunnel0. Spoke 2 is *also* reached through Tunnel0. Split horizon says "never advertise a route back out the interface you learned it on", so the hub never tells Spoke 2 about 10.11.0.0/24. On Spoke 2, `show ip route 10.11.0.0` returns nothing. After `no ip split-horizon eigrp 100` on the hub's Tunnel0, the hub advertises it, and Spoke 2 learns 10.11.0.0/24 — via 10.0.0.1 with next-hop-self on (Phases 1 and 3), or via 10.0.0.11 with next-hop-self off (Phase 2). Split horizon was protecting against loops on a link with *one* neighbour; on a multipoint tunnel the "same interface" leads to many different routers.
 
+```diagram
+{
+  "type": "topology",
+  "title": "EIGRP on a DMVPN hub: split horizon and next-hop-self",
+  "caption": "Only the tunnels are drawn. All three routers share Tunnel0 (10.0.0.0/24) and EIGRP AS 100. Press **Next**.",
+  "nodes": [
+    {
+      "id": "Hub",
+      "kind": "router",
+      "x": 2,
+      "y": 0,
+      "label": "Hub",
+      "sub": "Tu0 10.0.0.1"
+    },
+    {
+      "id": "S1",
+      "kind": "router",
+      "x": 4,
+      "y": 1.8,
+      "label": "Spoke 1",
+      "sub": "LAN 10.11.0.0/24"
+    },
+    {
+      "id": "S2",
+      "kind": "router",
+      "x": 0,
+      "y": 1.8,
+      "label": "Spoke 2",
+      "sub": "LAN 10.12.0.0/24"
+    }
+  ],
+  "links": [
+    {
+      "a": "S1",
+      "b": "Hub",
+      "id": "t1",
+      "style": "tunnel",
+      "label": "10.0.0.11"
+    },
+    {
+      "a": "S2",
+      "b": "Hub",
+      "id": "t2",
+      "style": "tunnel",
+      "label": "10.0.0.12"
+    },
+    {
+      "a": "S1",
+      "b": "S2",
+      "id": "t12",
+      "style": "tunnel"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Spoke 1 advertises its LAN",
+      "text": "10.11.0.0/24 arrives on the hub's **Tunnel0**.",
+      "links": {
+        "t12": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "S1",
+            "Hub"
+          ],
+          "label": "10.11.0.0/24",
+          "via": [
+            "t1"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "2. Split horizon blocks it",
+      "text": "Split horizon: never advertise a route out of the interface it was learned on. Spoke 2 is also on Tunnel0, so the hub never tells it. On a point-to-point link that rule prevents loops; on a multipoint tunnel the \"same interface\" leads to many different routers.",
+      "nodes": {
+        "Hub": {
+          "badge": "split horizon",
+          "tone": "warn"
+        },
+        "S2": {
+          "badge": "no route",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "3. no ip split-horizon eigrp 100 on the hub's Tunnel0",
+      "text": "Now the hub advertises 10.11.0.0/24 to Spoke 2, with **itself** as next hop (next-hop-self is the default). That's exactly right for Phase 1 and Phase 3: traffic goes via the hub until NHRP says otherwise.",
+      "nodes": {
+        "Hub": null,
+        "S2": {
+          "badge": "via 10.0.0.1"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "Hub",
+            "S2"
+          ],
+          "label": "10.11.0.0/24 NH hub",
+          "via": [
+            "t2"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "4. Phase 2 also needs no ip next-hop-self eigrp 100",
+      "text": "The hub now leaves the next hop as **10.0.0.11**. In Phase 2 that's what triggers the spoke-to-spoke tunnel: Spoke 2 resolves 10.0.0.11 with NHRP.",
+      "nodes": {
+        "S2": {
+          "badge": "via 10.0.0.11",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "Hub",
+            "S2"
+          ],
+          "label": "NH 10.0.0.11",
+          "tone": "good",
+          "via": [
+            "t2"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "5. Traffic goes direct",
+      "text": "Spoke 2 builds the tunnel to 203.0.113.11 and sends to 10.11.0.0/24 straight across. In named mode the same two knobs are `no split-horizon` and `no next-hop-self` under `af-interface Tunnel0`.",
+      "links": {
+        "t12": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "S2",
+            "S1"
+          ],
+          "label": "to 10.11.0.0/24",
+          "tone": "good",
+          "via": [
+            "t12"
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
 Phase 3 leaves next-hop-self **on** — the hub *should* be the next hop until NHRP redirects. 🔬 On named-mode EIGRP the same knobs are `no split-horizon` and `no next-hop-self` under `af-interface Tunnel0`.
 
 ### OSPF
@@ -46765,6 +51120,152 @@ That rule produces two of the most common exam scenarios:
 1. **"The TACACS server is down and I can't log in."** The list ends with `group TACACS-GRP` and no `local` — no fallback exists. Or `local` is there but **no local username was ever created**, so the fallback has nothing to check.
 2. **"My local password works on the console but not on SSH."** The VTY list's first method is answering FAIL (the server is up and rejecting) — so local is never consulted.
 
+```diagram
+{
+  "type": "topology",
+  "title": "One method list, three server answers",
+  "caption": "`aaa authentication login VTY-AUTH group TACACS-GRP local` on R1's VTY lines. Press **Next** to see PASS, FAIL and ERROR.",
+  "nodes": [
+    {
+      "id": "Adm",
+      "kind": "host",
+      "x": 0,
+      "y": 1,
+      "label": "jsmith",
+      "sub": "SSH client"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2.2,
+      "y": 1,
+      "label": "R1",
+      "sub": "VTY-AUTH",
+      "info": "Method 1: `group TACACS-GRP`. Method 2: `local` (the `username admin privilege 15 secret ...` line). The next method is tried **only** after an ERROR."
+    },
+    {
+      "id": "ISE",
+      "kind": "server",
+      "x": 4.4,
+      "y": 1,
+      "label": "ISE-1",
+      "sub": "10.10.10.5 · TCP 49"
+    }
+  ],
+  "links": [
+    {
+      "a": "Adm",
+      "b": "R1",
+      "label": "SSH"
+    },
+    {
+      "a": "R1",
+      "b": "ISE",
+      "label": "TACACS+"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. PASS: logged in",
+      "text": "R1 asks the first method, the TACACS+ group. The server accepts the password and answers **PASS**. Done; local is never consulted.",
+      "nodes": {
+        "ISE": {
+          "badge": "PASS",
+          "tone": "good"
+        },
+        "R1": {
+          "badge": "logged in",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "Adm",
+            "R1",
+            "ISE"
+          ],
+          "label": "login jsmith"
+        }
+      ]
+    },
+    {
+      "title": "2. FAIL: stop, even if local would match",
+      "text": "Wrong password, or a disabled account: the server answers **FAIL**. IOS stops right there and denies the login. Trying `local` now would hand a rejected user a second chance, so it never happens. `debug aaa authentication` shows `status = FAIL`.",
+      "nodes": {
+        "ISE": {
+          "badge": "FAIL",
+          "tone": "bad"
+        },
+        "R1": {
+          "badge": "denied",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "Adm",
+            "R1",
+            "ISE"
+          ],
+          "label": "login jsmith",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. ERROR: no answer at all",
+      "text": "The server is unreachable (routing, an ACL blocking TCP 49, a wrong source interface or key). R1 waits for the timeout, and gets no verdict: that's an **ERROR**. `show tacacs` counts Socket Timeouts.",
+      "nodes": {
+        "ISE": {
+          "badge": "no reply",
+          "tone": "warn",
+          "state": "down"
+        },
+        "R1": {
+          "badge": "timeout",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R1-ISE": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISE"
+          ],
+          "label": "START (timed out)",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "4. Only now: the next method, local",
+      "text": "After an ERROR, IOS moves down the list. The local database has `admin`, so the emergency account works (`AAA/AUTHEN/LOGIN: Method=LOCAL`). Without `local` in the list, or with no local username configured, nobody gets in while the server is down.",
+      "nodes": {
+        "R1": {
+          "badge": "local: PASS",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "Adm",
+            "R1"
+          ],
+          "label": "login admin",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### A typical working configuration
 
 ```
@@ -46812,6 +51313,130 @@ The same PASS/FAIL/ERROR rule applies: if TACACS+ is unreachable (ERROR), the ro
 6. Because of `aaa accounting exec`, R1 sends an accounting **START** record; when the user logs out, a **STOP** record.
 
 That separation of steps 4, 5 and 6 is why TACACS+ can authorize **each command** separately — every command the user types can trigger its own authorization request.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "A TACACS+ SSH login: authentication, authorization, accounting",
+  "caption": "R1 uses `VTY-AUTH` for login and exec authorization, and `start-stop` exec accounting, all to ISE-1. Everything after each TACACS+ header is encrypted with the shared key.",
+  "actors": [
+    {
+      "id": "U",
+      "kind": "host",
+      "label": "jsmith (SSH)"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1"
+    },
+    {
+      "id": "ISE",
+      "kind": "server",
+      "label": "ISE-1 (TACACS+)"
+    }
+  ],
+  "messages": [
+    {
+      "from": "U",
+      "to": "R1",
+      "label": "SSH login: jsmith",
+      "text": "The VTY line uses list **VTY-AUTH**, whose first method is the TACACS-GRP group."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "TCP connect to port 49",
+      "detail": "source 10.255.0.1 (Loopback0)",
+      "dashed": true,
+      "text": "Sourced from Loopback0 because of `ip tacacs source-interface Loopback0`: the address the server knows R1 by."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "AUTHEN START",
+      "detail": "user jsmith · type ASCII login",
+      "text": "Authentication begins with the username."
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "AUTHEN REPLY: GETPASS",
+      "dashed": true,
+      "text": "The server asks R1 to collect a password."
+    },
+    {
+      "from": "R1",
+      "to": "U",
+      "label": "Password:",
+      "dashed": true,
+      "text": "R1 prompts the user."
+    },
+    {
+      "from": "U",
+      "to": "R1",
+      "label": "********",
+      "text": "The password crosses the SSH session encrypted."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "AUTHEN CONTINUE",
+      "detail": "the password, encrypted with the key",
+      "text": "R1 relays the password to the server."
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "AUTHEN REPLY: PASS",
+      "dashed": true,
+      "tone": "good",
+      "text": "Authenticated. A **FAIL** here would end the login, with no fallback to local."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "AUTHOR REQUEST",
+      "detail": "service=shell, cmd=*",
+      "text": "A separate question, because of `aaa authorization exec VTY-AUTH`: may jsmith start a shell, and at what level?"
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "AUTHOR RESPONSE: PASS_ADD",
+      "detail": "priv-lvl=15",
+      "dashed": true,
+      "tone": "good",
+      "text": "The profile returns the privilege level. Without exec authorization (or without this attribute) the user lands at `R1>`."
+    },
+    {
+      "from": "R1",
+      "to": "U",
+      "label": "R1#",
+      "tone": "good",
+      "dashed": true,
+      "states": {
+        "U": "logged in"
+      },
+      "text": "Privileged EXEC."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "ACCT REQUEST: START",
+      "detail": "task_id · start_time · priv-lvl 15",
+      "text": "`aaa accounting exec default start-stop` records the session start; a STOP record follows at logout."
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "ACCT REPLY: SUCCESS",
+      "dashed": true,
+      "text": "Logged. Because authentication, authorization and accounting are separate exchanges, TACACS+ can also authorize **each command** the user types. RADIUS can't: its Access-Accept carries authentication and authorization together."
+    }
+  ]
+}
+```
 
 **The RADIUS version is shorter**: R1 sends one **Access-Request** over UDP 1812 (username plus the password, hidden using the shared secret); the server replies **Access-Accept** — carrying the authorization attributes in the same packet, for example the Cisco AV-pair `shell:priv-lvl=15` — or **Access-Reject**. Authentication and authorization arrive together, which is why RADIUS can't authorize individual commands.
 
@@ -47230,6 +51855,124 @@ The trap is at the bottom. Every IPv6 ACL ends with **three** implicit lines, no
 
 So the outage begins somewhere between seconds and minutes after the change, depending on when each neighbour entry happens to be re-checked — which is exactly why it looks unrelated to the ACL.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "An explicit deny at the end of an IPv6 ACL, and the outage minutes later",
+  "caption": "`ipv6 traffic-filter V6-EDGE-IN in` on R1's Gi0/0 ends with `deny ipv6 any any log`, above the implicit ND permits. R2 (fe80::2) is R1's next hop.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 · ACL inbound Gi0/0"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2 · fe80::2"
+    }
+  ],
+  "messages": [
+    {
+      "note": "ACL applied; R2's entry is REACHABLE",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "states": {
+        "R1": "REACHABLE"
+      },
+      "text": "The neighbour cache entry was learned before the ACL existed, so traffic keeps flowing."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Data",
+      "text": "Forwarded normally. Nothing looks wrong."
+    },
+    {
+      "note": "≈30 s later: STALE",
+      "over": [
+        "R1"
+      ],
+      "states": {
+        "R1": "STALE"
+      },
+      "text": "The reachable time expires. A STALE entry is still used, so traffic still flows."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Data",
+      "states": {
+        "R1": "DELAY"
+      },
+      "text": "Sending to a STALE entry moves it to **DELAY**: R1 gives upper-layer traffic about 5 s to confirm the neighbour."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "NS (unicast probe)",
+      "detail": "to fe80::2",
+      "states": {
+        "R1": "PROBE"
+      },
+      "text": "No confirmation, so the entry goes to **PROBE** and R1 sends unicast Neighbor Solicitations."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "NA",
+      "detail": "hits deny ipv6 any any log",
+      "tone": "bad",
+      "drop": true,
+      "text": "R2 answers, but its Neighbor Advertisement arrives **inbound** on Gi0/0 and hits the explicit `deny ipv6 any any log` first. The implicit `permit icmp any any nd-na` below it is never reached."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "NS (more probes)",
+      "detail": "unanswered, as far as R1 can tell",
+      "text": "A few more probes, one second apart."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "NA",
+      "tone": "bad",
+      "drop": true,
+      "text": "Denied again. After the last probe, R1 deletes the entry."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "NS to solicited-node multicast",
+      "detail": "to ff02::1:ff00:2",
+      "states": {
+        "R1": "INCMP"
+      },
+      "text": "R1 must now resolve R2 from scratch. The entry shows **INCMP** (incomplete)."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "NA",
+      "tone": "bad",
+      "drop": true,
+      "text": "Denied a third time."
+    },
+    {
+      "note": "Traffic stops",
+      "over": [
+        "R1"
+      ],
+      "tone": "bad",
+      "text": "Minutes after the change, so it looks unrelated to the ACL. Fix: `permit icmp any any nd-na` and `nd-ns` (and `router-advertisement` if needed) **above** your own final deny."
+    }
+  ]
+}
+```
+
 **The fix:** whenever you write your own final deny, add the ND permits **above** it yourself:
 
 ```
@@ -47322,6 +52065,193 @@ Options worth knowing:
 - **An ACL number** at the end — `... reachable-via rx 120` — is consulted for packets that **fail** the check: `permit` forwards them anyway, `deny` drops them; with `log`, you see who's failing.
 
 **Why does strict mode break on asymmetric routing?** Because it assumes the path *to* a source is the path *from* it. Picture a site dual-homed to two ISPs: traffic from 198.51.100.7 arrives on ISP-B's link, but your best route to 198.51.100.7 is via ISP-A. Strict uRPF on the ISP-B interface says "if this were genuine, it would have come in on ISP-A" — and drops perfectly legitimate traffic. That's why strict mode belongs on single-homed links and **loose** mode on multihomed ones.
+
+```diagram
+{
+  "type": "topology",
+  "title": "uRPF: checking where a packet's source should have come from",
+  "caption": "R1 routes 10.20.0.0/24 out Gi0/1 to the branch, and everything else by BGP to two ISPs; its best route to 198.51.100.0/24 is via ISP-A. Press **Next**.",
+  "nodes": [
+    {
+      "id": "Br",
+      "kind": "host",
+      "x": 0,
+      "y": 1,
+      "label": "Branch host",
+      "sub": "10.20.0.5"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2,
+      "y": 1,
+      "label": "R1"
+    },
+    {
+      "id": "ISPA",
+      "kind": "router",
+      "x": 4,
+      "y": 0,
+      "label": "ISP-A",
+      "sub": "Gi0/0 side"
+    },
+    {
+      "id": "ISPB",
+      "kind": "router",
+      "x": 4,
+      "y": 2,
+      "label": "ISP-B",
+      "sub": "Gi0/2 side"
+    },
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 6,
+      "y": 1,
+      "label": "Internet",
+      "sub": "198.51.100.7"
+    }
+  ],
+  "links": [
+    {
+      "a": "Br",
+      "b": "R1",
+      "label": "Gi0/1"
+    },
+    {
+      "a": "R1",
+      "b": "ISPA",
+      "label": "Gi0/0"
+    },
+    {
+      "a": "R1",
+      "b": "ISPB",
+      "label": "Gi0/2"
+    },
+    {
+      "a": "ISPA",
+      "b": "INET"
+    },
+    {
+      "a": "ISPB",
+      "b": "INET"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Strict on Gi0/1: a genuine branch packet",
+      "text": "Source 10.20.0.5 arrives on Gi0/1. R1 looks up the **source** in the FIB: 10.20.0.0/24 via Gi0/1, the interface it arrived on. Pass.",
+      "nodes": {
+        "R1": {
+          "badge": "strict: pass",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "Br",
+            "R1",
+            "ISPA"
+          ],
+          "label": "src 10.20.0.5",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. Strict on Gi0/1: a spoofed source",
+      "text": "Same port, but the source claims to be 8.8.8.8. R1's best route to 8.8.8.8 is out Gi0/0, not Gi0/1, so the packet is **dropped** and `verification drops` goes up. A branch user can't pose as an internet host.",
+      "nodes": {
+        "R1": {
+          "badge": "strict: drop",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "Br",
+            "R1"
+          ],
+          "label": "src 8.8.8.8",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. Loose mode on the same packet",
+      "text": "`reachable-via any` only asks whether a route to the source exists. For 8.8.8.8 only the default route matches, and without `allow-default` the default doesn't count: dropped. A source with no route at all, such as 10.99.99.99, would be dropped too.",
+      "nodes": {
+        "R1": {
+          "badge": "loose: drop",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "Br",
+            "R1"
+          ],
+          "label": "src 8.8.8.8",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. Strict on an ISP link breaks with asymmetric routing",
+      "text": "A genuine reply from 198.51.100.7 comes back through ISP-B, but R1's best route to 198.51.100.7 is via ISP-A (Gi0/0). Strict mode on Gi0/2 says \"it should have come in on Gi0/0\" and drops legitimate traffic.",
+      "nodes": {
+        "R1": {
+          "badge": "strict: drop",
+          "tone": "bad"
+        },
+        "ISPB": {
+          "badge": "Gi0/2 strict",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "INET",
+            "ISPB",
+            "R1"
+          ],
+          "label": "src 198.51.100.7",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Loose on multihomed links",
+      "text": "With `reachable-via any` on Gi0/2, the check only needs **some** route to 198.51.100.7, which exists via ISP-A. Pass. Loose mode still drops sources with no route (bogons), which is why it's the choice for internet edges, and strict is the choice for single-homed edges.",
+      "nodes": {
+        "R1": {
+          "badge": "loose: pass",
+          "tone": "good"
+        },
+        "ISPB": {
+          "badge": "Gi0/2 loose"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "INET",
+            "ISPB",
+            "R1",
+            "Br"
+          ],
+          "label": "src 198.51.100.7",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ```
 R1# show ip interface Gi0/1 | include verify|drops
@@ -47447,6 +52377,91 @@ Two rules for reading a CoPP ACL:
 1. **`deny` in a classification ACL doesn't drop anything.** It means "this packet doesn't belong in this class" — the packet moves on to the next class. Only the **policer's actions** drop.
 2. **Classes are checked top to bottom, first match wins**, and anything unmatched lands in **`class-default`**. That's where surprises live: NTP, BFD, HSRP/VRRP, DHCP relay replies, LDP, IP SLA responses — anything you didn't classify — share class-default's (usually small) rate.
 
+```diagram
+{
+  "type": "match",
+  "kind": "extended",
+  "name": "COPP-MGMT",
+  "title": "Which packets land in CM-MGMT?",
+  "prompt": "In a CoPP classification ACL, **no match is not a drop**: the packet simply isn't in this class and moves on to the next class, ending in class-default. Try the buttons: the helpdesk's SSH and an SNMP poll sent over TCP both miss this class.",
+  "rules": [
+    {
+      "action": "permit",
+      "proto": "tcp",
+      "src": "10.99.0.0 0.0.0.255",
+      "dst": "any",
+      "port": "eq 22"
+    },
+    {
+      "action": "permit",
+      "proto": "tcp",
+      "src": "10.99.0.0 0.0.0.255",
+      "dst": "any",
+      "port": "eq telnet"
+    },
+    {
+      "action": "permit",
+      "proto": "tcp",
+      "src": "10.99.0.0 0.0.0.255",
+      "dst": "any",
+      "port": "eq www"
+    },
+    {
+      "action": "permit",
+      "proto": "tcp",
+      "src": "10.99.0.0 0.0.0.255",
+      "dst": "any",
+      "port": "eq 443"
+    },
+    {
+      "action": "permit",
+      "proto": "udp",
+      "src": "10.99.0.0 0.0.0.255",
+      "dst": "any",
+      "port": "eq snmp"
+    }
+  ],
+  "input": {
+    "proto": "tcp",
+    "src": "10.99.0.10",
+    "dst": "10.255.0.1",
+    "port": 22
+  },
+  "tries": [
+    {
+      "proto": "tcp",
+      "src": "10.99.0.10",
+      "dst": "10.255.0.1",
+      "port": 22
+    },
+    {
+      "proto": "tcp",
+      "src": "10.50.0.9",
+      "dst": "10.255.0.1",
+      "port": 22
+    },
+    {
+      "proto": "udp",
+      "src": "10.99.0.20",
+      "dst": "10.255.0.1",
+      "port": 161
+    },
+    {
+      "proto": "tcp",
+      "src": "10.99.0.20",
+      "dst": "10.255.0.1",
+      "port": 161
+    },
+    {
+      "proto": "tcp",
+      "src": "10.99.0.10",
+      "dst": "10.255.0.1",
+      "port": 443
+    }
+  ]
+}
+```
+
 ```
 R1# show policy-map control-plane
  Control Plane
@@ -47482,6 +52497,190 @@ R1# show policy-map control-plane
 4. **CM-ICMP:** not ICMP → no.
 5. **class-default:** everything left lands here. Its policer allows **64,000 bps**. A **policer** measures traffic against a rate (the **CIR**, committed information rate): traffic under the rate **conforms** and is transmitted; traffic over it **exceeds** and, here, is dropped.
 6. One SSH session is a few kbps, so it conforms and works — until a busy minute when NTP, BFD, a backup script and this SSH session all share that 64 kbps together. Then the session freezes intermittently.
+
+```diagram
+{
+  "type": "topology",
+  "title": "CoPP sees only the traffic addressed to the router",
+  "caption": "Traffic to R1 itself is punted to the CPU through `service-policy input PM-COPP` on `control-plane`. Transit traffic never meets it. Press **Next**.",
+  "nodes": [
+    {
+      "id": "NOC",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "NOC",
+      "sub": "10.99.0.10"
+    },
+    {
+      "id": "HD",
+      "kind": "host",
+      "x": 0,
+      "y": 1.5,
+      "label": "Helpdesk",
+      "sub": "10.50.0.9"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 0,
+      "y": 3,
+      "label": "R2",
+      "sub": "OSPF neighbour"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2.2,
+      "y": 1.5,
+      "label": "R1",
+      "sub": "forwarding plane"
+    },
+    {
+      "id": "CPU",
+      "kind": "controller",
+      "x": 2.2,
+      "y": 3,
+      "label": "R1 CPU",
+      "sub": "control plane",
+      "info": "Classes, in order: CM-ROUTING (512 kbps, never drop), CM-MGMT (256 kbps), CM-ICMP (64 kbps), class-default (64 kbps). First match wins."
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 4.4,
+      "y": 1.5,
+      "label": "Server",
+      "sub": "10.1.1.80"
+    }
+  ],
+  "links": [
+    {
+      "a": "NOC",
+      "b": "R1"
+    },
+    {
+      "a": "HD",
+      "b": "R1"
+    },
+    {
+      "a": "R2",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "SRV"
+    },
+    {
+      "a": "R1",
+      "b": "CPU",
+      "label": "PM-COPP input",
+      "style": "thick"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Transit traffic never meets CoPP",
+      "text": "A NOC host talking to a server **through** R1 is forwarded in the data plane. CoPP only polices packets addressed to the router itself.",
+      "packets": [
+        {
+          "path": [
+            "NOC",
+            "R1",
+            "SRV"
+          ],
+          "label": "to 10.1.1.80",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. An OSPF hello: CM-ROUTING",
+      "text": "Protocol 89 to R1 matches `permit ospf any any` in COPP-ROUTING, the first class. It's policed at 512 kbps with `exceed-action transmit`, so routing is never dropped.",
+      "nodes": {
+        "CPU": {
+          "badge": "CM-ROUTING",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R1",
+            "CPU"
+          ],
+          "label": "OSPF hello",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. SSH from the NOC: CM-MGMT",
+      "text": "Not routing, so it moves on. COPP-MGMT permits TCP 22 from 10.99.0.0/24: the management class, 256 kbps.",
+      "nodes": {
+        "CPU": {
+          "badge": "CM-MGMT",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "NOC",
+            "R1",
+            "CPU"
+          ],
+          "label": "SSH from 10.99.0.10",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. SSH from the helpdesk: class-default",
+      "text": "10.50.0.9 isn't in COPP-MGMT and isn't ICMP, so it falls through to **class-default**, sharing 64 kbps with everything nobody classified (NTP, BFD, HSRP...). One session usually conforms and works.",
+      "nodes": {
+        "CPU": {
+          "badge": "class-default",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "HD",
+            "R1",
+            "CPU"
+          ],
+          "label": "SSH from 10.50.0.9",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. A busy minute: class-default exceeds",
+      "text": "Add a backup script and some unclassified NTP and BFD, and class-default goes over 64 kbps. The excess is **dropped**, so helpdesk SSH freezes now and then while the NOC's is fine. `show policy-map control-plane` shows class-default `exceeded` rising. Fix: add the helpdesk subnet to COPP-MGMT, if it's meant to manage R1.",
+      "nodes": {
+        "CPU": {
+          "badge": "exceeded: drop",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "HD",
+            "R1",
+            "CPU"
+          ],
+          "label": "SSH (over 64 kbps)",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **Worked example — ticket: "SSH from the helpdesk freezes; from the NOC it's fine."** `show policy-map control-plane` shows class-default `exceeded` packets rising at the moment the helpdesk complains, while CM-MGMT shows none. The step-by-step above explains why: the helpdesk's 10.50.0.0/24 isn't in COPP-MGMT. **Fix:** add `permit tcp 10.50.0.0 0.0.0.255 any eq 22` to COPP-MGMT — if the helpdesk is *meant* to manage the router — and its SSH moves into the management class with its own 256 kbps.
 
@@ -47593,6 +52792,181 @@ An attacker on **Gi1/0/9** (MAC 0050.5600.0009) tries four attacks:
 | Sends **data** with source 2001:db8:10::5 | Source Guard: ::5 is not bound to Gi1/0/9 | **Dropped**; it can't impersonate Host A |
 
 The first two checks need only the port role; the last two need the binding table, which is why the device-tracking policy must be attached to the same ports.
+
+```diagram
+{
+  "type": "topology",
+  "title": "IPv6 first-hop security on one access switch",
+  "caption": "VLAN 10. The real router is on Gi1/0/48 (`device-role router`); host ports are `device-role host` / `client`. Press **Next** to watch an attacker on Gi1/0/9 try four tricks.",
+  "nodes": [
+    {
+      "id": "RTR",
+      "kind": "router",
+      "x": 2.2,
+      "y": 0,
+      "label": "Router",
+      "sub": "real gateway"
+    },
+    {
+      "id": "SW",
+      "kind": "switch",
+      "x": 2.2,
+      "y": 1.5,
+      "label": "Access SW",
+      "sub": "VLAN 10",
+      "info": "RA Guard, DHCPv6 Guard, device-tracking (the binding table), ND inspection and Source Guard policies on Gi1/0/1–46."
+    },
+    {
+      "id": "HA",
+      "kind": "host",
+      "x": 0.4,
+      "y": 3,
+      "label": "Host A",
+      "sub": "2001:db8:10::5"
+    },
+    {
+      "id": "ATK",
+      "kind": "host",
+      "x": 4,
+      "y": 3,
+      "label": "Attacker",
+      "sub": "0050.5600.0009"
+    }
+  ],
+  "links": [
+    {
+      "a": "RTR",
+      "b": "SW",
+      "label": "Gi1/0/48"
+    },
+    {
+      "a": "HA",
+      "b": "SW",
+      "label": "Gi1/0/5"
+    },
+    {
+      "a": "ATK",
+      "b": "SW",
+      "label": "Gi1/0/9"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The switch builds the truth: the binding table",
+      "text": "Host A's DAD probe for its own address is snooped. The binding table (`show device-tracking database`) now says 2001:db8:10::5 = 0050.5600.0005 on Gi1/0/5, VLAN 10.",
+      "nodes": {
+        "SW": {
+          "badge": "::5 → Gi1/0/5"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "HA",
+            "SW"
+          ],
+          "label": "NS (DAD) for ::5"
+        }
+      ]
+    },
+    {
+      "title": "2. A real RA from the router port passes",
+      "text": "Gi1/0/48 is `device-role router`, so its Router Advertisements are allowed. Hosts learn the real default gateway.",
+      "packets": [
+        {
+          "path": [
+            "RTR",
+            "SW",
+            "HA"
+          ],
+          "label": "RA (router port)",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. Rogue RA: RA Guard drops it",
+      "text": "The attacker announces itself as a gateway (or sends router lifetime 0 to kill the real one). Gi1/0/9 is `device-role host`, and hosts may not send RAs. Dropped at the port.",
+      "nodes": {
+        "SW": {
+          "badge": "RA Guard",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ATK",
+            "SW"
+          ],
+          "label": "RA: I'm the gateway",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. Rogue DHCPv6 server: DHCPv6 Guard drops it",
+      "text": "The attacker answers a Solicit with its own DNS server. Gi1/0/9 is `device-role client`, and clients may not send Advertise or Reply.",
+      "nodes": {
+        "SW": {
+          "badge": "DHCPv6 Guard",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ATK",
+            "SW"
+          ],
+          "label": "DHCPv6 Advertise",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Forged NA: ND inspection checks the binding table",
+      "text": "\"2001:db8:10::5 is at 0050.5600.0009.\" The table says ::5 belongs to a different MAC on Gi1/0/5, so the NA is dropped and nobody's neighbour cache is poisoned.",
+      "nodes": {
+        "SW": {
+          "badge": "ND inspection",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ATK",
+            "SW"
+          ],
+          "label": "NA: ::5 at ...0009",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "6. Spoofed source: Source Guard",
+      "text": "Data sourced from 2001:db8:10::5 arriving on Gi1/0/9: that address isn't bound to this port. Dropped. Steps 5 and 6 only work because step 1 built the binding table.",
+      "nodes": {
+        "SW": {
+          "badge": "Source Guard",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ATK",
+            "SW"
+          ],
+          "label": "src 2001:db8:10::5",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
 
 What the policies look like (for recognition):
 
@@ -47913,6 +53287,225 @@ snmp-server host 10.1.1.60 version 3 priv nmsuser
 | authNoPriv | `auth` | Yes | No |
 | **authPriv** | `priv` | Yes | **Yes** |
 
+```diagram
+{
+  "type": "topology",
+  "title": "What an eavesdropper sees, version by version",
+  "caption": "R1 has `snmp-server community N3tM0n RO 20` and `snmp-server group NMS-GRP v3 priv`. Polls go to UDP 161; a capture point on the switch sees every one. Press **Next**.",
+  "nodes": [
+    {
+      "id": "NMS",
+      "kind": "server",
+      "x": 4.4,
+      "y": 1,
+      "label": "NMS",
+      "sub": "10.1.1.60"
+    },
+    {
+      "id": "SW",
+      "kind": "switch",
+      "x": 2.2,
+      "y": 1,
+      "label": "SW"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 0,
+      "y": 1,
+      "label": "R1",
+      "sub": "SNMP agent"
+    },
+    {
+      "id": "EVE",
+      "kind": "host",
+      "x": 2.2,
+      "y": 2.6,
+      "label": "Eavesdropper",
+      "sub": "SPAN / tap"
+    }
+  ],
+  "links": [
+    {
+      "a": "NMS",
+      "b": "SW"
+    },
+    {
+      "a": "SW",
+      "b": "R1"
+    },
+    {
+      "a": "SW",
+      "b": "EVE",
+      "style": "dashed",
+      "label": "copy of traffic"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. SNMPv2c: the community is a clear-text password",
+      "text": "The GetRequest carries `N3tM0n` in the clear. R1 checks the community, then ACL 20 (10.1.1.60 is permitted), then the view, and answers. Anyone with a capture now has the password, which is why v2c should be read-only and ACL-restricted.",
+      "nodes": {
+        "EVE": {
+          "badge": "reads N3tM0n",
+          "tone": "bad"
+        },
+        "R1": {
+          "badge": "GetResponse",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "NMS",
+            "SW",
+            "R1"
+          ],
+          "label": "GetRequest · N3tM0n"
+        },
+        {
+          "path": [
+            "SW",
+            "EVE"
+          ],
+          "label": "N3tM0n (clear)",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "2. Wrong community: silence, not an error",
+      "text": "An unknown community is **silently dropped**; R1 sends nothing back, so the NMS just times out. `show snmp` shows `Unknown community name` climbing, which proves the requests are arriving.",
+      "nodes": {
+        "EVE": null,
+        "R1": {
+          "badge": "silent drop",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "NMS",
+            "SW",
+            "R1"
+          ],
+          "label": "GetRequest · wrong",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. v3 noAuthNoPriv: just a username",
+      "text": "No password proof and no encryption. NMS-GRP was created with `priv`, so a request at a lower security level is refused. And a capture would show both the username and the data.",
+      "nodes": {
+        "R1": {
+          "badge": "needs priv",
+          "tone": "bad"
+        },
+        "EVE": {
+          "badge": "reads all",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "NMS",
+            "SW",
+            "R1"
+          ],
+          "label": "v3 noAuthNoPriv",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. v3 authNoPriv: proven, but readable",
+      "text": "An HMAC-SHA digest proves the sender knows the auth password and that nothing was altered, so a captured packet can't be modified or forged. The OIDs and values are still readable, and NMS-GRP still demands priv.",
+      "nodes": {
+        "R1": {
+          "badge": "needs priv",
+          "tone": "bad"
+        },
+        "EVE": {
+          "badge": "reads OIDs",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "NMS",
+            "SW",
+            "R1"
+          ],
+          "label": "v3 authNoPriv",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. v3 authPriv: proven and encrypted",
+      "text": "`auth sha ... priv aes 128`: authenticated **and** encrypted. The group's level is met, R1 answers, and the capture shows only ciphertext.",
+      "nodes": {
+        "R1": {
+          "badge": "Response",
+          "tone": "good"
+        },
+        "EVE": {
+          "badge": "ciphertext",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "NMS",
+            "SW",
+            "R1"
+          ],
+          "label": "v3 authPriv (AES)",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "R1",
+            "SW",
+            "NMS"
+          ],
+          "label": "Response (encrypted)",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. The engine ID changes",
+      "text": "The user's keys were localized with R1's SNMP **engine ID**. Replace the hardware or set `snmp-server engineID local` and every v3 user breaks until it's re-created. `show snmp engineID`, `show snmp user`.",
+      "nodes": {
+        "R1": {
+          "badge": "keys invalid",
+          "tone": "bad"
+        },
+        "EVE": null
+      },
+      "packets": [
+        {
+          "path": [
+            "NMS",
+            "SW",
+            "R1"
+          ],
+          "label": "v3 authPriv",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Why aren't SNMPv3 users shown in the running configuration?** Because the user's passwords are converted into **localized keys** — hashed together with the router's **SNMP engine ID** — and only the keys are stored. That has two consequences you'll be tested on: `show running-config` won't show `snmp-server user` lines (use `show snmp user`), and **changing the engine ID invalidates every user** — they must be re-created. The engine ID defaults to one derived from a MAC address, so it can change if you replace hardware or set `snmp-server engineID local` later.
 
 | Symptom | Likely cause | Command that proves it |
@@ -48231,6 +53824,144 @@ DHCPD: relay information option exists, but giaddr is zero.
 
 **Fixes, pick one:** on the router, trust that interface (`ip dhcp relay information trusted` on the SVI) or all interfaces (`ip dhcp relay information trust-all`); or on SW1, stop inserting the option (`no ip dhcp snooping information option`).
 
+```diagram
+{
+  "type": "sequence",
+  "title": "Option 82 with giaddr 0: the relay drops it, then a fix",
+  "caption": "SW1 is a Layer 2 access switch running DHCP snooping; the client is on Gi1/0/5, VLAN 20. R1's Vlan20 (10.1.20.1) has `ip helper-address 10.1.1.10`.",
+  "actors": [
+    {
+      "id": "C",
+      "kind": "host",
+      "label": "Client"
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "label": "SW1 (snooping)"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 Vlan20 relay"
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "label": "DHCP server 10.1.1.10"
+    }
+  ],
+  "messages": [
+    {
+      "from": "C",
+      "to": "SW1",
+      "label": "DHCPDISCOVER",
+      "detail": "broadcast · UDP 68 → 67",
+      "text": "The client has no address yet, so it broadcasts."
+    },
+    {
+      "from": "SW1",
+      "to": "SW1",
+      "label": "Insert option 82",
+      "detail": "circuit ID + remote ID",
+      "text": "DHCP snooping adds the Relay Agent Information option by default: a **circuit ID** (VLAN 20, port Gi1/0/5) and a **remote ID** (SW1's MAC)."
+    },
+    {
+      "from": "SW1",
+      "to": "R1",
+      "label": "DISCOVER + option 82",
+      "detail": "giaddr 0.0.0.0",
+      "text": "SW1 isn't a relay, so it leaves **giaddr 0.0.0.0** and floods the broadcast up the VLAN."
+    },
+    {
+      "from": "R1",
+      "to": "R1",
+      "label": "Drop: option 82, giaddr 0",
+      "tone": "bad",
+      "text": "Option 82 present but giaddr zero, arriving on an untrusted interface: R1 discards it. `debug ip dhcp server packet`: `relay information option exists, but giaddr is zero`."
+    },
+    {
+      "note": "No OFFER: 169.254.x.x",
+      "over": [
+        "C",
+        "SW1"
+      ],
+      "tone": "bad",
+      "text": "The client never hears back and falls back to an APIPA address."
+    },
+    {
+      "note": "Fix: ip dhcp relay information trusted on Vlan20",
+      "over": [
+        "SW1",
+        "R1",
+        "SRV"
+      ],
+      "tone": "good",
+      "text": "Or `ip dhcp relay information trust-all` on R1, or `no ip dhcp snooping information option` on SW1 so it stops inserting the option."
+    },
+    {
+      "from": "C",
+      "to": "SW1",
+      "label": "DHCPDISCOVER (retry)",
+      "detail": "broadcast",
+      "text": "The client tries again."
+    },
+    {
+      "from": "SW1",
+      "to": "R1",
+      "label": "DISCOVER + option 82",
+      "detail": "giaddr 0.0.0.0",
+      "text": "Same packet as before."
+    },
+    {
+      "from": "R1",
+      "to": "SRV",
+      "label": "DISCOVER (relayed)",
+      "detail": "unicast · giaddr 10.1.20.1",
+      "text": "Now accepted. R1 sets **giaddr 10.1.20.1** (its address on the client's subnet) and unicasts the request to the server, sourced from its own address."
+    },
+    {
+      "from": "SRV",
+      "to": "R1",
+      "label": "OFFER 10.1.20.21",
+      "detail": "unicast to 10.1.20.1",
+      "dashed": true,
+      "text": "The server picks the pool whose `network` contains giaddr (10.1.20.0/24), pings 10.1.20.21 to check it's free, and replies to giaddr."
+    },
+    {
+      "from": "R1",
+      "to": "SW1",
+      "label": "OFFER",
+      "dashed": true,
+      "text": "R1 relays the Offer onto VLAN 20."
+    },
+    {
+      "from": "SW1",
+      "to": "C",
+      "label": "OFFER",
+      "detail": "option 82 removed",
+      "dashed": true,
+      "tone": "good",
+      "text": "Snooping removes option 82 before the client sees it, and records the Offer."
+    },
+    {
+      "note": "REQUEST and ACK follow the same path",
+      "over": [
+        "C",
+        "SW1",
+        "R1",
+        "SRV"
+      ],
+      "states": {
+        "C": "10.1.20.21"
+      },
+      "tone": "good",
+      "text": "The client ends up with 10.1.20.21/24, gateway 10.1.20.1, and DNS from the pool; SW1 adds the lease to its snooping binding table."
+    }
+  ]
+}
+```
+
 ### DHCP client
 
 ```
@@ -48323,6 +54054,69 @@ DHCPD: relay information option exists, but giaddr is zero.
 
 **The one thing DHCPv6 never provides is a default gateway.** Hosts always learn their default router from RAs. A host with a perfect DHCPv6 address and no RA has no way off the link.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "Stateless DHCPv6: address from SLAAC, DNS from DHCPv6",
+  "caption": "R1's Vlan10 has `ipv6 nd other-config-flag` (O = 1, M = 0) and `ipv6 dhcp server` with a pool holding only `dns-server` and `domain-name`.",
+  "actors": [
+    {
+      "id": "C",
+      "kind": "host",
+      "label": "Host"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 (router + DHCPv6 server)"
+    }
+  ],
+  "messages": [
+    {
+      "from": "C",
+      "to": "R1",
+      "label": "Router Solicitation",
+      "detail": "to FF02::2 (all routers)",
+      "text": "A new host asks for routers instead of waiting for the next periodic RA."
+    },
+    {
+      "from": "R1",
+      "to": "C",
+      "label": "Router Advertisement",
+      "detail": "M=0 O=1 · 2001:DB8:10::/64 (A=1)",
+      "dashed": true,
+      "text": "The RA carries the prefix (with the A flag, so SLAAC is allowed) and the flags: **M = 0** (not managed), **O = 1** (other information from DHCPv6). Its source, R1's link-local address, becomes the host's default gateway."
+    },
+    {
+      "from": "C",
+      "to": "C",
+      "label": "SLAAC + DAD",
+      "detail": "2001:DB8:10::<interface ID>",
+      "text": "The host builds its own address from the prefix and checks nobody else has it."
+    },
+    {
+      "from": "C",
+      "to": "R1",
+      "label": "Information-Request",
+      "detail": "to FF02::1:2 · UDP 546 → 547",
+      "text": "Because O = 1, it asks DHCPv6 for the other settings only. No Solicit, no address."
+    },
+    {
+      "from": "R1",
+      "to": "C",
+      "label": "Reply",
+      "detail": "DNS 2001:DB8:1::53 · example.com",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "C": "configured"
+      },
+      "text": "DNS server and domain name. The server keeps no record of the host: nothing was leased, so it's **stateless**."
+    }
+  ]
+}
+```
+
 ```
 ipv6 dhcp pool V6-VLAN10
  address prefix 2001:DB8:10::/64 lifetime infinite infinite    ! stateful only
@@ -48353,6 +54147,102 @@ DHCPv6 runs on **UDP 546 (client) / 547 (server/relay)**; clients solicit to the
 3. The relay wraps the Solicit in a **Relay-Forward** message, writes its own address on the client's link (2001:DB8:20::1) into the **link-address** field — the IPv6 equivalent of giaddr — and unicasts it to 2001:DB8:1::10.
 4. The server picks the pool matching that link address and returns an **Advertise** inside a **Relay-Reply**; the relay unwraps it and passes it to the client.
 5. **Request** and **Reply** complete the exchange. The client now holds, for example, 2001:DB8:20::A1B2/128 plus the DNS server — and still uses the RA-learned router as its gateway.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Stateful DHCPv6 through a relay",
+  "caption": "Client in VLAN 20; relay interface 2001:DB8:20::1 with `ipv6 dhcp relay destination 2001:DB8:1::10`; the RA on VLAN 20 has M = 1.",
+  "actors": [
+    {
+      "id": "C",
+      "kind": "host",
+      "label": "Client"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "Relay 2001:DB8:20::1"
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "label": "Server 2001:DB8:1::10"
+    }
+  ],
+  "messages": [
+    {
+      "from": "R1",
+      "to": "C",
+      "label": "Router Advertisement",
+      "detail": "M=1 · from R1's link-local",
+      "dashed": true,
+      "text": "M = 1: get your address from DHCPv6. The RA still provides the **default gateway** (R1's link-local address); DHCPv6 never does."
+    },
+    {
+      "from": "C",
+      "to": "R1",
+      "label": "Solicit",
+      "detail": "fe80::… → FF02::1:2 · UDP 546 → 547",
+      "text": "No broadcast in IPv6: the client multicasts to All DHCP Relay Agents and Servers, from its link-local address."
+    },
+    {
+      "from": "R1",
+      "to": "SRV",
+      "label": "Relay-Forward (Solicit)",
+      "detail": "link-address 2001:DB8:20::1",
+      "text": "The relay wraps the Solicit and writes its own address on the client's link into **link-address**, the IPv6 equivalent of giaddr. Unicast to the server."
+    },
+    {
+      "from": "SRV",
+      "to": "R1",
+      "label": "Relay-Reply (Advertise)",
+      "dashed": true,
+      "text": "The server picks the pool that matches the link-address and offers an address."
+    },
+    {
+      "from": "R1",
+      "to": "C",
+      "label": "Advertise",
+      "detail": "2001:DB8:20::A1B2 · DNS 2001:DB8:1::53",
+      "dashed": true,
+      "text": "The relay unwraps it and passes it on."
+    },
+    {
+      "from": "C",
+      "to": "R1",
+      "label": "Request",
+      "detail": "to FF02::1:2",
+      "text": "\"I'll take that one.\""
+    },
+    {
+      "from": "R1",
+      "to": "SRV",
+      "label": "Relay-Forward (Request)",
+      "detail": "link-address 2001:DB8:20::1",
+      "text": "Wrapped and forwarded the same way."
+    },
+    {
+      "from": "SRV",
+      "to": "R1",
+      "label": "Relay-Reply (Reply)",
+      "dashed": true,
+      "text": "The server commits the lease: this is **stateful**."
+    },
+    {
+      "from": "R1",
+      "to": "C",
+      "label": "Reply",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "C": "bound"
+      },
+      "text": "The client holds 2001:DB8:20::A1B2/128 plus the DNS server, and still uses the RA-learned router as its gateway. Solicit, Advertise, Request, Reply: DHCPv6's version of DORA."
+    }
+  ]
+}
+```
 
 (DHCPv4 has four messages, Discover–Offer–Request–Ack; DHCPv6's equivalents are **Solicit–Advertise–Request–Reply**.)
 
@@ -48445,6 +54335,223 @@ The interface-qualified route ties the probe to Gi0/0. The floating Null0 route 
 4. Immediately, the floating default (`198.51.100.1`, AD 10) is the best default and is installed. Traffic now leaves through ISP-B. The probe, pinned to ISP-A, keeps failing — correctly.
 5. **Later** — ISP-A recovers; probes succeed. `delay up 30` waits 30 s of success before declaring the track Up, so a link that's flapping doesn't drag traffic back and forth. Then the primary route returns and traffic moves back to ISP-A.
 
+```diagram
+{
+  "type": "topology",
+  "title": "IP SLA and tracking move the default route",
+  "caption": "`ip route 0.0.0.0 0.0.0.0 203.0.113.1 track 1`, a floating default via 198.51.100.1 (AD 10), and a host route pinning the 8.8.8.8 probe to ISP-A. Press **Next**.",
+  "nodes": [
+    {
+      "id": "LAN",
+      "kind": "host",
+      "x": 0,
+      "y": 1.2,
+      "label": "Users"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.8,
+      "y": 1.2,
+      "label": "R1",
+      "sub": "track 1 = IP SLA 10",
+      "info": "`ip sla 10`: icmp-echo 8.8.8.8 from Gi0/0 every 5 s, timeout 1000 ms. `track 1 ip sla 10 reachability`, `delay down 10 up 30`."
+    },
+    {
+      "id": "ISPA",
+      "kind": "router",
+      "x": 3.6,
+      "y": 0,
+      "label": "ISP-A",
+      "sub": "203.0.113.1"
+    },
+    {
+      "id": "ISPB",
+      "kind": "router",
+      "x": 3.6,
+      "y": 2.4,
+      "label": "ISP-B",
+      "sub": "198.51.100.1"
+    },
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 5.4,
+      "y": 1.2,
+      "label": "Internet",
+      "sub": "8.8.8.8"
+    }
+  ],
+  "links": [
+    {
+      "a": "LAN",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "ISPA",
+      "label": "Gi0/0"
+    },
+    {
+      "a": "R1",
+      "b": "ISPB",
+      "label": "Gi0/1"
+    },
+    {
+      "a": "ISPA",
+      "b": "INET"
+    },
+    {
+      "a": "ISPB",
+      "b": "INET"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Normal: the probe and the traffic use ISP-A",
+      "text": "Every 5 s R1 pings 8.8.8.8, **beyond** ISP-A. Track 1 is up, so the primary default route is installed and users leave through ISP-A.",
+      "nodes": {
+        "R1": {
+          "badge": "track 1 Up",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-ISPA": "active",
+        "ISPA-INET": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISPA",
+            "INET"
+          ],
+          "label": "echo 8.8.8.8"
+        },
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "ISPA",
+            "INET"
+          ],
+          "label": "user traffic",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. 10:00:00 ISP-A's upstream fails",
+      "text": "R1's Gi0/0 stays up and 203.0.113.1 still answers pings, so nothing else on R1 notices. That's why the probe targets something beyond the ISP.",
+      "links": {
+        "ISPA-INET": "down"
+      }
+    },
+    {
+      "title": "3. ≈10:00:05 the probe times out",
+      "text": "No reply within 1000 ms: return code **Timeout**. `delay down 10` holds the track up for now, in case this is a blip.",
+      "nodes": {
+        "R1": {
+          "badge": "delay down 10",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISPA",
+            "INET"
+          ],
+          "label": "echo: Timeout",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. ≈10:00:15 track 1 goes Down",
+      "text": "Still failing after 10 s. The tracked static route is removed, the floating default via 198.51.100.1 (AD 10) becomes best, and users now leave through ISP-B. Failover time ≈ one probe interval + the down delay.",
+      "nodes": {
+        "R1": {
+          "badge": "track 1 Down",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "R1-ISPA": null,
+        "R1-ISPB": "active",
+        "ISPB-INET": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "ISPB",
+            "INET"
+          ],
+          "label": "user traffic",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. The probe stays pinned to ISP-A",
+      "text": "`ip route 8.8.8.8 255.255.255.255 203.0.113.1` keeps the probe on the path being tested, so it keeps failing, correctly. Without it the probe would follow the backup default, succeed, bring track 1 up, reinstall the primary, fail again... and the route would flap forever.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISPA",
+            "INET"
+          ],
+          "label": "echo 8.8.8.8",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "6. ISP-A recovers: delay up 30",
+      "text": "Probes succeed again, but the track waits 30 s of success before going Up, so a flapping link doesn't drag traffic back and forth. Then the primary route returns and traffic moves back to ISP-A.",
+      "nodes": {
+        "R1": {
+          "badge": "Up after 30 s",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ISPA-INET": "active",
+        "R1-ISPA": "active",
+        "R1-ISPB": null,
+        "ISPB-INET": null
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISPA",
+            "INET"
+          ],
+          "label": "echo: OK",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "ISPA",
+            "INET"
+          ],
+          "label": "user traffic",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 What you'd see during the outage:
 
 ```
@@ -48487,6 +54594,16 @@ ip sla 20
  tos 184                                       ! mark like real voice (DSCP EF)
  frequency 60
 ip sla schedule 20 life forever start-time now
+```
+
+```diagram
+{
+  "type": "bits",
+  "mode": "dscp",
+  "value": 46,
+  "title": "tos 184 is DSCP 46 (EF)",
+  "prompt": "`tos 184` in the udp-jitter probe sets the whole ToS byte. Its top six bits are the DSCP: 184 = 1011 1000, so DSCP 101110 = **46**, Expedited Forwarding, the marking real voice uses. Marking the probe like voice makes it ride the same queue as the calls it's measuring. Flip bits to see other values."
+}
 ```
 
 **Why does udp-jitter need a responder?** Because the far end must **timestamp** each packet when it arrives and when it replies, so the sender can separate the outbound and return legs and subtract the responder's own processing time. An ordinary host would just drop the packets. One-way delay values additionally need both routers' clocks synchronised with **NTP**; round-trip and jitter don't.
@@ -48595,6 +54712,184 @@ NetFlow answers "**who** is talking to **whom**, using **what**, and how much?" 
 3. No match → it creates a new flow entry. Match → it adds this packet's bytes and a packet count to the existing entry. So a 10,000-packet download is **one** flow with one set of counters, not 10,000 records.
 4. A flow is **expired** (removed from the cache and sent) when: the TCP session ends (FIN or RST seen), it has been idle for the **inactive timeout** (default 15 s), it has been running for the **active timeout** (FNF default 1800 s — long flows are reported in slices), or the cache fills up.
 5. Expired flows are bundled into export packets and sent by UDP to the **collector** (for example 10.1.1.70 port 2055), which stores them and draws "top talkers" reports.
+
+```diagram
+{
+  "type": "topology",
+  "title": "NetFlow: packets become flows, flows become exports",
+  "caption": "`ip flow monitor FM-BASIC input` on Gi0/1 only. The record's keys are source/destination address, protocol, ports and input interface. Press **Next**.",
+  "nodes": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 0,
+      "y": 0.6,
+      "label": "Host",
+      "sub": "10.1.20.55"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2.2,
+      "y": 0.6,
+      "label": "R1",
+      "sub": "flow cache",
+      "info": "`show flow monitor FM-BASIC cache` lists each flow with its byte and packet counters."
+    },
+    {
+      "id": "WEB",
+      "kind": "server",
+      "x": 4.4,
+      "y": 0.6,
+      "label": "Web server",
+      "sub": "172.16.5.10"
+    },
+    {
+      "id": "COL",
+      "kind": "server",
+      "x": 2.2,
+      "y": 2.2,
+      "label": "Collector",
+      "sub": "10.1.1.70 · UDP 2055"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC",
+      "b": "R1",
+      "label": "Gi0/1 (monitored in)"
+    },
+    {
+      "a": "R1",
+      "b": "WEB",
+      "label": "Gi0/0"
+    },
+    {
+      "a": "R1",
+      "b": "COL",
+      "label": "export from Loopback0",
+      "style": "dashed"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. First packet: a new flow",
+      "text": "10.1.20.55:51514 → 172.16.5.10:443, TCP, arriving on Gi0/1. No cache entry has these key fields, so R1 creates **flow 1**.",
+      "nodes": {
+        "R1": {
+          "badge": "flow 1: new"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1",
+            "WEB"
+          ],
+          "label": "TCP 51514 → 443"
+        }
+      ]
+    },
+    {
+      "title": "2. More packets, same keys: counters grow",
+      "text": "Every later packet of that download matches flow 1's keys, so R1 only adds to its byte and packet counters. A 10,000-packet transfer is **one** record, not 10,000.",
+      "nodes": {
+        "R1": {
+          "badge": "flow 1: +pkts"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1",
+            "WEB"
+          ],
+          "label": "TCP 51514 → 443"
+        }
+      ]
+    },
+    {
+      "title": "3. A second browser tab: a new flow",
+      "text": "Same host, same server, but source port 51515. One key field differs, so it's **flow 2**. A ping would be flow 3 (protocol ICMP, no ports).",
+      "nodes": {
+        "R1": {
+          "badge": "2 flows"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1",
+            "WEB"
+          ],
+          "label": "TCP 51515 → 443"
+        }
+      ]
+    },
+    {
+      "title": "4. The replies aren't counted",
+      "text": "The server's replies arrive on **Gi0/0**, which has no monitor. They never reach the cache, which is why totals can look like half of reality. Apply the monitor `input` on Gi0/0 too.",
+      "nodes": {
+        "R1": {
+          "badge": "not counted",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "WEB",
+            "R1",
+            "PC"
+          ],
+          "label": "reply 443 → 51514",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. v9: the template goes first",
+      "text": "`export-protocol netflow-v9` sends a **template** describing the record layout, and repeats it every 60 s (`template data timeout 60`). A collector that hasn't seen a template can't decode any data.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "COL"
+          ],
+          "label": "v9 template",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "6. Expired flows are exported",
+      "text": "A flow leaves the cache when FIN/RST is seen, after 15 s idle (inactive timeout), after the active timeout (60 s here, 1800 s by default), or when the cache fills. The collector then builds its top-talkers reports.",
+      "nodes": {
+        "R1": {
+          "badge": "flows expired"
+        },
+        "COL": {
+          "badge": "top talkers",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "COL"
+          ],
+          "label": "flow records",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **Worked example — what counts as a separate flow?** Host 10.1.20.55 opens two browser tabs to the same web server, 172.16.5.10:443, and pings it once:
 
