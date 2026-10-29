@@ -107,11 +107,18 @@ function run(line) {
   afterCommand(s);
 }
 
+// Replace the typed line and put the caret at its end straight away. (Doing it a frame later could
+// collapse a selection the person has made since, so their next keystroke would append instead.)
+function setInput(text) {
+  input.value = text;
+  input.setSelectionRange(text.length, text.length);
+}
+
 function handleKey(key, ctrl) {
   const s = sessions[current];
   const h = history[current];
   if (key === "Enter") { run(input.value); return true; }
-  if (key === "Tab") { input.value = s.complete(input.value); return true; }
+  if (key === "Tab") { setInput(s.complete(input.value)); return true; }
   if (key === "?") {
     const help = s.help(input.value);
     if (help === null) return false;
@@ -120,12 +127,12 @@ function handleKey(key, ctrl) {
     return true;
   }
   if (key === "ArrowUp" && !s.masked()) {
-    if (h.at > 0) input.value = h.list[--h.at];
+    if (h.at > 0) setInput(h.list[--h.at]);
     return true;
   }
   if (key === "ArrowDown" && !s.masked()) {
     h.at = Math.min(h.list.length, h.at + 1);
-    input.value = h.list[h.at] ?? "";
+    setInput(h.list[h.at] ?? "");
     return true;
   }
   if (ctrl && (key === "c" || key === "z")) {
@@ -146,11 +153,7 @@ function handleKey(key, ctrl) {
 
 input.addEventListener("keydown", (e) => {
   const ctrl = e.ctrlKey && !e.altKey && !e.metaKey;
-  if (handleKey(ctrl ? e.key.toLowerCase() : e.key, ctrl)) {
-    e.preventDefault();
-    // Keep the caret at the end after history recall or completion.
-    requestAnimationFrame(() => input.setSelectionRange(input.value.length, input.value.length));
-  }
+  if (handleKey(ctrl ? e.key.toLowerCase() : e.key, ctrl)) e.preventDefault();
 });
 
 document.querySelectorAll("[data-key]").forEach((b) => b.addEventListener("click", () => {
