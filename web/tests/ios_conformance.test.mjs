@@ -1357,6 +1357,80 @@ section("CCNP switching extras");
   });
 }
 
+// ================================================================= CCNP multicast
+section("CCNP multicast");
+{
+  // R1 joins 239.1.1.1 on Loopback0 (a router receiver), R2's Loopback0 is the static RP.
+  const mcPair = () => pair(["ip multicast-routing", "interface g0/0", "ip pim sparse-mode", "interface loopback0", "ip pim sparse-mode",
+    "ip igmp join-group 239.1.1.1", "exit", "ip pim rp-address 2.2.2.2", "ip route 2.2.2.2 255.255.255.255 10.12.0.2"],
+  ["ip multicast-routing", "interface g0/0", "ip pim sparse-mode", "interface loopback0", "ip pim sparse-mode", "exit",
+    "ip pim rp-address 2.2.2.2", "ip route 1.1.1.1 255.255.255.255 10.12.0.1"]);
+  if (!supports(router("config"), "R1", "ip pim ")) skip("multicast", "no ip pim yet");
+  else {
+    check("ip pim without ip multicast-routing warns", () => {
+      const t = router("config");
+      t.run("R1", "interface g0/0");
+      has(t.run("R1", "ip pim sparse-mode"), 'WARNING: "ip multicast-routing" is not configured,\n         IP Multicast packets will not be forwarded');
+    });
+    check("show ip pim neighbor", () => {
+      const out = mcPair().run("R1", "show ip pim neighbor");
+      has(out, "PIM Neighbor Table\nMode: B - Bidir Capable, DR - Designated Router, N - Default DR Priority,");
+      has(out, "Neighbor          Interface                Uptime/Expires    Ver   DR\nAddress                                                            Prio/Mode");
+      has(out, /^10\.12\.0\.2 +GigabitEthernet0\/0 +\d\d:\d\d:\d\d\/\d\d:\d\d:\d\d v2 +1 \/ DR S P G$/m);
+    });
+    check("PIM neighbour UP is logged", () => {
+      const t = lab([R("R1"), R("R2")], [["R1", G(0), "R2", G(0)]]);
+      t.conf("R2", "ip multicast-routing", "interface g0/0", "ip address 10.12.0.2 255.255.255.0", "ip pim sparse-mode", "no shutdown");
+      const out = t.conf("R1", "ip multicast-routing", "interface g0/0", "ip address 10.12.0.1 255.255.255.0", "ip pim sparse-mode", "no shutdown");
+      has(out, "%PIM-5-NBRCHG: neighbor 10.12.0.2 UP on interface GigabitEthernet0/0");
+    });
+    check("show ip pim interface", () => {
+      const out = mcPair().run("R1", "show ip pim interface");
+      has(out, "Address          Interface                Ver/   Nbr    Query  DR         DR\n                                          Mode   Count  Intvl  Prior");
+      has(out, /^10\.12\.0\.1 +GigabitEthernet0\/0 +v2\/S +1 +30 +1 +10\.12\.0\.2$/m);
+    });
+    check("show ip igmp groups lists a join-group", () => {
+      const out = mcPair().run("R1", "show ip igmp groups");
+      has(out, "IGMP Connected Group Membership\nGroup Address    Interface                Uptime    Expires   Last Reporter   Group Accounted");
+      has(out, /^239\.1\.1\.1 +Loopback0 +\d\d:\d\d:\d\d +\d\d:\d\d:\d\d +1\.1\.1\.1/m);
+    });
+    check("show ip pim rp mapping for a static RP", () => {
+      has(mcPair().run("R1", "show ip pim rp mapping"), "PIM Group-to-RP Mappings\n\nGroup(s): 224.0.0.0/4, Static\n    RP: 2.2.2.2 (?)");
+    });
+    check("show ip mroute: last-hop (*,G) with a local join", () => {
+      const out = mcPair().run("R1", "show ip mroute");
+      has(out, "IP Multicast Routing Table\nFlags: D - Dense, S - Sparse, B - Bidir Group, s - SSM Group, C - Connected,");
+      has(out, "Outgoing interface flags: H - Hardware switched, A - Assert winner, p - PIM Join");
+      has(out, /\(\*, 239\.1\.1\.1\), \d\d:\d\d:\d\d\/\d\d:\d\d:\d\d, RP 2\.2\.2\.2, flags: SJCL\n  Incoming interface: GigabitEthernet0\/0, RPF nbr 10\.12\.0\.2\n  Outgoing interface list:\n    Loopback0, Forward\/Sparse, \d\d:\d\d:\d\d\/\d\d:\d\d:\d\d/);
+    });
+    check("show ip mroute: the RP's (*,G) has a Null incoming interface", () => {
+      has(mcPair().run("R2", "show ip mroute 239.1.1.1"),
+        /\(\*, 239\.1\.1\.1\), \S+, RP 2\.2\.2\.2, flags: S\n  Incoming interface: Null, RPF nbr 0\.0\.0\.0\n  Outgoing interface list:\n    GigabitEthernet0\/0, Forward\/Sparse, /);
+    });
+    check("ping to a group: replies per receiver, one request by default", () => {
+      const out = mcPair().run("R2", "ping 239.1.1.1");
+      has(out, "Sending 1, 100-byte ICMP Echos to 239.1.1.1, timeout is 2 seconds:");
+      has(out, /\n\nReply to request 0 from 10\.12\.0\.1, \d+ ms/);
+    });
+    check("show ip rpf", () => {
+      has(mcPair().run("R1", "show ip rpf 2.2.2.2"),
+        "RPF information for ? (2.2.2.2)\n  RPF interface: GigabitEthernet0/0\n  RPF neighbor: ? (10.12.0.2)\n  RPF route/mask: 2.2.2.2/32\n  RPF type: unicast (static)");
+    });
+    check("show ip rpf with no route", () => has(mcPair().run("R1", "show ip rpf 9.9.9.9"), "RPF information for ? (9.9.9.9) failed, no route exists"));
+    check("running-config: multicast-routing, interface PIM and the RP", () => {
+      const run = mcPair().run("R1", "show running-config");
+      has(run, /^ip multicast-routing$/m);
+      has(run, /^interface Loopback0\n ip address 1\.1\.1\.1 255\.255\.255\.255\n ip pim sparse-mode\n ip igmp join-group 239\.1\.1\.1$/m);
+      has(run, /^ip pim rp-address 2\.2\.2\.2$/m);
+    });
+    check("show ip igmp snooping groups header", () => {
+      const t = lab([S("SW1")]);
+      t.run("SW1", "enable");
+      has(t.run("SW1", "show ip igmp snooping groups"), "Vlan      Group                    Type        Version     Port List");
+    });
+  }
+}
+
 // ---------------------------------------------------------------- report
 for (const [name, why] of failures) console.error("FAIL: " + name + "\n  " + why.split("\n").join("\n  "));
 if (process.env.VERBOSE) {

@@ -12958,6 +12958,766 @@
   }
  },
  {
+  "id": "mcast-pim-sm",
+  "title": "Multicast: PIM sparse mode with a static RP",
+  "topic": "Multicast",
+  "minutes": 30,
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "summary": "Turn on multicast routing and PIM sparse mode, point every router at a rendezvous point, join a group from a PC and watch the shared tree turn into a source tree.",
+  "intro": "Unicast routing sends a packet **to** someone. Multicast routing sends one stream **toward everyone who asked for it**, and the routers build the delivery tree backwards, from the receivers toward the source.\n\n- **IGMP** is how a host tells its router *I want group 239.1.1.1*. It runs on any interface with PIM enabled.\n- **PIM sparse mode** builds a **shared tree** first: the last-hop router sends a `(*,G)` join hop by hop toward the **rendezvous point (RP)**. The source's first-hop router *registers* its packets to the RP, which sends them down the shared tree.\n- After the first packet the last-hop router joins the **source tree** `(S,G)` directly toward the source (the *SPT switchover*). Every join follows the **RPF** interface: the one the router would use to reach the RP or source in its unicast table.\n\nR1's Loopback1 (10.1.1.1) stands in for the video server, R2's Loopback0 (2.2.2.2) will be the RP, and PC3 is the viewer. OSPF already runs everywhere.\n\n| Device | Address | Role |\n|---|---|---|\n| R1 Loopback1 | 10.1.1.1/24 | Source (first-hop router) |\n| R2 Loopback0 | 2.2.2.2/32 | Rendezvous point |\n| R3 G0/1 | 10.1.3.3/24 | Receivers' LAN (last-hop router) |\n| PC3 / PC4 | 10.1.3.10 / 10.1.3.11 | PC3 joins the group; PC4 doesn't |\n\nVPCS has no IGMP, so NetLab adds one command to the PCs: `mcast join GROUP` (and `mcast leave GROUP`).\n\nUseful: `show ip pim neighbor`, `show ip pim rp mapping`, `show ip igmp groups`, `show ip mroute`, `show ip rpf`.",
+  "height": 450,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 110,
+    "y": 130
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 330,
+    "y": 130
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 550,
+    "y": 130
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 550,
+    "y": 270
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 440,
+    "y": 390
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 660,
+    "y": 390
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "SW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC3",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC4",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 10.1.12.1 255.255.255.0",
+    " no shutdown",
+    "interface loopback1",
+    " ip address 10.1.1.1 255.255.255.0",
+    " ip ospf network point-to-point",
+    "router ospf 1",
+    " router-id 1.1.1.1",
+    " network 10.1.0.0 0.0.255.255 area 0"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.1.12.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.1.23.2 255.255.255.0",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 2.2.2.2 255.255.255.255",
+    "router ospf 1",
+    " router-id 2.2.2.2",
+    " network 10.1.0.0 0.0.255.255 area 0",
+    " network 2.2.2.2 0.0.0.0 area 0"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    " ip address 10.1.23.3 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.1.3.3 255.255.255.0",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 3.3.3.3 255.255.255.255",
+    "router ospf 1",
+    " router-id 3.3.3.3",
+    " passive-interface g0/1",
+    " network 10.1.0.0 0.0.255.255 area 0",
+    " network 3.3.3.3 0.0.0.0 area 0"
+   ],
+   "SW1": [
+    "hostname SW1"
+   ],
+   "PC3": [
+    "ip 10.1.3.10/24 10.1.3.3"
+   ],
+   "PC4": [
+    "ip 10.1.3.11/24 10.1.3.3"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Turn on multicast routing",
+    "text": "Enable multicast forwarding on **R1, R2 and R3**. Until then a router runs neither PIM nor multicast forwarding.",
+    "hint": "Global configuration: `ip multicast-routing` (IOS XE wants `ip multicast-routing distributed`).",
+    "checks": [
+     {
+      "type": "mc-routing",
+      "device": "R1"
+     },
+     {
+      "type": "mc-routing",
+      "device": "R2"
+     },
+     {
+      "type": "mc-routing",
+      "device": "R3"
+     }
+    ]
+   },
+   {
+    "title": "Run PIM sparse mode",
+    "text": "Enable `ip pim sparse-mode` on every router-to-router link and on R3's LAN (G0/1), so IGMP runs there too. `show ip pim neighbor` on R2 should list both R1 and R3.",
+    "hint": "On R1: G0/0. On R2: G0/0 and G0/1. On R3: G0/0 and G0/1. `interface range g0/0 - 1` saves typing.",
+    "checks": [
+     {
+      "type": "pim-nbr",
+      "device": "R2",
+      "neighbor": "10.1.12.1"
+     },
+     {
+      "type": "pim-nbr",
+      "device": "R2",
+      "neighbor": "10.1.23.3"
+     },
+     {
+      "type": "pim-dr",
+      "device": "R3",
+      "intf": "GigabitEthernet0/1",
+      "dr": "10.1.3.3"
+     }
+    ]
+   },
+   {
+    "title": "Point everyone at the RP",
+    "text": "Sparse mode needs a rendezvous point. Make **2.2.2.2** the RP for all groups, statically, on all three routers. `show ip pim rp mapping` should show it as *Static*.",
+    "hint": "`ip pim rp-address 2.2.2.2` on R1, R2 and R3. Every router must agree on the RP.",
+    "checks": [
+     {
+      "type": "rp-map",
+      "device": "R1",
+      "group": "239.1.1.1",
+      "rp": "2.2.2.2",
+      "via": "static"
+     },
+     {
+      "type": "rp-map",
+      "device": "R2",
+      "group": "239.1.1.1",
+      "rp": "2.2.2.2",
+      "via": "static"
+     },
+     {
+      "type": "rp-map",
+      "device": "R3",
+      "group": "239.1.1.1",
+      "rp": "2.2.2.2",
+      "via": "static"
+     }
+    ]
+   },
+   {
+    "title": "Join the group from PC3",
+    "text": "On PC3 run `mcast join 239.1.1.1`. R3 hears the IGMP report, and as the LAN's DR sends a `(*,G)` join toward the RP. Look at `show ip igmp groups` and `show ip mroute 239.1.1.1` on R3, then on R2.",
+    "hint": "R3's `(*, 239.1.1.1)` should have flags **SJC** and G0/1 in its outgoing list; R2's entry should forward out G0/1 toward R3.",
+    "checks": [
+     {
+      "type": "igmp-group",
+      "device": "R3",
+      "group": "239.1.1.1",
+      "intf": "GigabitEthernet0/1"
+     },
+     {
+      "type": "mroute",
+      "device": "R3",
+      "group": "239.1.1.1",
+      "flags": "SC",
+      "oil": "GigabitEthernet0/1"
+     },
+     {
+      "type": "mroute",
+      "device": "R2",
+      "group": "239.1.1.1",
+      "oil": "GigabitEthernet0/1"
+     }
+    ]
+   },
+   {
+    "title": "Stream to the group",
+    "text": "From R1 run `ping 239.1.1.1 repeat 3 source loopback1`. PC3 replies; PC4 never joined, so it doesn't. Then compare `show ip mroute 239.1.1.1` on R1 and R3: R1 has an `(S,G)` with the **F** (register) flag, and R3 has switched to the source tree (**T**).",
+    "hint": "`source` comes last on IOS's ping line. If nobody replies, check `show ip pim rp mapping` on R1 and `show ip mroute` on R2.",
+    "checks": [
+     {
+      "type": "mping",
+      "from": "R1",
+      "group": "239.1.1.1",
+      "source": "Loopback1",
+      "replies": [
+       "10.1.3.10"
+      ]
+     },
+     {
+      "type": "mroute",
+      "device": "R1",
+      "group": "239.1.1.1",
+      "source": "10.1.1.1",
+      "flags": "FT"
+     },
+     {
+      "type": "mroute",
+      "device": "R3",
+      "group": "239.1.1.1",
+      "source": "10.1.1.1",
+      "flags": "T"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "ip multicast-routing",
+    "interface range g0/0 - 1",
+    " ip pim sparse-mode",
+    "exit",
+    "ip pim rp-address 2.2.2.2"
+   ],
+   "R3": [
+    "ip multicast-routing",
+    "interface range g0/0 - 1",
+    " ip pim sparse-mode",
+    "exit",
+    "ip pim rp-address 2.2.2.2"
+   ],
+   "PC3": [
+    "mcast join 239.1.1.1"
+   ],
+   "R1": [
+    "ip multicast-routing",
+    "interface g0/0",
+    " ip pim sparse-mode",
+    "exit",
+    "ip pim rp-address 2.2.2.2",
+    "do ping 239.1.1.1 repeat 3 source loopback1"
+   ]
+  }
+ },
+ {
+  "id": "mcast-autorp",
+  "title": "Multicast: Auto-RP finds the RP for you",
+  "topic": "Multicast",
+  "minutes": 25,
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "summary": "Replace hand-typed RP addresses with Auto-RP: a candidate RP announces itself, a mapping agent picks the RP and tells every router.",
+  "intro": "A static RP works until you have fifty routers and need to move it. **Auto-RP** (Cisco) automates the mapping:\n\n1. A **candidate RP** sends *RP announcements* to group **224.0.1.39**.\n2. A **mapping agent** listens to 224.0.1.39, picks the RP for each group range (the highest address wins) and sends *RP discovery* messages to **224.0.1.40**.\n3. Every router listens to 224.0.1.40 and learns *group range → RP*.\n\nThe catch: those two groups are flooded in **dense mode**, and nobody knows the RP for them yet. On interfaces that run pure sparse mode they go nowhere, unless you add `ip pim autorp listener` (or run `sparse-dense-mode`).\n\nMulticast routing and PIM sparse mode already run on every link here, and PC3 has joined 239.2.2.2, but no router knows an RP, so the group goes nowhere. Make **R2 (2.2.2.2)** the candidate RP and **R3 (3.3.3.3)** the mapping agent.\n\nUseful: `show ip pim rp mapping`, `show ip mroute`, `show ip pim rp`.",
+  "height": 450,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 110,
+    "y": 130
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 330,
+    "y": 130
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 550,
+    "y": 130
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 550,
+    "y": 270
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 440,
+    "y": 390
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 660,
+    "y": 390
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "SW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC3",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC4",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 10.1.12.1 255.255.255.0",
+    " no shutdown",
+    "interface loopback1",
+    " ip address 10.1.1.1 255.255.255.0",
+    " ip ospf network point-to-point",
+    "router ospf 1",
+    " router-id 1.1.1.1",
+    " network 10.1.0.0 0.0.255.255 area 0",
+    "ip multicast-routing",
+    "interface g0/0",
+    " ip pim sparse-mode",
+    "interface loopback1",
+    " ip pim sparse-mode"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.1.12.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.1.23.2 255.255.255.0",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 2.2.2.2 255.255.255.255",
+    "router ospf 1",
+    " router-id 2.2.2.2",
+    " network 10.1.0.0 0.0.255.255 area 0",
+    " network 2.2.2.2 0.0.0.0 area 0",
+    "ip multicast-routing",
+    "interface g0/0",
+    " ip pim sparse-mode",
+    "interface g0/1",
+    " ip pim sparse-mode",
+    "interface loopback0",
+    " ip pim sparse-mode"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    " ip address 10.1.23.3 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.1.3.3 255.255.255.0",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 3.3.3.3 255.255.255.255",
+    "router ospf 1",
+    " router-id 3.3.3.3",
+    " passive-interface g0/1",
+    " network 10.1.0.0 0.0.255.255 area 0",
+    " network 3.3.3.3 0.0.0.0 area 0",
+    "ip multicast-routing",
+    "interface g0/0",
+    " ip pim sparse-mode",
+    "interface g0/1",
+    " ip pim sparse-mode",
+    "interface loopback0",
+    " ip pim sparse-mode"
+   ],
+   "SW1": [
+    "hostname SW1"
+   ],
+   "PC3": [
+    "ip 10.1.3.10/24 10.1.3.3",
+    "mcast join 239.2.2.2"
+   ],
+   "PC4": [
+    "ip 10.1.3.11/24 10.1.3.3"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Let Auto-RP cross sparse-mode links",
+    "text": "Auto-RP's own groups (224.0.1.39 and 224.0.1.40) need dense-mode flooding. Allow it on **R1, R2 and R3** without changing the interfaces' PIM mode.",
+    "hint": "`ip pim autorp listener` in global configuration on all three routers.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ip pim autorp listener$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ip pim autorp listener$"
+     },
+     {
+      "type": "config",
+      "device": "R3",
+      "match": "^ip pim autorp listener$"
+     }
+    ]
+   },
+   {
+    "title": "Announce R2 as a candidate RP",
+    "text": "Have R2 announce its Loopback0 as a candidate RP for all groups, with a TTL scope of 16 hops.",
+    "hint": "On R2: `ip pim send-rp-announce loopback0 scope 16`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ip pim send-rp-announce Loopback0 scope 16$"
+     }
+    ]
+   },
+   {
+    "title": "Make R3 the mapping agent",
+    "text": "Have R3 send RP discovery messages from its Loopback0 (scope 16). Every router should then learn 2.2.2.2 as the RP, *elected via Auto-RP*, in `show ip pim rp mapping`.",
+    "hint": "On R3: `ip pim send-rp-discovery loopback0 scope 16`. R3 must hear R2's announcements first, which is why task 1 matters.",
+    "checks": [
+     {
+      "type": "rp-map",
+      "device": "R1",
+      "group": "239.2.2.2",
+      "rp": "2.2.2.2",
+      "via": "autorp"
+     },
+     {
+      "type": "rp-map",
+      "device": "R2",
+      "group": "239.2.2.2",
+      "rp": "2.2.2.2",
+      "via": "autorp"
+     },
+     {
+      "type": "rp-map",
+      "device": "R3",
+      "group": "239.2.2.2",
+      "rp": "2.2.2.2",
+      "via": "autorp"
+     }
+    ]
+   },
+   {
+    "title": "Stream to the group",
+    "text": "R3 can now join the shared tree toward the RP it learned. From R1 run `ping 239.2.2.2 source loopback1` and get PC3's reply.",
+    "hint": "`show ip mroute 239.2.2.2` on R3 shows RP 2.2.2.2 and flags **SJC** once the mapping is in place.",
+    "checks": [
+     {
+      "type": "mroute",
+      "device": "R3",
+      "group": "239.2.2.2",
+      "flags": "SC"
+     },
+     {
+      "type": "mping",
+      "from": "R1",
+      "group": "239.2.2.2",
+      "source": "Loopback1",
+      "replies": [
+       "10.1.3.10"
+      ]
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "ip pim autorp listener"
+   ],
+   "R2": [
+    "ip pim autorp listener",
+    "ip pim send-rp-announce loopback0 scope 16"
+   ],
+   "R3": [
+    "ip pim autorp listener",
+    "ip pim send-rp-discovery loopback0 scope 16"
+   ]
+  }
+ },
+ {
+  "id": "mcast-ticket",
+  "title": "Ticket: the multicast stream never arrives",
+  "topic": "Multicast",
+  "minutes": 35,
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "summary": "Three faults stand between the source and the viewer: IGMP isn't running, an RPF check fails, and one router has the wrong RP.",
+  "intro": "> **Ticket #4471** — *The training video on 239.10.10.10 plays fine in the head office but the branch (PC3) sees nothing. PC3 has definitely joined the group.*\n\nR1's Loopback1 (10.1.1.1) is the source, R2's Loopback0 (2.2.2.2) is the RP, PC3 sits behind R3. The R1–R3 link is a cheap backup circuit that only carries unicast: OSPF prefers it, so the R2–R3 link has a higher cost, and that must stay that way.\n\n| Link | Network | PIM? |\n|---|---|---|\n| R1 – R2 | 10.1.12.0/24 | yes |\n| R2 – R3 | 10.1.23.0/24 | yes (OSPF cost 100) |\n| R1 – R3 | 10.1.13.0/24 | no (unicast only) |\n| R3 LAN | 10.1.3.0/24 | — |\n\nWork from the receiver toward the source. Useful: `show ip igmp interface`, `show ip igmp groups`, `show ip rpf`, `show ip pim neighbor`, `show ip pim rp mapping`, `show ip mroute`.",
+  "height": 470,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 130,
+    "y": 200
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 400,
+    "y": 80
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 670,
+    "y": 200
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 670,
+    "y": 320
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 670,
+    "y": 420
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "SW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "ip multicast-routing",
+    "interface g0/0",
+    " ip address 10.1.12.1 255.255.255.0",
+    " ip pim sparse-mode",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.1.13.1 255.255.255.0",
+    " no shutdown",
+    "interface loopback1",
+    " ip address 10.1.1.1 255.255.255.0",
+    " ip ospf network point-to-point",
+    "router ospf 1",
+    " router-id 1.1.1.1",
+    " network 10.1.0.0 0.0.255.255 area 0",
+    "ip pim rp-address 2.2.2.22"
+   ],
+   "R2": [
+    "hostname R2",
+    "ip multicast-routing",
+    "interface g0/0",
+    " ip address 10.1.12.2 255.255.255.0",
+    " ip pim sparse-mode",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.1.23.2 255.255.255.0",
+    " ip pim sparse-mode",
+    " ip ospf cost 100",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 2.2.2.2 255.255.255.255",
+    "router ospf 1",
+    " router-id 2.2.2.2",
+    " network 10.1.0.0 0.0.255.255 area 0",
+    " network 2.2.2.2 0.0.0.0 area 0",
+    "ip pim rp-address 2.2.2.2"
+   ],
+   "R3": [
+    "hostname R3",
+    "ip multicast-routing",
+    "interface g0/0",
+    " ip address 10.1.23.3 255.255.255.0",
+    " ip pim sparse-mode",
+    " ip ospf cost 100",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.1.3.3 255.255.255.0",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 10.1.13.3 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 3.3.3.3",
+    " passive-interface g0/1",
+    " network 10.1.0.0 0.0.255.255 area 0",
+    "ip pim rp-address 2.2.2.2"
+   ],
+   "SW1": [
+    "hostname SW1"
+   ],
+   "PC3": [
+    "ip 10.1.3.10/24 10.1.3.3",
+    "mcast join 239.10.10.10"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "R3 never hears PC3's join",
+    "text": "PC3 has joined 239.10.10.10, yet `show ip igmp groups` on R3 is empty. Make R3 learn the membership on G0/1.",
+    "hint": "IGMP runs on interfaces where PIM runs. `show ip igmp interface g0/1` on R3 says *IGMP is disabled on interface*.",
+    "checks": [
+     {
+      "type": "igmp-group",
+      "device": "R3",
+      "group": "239.10.10.10",
+      "intf": "GigabitEthernet0/1"
+     }
+    ]
+   },
+   {
+    "title": "R3's join can't reach the RP",
+    "text": "Now R3 has a `(*,G)` entry, but the RP (R2) never sees the join. Compare `show ip rpf 2.2.2.2` with `show ip pim neighbor` on R3. Fix it **without** changing unicast routing: R3 must keep reaching 2.2.2.2 through R1.",
+    "hint": "R3's RPF interface toward the RP is G0/2, which doesn't run PIM, so the join is never sent. A static mroute (`ip mroute 2.2.2.2 255.255.255.255 10.1.23.2`) overrides the RPF interface for multicast only. Running PIM on the R1–R3 link also works.",
+    "checks": [
+     {
+      "type": "mroute",
+      "device": "R2",
+      "group": "239.10.10.10"
+     },
+     {
+      "type": "route",
+      "device": "R3",
+      "prefix": "2.2.2.2/32",
+      "via": "10.1.13.1"
+     }
+    ]
+   },
+   {
+    "title": "The source's router has the wrong RP",
+    "text": "R1 is the source's first-hop router, so it registers the stream to the RP. Make R1 agree with everyone else on the RP.",
+    "hint": "`show ip pim rp mapping` on R1 shows 2.2.2.22. Remove it and configure `ip pim rp-address 2.2.2.2`.",
+    "checks": [
+     {
+      "type": "rp-map",
+      "device": "R1",
+      "group": "239.10.10.10",
+      "rp": "2.2.2.2"
+     }
+    ]
+   },
+   {
+    "title": "The stream reaches the branch",
+    "text": "From R1 run `ping 239.10.10.10 source loopback1`. PC3 should reply.",
+    "hint": "If nothing comes back, walk the path again: IGMP on R3, the (*,G) on R2, and the RP mapping on R1.",
+    "checks": [
+     {
+      "type": "mping",
+      "from": "R1",
+      "group": "239.10.10.10",
+      "source": "Loopback1",
+      "replies": [
+       "10.1.3.10"
+      ]
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R3": [
+    "interface g0/1",
+    " ip pim sparse-mode",
+    "exit",
+    "ip mroute 2.2.2.2 255.255.255.255 10.1.23.2"
+   ],
+   "R1": [
+    "no ip pim rp-address 2.2.2.22",
+    "ip pim rp-address 2.2.2.2"
+   ]
+  }
+ },
+ {
   "id": "sandbox",
   "title": "Sandbox",
   "topic": "Free play",
