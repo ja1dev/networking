@@ -379,10 +379,10 @@ function svgBox(spec, label) {
 }
 
 // Wide drawings keep a legible minimum width on phones and scroll sideways inside their box.
-function fitWidth(wrap, svg, minScale = 0.62) {
+function fitWidth(wrap, svg, minScale = 0.62, maxScale = 1.15) {
   const w = +svg.dataset.width;
   if (w) svg.style.minWidth = Math.round(w * minScale) + "px";
-  svg.style.maxWidth = Math.round(w * 1.15) + "px";
+  svg.style.maxWidth = Math.round(w * maxScale) + "px";
 }
 
 // ---------------------------------------------------------------- kinds
@@ -517,7 +517,7 @@ function mountSequence(fig, spec) {
     if (m.detail) svgEl("text", { x: mx, y: y + 16, class: "dg-msg-detail" }, g).textContent = m.detail;
     return g;
   });
-  fitWidth(wrap, svg, 0.7);
+  fitWidth(wrap, svg, 0.7, 1);  // a ladder is tall already; never blow it up
   fig.append(wrap);
   const caption = h("div", { class: "dg-step", "aria-live": "polite" });
   const go = (i) => {
