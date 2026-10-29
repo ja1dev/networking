@@ -194,7 +194,9 @@ function drawTopology(svg, spec, onPick) {
     }
     const badge = svgEl("g", { class: "dg-badge", transform: `translate(${WIDTH[kind] + 4} ${-SIZE[kind] - 4})` }, g);
     const span = Math.max(name.textContent.length * 8.4, (n.sub || "").length * 6.8, WIDTH[kind] * 2) / 2 + 6;
-    grow(x - span, y - SIZE[kind] - 24, x + span + 26, y + below + 8);
+    // Leave room on the right for the longest badge any step (or the path widget) hangs on this node.
+    const longest = Math.max(4, ...(spec.steps || []).map((st) => st.nodes?.[n.id]?.badge?.length || 0));
+    grow(x - span, y - SIZE[kind] - 24, Math.max(x + span, x + WIDTH[kind] + 4 + Math.max(22, longest * 7.2 + 12)) + 4, y + below + 8);
     if (n.info) {
       g.classList.add("has-info");
       g.setAttribute("tabindex", 0);
@@ -426,7 +428,10 @@ function mountSequence(fig, spec) {
   const SEQ_COL = Math.round(Math.min(340, Math.max(170, need + 34)));
   const left = Math.max(100, SEQ_COL / 2);
   const col = Object.fromEntries(spec.actors.map((a, i) => [a.id, left + i * SEQ_COL]));
-  const width = 2 * left + (spec.actors.length - 1) * SEQ_COL;
+  // A self-message's label runs to the right of its actor, so the last column may need more room.
+  const selfReach = Math.max(0, ...spec.messages.filter((m) => !m.note && m.from === m.to).map((m) =>
+    spec.actors.findIndex((a) => a.id === m.from) * SEQ_COL + 54 + Math.max(m.label.length * 7.8, (m.detail || "").length * 6.8)));
+  const width = Math.max(2 * left + (spec.actors.length - 1) * SEQ_COL, left + selfReach + 16);
   const height = top + spec.messages.length * SEQ_ROW + 20;
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.dataset.width = width;
