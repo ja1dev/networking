@@ -5561,6 +5561,2631 @@
   }
  },
  {
+  "id": "vrf-lite",
+  "title": "VRF-lite: two customers, one network",
+  "topic": "VRF-lite",
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "minutes": 25,
+  "summary": "Split two routers into RED and BLUE routing tables, carry both over one cable with subinterfaces, run OSPF per VRF, and prove overlapping addresses stay separate.",
+  "intro": "Two customers, RED and BLUE, share your two routers. Both chose **the same addresses** (`10.1.1.0/24` at site 1, `10.2.2.0/24` at site 2), and neither may ever reach the other. One global routing table can't hold two `10.1.1.0/24` networks, so you give each customer its own: a **VRF** (VPN routing and forwarding instance). An interface belongs to exactly one VRF, and a packet that arrives on it is routed only with that VRF's table. This is **VRF-lite**: VRFs without MPLS, carried hop by hop.\n\nWhy it matters: VRFs are how one box serves many tenants (guest Wi-Fi vs corporate, management vs data, customers on a provider edge). The exam expects you to read `show ip route vrf X`, know that `ping` and `traceroute` need `vrf X`, and know that putting an interface into a VRF **removes its IP address** (IOS warns you).\n\n| Link | RED | BLUE |\n|---|---|---|\n| Site 1 LAN (R1) | Gi0/0, 10.1.1.1/24 | Gi0/1, 10.1.1.1/24 |\n| R1 to R2 (Gi0/2) | Gi0/2.10, VLAN 10, 10.0.12.0/30 | Gi0/2.20, VLAN 20, 10.0.12.0/30 |\n| Site 2 LAN (R2) | Gi0/0, 10.2.2.1/24 | Gi0/1, 10.2.2.1/24 |\n\nHosts: PC-A1 and PC-B1 are both `10.1.1.10`. PC-A2 is `10.2.2.10` (RED), PC-B2 is `10.2.2.20` (BLUE).",
+  "height": 420,
+  "devices": [
+   {
+    "name": "PCA1",
+    "type": "pc",
+    "x": 90,
+    "y": 90
+   },
+   {
+    "name": "PCB1",
+    "type": "pc",
+    "x": 90,
+    "y": 330
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 280,
+    "y": 210
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 520,
+    "y": 210
+   },
+   {
+    "name": "PCA2",
+    "type": "pc",
+    "x": 710,
+    "y": 90
+   },
+   {
+    "name": "PCB2",
+    "type": "pc",
+    "x": 710,
+    "y": 330
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "PCA1",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "PCB1",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "R2",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "PCA2",
+    "eth0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "PCB2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "no shutdown",
+    "interface g0/1",
+    "no shutdown",
+    "interface g0/2",
+    "no shutdown",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "no shutdown",
+    "interface g0/1",
+    "no shutdown",
+    "interface g0/2",
+    "no shutdown",
+    "end"
+   ],
+   "PCA1": [
+    "ip 10.1.1.10/24 10.1.1.1"
+   ],
+   "PCB1": [
+    "ip 10.1.1.10/24 10.1.1.1"
+   ],
+   "PCA2": [
+    "ip 10.2.2.10/24 10.2.2.1"
+   ],
+   "PCB2": [
+    "ip 10.2.2.20/24 10.2.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Create the two VRFs",
+    "text": "On **both** routers define `RED` with route distinguisher `65000:1` and `BLUE` with `65000:2`, each with the IPv4 address family. The RD only labels routes; with VRF-lite it never leaves the box, but IOS wants one.",
+    "hint": "`vrf definition RED`, `rd 65000:1`, `address-family ipv4`, `exit-address-family`. Same again for BLUE. Check with `show vrf`.",
+    "checks": [
+     {
+      "type": "vrf",
+      "device": "R1",
+      "vrf": "RED",
+      "rd": "65000:1",
+      "ipv4": true
+     },
+     {
+      "type": "vrf",
+      "device": "R1",
+      "vrf": "BLUE",
+      "rd": "65000:2",
+      "ipv4": true
+     },
+     {
+      "type": "vrf",
+      "device": "R2",
+      "vrf": "RED",
+      "rd": "65000:1",
+      "ipv4": true
+     },
+     {
+      "type": "vrf",
+      "device": "R2",
+      "vrf": "BLUE",
+      "rd": "65000:2",
+      "ipv4": true
+     }
+    ]
+   },
+   {
+    "title": "Put the customer LANs in their VRFs",
+    "text": "R1 Gi0/0 and R2 Gi0/0 belong to RED; R1 Gi0/1 and R2 Gi0/1 belong to BLUE. Give each the gateway address from the table. Notice that R1 accepts `10.1.1.1/24` **twice**: each VRF is its own address space. Each PC should then reach its gateway.",
+    "hint": "`interface g0/0`, `vrf forwarding RED`, then `ip address 10.1.1.1 255.255.255.0`. Order matters: `vrf forwarding` wipes the address.",
+    "checks": [
+     {
+      "type": "vrf-if",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "vrf": "RED"
+     },
+     {
+      "type": "vrf-if",
+      "device": "R1",
+      "intf": "Gi0/1",
+      "vrf": "BLUE"
+     },
+     {
+      "type": "vrf-if",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "vrf": "RED"
+     },
+     {
+      "type": "vrf-if",
+      "device": "R2",
+      "intf": "Gi0/1",
+      "vrf": "BLUE"
+     },
+     {
+      "type": "ifip",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "ip": "10.1.1.1/24"
+     },
+     {
+      "type": "ifip",
+      "device": "R1",
+      "intf": "Gi0/1",
+      "ip": "10.1.1.1/24"
+     },
+     {
+      "type": "ifip",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "ip": "10.2.2.1/24"
+     },
+     {
+      "type": "ifip",
+      "device": "R2",
+      "intf": "Gi0/1",
+      "ip": "10.2.2.1/24"
+     },
+     {
+      "type": "ping",
+      "from": "PCA1",
+      "to": "10.1.1.1"
+     },
+     {
+      "type": "ping",
+      "from": "PCB1",
+      "to": "10.1.1.1"
+     },
+     {
+      "type": "ping",
+      "from": "PCA2",
+      "to": "10.2.2.1"
+     },
+     {
+      "type": "ping",
+      "from": "PCB2",
+      "to": "10.2.2.1"
+     }
+    ]
+   },
+   {
+    "title": "One cable, two VRFs",
+    "text": "The R1-R2 cable has to carry both customers. Split Gi0/2 into subinterfaces: `.10` (802.1Q VLAN 10) in RED and `.20` (VLAN 20) in BLUE, both using `10.0.12.0/30` (R1 is .1, R2 is .2). A plain `ping 10.0.12.2` fails: R1's global table has no such network. Try `ping vrf RED 10.0.12.2`.",
+    "hint": "`interface g0/2.10`, `encapsulation dot1Q 10`, `vrf forwarding RED`, `ip address 10.0.12.1 255.255.255.252`.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "R1",
+      "to": "10.0.12.2",
+      "vrf": "RED"
+     },
+     {
+      "type": "ping",
+      "from": "R1",
+      "to": "10.0.12.2",
+      "vrf": "BLUE"
+     }
+    ]
+   },
+   {
+    "title": "Route inside each VRF",
+    "text": "Run one OSPF process per VRF on both routers: process 10 for RED, 20 for BLUE, every `10.x` interface in area 0. Then `show ip route vrf RED` on R1 should list R2's `10.2.2.0/24`, while the global `show ip route` stays empty.",
+    "hint": "`router ospf 10 vrf RED`, `network 10.0.0.0 0.255.255.255 area 0`; `router ospf 20 vrf BLUE` the same way.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R1",
+      "vrf": "RED",
+      "prefix": "10.2.2.0/24",
+      "code": "O"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "vrf": "BLUE",
+      "prefix": "10.2.2.0/24",
+      "code": "O"
+     },
+     {
+      "type": "route",
+      "device": "R2",
+      "vrf": "RED",
+      "prefix": "10.1.1.0/24",
+      "code": "O"
+     },
+     {
+      "type": "route",
+      "device": "R2",
+      "vrf": "BLUE",
+      "prefix": "10.1.1.0/24",
+      "code": "O"
+     },
+     {
+      "type": "noroute",
+      "device": "R1",
+      "prefix": "10.2.2.0/24"
+     }
+    ]
+   },
+   {
+    "title": "Same addresses, separate customers",
+    "text": "PC-A1 reaches PC-A2 and PC-B1 reaches PC-B2, but neither can reach the other customer's host even though the addresses look reachable.",
+    "hint": "If a ping fails, check the VRF of every interface on the path with `show ip vrf interfaces`.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PCA1",
+      "to": "10.2.2.10"
+     },
+     {
+      "type": "ping",
+      "from": "PCB1",
+      "to": "10.2.2.20"
+     },
+     {
+      "type": "noping",
+      "from": "PCA1",
+      "to": "10.2.2.20"
+     },
+     {
+      "type": "noping",
+      "from": "PCB1",
+      "to": "10.2.2.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "vrf definition RED",
+    "rd 65000:1",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "vrf definition BLUE",
+    "rd 65000:2",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "interface g0/0",
+    "vrf forwarding RED",
+    "ip address 10.1.1.1 255.255.255.0",
+    "interface g0/1",
+    "vrf forwarding BLUE",
+    "ip address 10.1.1.1 255.255.255.0",
+    "interface g0/2.10",
+    "encapsulation dot1Q 10",
+    "vrf forwarding RED",
+    "ip address 10.0.12.1 255.255.255.252",
+    "interface g0/2.20",
+    "encapsulation dot1Q 20",
+    "vrf forwarding BLUE",
+    "ip address 10.0.12.1 255.255.255.252",
+    "router ospf 10 vrf RED",
+    "network 10.0.0.0 0.255.255.255 area 0",
+    "router ospf 20 vrf BLUE",
+    "network 10.0.0.0 0.255.255.255 area 0",
+    "end"
+   ],
+   "R2": [
+    "vrf definition RED",
+    "rd 65000:1",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "vrf definition BLUE",
+    "rd 65000:2",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "interface g0/0",
+    "vrf forwarding RED",
+    "ip address 10.2.2.1 255.255.255.0",
+    "interface g0/1",
+    "vrf forwarding BLUE",
+    "ip address 10.2.2.1 255.255.255.0",
+    "interface g0/2.10",
+    "encapsulation dot1Q 10",
+    "vrf forwarding RED",
+    "ip address 10.0.12.2 255.255.255.252",
+    "interface g0/2.20",
+    "encapsulation dot1Q 20",
+    "vrf forwarding BLUE",
+    "ip address 10.0.12.2 255.255.255.252",
+    "router ospf 10 vrf RED",
+    "network 10.0.0.0 0.255.255.255 area 0",
+    "router ospf 20 vrf BLUE",
+    "network 10.0.0.0 0.255.255.255 area 0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "gre-tunnel",
+  "title": "GRE tunnel, OSPF over it, and recursive routing",
+  "topic": "GRE tunnels",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "minutes": 25,
+  "summary": "Build a point-to-point GRE tunnel over the internet, run OSPF across it, and fix the recursive routing that takes it down.",
+  "intro": "HQ and Branch only share the internet, which won't carry private addresses or routing protocol multicast. A **GRE tunnel** wraps any packet in a new IP header addressed between the two public interfaces, so the two routers see a virtual point-to-point link between them (`172.16.0.0/30`) and can run OSPF over it as if they were cabled together.\n\nA tunnel comes up when its **source** interface is up and its **destination** is routable. The classic failure is **recursive routing**: if the router learns the route to the tunnel destination *through the tunnel itself*, IOS logs `%TUN-5-RECURDOWN` and drops the tunnel. R2 here already runs OSPF with a lazy `network 0.0.0.0 255.255.255.255 area 0`, so it will advertise its public subnet into the tunnel.\n\n| Device | LAN (Gi0/0) | Internet (Gi0/1) | Default route |\n|---|---|---|---|\n| R1 (HQ) | 192.168.1.1/24 | 203.0.113.1/30 | 203.0.113.2 |\n| R2 (Branch) | 192.168.2.1/24 | 198.51.100.1/30 | 198.51.100.2 |\n\nThe ISP only knows the public `/30`s: it has no route to either `192.168.x.0/24`, so the LANs can't talk until you build the VPN.\n\nGRE adds 24 bytes, so the tunnel's IP MTU should be lowered (1400) and TCP's MSS clamped (1360) to avoid fragmentation.",
+  "height": 400,
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 320
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 190
+   },
+   {
+    "name": "ISP",
+    "type": "router",
+    "x": 400,
+    "y": 90
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 190
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 710,
+    "y": 320
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "ISP": [
+    "hostname ISP",
+    "interface g0/0",
+    "ip address 203.0.113.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.2 255.255.255.252",
+    "no shutdown",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 203.0.113.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 203.0.113.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 198.51.100.2",
+    "router ospf 1",
+    "network 0.0.0.0 255.255.255.255 area 0",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Build the tunnel",
+    "text": "Create `Tunnel0` on both routers: R1 is `172.16.0.1/30`, R2 is `172.16.0.2/30`. Source each from Gi0/1 and point it at the other router's public address. Both tunnels should be up/up and R1 should ping `172.16.0.2`.",
+    "hint": "`interface tunnel 0`, `ip address 172.16.0.1 255.255.255.252`, `tunnel source g0/1`, `tunnel destination 198.51.100.1`. Check with `show interfaces tunnel 0`.",
+    "checks": [
+     {
+      "type": "tunnel",
+      "device": "R1",
+      "intf": "Tunnel0",
+      "state": "up"
+     },
+     {
+      "type": "tunnel",
+      "device": "R2",
+      "intf": "Tunnel0",
+      "state": "up"
+     },
+     {
+      "type": "ping",
+      "from": "R1",
+      "to": "172.16.0.2"
+     }
+    ]
+   },
+   {
+    "title": "Run OSPF over the tunnel",
+    "text": "On R1, start OSPF process 1 with the HQ LAN and the tunnel in area 0. The neighbour comes up on Tunnel0 (as a point-to-point network, cost 1000) and R1 learns `192.168.2.0/24` via `172.16.0.2`. Then watch R1's console: something goes wrong.",
+    "hint": "`router ospf 1`, `network 192.168.1.0 0.0.0.255 area 0`, `network 172.16.0.0 0.0.0.3 area 0`. `show ip ospf neighbor`, `show ip route ospf`.",
+    "checks": [
+     {
+      "type": "ospf-nbr",
+      "device": "R1",
+      "neighbor": "198.51.100.1"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.2.0/24",
+      "code": "O",
+      "via": "172.16.0.2"
+     }
+    ]
+   },
+   {
+    "title": "Stop the recursive routing",
+    "text": "R2's `network 0.0.0.0 255.255.255.255` puts its public `198.51.100.0/30` into OSPF. R1 learns that more specific route over the tunnel, so the way to the tunnel's own destination is now *through* the tunnel: `%TUN-5-RECURDOWN`. Advertise only the Branch LAN and the tunnel on R2.",
+    "hint": "On R2: `router ospf 1`, `no network 0.0.0.0 255.255.255.255 area 0`, then the two specific `network` statements. `show interfaces tunnel 0 | include linestate`.",
+    "checks": [
+     {
+      "type": "noroute",
+      "device": "R1",
+      "prefix": "198.51.100.0/30",
+      "code": "O"
+     },
+     {
+      "type": "tunnel",
+      "device": "R1",
+      "intf": "Tunnel0",
+      "state": "up"
+     },
+     {
+      "type": "ospf-nbr",
+      "device": "R2",
+      "neighbor": "203.0.113.1"
+     }
+    ]
+   },
+   {
+    "title": "Make room for the GRE header",
+    "text": "Set `ip mtu 1400` and `ip tcp adjust-mss 1360` on both tunnel interfaces, then confirm PC1 reaches PC2 through the tunnel (a traceroute shows the `172.16.0.2` hop).",
+    "hint": "Both commands go under `interface tunnel 0`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip mtu 1400$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip tcp adjust-mss 1360$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip mtu 1400$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip tcp adjust-mss 1360$"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.2.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "interface tunnel 0",
+    "ip address 172.16.0.1 255.255.255.252",
+    "ip mtu 1400",
+    "ip tcp adjust-mss 1360",
+    "tunnel source g0/1",
+    "tunnel destination 198.51.100.1",
+    "router ospf 1",
+    "network 192.168.1.0 0.0.0.255 area 0",
+    "network 172.16.0.0 0.0.0.3 area 0",
+    "end"
+   ],
+   "R2": [
+    "interface tunnel 0",
+    "ip address 172.16.0.2 255.255.255.252",
+    "ip mtu 1400",
+    "ip tcp adjust-mss 1360",
+    "tunnel source g0/1",
+    "tunnel destination 203.0.113.1",
+    "router ospf 1",
+    "no network 0.0.0.0 255.255.255.255 area 0",
+    "network 192.168.2.0 0.0.0.255 area 0",
+    "network 172.16.0.0 0.0.0.3 area 0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ipsec-site-to-site",
+  "title": "Site-to-site IPsec with a crypto map",
+  "topic": "IPsec VPN",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "minutes": 25,
+  "summary": "Encrypt LAN-to-LAN traffic over the internet: ISAKMP policy and pre-shared key, transform set, mirrored crypto ACLs and a crypto map.",
+  "intro": "A crypto map turns the internet link into a VPN without any tunnel interface. Traffic that its ACL calls **interesting** is encrypted (ESP) and sent to the peer's public address; everything else leaves in the clear.\n\nNegotiation happens in two phases, and both ends must agree on each:\n\n1. **IKE phase 1 (ISAKMP)** builds a secure channel: an ISAKMP **policy** in common (encryption, hash, authentication, DH group) and the same **pre-shared key** configured for each other's address. It needs UDP 500 between the peers.\n2. **IKE phase 2 (IPsec)** agrees on a **transform set** (how the data is protected) and on the traffic to protect. The crypto ACLs must be **mirror images**: R1 protects 192.168.1.0 to 192.168.2.0, R2 protects 192.168.2.0 to 192.168.1.0.\n\n| Device | LAN (Gi0/0) | Internet (Gi0/1) | Default route |\n|---|---|---|---|\n| R1 (HQ) | 192.168.1.1/24 | 203.0.113.1/30 | 203.0.113.2 |\n| R2 (Branch) | 192.168.2.1/24 | 198.51.100.1/30 | 198.51.100.2 |\n\nThe ISP only knows the public `/30`s: it has no route to either `192.168.x.0/24`, so the LANs can't talk until you build the VPN.\n\nUse the same parameters on both sides: policy 10 with AES-256, SHA-256, pre-shared key `Cisc0VPN`, DH group 14; transform set `TS` with `esp-aes 256 esp-sha-hmac`; ACL 110; crypto map `VPN` sequence 10. Verify with `show crypto isakmp sa`, `show crypto ipsec sa` (watch the encaps and decaps counters) and `show crypto session`.",
+  "height": 400,
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 320
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 190
+   },
+   {
+    "name": "ISP",
+    "type": "router",
+    "x": 400,
+    "y": 90
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 190
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 710,
+    "y": 320
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "ISP": [
+    "hostname ISP",
+    "interface g0/0",
+    "ip address 203.0.113.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.2 255.255.255.252",
+    "no shutdown",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 203.0.113.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 203.0.113.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 198.51.100.2",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Phase 1: ISAKMP policy and key",
+    "text": "On both routers create ISAKMP policy 10 (AES 256, SHA-256, pre-shared keys, DH group 14) and the key `Cisc0VPN` for the other router's public address.",
+    "hint": "`crypto isakmp policy 10`, `encryption aes 256`, `hash sha256`, `authentication pre-share`, `group 14`; then `crypto isakmp key Cisc0VPN address 198.51.100.1` on R1.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^crypto isakmp policy 10\\n encr aes 256\\n hash sha256\\n authentication pre-share\\n group 14$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^crypto isakmp policy 10\\n encr aes 256\\n hash sha256\\n authentication pre-share\\n group 14$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^crypto isakmp key Cisc0VPN address 198\\.51\\.100\\.1$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^crypto isakmp key Cisc0VPN address 203\\.0\\.113\\.1$"
+     }
+    ]
+   },
+   {
+    "title": "Phase 2: transform set and interesting traffic",
+    "text": "Define transform set `TS` as `esp-aes 256 esp-sha-hmac` on both routers, and ACL 110 matching LAN-to-LAN traffic. Remember the ACLs are mirror images of each other.",
+    "hint": "`crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac`. R1: `access-list 110 permit ip 192.168.1.0 0.0.0.255 192.168.2.0 0.0.0.255`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^access-list 110 permit ip 192\\.168\\.1\\.0 0\\.0\\.0\\.255 192\\.168\\.2\\.0 0\\.0\\.0\\.255$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^access-list 110 permit ip 192\\.168\\.2\\.0 0\\.0\\.0\\.255 192\\.168\\.1\\.0 0\\.0\\.0\\.255$"
+     }
+    ]
+   },
+   {
+    "title": "Build and apply the crypto map",
+    "text": "Crypto map `VPN` sequence 10 ties it together: the peer, the transform set and ACL 110. Apply it to Gi0/1, the interface the encrypted traffic leaves by. Both ends must now be able to build their security associations.",
+    "hint": "`crypto map VPN 10 ipsec-isakmp`, `set peer 198.51.100.1`, `set transform-set TS`, `match address 110`; `interface g0/1`, `crypto map VPN`.",
+    "checks": [
+     {
+      "type": "ipsec-sa",
+      "device": "R1",
+      "peer": "198.51.100.1"
+     },
+     {
+      "type": "ipsec-sa",
+      "device": "R2",
+      "peer": "203.0.113.1"
+     }
+    ]
+   },
+   {
+    "title": "Encrypted end to end",
+    "text": "PC1 and PC2 reach each other, and the traffic crosses the internet encrypted. Ping, then look at `show crypto ipsec sa` on R1: `#pkts encaps` should be climbing.",
+    "hint": "The first packet can be lost while IKE negotiates. If nothing works, `debug crypto isakmp` on R1 and ping again.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.2.10",
+      "encrypted": true
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "192.168.1.10",
+      "encrypted": true
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "crypto isakmp policy 10",
+    "encryption aes 256",
+    "hash sha256",
+    "authentication pre-share",
+    "group 14",
+    "exit",
+    "crypto isakmp key Cisc0VPN address 198.51.100.1",
+    "crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac",
+    "mode tunnel",
+    "exit",
+    "access-list 110 permit ip 192.168.1.0 0.0.0.255 192.168.2.0 0.0.0.255",
+    "crypto map VPN 10 ipsec-isakmp",
+    "set peer 198.51.100.1",
+    "set transform-set TS",
+    "match address 110",
+    "exit",
+    "interface g0/1",
+    "crypto map VPN",
+    "end"
+   ],
+   "R2": [
+    "crypto isakmp policy 10",
+    "encryption aes 256",
+    "hash sha256",
+    "authentication pre-share",
+    "group 14",
+    "exit",
+    "crypto isakmp key Cisc0VPN address 203.0.113.1",
+    "crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac",
+    "mode tunnel",
+    "exit",
+    "access-list 110 permit ip 192.168.2.0 0.0.0.255 192.168.1.0 0.0.0.255",
+    "crypto map VPN 10 ipsec-isakmp",
+    "set peer 203.0.113.1",
+    "set transform-set TS",
+    "match address 110",
+    "exit",
+    "interface g0/1",
+    "crypto map VPN",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "dmvpn",
+  "title": "DMVPN phase 3 with EIGRP",
+  "topic": "DMVPN",
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "minutes": 30,
+  "summary": "Build a multipoint GRE hub, register two spokes with NHRP, run EIGRP over the cloud and let phase 3 shortcuts send spoke-to-spoke traffic direct.",
+  "intro": "**DMVPN** gives every branch one tunnel interface that reaches the hub and, on demand, every other branch. Three pieces make it work:\n\n- **mGRE**: `tunnel mode gre multipoint` lets one tunnel interface talk to many endpoints (no fixed `tunnel destination`).\n- **NHRP**: each spoke *registers* its public (NBMA) address with the hub, its next-hop server. The hub learns who is where; spokes ask it when they need to find each other.\n- **A routing protocol** over the cloud (EIGRP here). The hub must hear spokes' hellos and send its own: `ip nhrp map multicast dynamic` on the hub, `multicast` on the spokes' NHS line.\n\n**Phase 3**: spokes route to each other via the hub. When the hub sees a packet come in and go back out the same tunnel, it sends an NHRP **redirect** (`ip nhrp redirect`); the spokes resolve each other and install a **shortcut** (`ip nhrp shortcut`), shown with a `%` (next-hop override) or as an `H` route. From then on traffic goes spoke to spoke.\n\n| Router | Public (Gi0/1) | LAN (Gi0/0) | Tunnel0 |\n|---|---|---|---|\n| HUB | 100.64.0.1/24 | 10.0.0.1/24 | 172.16.0.1/24 |\n| S1 | 100.64.1.1/24 | 10.1.1.1/24 | 172.16.0.2/24 |\n| S2 | 100.64.2.1/24 | 10.2.2.1/24 | 172.16.0.3/24 |\n\nNHRP network-id `1`, authentication `NHRPKEY`, EIGRP AS `100`. INET is the internet and only knows the `100.64.x.0` networks.",
+  "height": 500,
+  "devices": [
+   {
+    "name": "HUB",
+    "type": "router",
+    "x": 400,
+    "y": 80
+   },
+   {
+    "name": "SRV",
+    "type": "pc",
+    "x": 680,
+    "y": 80
+   },
+   {
+    "name": "INET",
+    "type": "router",
+    "x": 400,
+    "y": 230
+   },
+   {
+    "name": "S1",
+    "type": "router",
+    "x": 210,
+    "y": 340
+   },
+   {
+    "name": "S2",
+    "type": "router",
+    "x": 590,
+    "y": 340
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 110,
+    "y": 440
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 690,
+    "y": 440
+   }
+  ],
+  "links": [
+   [
+    "HUB",
+    "GigabitEthernet0/1",
+    "INET",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "S1",
+    "GigabitEthernet0/1",
+    "INET",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "S2",
+    "GigabitEthernet0/1",
+    "INET",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "HUB",
+    "GigabitEthernet0/0",
+    "SRV",
+    "eth0"
+   ],
+   [
+    "S1",
+    "GigabitEthernet0/0",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "S2",
+    "GigabitEthernet0/0",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "INET": [
+    "hostname INET",
+    "interface g0/0",
+    "ip address 100.64.0.254 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 100.64.1.254 255.255.255.0",
+    "no shutdown",
+    "interface g0/2",
+    "ip address 100.64.2.254 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "HUB": [
+    "hostname HUB",
+    "interface g0/0",
+    "ip address 10.0.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 100.64.0.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 100.64.0.254",
+    "end"
+   ],
+   "S1": [
+    "hostname S1",
+    "interface g0/0",
+    "ip address 10.1.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 100.64.1.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 100.64.1.254",
+    "end"
+   ],
+   "S2": [
+    "hostname S2",
+    "interface g0/0",
+    "ip address 10.2.2.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 100.64.2.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 100.64.2.254",
+    "end"
+   ],
+   "SRV": [
+    "ip 10.0.0.10/24 10.0.0.1"
+   ],
+   "PC1": [
+    "ip 10.1.1.10/24 10.1.1.1"
+   ],
+   "PC2": [
+    "ip 10.2.2.10/24 10.2.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "The hub's multipoint tunnel",
+    "text": "On HUB create `Tunnel0` (`172.16.0.1/24`) sourced from Gi0/1 in multipoint GRE mode, with NHRP network-id 1, authentication `NHRPKEY`, and dynamic multicast mapping so routing hellos reach every registered spoke.",
+    "hint": "`interface tunnel 0`, `ip address 172.16.0.1 255.255.255.0`, `tunnel source g0/1`, `tunnel mode gre multipoint`, `ip nhrp network-id 1`, `ip nhrp authentication NHRPKEY`, `ip nhrp map multicast dynamic`.",
+    "checks": [
+     {
+      "type": "tunnel",
+      "device": "HUB",
+      "intf": "Tunnel0",
+      "state": "up",
+      "mode": "gre-mp"
+     },
+     {
+      "type": "config",
+      "device": "HUB",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip nhrp map multicast dynamic$"
+     }
+    ]
+   },
+   {
+    "title": "Spokes register with the hub",
+    "text": "Give S1 (`172.16.0.2`) and S2 (`172.16.0.3`) the same kind of tunnel, pointing at the hub as their next-hop server: tunnel address `172.16.0.1`, NBMA (public) address `100.64.0.1`, and use it for multicast. `show dmvpn` on HUB should list both spokes.",
+    "hint": "`ip nhrp nhs 172.16.0.1 nbma 100.64.0.1 multicast`, plus the same network-id and authentication as the hub.",
+    "checks": [
+     {
+      "type": "nhrp-peer",
+      "device": "HUB",
+      "peer": "172.16.0.2",
+      "registered": true
+     },
+     {
+      "type": "nhrp-peer",
+      "device": "HUB",
+      "peer": "172.16.0.3",
+      "registered": true
+     }
+    ]
+   },
+   {
+    "title": "EIGRP across the cloud",
+    "text": "Run EIGRP AS 100 on all three routers for the tunnel network and each LAN. The hub learns a spoke's LAN on Tunnel0 and, by default, split horizon stops it from advertising that route back out Tunnel0. Turn split horizon off on the hub's tunnel so each spoke learns the other's LAN.",
+    "hint": "`router eigrp 100`, `network 172.16.0.0 0.0.0.255`, `network 10.x.x.0 0.0.0.255`. On HUB's Tunnel0: `no ip split-horizon eigrp 100`.",
+    "checks": [
+     {
+      "type": "eigrp-nbrs",
+      "device": "HUB",
+      "count": 2
+     },
+     {
+      "type": "route",
+      "device": "S1",
+      "prefix": "10.2.2.0/24",
+      "code": "D"
+     },
+     {
+      "type": "route",
+      "device": "S2",
+      "prefix": "10.1.1.0/24",
+      "code": "D"
+     }
+    ]
+   },
+   {
+    "title": "Phase 3: spoke to spoke",
+    "text": "Enable `ip nhrp redirect` on the hub's tunnel and `ip nhrp shortcut` on both spokes. Ping PC2 from PC1: the first packets go through the hub, the hub redirects, and the spokes build a direct tunnel. A traceroute from PC1 to PC2 should then skip `172.16.0.1`, and `show ip route` on S1 marks the route with `%`.",
+    "hint": "Ping first, then trace. `show ip nhrp` on S1 shows the shortcut entry; `show dmvpn` shows the dynamic spoke-to-spoke peer.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "HUB",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip nhrp redirect$"
+     },
+     {
+      "type": "config",
+      "device": "S1",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip nhrp shortcut$"
+     },
+     {
+      "type": "config",
+      "device": "S2",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip nhrp shortcut$"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.2.2.10"
+     },
+     {
+      "type": "trace-avoids",
+      "from": "PC1",
+      "to": "10.2.2.10",
+      "avoid": "172.16.0.1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "HUB": [
+    "interface tunnel 0",
+    "ip address 172.16.0.1 255.255.255.0",
+    "tunnel source g0/1",
+    "tunnel mode gre multipoint",
+    "ip nhrp network-id 1",
+    "ip nhrp authentication NHRPKEY",
+    "ip nhrp map multicast dynamic",
+    "ip nhrp redirect",
+    "no ip split-horizon eigrp 100",
+    "router eigrp 100",
+    "network 172.16.0.0 0.0.0.255",
+    "network 10.0.0.0 0.0.0.255",
+    "end"
+   ],
+   "S1": [
+    "interface tunnel 0",
+    "ip address 172.16.0.2 255.255.255.0",
+    "tunnel source g0/1",
+    "tunnel mode gre multipoint",
+    "ip nhrp network-id 1",
+    "ip nhrp authentication NHRPKEY",
+    "ip nhrp nhs 172.16.0.1 nbma 100.64.0.1 multicast",
+    "ip nhrp shortcut",
+    "router eigrp 100",
+    "network 172.16.0.0 0.0.0.255",
+    "network 10.1.1.0 0.0.0.255",
+    "end"
+   ],
+   "S2": [
+    "interface tunnel 0",
+    "ip address 172.16.0.3 255.255.255.0",
+    "tunnel source g0/1",
+    "tunnel mode gre multipoint",
+    "ip nhrp network-id 1",
+    "ip nhrp authentication NHRPKEY",
+    "ip nhrp nhs 172.16.0.1 nbma 100.64.0.1 multicast",
+    "ip nhrp shortcut",
+    "router eigrp 100",
+    "network 172.16.0.0 0.0.0.255",
+    "network 10.2.2.0 0.0.0.255",
+    "end"
+   ],
+   "PC1": [
+    "ping 10.2.2.10"
+   ]
+  }
+ },
+ {
+  "id": "vpn-troubleshooting",
+  "title": "Ticket: the GRE over IPsec VPN is down",
+  "topic": "VPN troubleshooting",
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "minutes": 30,
+  "summary": "A protected GRE tunnel between HQ and Branch never carries traffic. Three separate faults: a wrong tunnel destination, a mismatched IKE key, and a routing loop through the tunnel.",
+  "intro": "**Ticket #4471:** \"Branch has been cut off from HQ since the router swap. The VPN shows up/up on HQ but nothing gets through, and when it briefly worked last night the tunnel kept flapping.\"\n\nThe design: a GRE tunnel (`172.16.0.0/30`) between R1 and R2, protected with IPsec (`tunnel protection ipsec profile PROTECT`), with OSPF over it advertising the two LANs. The pre-shared key is meant to be `VPNkey99` on both sides.\n\n| Device | LAN (Gi0/0) | Internet (Gi0/1) | Default route |\n|---|---|---|---|\n| R1 (HQ) | 192.168.1.1/24 | 203.0.113.1/30 | 203.0.113.2 |\n| R2 (Branch) | 192.168.2.1/24 | 198.51.100.1/30 | 198.51.100.2 |\n\nThe ISP only knows the public `/30`s: it has no route to either `192.168.x.0/24`, so the LANs can't talk until you build the VPN.\n\nWork like the exam wants you to: check layer by layer. Is the tunnel pointed at the right place (`show interfaces tunnel 0`)? Does IKE complete (`show crypto isakmp sa`, `debug crypto isakmp`, and the `%CRYPTO` messages)? Does the routing protocol keep the tunnel's own destination out of the tunnel? There are **three** faults; fix each without breaking the design.",
+  "height": 400,
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 320
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 190
+   },
+   {
+    "name": "ISP",
+    "type": "router",
+    "x": 400,
+    "y": 90
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 190
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 710,
+    "y": 320
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "ISP": [
+    "hostname ISP",
+    "interface g0/0",
+    "ip address 203.0.113.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.2 255.255.255.252",
+    "no shutdown",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 203.0.113.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 203.0.113.2",
+    "crypto isakmp policy 10",
+    "encryption aes 256",
+    "hash sha256",
+    "authentication pre-share",
+    "group 14",
+    "exit",
+    "crypto isakmp key VPNkey99 address 198.51.100.1",
+    "crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac",
+    "mode transport",
+    "exit",
+    "crypto ipsec profile PROTECT",
+    "set transform-set TS",
+    "exit",
+    "interface tunnel 0",
+    "ip address 172.16.0.1 255.255.255.252",
+    "tunnel source g0/1",
+    "tunnel destination 198.51.100.1",
+    "tunnel protection ipsec profile PROTECT",
+    "exit",
+    "router ospf 1",
+    "network 0.0.0.0 255.255.255.255 area 0",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 198.51.100.2",
+    "crypto isakmp policy 10",
+    "encryption aes 256",
+    "hash sha256",
+    "authentication pre-share",
+    "group 14",
+    "exit",
+    "crypto isakmp key VPNkey98 address 203.0.113.1",
+    "crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac",
+    "mode transport",
+    "exit",
+    "crypto ipsec profile PROTECT",
+    "set transform-set TS",
+    "exit",
+    "interface tunnel 0",
+    "ip address 172.16.0.2 255.255.255.252",
+    "tunnel source g0/1",
+    "tunnel destination 203.0.113.11",
+    "tunnel protection ipsec profile PROTECT",
+    "exit",
+    "router ospf 1",
+    "network 192.168.2.0 0.0.0.255 area 0",
+    "network 172.16.0.0 0.0.0.3 area 0",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Fault 1: where does the tunnel go?",
+    "text": "Compare both ends of the tunnel. Each must use its own public address as the source and the other router's public address as the destination.",
+    "hint": "`show interfaces tunnel 0 | include source` on both routers. One destination has a typo.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? tunnel destination 203\\.0\\.113\\.1$"
+     }
+    ]
+   },
+   {
+    "title": "Fault 2: IKE never completes",
+    "text": "With the tunnel pointed correctly, IPsec still has to come up. Find out why phase 1 fails and fix it so both routers have a working security association.",
+    "hint": "`show crypto isakmp sa` shows `MM_NO_STATE`. A `%CRYPTO-4-IKMP_BAD_MESSAGE ... failed its sanity check` message usually means the pre-shared keys differ. Compare with `show running-config | include isakmp key`.",
+    "checks": [
+     {
+      "type": "ipsec-sa",
+      "device": "R1",
+      "peer": "198.51.100.1"
+     },
+     {
+      "type": "ipsec-sa",
+      "device": "R2",
+      "peer": "203.0.113.1"
+     }
+    ]
+   },
+   {
+    "title": "Fault 3: the flapping tunnel",
+    "text": "Once IPsec works, OSPF comes up over the tunnel and then R2's tunnel drops with `%TUN-5-RECURDOWN`. Fix the OSPF configuration so the tunnel stays up and only the LANs and the tunnel network are advertised.",
+    "hint": "R1 advertises everything with `network 0.0.0.0 255.255.255.255 area 0`, including its public `203.0.113.0/30`: R2 then reaches the tunnel destination through the tunnel itself.",
+    "checks": [
+     {
+      "type": "noroute",
+      "device": "R2",
+      "prefix": "203.0.113.0/30",
+      "code": "O"
+     },
+     {
+      "type": "tunnel",
+      "device": "R1",
+      "intf": "Tunnel0",
+      "state": "up"
+     },
+     {
+      "type": "tunnel",
+      "device": "R2",
+      "intf": "Tunnel0",
+      "state": "up"
+     },
+     {
+      "type": "ospf-nbr",
+      "device": "R2",
+      "neighbor": "203.0.113.1"
+     }
+    ]
+   },
+   {
+    "title": "Close the ticket",
+    "text": "PC1 and PC2 reach each other through the encrypted tunnel.",
+    "hint": "`show crypto ipsec sa` on R1 should show encaps and decaps climbing as you ping.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.2.10",
+      "encrypted": true
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.2.0/24",
+      "code": "O",
+      "via": "172.16.0.2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "interface tunnel 0",
+    "tunnel destination 203.0.113.1",
+    "exit",
+    "crypto isakmp key VPNkey99 address 203.0.113.1",
+    "end"
+   ],
+   "R1": [
+    "router ospf 1",
+    "no network 0.0.0.0 255.255.255.255 area 0",
+    "network 192.168.1.0 0.0.0.255 area 0",
+    "network 172.16.0.0 0.0.0.3 area 0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "qos-marking-policing",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "QoS: classify, mark and police at the edge",
+  "topic": "QoS (MQC)",
+  "minutes": 30,
+  "summary": "Class-maps and policy-maps: mark ICMP as EF leaving the branch, watch the next router count it, then police it to 8 kbps.",
+  "height": 360,
+  "intro": "QoS on IOS is built from three pieces, the **Modular QoS CLI**:\n\n1. a **class-map** says *which* traffic (`match protocol icmp`, `match dscp ef`, `match access-group 101`);\n2. a **policy-map** says *what to do* with each class (`set dscp ef`, `police cir 8000`, `bandwidth`, `priority`);\n3. `service-policy input|output` attaches the policy to an interface.\n\nAnything no class matches falls into **class-default**. Marking is how the edge tells the rest of the network what a packet is worth: R2 already has a policy that counts packets arriving with **DSCP EF** (46) on its WAN link, so you can see your marking survive the hop.\n\nA **policer** measures traffic against a rate (CIR) with a burst allowance (Bc). Packets within it **conform**, the rest **exceed** and are dropped (or re-marked). Queueing tools (`bandwidth`, `priority`, `shape`) only work outbound; IOS refuses them on an input policy.\n\nUse `show policy-map interface g0/0` to watch the counters move.",
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 270
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 290,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 510,
+    "y": 150
+   },
+   {
+    "name": "SRV",
+    "type": "pc",
+    "x": 710,
+    "y": 270
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "SRV",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.2.0 255.255.255.0 10.12.0.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.1.0 255.255.255.0 10.12.0.1",
+    "class-map match-any EF-SEEN",
+    "match dscp ef",
+    "exit",
+    "policy-map WAN-IN",
+    "class EF-SEEN",
+    "exit",
+    "exit",
+    "interface g0/0",
+    "service-policy input WAN-IN",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "SRV": [
+    "ip 192.168.2.100/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Classify the traffic",
+    "text": "On R1, create a **match-all** class-map called `ICMP-TRAFFIC` that matches the ICMP protocol.",
+    "hint": "`class-map match-all ICMP-TRAFFIC`, then `match protocol icmp`. `show class-map` lists it.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^class-map match-all ICMP-TRAFFIC$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ match protocol icmp$"
+     }
+    ]
+   },
+   {
+    "title": "Mark it EF toward the WAN",
+    "text": "Build a policy-map `WAN-OUT` that sets DSCP **EF** on `ICMP-TRAFFIC`, apply it **outbound** on R1 Gi0/0, then ping `192.168.2.100` from PC1. R2's `WAN-IN` policy should count the EF packets arriving.",
+    "hint": "`policy-map WAN-OUT`, `class ICMP-TRAFFIC`, `set dscp ef`; then `interface g0/0`, `service-policy output WAN-OUT`. Check `show policy-map interface g0/0` on both routers.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ service-policy output WAN-OUT$"
+     },
+     {
+      "type": "qos-marked",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "dir": "output",
+      "class": "ICMP-TRAFFIC",
+      "min": 1
+     },
+     {
+      "type": "qos-class",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "dir": "input",
+      "class": "EF-SEEN",
+      "min": 1
+     }
+    ]
+   },
+   {
+    "title": "Police it to 8 kbps",
+    "text": "In the same class, police to a CIR of **8000 bps** with a **1500-byte** burst (conform: transmit, exceed: drop). Send big pings from PC1 (`ping 192.168.2.100 -l 1000`) and watch packets exceed.",
+    "hint": "Under `class ICMP-TRAFFIC`: `police cir 8000 bc 1500` (the defaults are conform-action transmit, exceed-action drop). The policer's counters are in `show policy-map interface g0/0`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^  police cir 8000 bc 1500$"
+     },
+     {
+      "type": "qos-police",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "dir": "output",
+      "class": "ICMP-TRAFFIC",
+      "conformed": 1,
+      "exceeded": 1
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "class-map match-all ICMP-TRAFFIC",
+    "match protocol icmp",
+    "exit",
+    "policy-map WAN-OUT",
+    "class ICMP-TRAFFIC",
+    "set dscp ef",
+    "police cir 8000 bc 1500",
+    "exit",
+    "exit",
+    "exit",
+    "interface g0/0",
+    "service-policy output WAN-OUT",
+    "end"
+   ],
+   "PC1": [
+    "ping 192.168.2.100 -c 3",
+    "ping 192.168.2.100 -c 5 -l 1000"
+   ]
+  }
+ },
+ {
+  "id": "aaa-local-fallback",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "AAA: RADIUS first, local users as the fallback",
+  "topic": "AAA",
+  "minutes": 25,
+  "summary": "aaa new-model, a RADIUS server group, a named login list with a local fallback, and exec authorization so admins land in privileged mode.",
+  "height": 300,
+  "intro": "`aaa new-model` switches a device to **method lists**: an ordered list of ways to check a login, such as `group ISE-GROUP local`. IOS tries each method in turn, but only moves on when a method gives **no answer** (an error), for example a RADIUS server that doesn't respond. A wrong password from a method that *does* answer ends the attempt.\n\nThe RADIUS server `10.12.0.100` isn't up yet, which is exactly why you want `local` as the fallback: otherwise nobody can log in.\n\nTwo details that trip people up:\n\n- With AAA on, a VTY line with no list named uses the **default** list; if there is no default list, VTYs use the **local** database and the console needs no login.\n- Logging in as a `privilege 15` user only lands you at `#` when **exec authorization** says so (`aaa authorization exec default local`). Without it you start at level 1. (On the console, exec authorization needs `aaa authorization console` as well.)\n\nTest from R1 with `telnet 10.12.0.2`. The user `netadmin` (privilege 15, secret `Cisc0Admin!`) already exists on R2.",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 150
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "username netadmin privilege 15 secret Cisc0Admin!",
+    "line vty 0 4",
+    "transport input telnet ssh",
+    "end"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Point AAA at the RADIUS server",
+    "text": "On R2, turn on AAA, define RADIUS server `ISE` at `10.12.0.100` (ports 1812/1813, key `R4dius!Key`) and put it in a server group `ISE-GROUP`.",
+    "hint": "`aaa new-model`; `radius server ISE`, `address ipv4 10.12.0.100 auth-port 1812 acct-port 1813`, `key R4dius!Key`; `aaa group server radius ISE-GROUP`, `server name ISE`. `show aaa servers` shows it as DEAD: nothing answers at that address.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^aaa new-model$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^radius server ISE$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ address ipv4 10\\.12\\.0\\.100 auth-port 1812 acct-port 1813$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^aaa group server radius ISE-GROUP$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ server name ISE$"
+     }
+    ]
+   },
+   {
+    "title": "A login list with a local fallback",
+    "text": "Create login list `VTY-AUTH` that tries `ISE-GROUP` first and falls back to the **local** database, and use it on the VTY lines. `netadmin` should then be able to telnet in from R1.",
+    "hint": "`aaa authentication login VTY-AUTH group ISE-GROUP local`, then `line vty 0 4`, `login authentication VTY-AUTH`. From R1: `telnet 10.12.0.2`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^aaa authentication login VTY-AUTH group ISE-GROUP local$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ login authentication VTY-AUTH$"
+     },
+     {
+      "type": "login",
+      "device": "R2",
+      "line": "vty",
+      "user": "netadmin",
+      "password": "Cisc0Admin!"
+     },
+     {
+      "type": "login",
+      "device": "R2",
+      "line": "vty",
+      "user": "netadmin",
+      "password": "wrong-password",
+      "ok": false
+     }
+    ]
+   },
+   {
+    "title": "Land in privileged EXEC",
+    "text": "Make R2 honour the user's privilege level for exec sessions, so `netadmin` gets the `#` prompt straight away. The console must still open without credentials.",
+    "hint": "`aaa authorization exec default local`. `show privilege` after logging in should say 15.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^aaa authorization exec default local$"
+     },
+     {
+      "type": "login",
+      "device": "R2",
+      "line": "vty",
+      "user": "netadmin",
+      "password": "Cisc0Admin!",
+      "level": 15
+     },
+     {
+      "type": "login",
+      "device": "R2",
+      "line": "con",
+      "password": ""
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "aaa new-model",
+    "radius server ISE",
+    "address ipv4 10.12.0.100 auth-port 1812 acct-port 1813",
+    "key R4dius!Key",
+    "exit",
+    "aaa group server radius ISE-GROUP",
+    "server name ISE",
+    "exit",
+    "aaa authentication login VTY-AUTH group ISE-GROUP local",
+    "aaa authorization exec default local",
+    "line vty 0 4",
+    "login authentication VTY-AUTH",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "snmpv3-syslog",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "SNMPv3 and syslog for the NMS",
+  "topic": "SNMP and syslog",
+  "minutes": 35,
+  "summary": "Replace open v2c communities with an ACL-protected read-only one, add an SNMPv3 authPriv user, and send logs and traps to the NMS.",
+  "height": 340,
+  "intro": "R1 still has the factory-style communities `public` (RO) and `private` (**RW**): anyone who can reach it can read *and change* its configuration over SNMP. The NMS at `192.168.1.100` is the only thing that should talk to it.\n\n- **SNMPv2c** authenticates with a community string sent in clear. Lock it to read-only and an ACL.\n- **SNMPv3** has users in groups. A group's security level is `noauth`, `auth` (signed) or `priv` (signed and encrypted); its **views** decide what it may read or write. Note that `snmp-server user` lines never appear in the running-config.\n- **Syslog** sends messages at or below the `logging trap` severity to `logging host`; `logging buffered` keeps a copy in RAM for `show logging`.\n- **Traps** are SNMP's push notifications: `snmp-server enable traps` plus a `snmp-server host`.\n\nSeverities: 0 emergencies, 1 alerts, 2 critical, 3 errors, 4 warnings, 5 notifications, 6 informational, 7 debugging. Bounce Loopback0 (`shutdown`, `no shutdown`) to generate some messages.",
+  "devices": [
+   {
+    "name": "NMS",
+    "type": "pc",
+    "x": 110,
+    "y": 260
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 330,
+    "y": 140
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 600,
+    "y": 140
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "NMS",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 1.1.1.1 255.255.255.255",
+    "exit",
+    "snmp-server community public RO",
+    "snmp-server community private RW",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.1.0 255.255.255.0 10.12.0.1",
+    "end"
+   ],
+   "NMS": [
+    "ip 192.168.1.100/24 192.168.1.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Retire the open communities",
+    "text": "Remove `public` and `private`. Add a read-only community `N3tR3ad` that only the NMS subnet `192.168.1.0/24` may use (standard ACL 10). R2 must be refused.",
+    "hint": "`no snmp-server community public`, `no snmp-server community private`, `access-list 10 permit 192.168.1.0 0.0.0.255`, `snmp-server community N3tR3ad RO 10`.",
+    "checks": [
+     {
+      "type": "noconfig",
+      "device": "R1",
+      "match": "^snmp-server community (public|private)"
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "NMS",
+      "community": "N3tR3ad"
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "R2",
+      "community": "N3tR3ad",
+      "ok": false
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "NMS",
+      "community": "N3tR3ad",
+      "write": true,
+      "ok": false
+     }
+    ]
+   },
+   {
+    "title": "An SNMPv3 user with auth and priv",
+    "text": "Create view `NETVIEW` including `iso`, group `NETOPS` at the **priv** level reading that view, and user `nms` in it with SHA authentication (`Auth#Pass1`) and AES-128 privacy (`Priv#Pass1`). The group gets no write view.",
+    "hint": "`snmp-server view NETVIEW iso included`, `snmp-server group NETOPS v3 priv read NETVIEW`, `snmp-server user nms NETOPS v3 auth sha Auth#Pass1 priv aes 128 Priv#Pass1`. `show snmp user` confirms it; it won't be in `show running-config`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^snmp-server group NETOPS v3 priv read NETVIEW$"
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "NMS",
+      "user": "nms",
+      "auth": "Auth#Pass1",
+      "priv": "Priv#Pass1"
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "NMS",
+      "user": "nms",
+      "auth": "Auth#Pass1",
+      "priv": "wrong",
+      "ok": false
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "NMS",
+      "user": "nms",
+      "auth": "Auth#Pass1",
+      "priv": "Priv#Pass1",
+      "write": true,
+      "ok": false
+     }
+    ]
+   },
+   {
+    "title": "Send the logs to the NMS",
+    "text": "Log to `192.168.1.100` at **notifications** and above, keep a 16384-byte buffer at **informational**, then bounce Loopback0 and check both.",
+    "hint": "`logging host 192.168.1.100`, `logging trap notifications`, `logging buffered 16384 informational`; then `interface loopback0`, `shutdown`, `no shutdown`. `show logging` shows the host's counter and the buffer.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^logging trap notifications$"
+     },
+     {
+      "type": "log-host",
+      "device": "R1",
+      "host": "192.168.1.100",
+      "min": 1
+     },
+     {
+      "type": "log-buffer",
+      "device": "R1",
+      "pattern": "%LINK-3-UPDOWN: Interface Loopback0, changed state to up"
+     }
+    ]
+   },
+   {
+    "title": "Link traps",
+    "text": "Send SNMP **linkUp/linkDown** traps to the NMS as SNMPv3 user `nms` at the priv level, then bounce Loopback0 again.",
+    "hint": "`snmp-server enable traps snmp linkdown linkup`, `snmp-server host 192.168.1.100 version 3 priv nms`. `show snmp` counts Trap PDUs.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^snmp-server host 192\\.168\\.1\\.100 version 3 priv nms$"
+     },
+     {
+      "type": "snmp-traps",
+      "device": "R1",
+      "host": "192.168.1.100",
+      "min": 1
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "no snmp-server community public",
+    "no snmp-server community private",
+    "access-list 10 permit 192.168.1.0 0.0.0.255",
+    "snmp-server community N3tR3ad RO 10",
+    "snmp-server view NETVIEW iso included",
+    "snmp-server group NETOPS v3 priv read NETVIEW",
+    "snmp-server user nms NETOPS v3 auth sha Auth#Pass1 priv aes 128 Priv#Pass1",
+    "logging host 192.168.1.100",
+    "logging trap notifications",
+    "logging buffered 16384 informational",
+    "snmp-server enable traps snmp linkdown linkup",
+    "snmp-server host 192.168.1.100 version 3 priv nms",
+    "interface loopback0",
+    "shutdown",
+    "no shutdown",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ntp-authentication",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "NTP: a master, authenticated clients and a chain",
+  "topic": "NTP",
+  "minutes": 25,
+  "summary": "Make R1 the stratum 3 time source, have R2 sync with MD5 authentication, and R3 sync from R2's loopback one stratum further down.",
+  "height": 300,
+  "intro": "NTP builds a tree of clocks. Each hop adds one to the **stratum**: R1 as `ntp master 3` is stratum 3, a router synced to it is stratum 4, the next one 5. Stratum 16 means *unsynchronised*.\n\nWith `ntp authenticate` on, a client only accepts a server whose replies are signed with a key that is both **defined** (`ntp authentication-key`) and **trusted** (`ntp trusted-key`), and the server must hold the same key value. The server doesn't need `ntp authenticate` itself.\n\nUntil a clock is synchronised IOS marks its timestamps with `*` (`*Oct 29 ...`). Watch the star disappear from R2's log messages once it syncs. Useful commands: `show ntp status`, `show ntp associations` (`*` is the peer it uses), `show clock`.\n\nStatic routes are already in place.",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 150,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 400,
+    "y": 150
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 650,
+    "y": 150
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.12.0.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.23.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "end"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    "ip address 10.23.0.3 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.23.0.2",
+    "end"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "R1 is the time source",
+    "text": "Make R1 an authoritative NTP master at **stratum 3**.",
+    "hint": "`ntp master 3`. `show ntp status` on R1 then says synchronized, stratum 3.",
+    "checks": [
+     {
+      "type": "ntp-sync",
+      "device": "R1",
+      "stratum": 3
+     }
+    ]
+   },
+   {
+    "title": "R2 syncs with authentication",
+    "text": "Give R1 and R2 MD5 key **1** with the value `T1meKey`. On R2, turn on NTP authentication, trust key 1 and use R1 (`10.12.0.1`) as its server with that key.",
+    "hint": "R1: `ntp authentication-key 1 md5 T1meKey`. R2: the same key, `ntp trusted-key 1`, `ntp authenticate`, `ntp server 10.12.0.1 key 1`. A key that's defined but not trusted, or a different value on R1, leaves R2 at stratum 16.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ntp authenticate$"
+     },
+     {
+      "type": "ntp-sync",
+      "device": "R2",
+      "peer": "10.12.0.1",
+      "stratum": 4
+     }
+    ]
+   },
+   {
+    "title": "R3 follows R2's loopback",
+    "text": "Sync R3 to R2's loopback address `2.2.2.2`. It should end up at stratum 5.",
+    "hint": "`ntp server 2.2.2.2` on R3. A client can only sync to a server that is itself synchronised.",
+    "checks": [
+     {
+      "type": "ntp-sync",
+      "device": "R3",
+      "peer": "2.2.2.2",
+      "stratum": 5
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "ntp master 3",
+    "ntp authentication-key 1 md5 T1meKey",
+    "end"
+   ],
+   "R2": [
+    "ntp authentication-key 1 md5 T1meKey",
+    "ntp trusted-key 1",
+    "ntp authenticate",
+    "ntp server 10.12.0.1 key 1",
+    "end"
+   ],
+   "R3": [
+    "ntp server 2.2.2.2",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "flexible-netflow",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "Flexible NetFlow: who is talking to whom",
+  "topic": "NetFlow",
+  "minutes": 25,
+  "summary": "A flow record, an exporter to the collector and a monitor on the LAN interface, then real traffic in the flow cache.",
+  "height": 340,
+  "intro": "NetFlow counts traffic as **flows**: packets that share the same key fields. Flexible NetFlow splits the job into three objects:\n\n- a **flow record** lists the `match` fields (the key, such as source and destination address and protocol) and the `collect` fields (counters and timestamps);\n- a **flow exporter** says where to send the records (a collector's address and UDP port);\n- a **flow monitor** ties a record to its exporters and keeps the cache. You apply it to an interface with `ip flow monitor NAME input|output`.\n\nThe collector `COLL` (`192.168.2.50`) listens on UDP 2055. Generate traffic from PC1 and read the cache with `show flow monitor LAN-MON cache`; `show flow exporter` shows what was sent.",
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 270
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 290,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 510,
+    "y": 150
+   },
+   {
+    "name": "COLL",
+    "type": "pc",
+    "x": 710,
+    "y": 270
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "COLL",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.2.0 255.255.255.0 10.12.0.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.1.0 255.255.255.0 10.12.0.1",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "COLL": [
+    "ip 192.168.2.50/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Define the flow record",
+    "text": "On R1, create flow record `LAN-REC` keyed on IPv4 source address, destination address and protocol, collecting byte and packet counters (64-bit).",
+    "hint": "`flow record LAN-REC`, then `match ipv4 source address`, `match ipv4 destination address`, `match ipv4 protocol`, `collect counter bytes long`, `collect counter packets long`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^flow record LAN-REC$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ match ipv4 source address$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ match ipv4 destination address$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ match ipv4 protocol$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ collect counter bytes long$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ collect counter packets long$"
+     }
+    ]
+   },
+   {
+    "title": "Export to the collector",
+    "text": "Create exporter `COLLECTOR` sending to `192.168.2.50` on UDP port **2055**, sourced from Gi0/0.",
+    "hint": "`flow exporter COLLECTOR`, `destination 192.168.2.50`, `source g0/0`, `transport udp 2055`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^flow exporter COLLECTOR$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ destination 192\\.168\\.2\\.50$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ transport udp 2055$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ source GigabitEthernet0/0$"
+     }
+    ]
+   },
+   {
+    "title": "Monitor the LAN and catch a flow",
+    "text": "Create monitor `LAN-MON` using that record and exporter, apply it to traffic **entering** Gi0/1, then ping the collector from PC1. The flow should show up in the cache.",
+    "hint": "`flow monitor LAN-MON`, `record LAN-REC`, `exporter COLLECTOR`; `interface g0/1`, `ip flow monitor LAN-MON input`. Then `ping 192.168.2.50` on PC1 and `show flow monitor LAN-MON cache` on R1.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ ip flow monitor LAN-MON input$"
+     },
+     {
+      "type": "flow",
+      "device": "R1",
+      "monitor": "LAN-MON",
+      "src": "192.168.1.10",
+      "dst": "192.168.2.50",
+      "min": 1
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "flow record LAN-REC",
+    "match ipv4 source address",
+    "match ipv4 destination address",
+    "match ipv4 protocol",
+    "collect counter bytes long",
+    "collect counter packets long",
+    "exit",
+    "flow exporter COLLECTOR",
+    "destination 192.168.2.50",
+    "source g0/0",
+    "transport udp 2055",
+    "exit",
+    "flow monitor LAN-MON",
+    "record LAN-REC",
+    "exporter COLLECTOR",
+    "exit",
+    "interface g0/1",
+    "ip flow monitor LAN-MON input",
+    "end"
+   ],
+   "PC1": [
+    "ping 192.168.2.50 -c 3"
+   ]
+  }
+ },
+ {
+  "id": "eem-self-heal",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "EEM: an applet that undoes a shutdown",
+  "topic": "Embedded Event Manager",
+  "minutes": 25,
+  "summary": "Buffer the logs, write an EEM applet triggered by a syslog pattern that re-enables the WAN link, and test it.",
+  "height": 300,
+  "intro": "The **Embedded Event Manager** runs small scripts on the router itself. An **applet** has one `event` (what triggers it) and numbered `action`s (what it does).\n\n- `event syslog pattern \"REGEX\"` fires when a log message matches the regular expression.\n- `action 1.0 cli command \"enable\"` runs a command as if typed. An applet starts at user EXEC, so `enable` usually comes first.\n- `action ... syslog msg \"text\"` writes its own `%HA_EM-6-LOG` message.\n\nActions run in the order of their **labels compared as text**, not as numbers: `10.0` runs before `2.0`. Use labels like `1.0`, `2.0` ... `9.0`, or zero-pad them.\n\nYour job: if someone shuts R1's WAN interface Gi0/0, the router should bring it straight back up and say so in the log.",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 150
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 2.2.2.2 255.255.255.255 10.12.0.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "end"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Keep the logs in RAM",
+    "text": "Buffer log messages on R1: 8192 bytes, **informational** and above.",
+    "hint": "`logging buffered 8192 informational`. `show logging` shows the buffer.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^logging buffered 8192 informational$"
+     }
+    ]
+   },
+   {
+    "title": "Write the applet",
+    "text": "Create applet `NOSHUT-G0` triggered by the message for Gi0/0 going administratively down. It should re-enable Gi0/0 and then log `G0/0 was shut down and has been re-enabled`.",
+    "hint": "`event manager applet NOSHUT-G0`; `event syslog pattern \"Interface GigabitEthernet0/0, changed state to administratively down\"`; actions `1.0` enable, `2.0` configure terminal, `3.0` interface GigabitEthernet0/0, `4.0` no shutdown, `5.0` `syslog msg \"...\"`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^event manager applet NOSHUT-G0$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ event syslog pattern \"Interface GigabitEthernet0/0, changed state to administratively down\"$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ action 4\\.0 cli command \"no shutdown\"$"
+     }
+    ]
+   },
+   {
+    "title": "Test it",
+    "text": "Shut Gi0/0. The applet should bring it back, R1 should still reach `2.2.2.2`, and its message should be in the buffer.",
+    "hint": "`interface g0/0`, `shutdown`. Then `show ip interface brief`, `show event manager history events` and `show logging`.",
+    "checks": [
+     {
+      "type": "eem-ran",
+      "device": "R1",
+      "applet": "NOSHUT-G0"
+     },
+     {
+      "type": "ifup",
+      "device": "R1",
+      "intf": "Gi0/0"
+     },
+     {
+      "type": "log-buffer",
+      "device": "R1",
+      "pattern": "%HA_EM-6-LOG: NOSHUT-G0: G0/0 was shut down and has been re-enabled"
+     },
+     {
+      "type": "ping",
+      "from": "R1",
+      "to": "2.2.2.2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "logging buffered 8192 informational",
+    "event manager applet NOSHUT-G0",
+    "event syslog pattern \"Interface GigabitEthernet0/0, changed state to administratively down\"",
+    "action 1.0 cli command \"enable\"",
+    "action 2.0 cli command \"configure terminal\"",
+    "action 3.0 cli command \"interface GigabitEthernet0/0\"",
+    "action 4.0 cli command \"no shutdown\"",
+    "action 5.0 syslog msg \"G0/0 was shut down and has been re-enabled\"",
+    "exit",
+    "interface g0/0",
+    "shutdown",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "services-troubleshooting",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "Ticket: management services are broken",
+  "topic": "Troubleshooting",
+  "minutes": 40,
+  "summary": "Five faults on R2: NTP won't sync, nobody can log in, syslog goes nowhere, the NMS is refused over SNMP and LLDP sees no neighbour.",
+  "height": 340,
+  "intro": "**Ticket #4471:** *\"Since the change window on R2: its clock is wrong, the NOC can't telnet in, our syslog server gets nothing from it, the NMS polls time out and the topology map lost the link to R1.\"*\n\nThe NOC's NMS and syslog server is `NMS` at `192.168.1.100`. R1 is the NTP master (stratum 4, key 1 = `TimeKey`). The NOC logs in as `admin` / `N0cAccess!`.\n\nWork like you would on a real device: `show ntp associations`, `show running-config | section aaa|line vty`, `show logging`, `show access-lists`, `show snmp community`, `show lldp neighbors`. Each task is one fault; fix the cause, don't work around it.",
+  "devices": [
+   {
+    "name": "NMS",
+    "type": "pc",
+    "x": 110,
+    "y": 260
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 330,
+    "y": 140
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 600,
+    "y": 140
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "NMS",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ntp authentication-key 1 md5 TimeKey",
+    "ntp master 4",
+    "lldp run",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "exit",
+    "ip route 192.168.1.0 255.255.255.0 10.12.0.1",
+    "ntp authentication-key 1 md5 Tim3Key",
+    "ntp trusted-key 1",
+    "ntp authenticate",
+    "ntp server 10.12.0.1 key 1",
+    "username admin privilege 15 secret N0cAccess!",
+    "aaa new-model",
+    "aaa authentication login VTY local",
+    "aaa authorization exec default local",
+    "line vty 0 4",
+    "login authentication VYT",
+    "transport input telnet ssh",
+    "exit",
+    "logging host 192.168.1.10",
+    "access-list 20 permit 192.168.10.0 0.0.0.255",
+    "snmp-server community N3tR3ad RO 20",
+    "end"
+   ],
+   "NMS": [
+    "ip 192.168.1.100/24 192.168.1.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "The clock",
+    "text": "R2 should synchronise to R1 (`10.12.0.1`) at stratum 5.",
+    "hint": "`show ntp associations` shows R1 reachable but not selected. Compare the key *value* on both routers: `show running-config | include ntp` shows them encrypted, so re-enter R2's key 1 as `TimeKey`.",
+    "checks": [
+     {
+      "type": "ntp-sync",
+      "device": "R2",
+      "peer": "10.12.0.1",
+      "stratum": 5
+     }
+    ]
+   },
+   {
+    "title": "Nobody can log in",
+    "text": "`admin` must be able to telnet to R2 and land at privileged EXEC.",
+    "hint": "`show running-config | section line vty` against `| include aaa authentication`: the line points at a list that doesn't exist. IOS warned when it was configured.",
+    "checks": [
+     {
+      "type": "login",
+      "device": "R2",
+      "line": "vty",
+      "user": "admin",
+      "password": "N0cAccess!",
+      "level": 15
+     }
+    ]
+   },
+   {
+    "title": "Syslog goes nowhere",
+    "text": "R2's logs must reach the syslog server. Bounce R2's Loopback0 afterwards to prove it.",
+    "hint": "`show logging`: the configured host isn't the NMS. Replace it with `logging host 192.168.1.100` (and remove the wrong one).",
+    "checks": [
+     {
+      "type": "noconfig",
+      "device": "R2",
+      "match": "^logging host 192\\.168\\.1\\.10$"
+     },
+     {
+      "type": "log-host",
+      "device": "R2",
+      "host": "192.168.1.100",
+      "min": 1
+     }
+    ]
+   },
+   {
+    "title": "SNMP polls time out",
+    "text": "The NMS must be able to read R2 with community `N3tR3ad`. Keep the community's ACL; fix what it permits.",
+    "hint": "`show access-lists 20`: it permits the wrong subnet. The NMS lives in `192.168.1.0/24`.",
+    "checks": [
+     {
+      "type": "snmp-access",
+      "device": "R2",
+      "from": "NMS",
+      "community": "N3tR3ad"
+     }
+    ]
+   },
+   {
+    "title": "The topology map",
+    "text": "The NMS builds its map from LLDP. R1 should see R2 as a neighbour on Gi0/0.",
+    "hint": "`show lldp` on R2.",
+    "checks": [
+     {
+      "type": "lldp-nbr",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "neighbor": "R2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "ntp authentication-key 1 md5 TimeKey",
+    "line vty 0 4",
+    "login authentication VTY",
+    "exit",
+    "no logging host 192.168.1.10",
+    "logging host 192.168.1.100",
+    "access-list 20 permit 192.168.1.0 0.0.0.255",
+    "lldp run",
+    "interface loopback0",
+    "shutdown",
+    "no shutdown",
+    "end"
+   ]
+  }
+ },
+ {
   "id": "ccnp-mst",
   "track": "ccnp",
   "exam": "ENCOR",

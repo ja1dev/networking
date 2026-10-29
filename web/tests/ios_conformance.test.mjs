@@ -15,15 +15,8 @@ const { Network, Session } = await import("data:text/javascript," + encodeURICom
 // ---------------------------------------------------------------- runner
 // Check name -> owner of the gap (routing / switching / services / VPN / BGP / core-CLI).
 const KNOWN_GAPS = {
-  "command errors: bare show asks for a subcommand": "core-CLI",
-  "ping and traceroute: repeat and size options": "core-CLI",
-  "ACLs: standard ACL show format": "core-CLI",
-  "ACLs: extended ACL show format": "core-CLI",
-  "remote access: SSH enabled log after key generation": "core-CLI",
   "routing table: static route to Null0": "routing",
   "EIGRP: K-value mismatch log": "routing",
-  "DHCP: binding table": "services",
-  "CCNP services: unsynchronised clock by default": "services",
 };
 
 const results = { pass: 0, fail: 0, known: 0, fixed: 0, skipped: 0 };
@@ -1004,7 +997,7 @@ check("binding table", () => {
   const out = t.run("R1", "show ip dhcp binding");
   has(out, /Bindings from all pools not associated with VRF:/);
   has(out, /IP address +Client-ID\/ +Lease expiration +Type/);
-  has(out, /192\.168\.1\.11 +01?0050\.7966\.68\w\w/);
+  has(out, /192\.168\.1\.11 +0100\.5079\.6668\.\w\w /);
 });
 check("show ip dhcp pool", () => {
   const t = dhcpLab();

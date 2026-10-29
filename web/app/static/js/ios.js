@@ -89,19 +89,21 @@ const PORTS = {
   switch: [...Array(24)].map((_, i) => "FastEthernet0/" + (i + 1)).concat(["GigabitEthernet0/1", "GigabitEthernet0/2"]),
   pc: ["eth0"],
 };
-const IF_TYPES = { router: ["GigabitEthernet", "Loopback"], switch: ["FastEthernet", "GigabitEthernet", "Port-channel", "Vlan"] };
+const IF_TYPES = { router: ["GigabitEthernet", "Loopback", "Tunnel"], switch: ["FastEthernet", "GigabitEthernet", "Port-channel", "Vlan"] };
 const IF_HELP = {
   GigabitEthernet: "GigabitEthernet IEEE 802.3z", FastEthernet: "FastEthernet IEEE 802.3",
   Loopback: "Loopback interface", Vlan: "Catalyst Vlans", "Port-channel": "Ethernet Channel of interfaces",
+  Tunnel: "Tunnel interface",
 };
-const SHORT = { GigabitEthernet: "Gi", FastEthernet: "Fa", Loopback: "Lo", Vlan: "Vl", "Port-channel": "Po" };
+const SHORT = { GigabitEthernet: "Gi", FastEthernet: "Fa", Loopback: "Lo", Vlan: "Vl", "Port-channel": "Po", Tunnel: "Tu" };
 export const shortIf = (n) => n.replace(/^[A-Za-z-]+/, (t) => SHORT[t] || t);
 const ifType = (n) => (/^[A-Za-z-]+/.exec(n) || [""])[0];
 const physOf = (n) => n.split(".")[0];
 const isSub = (n) => n.includes(".");
 const isPo = (n) => n.startsWith("Port-channel");
+const isTun = (n) => n.startsWith("Tunnel");
 const poNum = (n) => +n.slice(12);
-const RANK = { Vlan: 0, "Port-channel": 0.5, FastEthernet: 1, GigabitEthernet: 2, Loopback: 3, eth: 4 };
+const RANK = { Vlan: 0, "Port-channel": 0.5, FastEthernet: 1, GigabitEthernet: 2, Loopback: 3, Tunnel: 3.5, eth: 4 };
 
 function ifSort(a, b) {
   const ta = RANK[ifType(a)] ?? 9, tb = RANK[ifType(b)] ?? 9;
@@ -129,7 +131,7 @@ export function parseIfName(devType, toks, k) {
     num = nx.t; used = 2;
   }
   const t = types[0];
-  const ok = t === "Loopback" ? /^\d{1,9}$/.test(num)
+  const ok = t === "Loopback" || t === "Tunnel" ? /^\d{1,9}$/.test(num)
     : t === "Vlan" ? /^\d{1,4}$/.test(num) && +num >= 1 && +num <= 4094
       : t === "Port-channel" ? /^\d{1,2}$/.test(num) && +num >= 1 && +num <= 48
         : /^\d+\/\d+(\.\d{1,9})?$/.test(num);
@@ -171,7 +173,7 @@ const hex = (n, w) => n.toString(16).padStart(w, "0");
 const dotted = (h) => h.slice(0, 4) + "." + h.slice(4, 8) + "." + h.slice(8, 12);
 
 function newIntf(type, name) {
-  const base = { desc: "", shut: false, ip: null, mask: null, cdp: true, bw: null, speed: null, duplex: null };
+  const base = { desc: "", shut: false, ip: null, mask: null, cdp: true, bw: null, speed: null, duplex: null, svc: newSvcIf() };
   if (type === "router") {
     return { ...base, shut: PORTS.router.includes(name), secondary: [], helpers: [], aclIn: null, aclOut: null, ospf: {}, encap: null,
       delay: null, nat: null, standby: {}, hsrpVer: 1, ipv6: { addrs: [], ll: null, enable: false, auto: false }, ospf6: {} };
@@ -181,7 +183,7 @@ function newIntf(type, name) {
     stp: { portfast: null, bpduguard: null, cost: null, prio: null, vcost: {} }, chan: null, psec: null };
 }
 
-const newLine = (vty) => ({ password: null, login: vty ? "line" : null, transport: "all", timeout: null, sync: false });
+const newLine = (vty) => ({ password: null, login: vty ? "line" : null, transport: "all", timeout: null, sync: false, authList: null });
 
 function defaultCfg(type, name) {
   if (type === "pc") return { hostname: name, ip: null, mask: null, gw: null, dns: null, dhcp: false, dhcpServer: null, ip6: null };
@@ -190,7 +192,7 @@ function defaultCfg(type, name) {
     enableSecret: null, enablePassword: null, pwEnc: false, banner: "", domainLookup: true, domain: "",
     users: {}, rsa: 0, sshVer: null, cdp: true, intfs: {},
     lines: { con: newLine(false), vty0: newLine(true) },
-    snmp: {}, snmpLoc: null, snmpContact: null, ntp: [], logHosts: [], tz: null,
+    tz: null, svc: newSvc(),
   };
   for (const p of PORTS[type]) cfg.intfs[p] = newIntf(type, p);
   if (type === "router") {
@@ -209,13 +211,15 @@ function defaultCfg(type, name) {
 function normCfg(type, name, cfg) {
   const out = Object.assign(defaultCfg(type, name), cfg);
   if (type === "pc") return out;
+  if (!cfg.svc) { delete out.svc; svcMigrate(out); }
+  for (const l of Object.values(out.lines)) if (l.authList === undefined) l.authList = null;
   for (const [n, i] of Object.entries(out.intfs)) out.intfs[n] = Object.assign(newIntf(type, n), i);
   if (type === "router" && out.ospf) out.ospf = { redistStatic: false, redistSubnets: false, ...out.ospf };
   return out;
 }
 
 const newRuntime = () => ({ mac: {}, arp: {}, bindings: {}, hits: {}, logins: [], errdis: {}, psec: {}, nat: [],
-  natStats: { hits: 0, misses: 0 }, hsrp: {}, nd: {} });
+  natStats: { hits: 0, misses: 0 }, hsrp: {}, nd: {}, svc: newSvcRt() });
 
 // ---------------------------------------------------------------- the network
 export class Network {
@@ -301,6 +305,7 @@ export class Network {
     const c = d.type === "pc" ? {} : d.cfg.intfs[ifn];
     if (!c) return { status: "down", proto: "down" };
     if (c.shut) return { status: "administratively down", proto: "down" };
+    if (isTun(ifn)) return { status: "up", proto: this.tunUp(dn, ifn) ? "up" : "down" };
     let up;
     if (ifn.startsWith("Loopback")) up = true;
     else if (ifn.startsWith("Vlan")) up = this.sviUp(d, +ifn.slice(4));
@@ -608,6 +613,7 @@ export class Network {
   flood(dn, ifn) {
     const key = dn + "|" + ifn;
     if (this.c.flood[key]) return this.c.flood[key];
+    if (isTun(ifn)) return (this.c.flood[key] = this.tunFlood(dn, ifn));
     const out = [], q = [], seen = new Set();
     const send = (from, port, tag, trail) => {
       if (!this.lup(from, port)) return;
@@ -699,6 +705,7 @@ export class Network {
     if (!o) return out;
     const nets = [...o.networks].sort((a, b) => bitCount(a.wild) - bitCount(b.wild));
     for (const ifn of this.upIfs(dn)) {
+      if (this.vrfOf(dn, ifn)) continue;
       const c = d.cfg.intfs[ifn], { ip, mask } = this.ifAddr(dn, ifn), oc = c.ospf || {};
       let area = null;
       if (oc.pid === o.pid && oc.area !== undefined && oc.area !== null) area = oc.area;
@@ -711,7 +718,7 @@ export class Network {
       const hello = oc.hello ?? 10;
       out.push({
         ifn, ip, mask, area, passive, hello, dead: oc.dead ?? hello * 4, prio: oc.prio ?? 1,
-        ptp: !!oc.ptp, loop: ifn.startsWith("Loopback"),
+        ptp: oc.ptp !== undefined ? !!oc.ptp : isTun(ifn), loop: ifn.startsWith("Loopback"),
         cost: oc.cost ?? Math.max(1, Math.floor((o.refBw * 1000) / this.bandwidth(d, ifn))),
       });
     }
@@ -727,7 +734,7 @@ export class Network {
       return mem.reduce((s, p) => s + this.bandwidth(d, p), 0) || 100000;
     }
     const t = ifType(ifn);
-    return t === "FastEthernet" ? 100000 : t === "Loopback" ? 8000000 : 1000000;
+    return t === "FastEthernet" ? 100000 : t === "Loopback" ? 8000000 : t === "Tunnel" ? 100 : 1000000;
   }
 
   routerId(dn) {
@@ -819,6 +826,7 @@ export class Network {
     if (this.c.routes[key]) return this.c.routes[key];
     const d = this.devs[dn], cands = [];
     for (const ifn of this.upIfs(dn)) {
+      if (this.vrfOf(dn, ifn)) continue;
       for (const { ip, mask } of this.ifAddrs(dn, ifn)) {
         const len = maskLen(mask);
         cands.push({ code: "C", net: and(ip, mask), len, ad: 0, metric: 0, ifn });
@@ -863,6 +871,7 @@ export class Network {
       table = select(cands);
     }
     if (!this.c.bgpBusy && d.type === "router" && d.cfg.bgp) table = select([...table, ...this.bgpRoutes(dn)]);
+    table = this.nhrpOverlay(dn, table);
     table.sort((a, b) => a.net - b.net || a.len - b.len);
     this.c.routes[key] = table;
     return table;
@@ -870,9 +879,9 @@ export class Network {
 
   lookup(dn, ip) { return lpm(this.routes(dn), ip); }
 
-  // Where a router sends a packet for dst: {ifn, nh, proxy} or {fail}.
-  routerEgress(dn, dst, depth = 0) {
-    const r = this.lookup(dn, dst);
+  // Where a router sends a packet for dst: {ifn, nh, proxy} or {fail}. vrf picks the routing table.
+  routerEgress(dn, dst, depth = 0, vrf = null) {
+    const r = vrf ? lpm(this.vrfRoutes(dn, vrf), dst) : this.lookup(dn, dst);
     if (!r) return { fail: "noroute" };
     if (r.code === "C" || r.code === "L") return { ifn: r.ifn, nh: dst };
     const p = r.paths[0];
@@ -880,7 +889,7 @@ export class Network {
     if (p.ifn && p.ip === null) return { ifn: p.ifn, nh: dst, proxy: true };
     if (p.ifn) return { ifn: p.ifn, nh: p.ip };
     if (depth > 4) return { fail: "noroute" };
-    const e = this.routerEgress(dn, p.ip, depth + 1);
+    const e = this.routerEgress(dn, p.ip, depth + 1, vrf);
     if (e.fail) return e;
     return e.nh === p.ip || e.proxy ? { ifn: e.ifn, nh: e.proxy ? p.ip : e.nh } : e;
   }
@@ -921,12 +930,15 @@ export class Network {
   deliver(src, pkt, opts = {}) {
     pkt = { ...pkt };
     const res = { ok: false, links: [], hops: [], arpMiss: false, pkt };
-    let cur = src, originated = true, ttl = pkt.ttl ?? 255, inIf = null;
+    let cur = src, originated = true, ttl = pkt.ttl ?? 255, inIf = null, prev = null;
+    // The routing table a packet is looked up in: the VRF of the interface it arrived on.
+    let vrf = opts.vrf ?? null;
     for (let n = 0; n < 40; n++) {
       const d = this.devs[cur];
+      res.vrf = vrf;
       // NAT outside-to-inside happens before routing.
       if (!originated && d.type === "router" && d.cfg.intfs[inIf].nat === "outside") this.natInbound(cur, pkt, opts);
-      if (this.ownsIp(cur, pkt.dst)) {
+      if (this.ownsIpIn(cur, pkt.dst, vrf)) {
         res.ok = true;
         res.at = cur;
         if (opts.record && pkt.proto === "icmp" && d.rt.debug && d.rt.debug.icmp) {
@@ -939,13 +951,29 @@ export class Network {
         if (!this.isL3(d)) return { ...res, fail: "drop", failAt: cur };
         if (--ttl <= 0) return { ...res, fail: "ttl", failAt: cur };
       }
-      const eg = this.isL3(d) ? this.routerEgress(cur, pkt.dst) : this.hostEgress(cur, pkt.dst);
+      const eg = this.isL3(d) ? this.routerEgress(cur, pkt.dst, 0, vrf) : this.hostEgress(cur, pkt.dst);
       if (eg.fail) return { ...res, fail: eg.fail, failAt: cur };
       // NAT inside-to-outside happens after routing, before the outbound ACL.
       if (!originated && d.type === "router" && d.cfg.intfs[inIf].nat === "inside" && d.cfg.intfs[eg.ifn].nat === "outside"
         && !this.natOutbound(cur, eg.ifn, pkt, opts)) return { ...res, fail: "nat", failAt: cur };
       if (!originated && d.cfg.intfs[eg.ifn].aclOut && !this.aclPermits(cur, d.cfg.intfs[eg.ifn].aclOut, pkt, opts.record)) {
         return { ...res, fail: "acl", failAt: cur };
+      }
+      if (!this.svcEgress(cur, eg.ifn, pkt, opts, originated)) return { ...res, fail: "qos", failAt: cur };
+      // Tunnels and crypto maps carry the packet across the underlay to the far end in one step.
+      const via = d.type === "router" ? this.vpnHop(cur, eg, pkt, opts, res, { inIf, prev, originated }) : null;
+      if (via) {
+        if (via.fail) return { ...res, fail: via.fail, failAt: cur };
+        prev = cur;
+        cur = via.dev;
+        inIf = via.ifn;
+        originated = false;
+        vrf = this.vrfOf(cur, inIf);
+        res.hops.push({ dev: cur, ip: this.ifAddr(cur, inIf).ip, ifn: inIf });
+        const acl = this.devs[cur].cfg.intfs[inIf].aclIn;
+        if (acl && !this.aclPermits(cur, acl, pkt, opts.record)) return { ...res, fail: "acl", failAt: cur };
+        if (!this.svcIngress(cur, inIf, pkt, opts)) return { ...res, fail: "qos", failAt: cur };
+        continue;
       }
       const seg = this.flood(cur, eg.ifn);
       const live = (e) => this.ifUp(e.dev, e.ifn) && this.ifAddr(e.dev, e.ifn);
@@ -980,14 +1008,20 @@ export class Network {
       if (opts.record) this.learn(cur, eg.ifn, tgt, eg.nh, res);
       if (opts.record) this.mirror(cur, eg.ifn, tgt, pkt);
       res.links.push(...tgt.trail);
+      if (!this.svcTrail(tgt.trail, pkt, opts)) return { ...res, fail: "qos", failAt: tgt.dev };
+      prev = cur;
       cur = tgt.dev;
       inIf = tgt.ifn;
       originated = false;
+      vrf = this.vrfOf(cur, inIf);
       const td = this.devs[cur];
       res.hops.push({ dev: cur, ip: this.ifAddr(cur, tgt.ifn).ip, ifn: tgt.ifn });
       if (td.type === "router") {
         const acl = td.cfg.intfs[tgt.ifn].aclIn;
         if (acl && !this.aclPermits(cur, acl, pkt, opts.record)) return { ...res, fail: "acl", failAt: cur };
+        // Cleartext that a crypto map on this interface expects to arrive encrypted is dropped.
+        if (this.cryptoWantsEncrypted(cur, tgt.ifn, pkt)) return { ...res, fail: "crypto", failAt: cur };
+        if (!this.svcIngress(cur, tgt.ifn, pkt, opts)) return { ...res, fail: "qos", failAt: cur };
       }
     }
     return { ...res, fail: "ttl", failAt: cur };
@@ -997,7 +1031,7 @@ export class Network {
   learn(dn, ifn, tgt, nh, res) {
     const smac = this.mac(dn, ifn), dmac = tgt.vmac || this.mac(tgt.dev, tgt.ifn);
     this.learnMacs(tgt.trail, smac, dmac, ifn);
-    const d = this.devs[dn], key = n2ip(nh);
+    const d = this.devs[dn], v = this.vrfOf(dn, ifn), key = (v ? v + "|" : "") + n2ip(nh);
     // Only a router has to ARP before it can forward, and it drops the packet while it waits.
     // Hosts resolve first and then send, so their own first packet isn't lost.
     if (d.type === "router" && !d.rt.arp[key]) res.arpMiss = true;
@@ -1012,7 +1046,8 @@ export class Network {
       if (r.type !== "router") continue;
       const aimed = e === tgt || Object.entries(r.cfg.intfs[e.ifn].standby || {})
         .some(([g, s]) => s.ip === nh || (r.rt.hsrp[e.ifn + "|" + g] || {}).vip === nh);
-      if (aimed) r.rt.arp[n2ip(sender.ip)] = { mac: smac, ifn: e.ifn };
+      const rv = this.vrfOf(e.dev, e.ifn);
+      if (aimed) r.rt.arp[(rv ? rv + "|" : "") + n2ip(sender.ip)] = { mac: smac, ifn: e.ifn };
     }
   }
 
@@ -1155,11 +1190,11 @@ export class Network {
     return d.cfg.nat.statics.some((s) => s.global === ip) || Object.values(d.cfg.nat.pools).some((p) => ip >= p.start && ip <= p.end);
   }
 
-  sourceIp(dn, dst, source) {
+  sourceIp(dn, dst, source, vrf = null) {
     const d = this.devs[dn];
     if (source !== undefined && source !== null) return source;
     if (d.type === "pc") return d.cfg.ip;
-    const eg = this.isL3(d) ? this.routerEgress(dn, dst) : this.hostEgress(dn, dst);
+    const eg = this.isL3(d) ? this.routerEgress(dn, dst, 0, vrf) : this.hostEgress(dn, dst);
     if (eg.fail) return null;
     return this.ifAddr(dn, eg.ifn).ip;
   }
@@ -1170,22 +1205,25 @@ export class Network {
       if (dst.includes(":")) return this.ping6(dn, parse6(dst), opts);
       dst = ip2n(dst);
     }
-    const src = this.sourceIp(dn, dst, opts.source);
-    if (this.ownsIp(dn, dst)) return { ok: true, links: [], ttl: 255, hops: [] };
+    const vrf = opts.vrf ?? null;
+    const src = this.sourceIp(dn, dst, opts.source, vrf);
+    if (this.ownsIpIn(dn, dst, vrf)) return { ok: true, links: [], ttl: 255, hops: [] };
     if (src === null) {
-      const eg = this.isL3(this.devs[dn]) ? this.routerEgress(dn, dst) : this.hostEgress(dn, dst);
+      const eg = this.isL3(this.devs[dn]) ? this.routerEgress(dn, dst, 0, vrf) : this.hostEgress(dn, dst);
       return { ok: false, fail: eg.fail || "noip", failAt: dn, links: [] };
     }
     const o = { ...opts, natTmp: opts.natTmp || {} };
-    const there = this.deliver(dn, { src, dst, proto: "icmp", icmp: "echo", id: 1 }, o);
+    const there = this.deliver(dn, { src, dst, proto: "icmp", icmp: "echo", id: 1, size: opts.size ?? 100, dscp: opts.dscp ?? 0 }, o);
     if (!there.ok) return { ...there, by: this.ifFacing(there) };
-    const back = this.deliver(there.at, { src: there.pkt.dst, dst: there.pkt.src, proto: "icmp", icmp: "echo-reply", id: there.pkt.id }, o);
+    const back = this.deliver(there.at, { src: there.pkt.dst, dst: there.pkt.src, proto: "icmp", icmp: "echo-reply", id: there.pkt.id,
+      size: there.pkt.size, dscp: there.pkt.dscp }, { ...o, vrf: there.vrf });
     // The reply only counts if it comes back to us, from the address we pinged.
     const ok = back.ok && back.at === dn && back.pkt.src === dst;
     const routers = back.hops.filter((h) => this.isL3(this.devs[h.dev])).length;
     const startTtl = this.devs[there.at].type === "pc" ? 64 : 255;
     return { ok, fail: ok ? undefined : back.fail || "drop", failAt: ok ? undefined : back.failAt || back.at,
-      links: there.links.concat(back.links), back: true, arpMiss: there.arpMiss || back.arpMiss, ttl: startTtl - routers, hops: there.hops };
+      links: there.links.concat(back.links), back: true, arpMiss: there.arpMiss || back.arpMiss, ttl: startTtl - routers, hops: there.hops,
+      crypto: !!there.crypto && !!back.crypto };
   }
 
   // The address an ICMP error would come from: the failing router's ingress interface.
@@ -1195,22 +1233,22 @@ export class Network {
   }
 
   // Router-by-router path for traceroute: [{ip, ok}] ending at the destination when reached.
-  trace(dn, dst, max = 30, source) {
+  trace(dn, dst, max = 30, source, vrf = null) {
     if (typeof dst === "string") dst = ip2n(dst);
-    const src = this.sourceIp(dn, dst, source);
-    const out = [], o = { natTmp: {} };
+    const src = this.sourceIp(dn, dst, source, vrf);
+    const out = [], o = { natTmp: {}, vrf };
     if (src === null) return out;
     const home = (back) => back.ok && back.at === dn;
     for (let ttl = 1; ttl <= max; ttl++) {
       const r = this.deliver(dn, { src, dst, proto: "udp", ttl, id: 1 }, o);
       if (r.ok) {
-        const back = this.deliver(r.at, { src: r.pkt.dst, dst: r.pkt.src, proto: "icmp", icmp: "unreachable", id: r.pkt.id }, o);
+        const back = this.deliver(r.at, { src: r.pkt.dst, dst: r.pkt.src, proto: "icmp", icmp: "unreachable", id: r.pkt.id }, { ...o, vrf: r.vrf });
         out.push({ ip: home(back) ? dst : null, last: true });
         return out;
       }
       if (r.fail === "ttl") {
         const h = r.hops.filter((x) => x.dev === r.failAt).pop();
-        const back = this.deliver(r.failAt, { src: h.ip, dst: r.pkt.src, proto: "icmp", icmp: "time-exceeded", id: r.pkt.id }, o);
+        const back = this.deliver(r.failAt, { src: h.ip, dst: r.pkt.src, proto: "icmp", icmp: "time-exceeded", id: r.pkt.id }, { ...o, vrf: r.vrf });
         out.push({ ip: home(back) ? h.ip : null });
         continue;
       }
@@ -1365,6 +1403,7 @@ export class Network {
     const log = (dn, m) => (logs[dn] = logs[dn] || []).push(m);
     for (const [dn, msgs] of Object.entries(this.pend)) for (const m of new Set(msgs)) log(dn, m);
     this.pend = {};
+    this.tunLog(log);
     for (let pass = 0; pass < 6; pass++) {
       let changed = false;
       for (const d of Object.values(this.devs)) {
@@ -1396,7 +1435,7 @@ export class Network {
     const c = d.cfg.intfs[ifn];
     if (c.delay) return c.delay;
     const t = ifType(ifn);
-    return t === "Loopback" ? 500 : t === "FastEthernet" ? 10 : 1; // tens of microseconds
+    return t === "Loopback" ? 500 : t === "Tunnel" ? 5000 : t === "FastEthernet" ? 10 : 1; // tens of microseconds
   }
 
   eigrpRid(dn) {
@@ -1410,6 +1449,7 @@ export class Network {
   eigrpIfs(dn) {
     const d = this.devs[dn], e = d.cfg.eigrp, out = [];
     for (const ifn of this.upIfs(dn)) {
+      if (this.vrfOf(dn, ifn)) continue;
       const { ip, mask } = this.ifAddr(dn, ifn);
       const hit = e.networks.some((n) => (n.wild === null ? majorNet(ip).net === n.addr : wildMatch(ip, n.addr, n.wild)));
       if (!hit) continue;
@@ -1487,9 +1527,13 @@ export class Network {
         for (const n of me.nbrs) {
           for (const [k, en] of Object.entries(tab[n.dev])) {
             if (en.via.some((v) => v.dev === dn)) continue; // split horizon
+            // A multipoint tunnel keeps IOS's per-interface split horizon (on unless turned off), and
+            // with next-hop-self off the neighbour passes on the original next hop (DMVPN phase 2).
+            if (isTun(n.ifn) && en.via.some((v) => v.ifn === n.ifn) && this.eigrpTunSH(n.dev, n.ifn)) continue;
+            const keepNh = isTun(n.ifn) && en.via.length && en.via[0].ifn === n.ifn && !this.eigrpTunNHS(n.dev, n.ifn);
             const vec = { bw: Math.min(en.vec.bw, n.li.bw), dly: en.vec.dly + n.li.dly };
             (cands[k] = cands[k] || []).push({ metric: this.eigrpMetric(me, vec), rd: en.metric, vec, ext: en.ext,
-              net: en.net, len: en.len, ip: n.ip, ifn: n.local, dev: n.dev });
+              net: en.net, len: en.len, ip: keepNh ? en.via[0].ip : n.ip, ifn: n.local, dev: n.dev });
           }
         }
         for (const [k, cs] of Object.entries(cands)) {
@@ -1913,8 +1957,11 @@ export class Network {
     // A check about an interface that doesn't exist yet (say Port-channel1 before the bundle) is simply false.
     if (intf && d.type !== "pc" && !d.cfg.intfs[intf]) return c.type === "noping" || c.type === "noroute" || c.type === "noconfig";
     switch (c.type) {
-      case "ping": return this.ping(c.from, c.to).ok;
-      case "noping": return !this.ping(c.from, c.to).ok;
+      case "ping": {
+        const r = this.ping(c.from, c.to, c.vrf ? { vrf: c.vrf } : {});
+        return r.ok && (!c.encrypted || r.crypto);
+      }
+      case "noping": return !this.ping(c.from, c.to, c.vrf ? { vrf: c.vrf } : {}).ok;
       case "hostname": return d.cfg.hostname === c.value;
       case "config": return new RegExp(c.match, "m").test(runningConfig(this, d.name));
       case "noconfig": return !new RegExp(c.match, "m").test(runningConfig(this, d.name));
@@ -1935,13 +1982,13 @@ export class Network {
       }
       case "route": {
         const [net, len] = c.prefix.split("/");
-        const r = this.routes(d.name).find((x) => x.net === ip2n(net) && x.len === +len);
+        const r = (c.vrf ? this.vrfRoutes(d.name, c.vrf) : this.routes(d.name)).find((x) => x.net === ip2n(net) && x.len === +len);
         if (!r || (c.code && r.code !== c.code)) return false;
         return !c.via || (!!r.paths && r.paths.some((p) => p.ip === ip2n(c.via)));
       }
       case "noroute": {
         const [net, len] = c.prefix.split("/");
-        return !this.routes(d.name).some((x) => x.net === ip2n(net) && x.len === +len && (!c.code || x.code === c.code));
+        return !(c.vrf ? this.vrfRoutes(d.name, c.vrf) : this.routes(d.name)).some((x) => x.net === ip2n(net) && x.len === +len && (!c.code || x.code === c.code));
       }
       case "ospf-nbrs": {
         const o = this.ospf()[d.name];
@@ -2031,10 +2078,13 @@ export class Network {
         return !!t && t.fs.some((x) => x.ip === ip2n(c.via));
       }
       default: {
-        const r = this.switchingCheck(c, d, intf);
-        if (r !== undefined) return r;
+        const sw = this.switchingCheck(c, d, intf);
+        if (sw !== undefined) return sw;
+        if (SVC_CHECKS[c.type]) return SVC_CHECKS[c.type](this, c, d, intf);
         const b = this.bgpCheck(d, c);
         if (b !== undefined) return b;
+        const r = this.vpnCheck(c, d, intf);
+        if (r !== undefined) return r;
         throw new Error("unknown check type " + c.type);
       }
     }
@@ -2176,21 +2226,26 @@ export function parseVlans(s) {
   return [...out].sort((x, y) => x - y);
 }
 
-function aclAddr(s, ext) {
+// "show access-lists" prints a standard ACE's wildcard as "a.b.c.d, wildcard bits w.x.y.z".
+function aclAddr(s, ext, show) {
   if (s.addr === 0 && s.wild === 0xffffffff) return "any";
   if (s.wild === 0) return ext ? "host " + n2ip(s.addr) : n2ip(s.addr);
-  return n2ip(s.addr) + " " + n2ip(s.wild);
+  return n2ip(s.addr) + (show && !ext ? ", wildcard bits " : " ") + n2ip(s.wild);
 }
-const portStr = (p) => !p ? "" : p.op === "range" ? `range ${p.a} ${p.b}` : `${p.op} ${p.a}`;
-function aceStr(type, e) {
-  if (type === "standard") return aclAddr(e.src, false) + (e.log ? " log" : "");
-  return [e.proto, aclAddr(e.src, true), portStr(e.srcPort), aclAddr(e.dst, true), portStr(e.dstPort), e.icmp, e.log && "log"]
+// IOS shows well-known ports by name (22 and 443 stay numbers).
+const PORT_SHOW = { tcp: { 20: "ftp-data", 21: "ftp", 23: "telnet", 25: "smtp", 53: "domain", 80: "www" },
+  udp: { 53: "domain", 67: "bootps", 68: "bootpc", 69: "tftp", 123: "ntp", 161: "snmp" } };
+const portName = (proto, n) => (PORT_SHOW[proto] || {})[n] ?? n;
+const portStr = (p, proto) => !p ? "" : p.op === "range" ? `range ${portName(proto, p.a)} ${portName(proto, p.b)}` : `${p.op} ${portName(proto, p.a)}`;
+function aceStr(type, e, show) {
+  if (type === "standard") return aclAddr(e.src, false, show) + (e.log ? " log" : "");
+  return [e.proto, aclAddr(e.src, true), portStr(e.srcPort, e.proto), aclAddr(e.dst, true), portStr(e.dstPort, e.proto), e.icmp, e.log && "log"]
     .filter(Boolean).join(" ");
 }
 const actionStr = (type, a) => (type === "standard" && a === "deny" ? "deny  " : a);
 
-const PORT_NAMES = { ftp: 21, ssh: 22, telnet: 23, smtp: 25, domain: 53, bootps: 67, bootpc: 68, tftp: 69, www: 80,
-  pop3: 110, ntp: 123, snmp: 161, https: 443 };
+const PORT_NAMES = { "ftp-data": 20, ftp: 21, ssh: 22, telnet: 23, smtp: 25, domain: 53, bootps: 67, bootpc: 68, tftp: 69, www: 80,
+  pop3: 110, ntp: 123, snmp: 161, https: 443, isakmp: 500, "non500-isakmp": 4500 };
 const ICMP_TYPES = ["echo", "echo-reply", "unreachable", "time-exceeded"];
 
 // Parse what follows permit/deny in an ACL. Returns {entry} or {at: index of the bad word}.
@@ -2227,7 +2282,7 @@ export function parseAce(type, words) {
     return { op, a };
   };
   if (type === "extended") {
-    const m = ["ip", "icmp", "tcp", "udp"].filter((x) => x === lw(i) || (lw(i) && x.startsWith(lw(i)) && lw(i).length > 1));
+    const m = ["ip", "icmp", "tcp", "udp", "gre", "esp", "ahp"].filter((x) => x === lw(i) || (lw(i) && x.startsWith(lw(i)) && lw(i).length > 1));
     if (m.length !== 1) return { at: i };
     e.proto = m[0];
     i++;
@@ -2267,6 +2322,7 @@ export function runningConfig(net, dn, onlyIf) {
     if (i.bw) L.push(" bandwidth " + i.bw);
     if (i.delay) L.push(" delay " + i.delay);
     if (i.encap) L.push(" encapsulation dot1Q " + i.encap.vlan + (i.encap.native ? " native" : ""));
+    if (i.vrf) L.push(vrfFwdLine(c, i));
     if (d.type === "router" || n.startsWith("Vlan") || i.routed) {
       if (i.routed) L.push(" no switchport");
       for (const s of i.secondary || []) L.push(` ip address ${n2ip(s.ip)} ${n2ip(s.mask)} secondary`);
@@ -2306,6 +2362,7 @@ export function runningConfig(net, dn, onlyIf) {
       if (o6.pid !== undefined) L.push(` ipv6 ospf ${o6.pid} area ${o6.area}`);
       const o = i.ospf;
       if (o.ptp) L.push(" ip ospf network point-to-point");
+      else if (o.ptp === false && isTun(n)) L.push(" ip ospf network broadcast");
       if (o.hello !== undefined) L.push(" ip ospf hello-interval " + o.hello);
       if (o.dead !== undefined) L.push(" ip ospf dead-interval " + o.dead);
       if (o.prio !== undefined) L.push(" ip ospf priority " + o.prio);
@@ -2336,9 +2393,11 @@ export function runningConfig(net, dn, onlyIf) {
       for (const [v, k] of Object.entries(s.vcost).sort((a, b) => a[0] - b[0])) L.push(` spanning-tree vlan ${v} cost ${k}`);
       L.push(...swPortLines(i));
     }
+    if (d.type === "router") L.push(...vpnIntfLines(c, n, i));
     if (i.duplex) L.push(" duplex " + i.duplex);
     if (i.speed) L.push(" speed " + i.speed);
     if (!i.cdp) L.push(" no cdp enable");
+    L.push(...svcIfConfig(d, n));
     if (i.shut) L.push(" shutdown");
     return L;
   };
@@ -2347,14 +2406,16 @@ export function runningConfig(net, dn, onlyIf) {
     return `Building configuration...\n\nCurrent configuration : ${body.length} bytes\n` + body;
   };
   if (onlyIf) return wrap(["!", ...intfBlock(onlyIf), "end"]);
-  const L = ["!", "version 15.9", c.pwEnc ? "service password-encryption" : "no service password-encryption", "!",
-    "hostname " + c.hostname, "!"];
+  const L = ["!", "version 15.9", ...svcConfig(d, "service").slice(0, 2), c.pwEnc ? "service password-encryption" : "no service password-encryption",
+    ...svcConfig(d, "service").slice(2), "!", "hostname " + c.hostname, "!"];
   if (c.enableSecret !== null) L.push("enable secret 5 " + md5ish(c.enableSecret));
   if (c.enablePassword !== null) L.push("enable password " + pw(c.enablePassword));
-  L.push("!", "no aaa new-model");
+  L.push(...svcConfig(d, "logging"));
+  L.push("!", ...svcConfig(d, "aaa"));
   if (c.tz) L.push(`clock timezone ${c.tz[0]} ${c.tz[1]} 0`);
   if (!c.domainLookup) L.push("no ip domain lookup");
   if (c.domain) L.push("ip domain name " + c.domain);
+  L.push(...svcConfig(d, "global"));
   if (d.type === "router" && c.ipv6Routing) L.push("ipv6 unicast-routing");
   L.push(...swGlobalLines(d));
   if (d.type === "router") {
@@ -2389,6 +2450,8 @@ export function runningConfig(net, dn, onlyIf) {
     for (const [n, t] of Object.entries(c.tracks).sort((a, b) => a[0] - b[0])) L.push(`track ${n} interface ${t.ifn} line-protocol`);
     L.push("!");
   }
+  L.push(...svcConfig(d, "objects"));
+  if (d.type === "router") L.push(...vpnGlobalLines(c));
   for (const n of Object.keys(c.intfs).sort(ifSort)) L.push(...intfBlock(n), "!");
   if (d.type === "router" && c.eigrp) L.push(...eigrpConfig(c.eigrp), "!");
   if (d.type === "router" && c.ospf) {
@@ -2417,6 +2480,7 @@ export function runningConfig(net, dn, onlyIf) {
       L.push(["ip route", n2ip(r.net), n2ip(lenMask(r.len)), r.ifn, r.nh !== null ? n2ip(r.nh) : null, r.ad !== 1 ? r.ad : null]
         .filter((x) => x !== null && x !== undefined).join(" "));
     }
+    L.push(...vpnRoutingLines(c));
     const names = Object.keys(c.acls);
     const numbered = names.filter((n) => /^\d+$/.test(n)).sort((a, b) => a - b);
     const named = names.filter((n) => !/^\d+$/.test(n)).sort();
@@ -2446,19 +2510,19 @@ export function runningConfig(net, dn, onlyIf) {
       if (o.defaultOriginate) L.push(" default-information originate" + (o.defaultAlways ? " always" : ""));
     }
   }
-  for (const h of c.logHosts) L.push("logging host " + n2ip(h));
-  for (const [s, a] of Object.entries(c.snmp)) L.push(`snmp-server community ${s} ${a}`);
-  if (c.snmpLoc) L.push("snmp-server location " + c.snmpLoc);
-  if (c.snmpContact) L.push("snmp-server contact " + c.snmpContact);
+  L.push(...svcConfig(d, "late"));
   L.push("!");
   if (!c.cdp) L.push("no cdp run", "!");
+  L.push(...svcConfig(d, "banners"));
   if (c.banner) L.push("banner motd ^C" + c.banner + "^C");
   const line = (title, l, vty) => {
     L.push(title);
     if (l.timeout) L.push(` exec-timeout ${l.timeout[0]} ${l.timeout[1]}`);
     if (l.password !== null) L.push(" password " + pw(l.password));
     if (l.sync) L.push(" logging synchronous");
-    if (l.login === "local") L.push(" login local");
+    if (l.authList) L.push(" login authentication " + l.authList);
+    // Under AAA the method lists decide; IOS stops printing the old login commands.
+    if (svcOf(d).aaa.on) { /* nothing */ } else if (l.login === "local") L.push(" login local");
     else if (l.login === "line") L.push(" login");
     else if (vty) L.push(" no login");
     if (vty && l.transport !== "all") L.push(" transport input " + l.transport);
@@ -2467,7 +2531,7 @@ export function runningConfig(net, dn, onlyIf) {
   line("line vty 0 4", c.lines.vty0, true);
   if (c.lines.vty5) line("line vty 5 15", c.lines.vty5, true);
   L.push("!");
-  for (const s of c.ntp) L.push("ntp server " + n2ip(s));
+  L.push(...svcConfig(d, "tail"));
   L.push(...tailLines(d));
   L.push("end");
   return wrap(L);
@@ -2515,9 +2579,9 @@ const ROUTE_CODES = `Codes: L - local, C - connected, S - static, R - RIP, M - m
        o - ODR, P - periodic downloaded static route, H - NHRP, l - LISP
        + - replicated route, % - next hop override`;
 
-function showIpRoute(net, dn, filter) {
-  const all = net.routes(dn);
-  const L = [ROUTE_CODES, ""];
+function showIpRoute(net, dn, filter, vrf) {
+  const all = vrf ? net.vrfRoutes(dn, vrf) : net.routes(dn);
+  const L = vrf ? ["", "Routing Table: " + vrf, ROUTE_CODES, ""] : [ROUTE_CODES, ""];
   const def = all.find((r) => r.net === 0 && r.len === 0);
   if (def) {
     const p = def.paths ? def.paths[0] : null;
@@ -2547,19 +2611,19 @@ function showIpRoute(net, dn, filter) {
   };
   for (const [key, g] of groups) {
     if (key.startsWith("top|")) {
-      for (const r of g.routes) text(r, true).forEach((t, i) => L.push((i ? "" : r.code).padEnd(6) + t));
+      for (const r of g.routes) text(r, true).forEach((t, i) => L.push((i ? "" : routeCode(r)).padEnd(6) + t));
       continue;
     }
     const lens = new Set(g.routes.map((r) => r.len));
     const exact = g.routes.length === 1 && g.routes[0].len === g.major.len;
     if (exact) {
-      text(g.routes[0], true).forEach((t, i) => L.push((i ? "" : g.routes[0].code).padEnd(6) + t));
+      text(g.routes[0], true).forEach((t, i) => L.push((i ? "" : routeCode(g.routes[0])).padEnd(6) + t));
       continue;
     }
     const n = g.routes.length;
     if (lens.size === 1) L.push(`      ${n2ip(g.major.net)}/${[...lens][0]} is subnetted, ${n} subnets`);
     else L.push(`      ${n2ip(g.major.net)}/${g.major.len} is variably subnetted, ${n} subnets, ${lens.size} masks`);
-    for (const r of g.routes) text(r, lens.size > 1).forEach((t, i) => L.push((i ? "" : r.code).padEnd(9) + t));
+    for (const r of g.routes) text(r, lens.size > 1).forEach((t, i) => L.push((i ? "" : routeCode(r)).padEnd(9) + t));
   }
   return L.join("\n");
 }
@@ -2580,6 +2644,7 @@ function showInterfaces(net, dn, only) {
   for (const n of Object.keys(d.cfg.intfs).sort(ifSort)) {
     if (only && n !== only) continue;
     const i = d.cfg.intfs[n], s = net.ifState(dn, n), err = net.errdis(dn, n);
+    if (isTun(n)) { L.push(...showTunnelIf(net, dn, n)); continue; }
     const hw = n.startsWith("Loopback") ? "Loopback" : n.startsWith("Vlan") ? "EtherSVI" : isPo(n) ? "EtherChannel"
       : d.type === "router" ? "iGbE" : "Fast Ethernet";
     L.push(`${n} is ${s.status}, line protocol is ${s.proto}${err ? " (err-disabled)" : ""}`);
@@ -2731,7 +2796,7 @@ function showAcls(net, dn, only) {
     for (const e of a.entries) {
       if (e.remark !== undefined) continue;
       const hits = d.rt.hits[n + "|" + e.seq];
-      L.push(`    ${e.seq} ${actionStr(a.type, e.action)} ${aceStr(a.type, e)}${hits ? ` (${hits} match${hits > 1 ? "es" : ""})` : ""}`);
+      L.push(`    ${e.seq} ${actionStr(a.type, e.action)} ${aceStr(a.type, e, true)}${hits ? ` (${hits} match${hits > 1 ? "es" : ""})` : ""}`);
     }
   }
   return L.join("\n");
@@ -2740,7 +2805,7 @@ function showAcls(net, dn, only) {
 function showOspfNbr(net, dn) {
   const o = net.ospf()[dn];
   const L = ["", "Neighbor ID     Pri   State           Dead Time   Address         Interface"];
-  for (const n of o ? o.nbrs : []) {
+  for (const n of [...(o ? o.nbrs : []), ...net.vrfOspfNbrs(dn)]) {
     L.push(pad(n2ip(n.rid), 16) + lpad(n.prio, 3) + "   " + pad(n.state, 16) + pad("00:00:" + String(n.dead - 5).padStart(2, "0"), 12) + pad(n2ip(n.ip), 16) + n.local);
   }
   return L.join("\n");
@@ -3265,15 +3330,18 @@ function showEigrpIfs(net, dn) {
   return L.join("\n");
 }
 
-function showArp(net, dn) {
+function showArp(net, dn, vrf = null) {
   const d = net.devs[dn];
   const L = ["Protocol  Address          Age (min)  Hardware Addr   Type   Interface"];
   const rows = [];
   for (const n of net.upIfs(dn)) {
-    if (n.startsWith("Loopback")) continue;
+    if (n.startsWith("Loopback") || isTun(n) || net.vrfOf(dn, n) !== vrf) continue;
     rows.push([net.ifAddr(dn, n).ip, "-", net.mac(dn, n), n]);
   }
-  for (const [ip, e] of Object.entries(d.rt.arp)) if (net.ifUp(dn, e.ifn)) rows.push([ip2n(ip), "0", e.mac, e.ifn]);
+  for (const [k, e] of Object.entries(d.rt.arp)) {
+    const [v, ip] = k.includes("|") ? k.split("|") : [null, k];
+    if (v === vrf && net.ifUp(dn, e.ifn)) rows.push([ip2n(ip), "0", e.mac, e.ifn]);
+  }
   rows.sort((a, b) => a[0] - b[0]);
   for (const r of rows) L.push("Internet  " + pad(n2ip(r[0]), 17) + lpad(r[1], 9) + "   " + pad(r[2], 16) + "ARPA   " + r[3]);
   return L.join("\n");
@@ -3285,7 +3353,7 @@ function showDhcpBinding(net, dn) {
     "IP address      Client-ID/              Lease expiration        Type       State      Interface",
     "                Hardware address/", "                User name"];
   for (const [ip, b] of Object.entries(d.rt.bindings).sort((a, b) => a[0] - b[0])) {
-    L.push(pad(n2ip(+ip), 16) + pad("01" + b.mac.replace(/\./g, ""), 24) + pad("Infinite", 24) + pad("Automatic", 11) + pad("Active", 11) + "Unknown");
+    L.push(pad(n2ip(+ip), 16) + pad(("01" + b.mac.replace(/\./g, "")).match(/.{1,4}/g).join("."), 24) + pad("Infinite", 24) + pad("Automatic", 11) + pad("Active", 11) + "Unknown");
   }
   return L.join("\n");
 }
@@ -3650,13 +3718,15 @@ const MODES = {
   eigrpn: "(config-router)#", eigrpaf: "(config-router-af)#", afif: "(config-router-af-interface)#",
   aftop: "(config-router-af-topology)#", track: "(config-track)#",
   bgp: "(config-router)#", bgpaf: "(config-router-af)#", rmap: "(config-route-map)#",
+  tunif: "(config-if)#", vrfdef: "(config-vrf)#", vrfaf: "(config-vrf-af)#", ipvrf: "(config-vrf)#", vrfospf: "(config-router)#",
+  isakmp: "(config-isakmp)#", tset: "(cfg-crypto-trans)#", ipsecprof: "(ipsec-profile)#", cmap: "(config-crypto-map)#",
 };
 const SUBMODES = ["if", "subif", "range", "line", "ospf", "vlan", "pool", "stdacl", "extacl", "ospf6", "eigrp", "eigrpn",
-  "eigrpaf", "afif", "aftop", "track", "bgp", "bgpaf", "rmap"];
+  "eigrpaf", "afif", "aftop", "track", "bgp", "bgpaf", "rmap", "tunif", "vrfdef", "vrfaf", "ipvrf", "vrfospf", "isakmp", "tset", "ipsecprof", "cmap"];
 // Where "exit" goes from each nested mode (everything else returns to global configuration).
 const PARENT = { afif: "eigrpaf", aftop: "eigrpaf", eigrpaf: "eigrpn", bgpaf: "bgp" };
 const CONFIG_MODES = ["config", ...SUBMODES];
-const IF_MODES = ["if", "subif", "range"];
+const IF_MODES = ["if", "subif", "range", "tunif"];
 
 // ---- exec ---------------------------------------------------------------
 def("RS", "user", "enable", (c) => c.s.enable());
@@ -3815,13 +3885,19 @@ def("RS", "config", "username <word|User name> password <line|The UNENCRYPTED (c
 def("RS", "config", "username <word|User name> privilege <num:0-15|User privilege level> secret <line|The UNENCRYPTED (cleartext) user secret>", setUser("secret"));
 def("RS", "config", "username <word|User name> privilege <num:0-15|User privilege level> password <line|The UNENCRYPTED (cleartext) user password>", setUser("password"));
 def("RS", "config", "no username <word|User name>", (c, [n]) => { delete c.cfg.users[n]; });
+// The first key pair turns the SSH server on, and IOS logs it.
+const sshOn = (c, b) => {
+  const had = c.cfg.rsa > 0;
+  c.cfg.rsa = b;
+  if (!had && b >= 768) c.net.note(c.d.name, `%SSH-5-ENABLED: SSH ${c.cfg.sshVer === 2 ? "2.0" : "1.99"} has been enabled`);
+};
 const genRsa = (c, bits) => {
   if (["Router", "Switch"].includes(c.cfg.hostname)) { c.print("% Please define a hostname other than Router."); return; }
   if (!c.cfg.domain) { c.print("% Please define a domain-name first."); return; }
   const run = (b) => {
     c.print(`The name for the keys will be: ${c.cfg.hostname}.${c.cfg.domain}`, "",
       `% The key modulus size is ${b} bits`, `% Generating ${b} bit RSA keys, keys will be non-exportable...`, "[OK] (elapsed time was 1 seconds)");
-    c.cfg.rsa = b;
+    sshOn(c, b);
   };
   if (bits) { run(bits); return; }
   c.print(`The name for the keys will be: ${c.cfg.hostname}.${c.cfg.domain}`,
@@ -3829,8 +3905,8 @@ const genRsa = (c, bits) => {
   c.s.ask("How many bits in the modulus [512]: ", {}, (ans) => {
     const b = ans.trim() ? +ans.trim() : 512;
     if (!Number.isInteger(b) || b < 360 || b > 4096) { c.print("% Invalid input. Key modulus must be between 360 and 4096."); return; }
-    c.cfg.rsa = b;
     c.print(`% Generating ${b} bit RSA keys, keys will be non-exportable...`, "[OK] (elapsed time was 1 seconds)");
+    sshOn(c, b);
   });
 };
 def("RS", "config", "crypto key generate rsa", (c) => genRsa(c, null));
@@ -3907,6 +3983,7 @@ def("R", "config", "router ospf <num:1-65535|Process ID>", (c, [pid]) => {
 });
 def("R", "config", "no router ospf <num:1-65535|Process ID>", (c, [pid]) => {
   if (c.cfg.ospf && c.cfg.ospf.pid === pid) c.cfg.ospf = null;
+  if (c.cfg.ospfVrf && c.cfg.ospfVrf[pid]) delete c.cfg.ospfVrf[pid];
 });
 const parseArea = (w) => (isIp(w) ? ip2n(w) : /^\d{1,10}$/.test(w) && +w <= 4294967295 ? +w : null);
 def("R", "ospf", "network <ip|Network number> <ip|OSPF wild card bits> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [addr, wild, a]) => {
@@ -4115,7 +4192,7 @@ def("R", IF_MODES, "no ip ospf dead-interval", ospfDel("dead"));
 def("R", IF_MODES, "ip ospf priority <num:0-255|Priority>", ospfSet("prio"));
 def("R", IF_MODES, "no ip ospf priority", ospfDel("prio"));
 def("R", IF_MODES, "ip ospf network point-to-point", ospfSet("ptp", true));
-def("R", IF_MODES, "ip ospf network broadcast", ospfDel("ptp"));
+def("R", IF_MODES, "ip ospf network broadcast", ospfSet("ptp", false));
 def("R", IF_MODES, "no ip ospf network", ospfDel("ptp"));
 def("R", IF_MODES, "ip ospf <num:1-65535|Process ID> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [pid, a]) => {
   const area = parseArea(a);
@@ -4763,16 +4840,6 @@ for (const t of ["R", "S"]) {
   }));
   def(t, IF_MODES, "no duplex", (c) => eachIf(c, (n, i) => { i.duplex = null; }));
 }
-def("RS", "config", "snmp-server community <word|SNMP community string> {RO|RW}", (c, [s, a]) => { c.cfg.snmp[s] = a.toUpperCase(); });
-def("RS", "config", "no snmp-server community <word|SNMP community string>", (c, [s]) => { delete c.cfg.snmp[s]; });
-def("RS", "config", "snmp-server location <line|The physical location of this node>", (c, [l]) => { c.cfg.snmpLoc = l; });
-def("RS", "config", "snmp-server contact <line|identification of the contact person for this managed node>", (c, [l]) => { c.cfg.snmpContact = l; });
-def("RS", "config", "no snmp-server location", (c) => { c.cfg.snmpLoc = null; });
-def("RS", "config", "no snmp-server contact", (c) => { c.cfg.snmpContact = null; });
-def("RS", "config", "ntp server <ip|IP address of peer>", (c, [ip]) => { if (!c.cfg.ntp.includes(ip)) c.cfg.ntp.push(ip); });
-def("RS", "config", "no ntp server <ip|IP address of peer>", (c, [ip]) => { c.cfg.ntp = c.cfg.ntp.filter((x) => x !== ip); });
-def("RS", "config", "logging host <ip|IP address of the logging host>", (c, [ip]) => { if (!c.cfg.logHosts.includes(ip)) c.cfg.logHosts.push(ip); });
-def("RS", "config", "no logging host <ip|IP address of the logging host>", (c, [ip]) => { c.cfg.logHosts = c.cfg.logHosts.filter((x) => x !== ip); });
 const setTz = (c, z, h) => {
   if (!/^-?\d{1,2}$/.test(h) || Math.abs(+h) > 23) { c.invalid(3); return; }
   c.cfg.tz = [z, +h];
@@ -5658,7 +5725,7 @@ Object.assign(Network.prototype, {
     const out = [];
     for (const [dn, msgs] of Object.entries(events)) {
       if (dn === home || this.devs[dn].type === "pc" || !msgs.length) continue;
-      const items = msgs.map((m) => "*" + clock() + ": " + m);
+      const items = [...msgs];
       this.conq[dn] = [...(this.conq[dn] || []), ...items].slice(-200);
       out.push([dn, items]);
     }
@@ -8435,22 +8502,23 @@ export class Session {
     this.pending = null;
     this.loggedOut = false;
     this.out = [];
-    this._events = {};
+    this.events = {};
+    this._consoleLines = {};
     this.queued = [];
     this.anim = null;
     this.cx = null;
   }
 
-  // Console messages the last command raised, per device. Messages for other devices also wait in the
+  // The console lines the last command raised, per device. Lines for other devices also wait in the
   // network's console queue so their own console shows them on its next input; whoever reads them here
   // (the lab page writes them straight into those consoles) takes them off that queue.
-  get events() {
+  get consoleLines() {
     for (const [dn, items] of this.queued) this.net.unqueueConsole(dn, items);
     this.queued = [];
-    return this._events;
+    return this._consoleLines;
   }
 
-  set events(v) { this._events = v; }
+  set consoleLines(v) { this._consoleLines = v; }
 
   get f() { return this.frames[this.frames.length - 1]; }
   get d() { return this.net.devs[this.f.dev]; }
@@ -8484,6 +8552,7 @@ export class Session {
     this.out = [];
     this.anim = null;
     this.retype = null;
+    this.queued = [];
     const before = this.net.snapshot();
     const waiting = this.net.takeConsole(this.home);
     if (this.pending) {
@@ -8500,15 +8569,15 @@ export class Session {
     } else this.exec(line);
     this.net.touch();
     const logs = this.net.settle();
-    const ev = this._events = this.net.events(before, this.net.snapshot());
+    const ev = this.events = this.net.events(before, this.net.snapshot());
     // Err-disable and violation messages come before the link going down; protocol changes after it.
     for (const [dn, msgs] of Object.entries(logs)) {
       const early = msgs.filter((m) => /^%(PM|SPANTREE|PORT_SECURITY)-/.test(m));
       ev[dn] = [...early, ...(ev[dn] || []), ...msgs.filter((m) => !early.includes(m))];
     }
-    this.queued = this.net.queueConsole(this.home, ev);
-    const mine = ev[this.home];
-    if (mine) for (const m of mine) this.out.push("*" + clock() + ": " + m);
+    this.svcAfter();
+    // Lines for other devices also wait for their own console's next input (unless the lab page takes them).
+    this.queued = this.net.queueConsole(this.home, this._consoleLines || {});
     return [...waiting, ...this.out].join("\n");
   }
 
@@ -8569,6 +8638,12 @@ export class Session {
     const ctx = this.ctx(cmd, toks);
     this.cx = ctx;
     let r = walk(tree, toks, ctx);
+    // Nested QoS modes climb back one level at a time (a policer, then its class, then the policy).
+    for (let m = mode, t = this.f.target; (r.err || !r.node.run) && !viaDo && SVC_CLIMB[m];) {
+      [m, t] = [SVC_CLIMB[m][0], SVC_CLIMB[m][1](t)];
+      const up = walk(TREES[d.type][m], toks, ctx);
+      if (!up.err && up.node.run) { this.enter(m, t); ctx.mode = m; ctx.target = t; r = up; }
+    }
     if ((r.err || !r.node.run) && SUBMODES.includes(mode) && !viaDo) {
       // IOS falls back to global configuration for commands the submode doesn't know.
       const r2 = walk(TREES[d.type].config, toks, ctx);
@@ -8583,6 +8658,7 @@ export class Session {
     if (r.err === "invalid") {
       if (r.at === 0 && (mode === "user" || mode === "priv")) {
         const w = toks[0].t;
+        if (toks.length === 1 && svcOf(d).hosts[w] !== undefined) { this.remote("telnet", svcOf(d).hosts[w]); return; }
         this.print(d.cfg.domainLookup ? `Translating "${w}"...domain server (255.255.255.255)` : `Translating "${w}"`,
           "% Unknown command or computer name, or unable to find computer address");
         return;
@@ -8590,7 +8666,18 @@ export class Session {
       this.invalidAt(toks[r.at].i);
       return;
     }
-    if (!r.node.run) { this.print("% Incomplete command.", ""); return; }
+    if (!r.node.run) {
+      if (r.node.kw === "show" && toks.length === 1) this.print('% Type "show ?" for a list of subcommands');
+      else this.print("% Incomplete command.", "");
+      return;
+    }
+    // Below level 15 only user-level commands and those "privilege exec" opened up are allowed.
+    if (mode === "priv" && !viaDo && this.level() < 15) {
+      const userOk = (() => { const u = walk(TREES[d.type].user, toks, ctx); return !u.err && u.node.run; })();
+      const path = kwPath(TREES[d.type].priv, toks, ctx) || [];
+      const ruled = svcOf(d).privs.some((p) => p.level <= this.level() && p.path.every((w, i) => w === path[i]));
+      if (!userOk && !ruled) { this.invalidAt(toks[0].i); return; }
+    }
     r.node.run(ctx, r.args);
   }
 
@@ -8668,21 +8755,21 @@ export class Session {
 
   endConfig() {
     this.enter("priv", null);
-    const by = this.f.via ? `vty0 (${n2ip(this.f.via)})` : "console";
-    this.print("*" + clock() + `: %SYS-5-CONFIG_I: Configured from console by ${by}`);
+    const by = this.eemName ? ` on vty0 (EEM:${this.eemName})` : this.f.via ? `vty0 (${n2ip(this.f.via)})` : "console";
+    this.net.note(this.d.name, `%SYS-5-CONFIG_I: Configured from console by ${by}`);
   }
 
   enable() {
     const c = this.d.cfg;
     const pw = c.enableSecret ?? c.enablePassword;
-    if (pw === null) {
-      if (this.f.via) { this.print("% No password set"); return; }
-      this.enter("priv", null);
+    if (pw === null || this.eemName) {
+      if (this.f.via && !this.eemName) { this.print("% No password set"); return; }
+      this.enterLevel(15);
       return;
     }
     let tries = 0;
     const ask = () => this.ask("Password: ", { mask: true }, (ans) => {
-      if (ans === pw) { this.enter("priv", null); return; }
+      if (ans === pw) { this.enterLevel(15); return; }
       if (++tries >= 3) { this.print("% Bad secrets", ""); return; }
       ask();
     });
@@ -8701,9 +8788,18 @@ export class Session {
   }
 
   login() {
-    const d = this.d, con = d.cfg.lines.con;
+    const d = this.d, con = d.cfg.lines.con, sv = svcOf(d);
     if (d.cfg.banner) this.print(d.cfg.banner);
-    const done = () => { this.loggedOut = false; };
+    const done = (level = 1) => {
+      this.loggedOut = false;
+      this.enterLevel(level);
+      if (sv.bannerExec) this.print(sv.bannerExec);
+    };
+    if (loginMethods(d, "con")) {
+      this.aaaLogin(d, "con", null, (level) => done(level), () => this.print("", "Press RETURN to get started.", ""));
+      return;
+    }
+    if (con.login && sv.bannerLogin) this.print(sv.bannerLogin);
     if (con.login === "line" && con.password !== null) {
       this.print("", "User Access Verification", "");
       let tries = 0;
@@ -8717,7 +8813,7 @@ export class Session {
       this.print("", "User Access Verification", "");
       const askUser = () => this.ask("Username: ", {}, (user) => this.ask("Password: ", { mask: true }, (pw) => {
         const u = d.cfg.users[user.trim()];
-        if (u && (u.secret ?? u.password) === pw) { done(); return; }
+        if (u && (u.secret ?? u.password) === pw) { done(u.priv ?? 1); return; }
         this.print("", "% Login invalid", "");
         askUser();
       }));
@@ -8768,12 +8864,12 @@ export class Session {
     const d = this.d, c = d.cfg;
     if (!n) { this.print("% Incomplete command.", ""); return; }
     if (!c.intfs[n]) {
-      const virtual = n.startsWith("Loopback") || n.startsWith("Vlan") || (d.type === "switch" && isPo(n))
+      const virtual = n.startsWith("Loopback") || n.startsWith("Vlan") || (d.type === "switch" && isPo(n)) || (d.type === "router" && isTun(n))
         || (d.type === "router" && isSub(n) && d.ports.includes(physOf(n)));
       if (!virtual) { this.cx.invalid(1); return; }
       c.intfs[n] = newIntf(d.type, n);
     }
-    this.enter(isSub(n) ? "subif" : "if", [n]);
+    this.enter(isSub(n) ? "subif" : isTun(n) ? "tunif" : "if", [n]);
   }
 
   enterRange(text) {
@@ -8805,6 +8901,7 @@ export class Session {
       if (len < 0) { this.print(`Bad mask 0x${hex(mask, 8).toUpperCase()} for address ${n2ip(ip)}`); return; }
       if (len < 31 && (and(ip, mask) === ip || ((ip | ~mask) >>> 0) === ip)) { this.print(`Bad mask /${len} for address ${n2ip(ip)}`); return; }
       for (const [o, oc] of Object.entries(c.intfs)) {
+        if ((oc.vrf || null) !== (c.intfs[n].vrf || null)) continue; // each VRF is its own address space
         const theirs = [...(oc.ip !== null ? [{ ip: oc.ip, mask: oc.mask, sec: false }] : []), ...(oc.secondary || []).map((s) => ({ ...s, sec: true }))];
         for (const t of theirs) {
           if (o === n && (t.sec ? t.ip === ip : !secondary)) continue; // replacing this very address
@@ -8862,7 +8959,7 @@ export class Session {
   }
 
   // -- ping, traceroute, remote login ---------------------------------------------------
-  ping(dst, source, count, size = 100) {
+  ping(dst, source, count, size = 100, tos = 0) {
     const net = this.net, dn = this.d.name;
     this.print("Type escape sequence to abort.", `Sending ${count}, ${size}-byte ICMP Echos to ${n2ip(dst)}, timeout is 2 seconds:`);
     if (source !== null) {
@@ -8873,8 +8970,9 @@ export class Session {
       this.print(`Packet sent with a source address of ${n2ip(source)}`);
     }
     let marks = "", ok = 0, first = null;
+    const qosBuckets = {};
     for (let i = 0; i < count; i++) {
-      const r = net.ping(dn, dst, { source: source ?? undefined, record: true });
+      const r = net.ping(dn, dst, { source: source ?? undefined, record: true, size, dscp: tos >> 2, qosBuckets, seq: i });
       first = first || r;
       if (r.ok && !(i === 0 && r.arpMiss)) { marks += "!"; ok++; continue; }
       const unreachable = !r.ok && r.by !== null && r.by !== undefined && r.failAt !== dn && (r.fail === "noroute" || r.fail === "acl");
@@ -8904,9 +9002,10 @@ export class Session {
             const size = sz.trim() ? +sz.trim() : 100;
             if (!Number.isInteger(size) || size < 36 || size > 18024) { this.print("% A decimal number between 36 and 18024."); return; }
             this.ask("Timeout in seconds [2]: ", {}, () => this.ask("Extended commands [n]: ", {}, (ext) => {
+              let tos = 0;
               const go = (src) => this.ask("Sweep range of sizes [n]: ", {}, () => {
                 if (p === "ipv6") this.ping6(fmt6(parse6(target)), count);
-                else this.ping(ip2n(target), src, count, size);
+                else this.ping(ip2n(target), src, count, size, tos);
               });
               if (!/^y/i.test(ext.trim())) { go(null); return; }
               this.ask("Source address or interface: ", {}, (s) => {
@@ -8921,7 +9020,10 @@ export class Session {
                 }
                 const rest = ["Type of service [0]: ", "Set DF bit in IP header? [no]: ", "Validate reply data? [no]: ",
                   "Data pattern [0x0000ABCD]: ", "Loose, Strict, Record, Timestamp, Verbose[none]: "];
-                const next = (k) => (k === rest.length ? go(src) : this.ask(rest[k], {}, () => next(k + 1)));
+                const next = (k) => (k === rest.length ? go(src) : this.ask(rest[k], {}, (a) => {
+                  if (k === 0 && /^\d+$/.test(a.trim()) && +a.trim() <= 255) tos = +a.trim();
+                  next(k + 1);
+                }));
                 next(0);
               });
             }));
@@ -8990,22 +9092,30 @@ export class Session {
     if (t.type === "pc") { this.print("% Connection refused by remote host"); return; }
     const vty = t.cfg.lines.vty0;
     const allows = vty.transport === "all" || vty.transport.split(" ").includes(proto);
-    if (!allows || (proto === "ssh" && !net.sshReady(owner))) { this.print("% Connection refused by remote host"); return; }
+    if (!allows || (proto === "ssh" && !net.sshReady(owner)) || net.svcQuiet(owner)) { this.print("% Connection refused by remote host"); return; }
     const closed = () => this.print("", `[Connection to ${n2ip(ip)} closed by foreign host]`);
-    const enter = (u) => {
+    const fromIp = net.sourceIp(from, ip);
+    const enter = (u, level = 1) => {
       if (proto === "ssh" && t.cfg.banner) this.print("", t.cfg.banner, "");
-      this.frames.push({ dev: owner, mode: "user", target: null, via: ip });
+      if (svcOf(t).bannerExec) this.print(svcOf(t).bannerExec);
+      this.frames.push({ dev: owner, mode: level >= 2 ? "priv" : "user", level, target: null, via: ip });
       t.rt.logins.push({ proto, user: u ?? null, from });
       if (t.rt.logins.length > 20) t.rt.logins.shift();
     };
     if (proto === "telnet") { this.print("Open"); if (t.cfg.banner) this.print(t.cfg.banner); }
     const check = (u, pw) => { const x = t.cfg.users[u]; return !!x && (x.secret ?? x.password) === pw; };
+    if (loginMethods(t, "vty")) {
+      this.aaaLogin(t, "vty", proto === "ssh" ? user : null, (level, u) => enter(u, level), closed, fromIp);
+      return;
+    }
+    if (vty.login !== null && svcOf(t).bannerLogin) this.print(svcOf(t).bannerLogin);
     if (vty.login === null) { enter(); return; }
     if (vty.login === "line") {
       if (vty.password === null) { this.print("", "", "Password required, but none set"); closed(); return; }
       if (proto === "telnet") this.print("", "", "User Access Verification", "");
       let tries = 0;
       const ask = () => this.ask("Password: ", { mask: true }, (pw) => {
+        net.svcLoginResult(owner, null, pw === vty.password, fromIp);
         if (pw === vty.password) { enter(); return; }
         if (++tries >= 3) { this.print("% Bad passwords"); closed(); return; }
         ask();
@@ -9016,7 +9126,8 @@ export class Session {
     let tries = 0;
     if (proto === "ssh") {
       const ask = () => this.ask("Password: ", { mask: true }, (pw) => {
-        if (check(user, pw)) { enter(user); return; }
+        net.svcLoginResult(owner, user, check(user, pw), fromIp);
+        if (check(user, pw)) { enter(user, t.cfg.users[user].priv ?? 1); return; }
         if (++tries >= 3) { this.print("% Authentication failed."); closed(); return; }
         ask();
       });
@@ -9025,7 +9136,8 @@ export class Session {
     }
     this.print("", "", "User Access Verification", "");
     const askUser = () => this.ask("Username: ", {}, (u) => this.ask("Password: ", { mask: true }, (pw) => {
-      if (check(u.trim(), pw)) { enter(u.trim()); return; }
+      net.svcLoginResult(owner, u.trim(), check(u.trim(), pw), fromIp);
+      if (check(u.trim(), pw)) { enter(u.trim(), t.cfg.users[u.trim()].priv ?? 1); return; }
       this.print("", "% Login invalid", "");
       if (++tries >= 3) { closed(); return; }
       askUser();
@@ -9170,12 +9282,20 @@ export class Session {
       count = +w[ci + 1];
       if (!Number.isInteger(count) || count < 1 || count > 100) { this.print("Invalid count, use -c 1-100"); return; }
     }
+    // -l sets the ICMP data size (56 by default): the reply line counts IP and ICMP headers too.
+    let data = 56;
+    const li = w.indexOf("-l");
+    if (li > 0) {
+      data = +w[li + 1];
+      if (!Number.isInteger(data) || data < 0 || data > 65500) { this.print("Invalid size, use -l 0-65500"); return; }
+    }
     const dst = ip2n(w[1]);
     let first = null;
+    const qosBuckets = {};
     for (let i = 1; i <= count; i++) {
-      const r = net.ping(dn, dst, { record: true });
+      const r = net.ping(dn, dst, { record: true, size: data + 28, qosBuckets, seq: i - 1 });
       first = first || r;
-      if (r.ok && !(i === 1 && r.arpMiss)) { this.print(`84 bytes from ${w[1]} icmp_seq=${i} ttl=${r.ttl} time=${ms()} ms`); continue; }
+      if (r.ok && !(i === 1 && r.arpMiss)) { this.print(`${data + 28} bytes from ${w[1]} icmp_seq=${i} ttl=${r.ttl} time=${ms()} ms`); continue; }
       if (!r.ok && r.fail === "nogw") { this.print("No gateway found"); break; }
       if (!r.ok && (r.fail === "noip" || (r.fail === "arp" && r.failAt === dn))) {
         const nh = c.ip !== null && sameNet(dst, c.ip, c.mask) ? dst : c.gw ?? dst;
@@ -9211,6 +9331,1673 @@ export class Session {
   }
 }
 
+// ======== VRF, tunnels, IPsec, DMVPN ========
+//
+// VRF-lite: an interface's `vrf` names the routing table its packets are looked up in. Each VRF has
+// its own connected, static (cfg.vrfRoutes) and OSPF (cfg.ospfVrf, one process per VRF) routes, so
+// the same addresses can be reused in different VRFs.
+//
+// Tunnels: a Tunnel interface's `tun` holds its source, destination and mode. Its line protocol comes
+// up when the source is up and (point-to-point) the destination is routable in the global table
+// without using a tunnel; a destination that is only reachable through a tunnel is recursive routing
+// and keeps that tunnel down. Packets routed into a tunnel are carried across the underlay as GRE (or
+// ESP when the tunnel is protected) to the far end, where they continue from its tunnel interface.
+//
+// IPsec: crypto maps on a physical interface encrypt traffic their ACL matches to a peer; tunnel
+// protection encrypts a tunnel. Either works only when the two ends agree: an ISAKMP policy in common,
+// the same pre-shared key for each other's address, a common transform set and (crypto maps) mirrored
+// ACLs. IKE needs UDP 500 between the peers, and the underlay must carry ESP.
+//
+// DMVPN: multipoint GRE tunnels with NHRP. Spokes register with their next-hop server (the hub); the
+// hub learns their NBMA addresses. Routing protocols run hub-to-spoke. Phase 2: with next-hop-self off
+// on the hub, a spoke's route to another spoke points at that spoke; the first packet goes via the hub
+// while NHRP resolves the address, later ones go direct. Phase 3: the hub's `ip nhrp redirect` tells a
+// spoke that sent it a packet for another spoke to install a shortcut (an H route, or a next-hop
+// override on the same prefix) when the spoke has `ip nhrp shortcut`.
+
+const vrfsOf = (c) => c.vrfs || {};
+const cryptoOf = (c) => c.crypto || { policies: {}, keys: [], tsets: {}, profiles: {}, maps: {} };
+const tunOf = (i) => i.tun || {};
+const tunMode = (t) => t.mode || "gre";
+const nhrpOf = (i) => i.nhrp || {};
+const vrfKey = (dn, vrf) => dn + "|" + vrf;
+// IOS's built-in ISAKMP policies, used while none is configured.
+const DEFAULT_POLICIES = [
+  { prio: 65507, encr: "aes", bits: 128, hash: "sha", auth: "rsa-sig", group: 5 },
+  { prio: 65508, encr: "aes", bits: 128, hash: "sha", auth: "pre-share", group: 5 },
+  { prio: 65509, encr: "aes", bits: 128, hash: "md5", auth: "rsa-sig", group: 5 },
+  { prio: 65510, encr: "aes", bits: 128, hash: "md5", auth: "pre-share", group: 5 },
+  { prio: 65511, encr: "3des", bits: null, hash: "sha", auth: "rsa-sig", group: 5 },
+  { prio: 65512, encr: "3des", bits: null, hash: "sha", auth: "pre-share", group: 5 },
+  { prio: 65513, encr: "3des", bits: null, hash: "md5", auth: "rsa-sig", group: 5 },
+  { prio: 65514, encr: "3des", bits: null, hash: "md5", auth: "pre-share", group: 5 },
+];
+const newPolicy = (prio) => ({ prio, encr: "des", bits: null, hash: "sha", auth: "rsa-sig", group: 1, life: 86400 });
+const policySig = (p) => [p.encr, p.bits, p.hash, p.auth, p.group].join("/");
+const tsetSig = (t) => [...t.transforms].sort().join(" ") + "|" + (t.mode || "tunnel");
+// IKE itself and ESP are never encrypted again by a crypto map.
+const ikeOrEsp = (p) => p.proto === "esp" || (p.proto === "udp" && (p.port === 500 || p.port === 4500));
+const spi = (a, b) => ((0x1a2b3c4d ^ a ^ b) >>> 0);
+
+Object.assign(Network.prototype, {
+  // -- VRF-lite ------------------------------------------------------------------------
+  vrfOf(dn, ifn) {
+    const d = this.devs[dn];
+    if (!d || d.type !== "router" || !ifn) return null;
+    const c = d.cfg.intfs[ifn];
+    return (c && c.vrf) || null;
+  },
+
+  // Does dn own ip in this routing table? HSRP virtual addresses live in the global table.
+  ownsIpIn(dn, ip, vrf) {
+    vrf = vrf || null;
+    if (this.upIfs(dn).some((n) => this.vrfOf(dn, n) === vrf && this.ifAddrs(dn, n).some((a) => a.ip === ip))) return true;
+    return !vrf && this.vipIf(dn, ip) !== null;
+  },
+
+  // A VRF's routing table: its connected networks, its static routes and its OSPF process.
+  vrfRoutes(dn, vrf) {
+    this.c.vrfRt = this.c.vrfRt || {};
+    const key = vrfKey(dn, vrf);
+    if (this.c.vrfRt[key]) return this.c.vrfRt[key];
+    const d = this.devs[dn];
+    if (d.type !== "router") return [];
+    const cands = [];
+    for (const ifn of this.upIfs(dn)) {
+      if (this.vrfOf(dn, ifn) !== vrf) continue;
+      for (const { ip, mask } of this.ifAddrs(dn, ifn)) {
+        const len = maskLen(mask);
+        cands.push({ code: "C", net: and(ip, mask), len, ad: 0, metric: 0, ifn });
+        if (len < 32) cands.push({ code: "L", net: ip, len: 32, ad: 0, metric: 0, ifn });
+      }
+    }
+    const o = this.ospfVrf()[key];
+    if (o) for (const r of o.routes) cands.push({ ...r, ad: 110 });
+    const select = (list) => {
+      const best = {};
+      for (const r of list) {
+        const k = r.net + "/" + r.len, b = best[k];
+        if (!b || r.ad < b[0].ad) best[k] = [r];
+        else if (r.ad === b[0].ad && r.code === b[0].code) b.push(r);
+      }
+      return Object.values(best).map((rs) => (rs.length === 1 ? rs[0] : { ...rs[0], paths: rs.flatMap((r) => r.paths || []) }));
+    };
+    let table = select(cands);
+    const statics = (d.cfg.vrfRoutes || []).filter((r) => r.vrf === vrf);
+    const pending = new Set(statics.map((_, i) => i));
+    for (let pass = 0; pass < 5 && pending.size; pass++) {
+      let added = false;
+      for (const i of [...pending]) {
+        const s = statics[i];
+        const ok = s.ifn ? this.ifUp(dn, s.ifn) && this.vrfOf(dn, s.ifn) === vrf
+          : (() => { const r = lpm(table, s.nh); return !!r && !(r.net === s.net && r.len === s.len); })();
+        if (!ok) continue;
+        pending.delete(i);
+        cands.push({ code: s.net === 0 && s.len === 0 ? "S*" : "S", net: s.net, len: s.len, ad: s.ad, metric: 0, paths: [{ ip: s.nh, ifn: s.ifn }] });
+        added = true;
+      }
+      if (!added) break;
+      table = select(cands);
+    }
+    table.sort((a, b) => a.net - b.net || a.len - b.len);
+    this.c.vrfRt[key] = table;
+    return table;
+  },
+
+  vrfOspfIfs(dn, o) {
+    const d = this.devs[dn], out = [];
+    const nets = [...o.networks].sort((a, b) => bitCount(a.wild) - bitCount(b.wild));
+    for (const ifn of this.upIfs(dn)) {
+      if (this.vrfOf(dn, ifn) !== o.vrf) continue;
+      const c = d.cfg.intfs[ifn], { ip, mask } = this.ifAddr(dn, ifn), oc = c.ospf || {};
+      let area = null;
+      if (oc.pid === o.pid && oc.area !== undefined && oc.area !== null) area = oc.area;
+      else {
+        const hit = nets.find((n) => wildMatch(ip, n.addr, n.wild));
+        if (hit) area = hit.area;
+      }
+      if (area === null) continue;
+      const passive = o.passiveDefault ? !o.noPassive.includes(ifn) : o.passive.includes(ifn);
+      const hello = oc.hello ?? 10;
+      out.push({ ifn, ip, mask, area, passive, hello, dead: oc.dead ?? hello * 4, prio: oc.prio ?? 1,
+        ptp: oc.ptp !== undefined ? !!oc.ptp : isTun(ifn), loop: ifn.startsWith("Loopback"),
+        cost: oc.cost ?? Math.max(1, Math.floor((o.refBw * 1000) / this.bandwidth(d, ifn))) });
+    }
+    return out;
+  },
+
+  vrfOspfRid(dn, o) {
+    if (o.rid !== null) return o.rid;
+    const ips = (lo) => this.upIfs(dn).filter((n) => this.vrfOf(dn, n) === o.vrf && lo === n.startsWith("Loopback"))
+      .map((n) => this.ifAddr(dn, n).ip);
+    const lo = ips(true), all = ips(false);
+    return lo.length ? Math.max(...lo) : all.length ? Math.max(...all) : null;
+  },
+
+  // OSPF processes bound to VRFs ("router ospf N vrf X"), keyed "device|vrf". Same rules as the
+  // global process; neighbours must be in the same VRF on both ends.
+  ospfVrf() {
+    if (this.c.ospfVrf) return this.c.ospfVrf;
+    const per = {};
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      for (const o of Object.values(d.cfg.ospfVrf || {})) {
+        const rid = this.vrfOspfRid(d.name, o);
+        if (rid === null) continue;
+        per[vrfKey(d.name, o.vrf)] = { dev: d.name, vrf: o.vrf, rid, pid: o.pid, o, ifs: this.vrfOspfIfs(d.name, o), nbrs: [], routes: [] };
+      }
+    }
+    for (const me of Object.values(per)) {
+      for (const oi of me.ifs) {
+        oi.nbrs = [];
+        if (oi.passive || oi.loop) continue;
+        for (const e of this.flood(me.dev, oi.ifn)) {
+          const ek = vrfKey(e.dev, this.vrfOf(e.dev, e.ifn));
+          const them = per[ek];
+          const oj = them && them.ifs.find((x) => x.ifn === e.ifn);
+          if (!oj || oj.passive || oj.loop || e.dev === me.dev) continue;
+          if (oj.area !== oi.area || oj.mask !== oi.mask || !sameNet(oj.ip, oi.ip, oi.mask)) continue;
+          if (oj.hello !== oi.hello || oj.dead !== oi.dead || oj.ptp !== oi.ptp || them.rid === me.rid) continue;
+          oi.nbrs.push({ dev: ek, ifn: e.ifn, rid: them.rid, ip: oj.ip, prio: oj.prio });
+        }
+      }
+    }
+    ospfElect(per);
+    for (const [src, me] of Object.entries(per)) {
+      const { dist, hops } = ospfSpf(per, src);
+      const myAreas = new Set(me.ifs.map((x) => x.area));
+      const best = {};
+      const offer = (key, r) => {
+        const cur = best[key];
+        if (!cur || r.metric < cur.metric || (r.metric === cur.metric && (r.dist ?? 0) < (cur.dist ?? 0))) best[key] = r;
+        else if (r.metric === cur.metric && (r.dist ?? 0) === (cur.dist ?? 0)) {
+          for (const h of r.paths) if (!cur.paths.some((p) => p.ip === h.ip)) cur.paths.push(h);
+        }
+      };
+      for (const [x, them] of Object.entries(per)) {
+        if (x === src || dist[x] === undefined) continue;
+        for (const oi of them.ifs) {
+          const host = oi.loop && !oi.ptp;
+          const len = host ? 32 : maskLen(oi.mask);
+          const net = host ? oi.ip : and(oi.ip, oi.mask);
+          offer(net + "/" + len, { code: myAreas.has(oi.area) ? "O" : "O IA", net, len, metric: dist[x] + oi.cost, paths: [...hops[x]] });
+        }
+        const o = them.o;
+        if (o.defaultOriginate && (o.defaultAlways || (this.devs[them.dev].cfg.vrfRoutes || []).some((r) => r.vrf === o.vrf && r.net === 0 && r.len === 0))) {
+          offer("0/0", { code: "O*E2", net: 0, len: 0, metric: 1, dist: dist[x], paths: [...hops[x]] });
+        }
+      }
+      me.routes = Object.values(best);
+    }
+    this.c.ospfVrf = per;
+    return per;
+  },
+
+  // Neighbours of dn's VRF OSPF processes, as `show ip ospf neighbor` lists them.
+  vrfOspfNbrs(dn) {
+    return Object.values(this.ospfVrf()).filter((p) => p.dev === dn).flatMap((p) => p.nbrs);
+  },
+
+  // -- tunnels -------------------------------------------------------------------------
+  // The address a tunnel's packets are sourced from, or null while its source can't be used.
+  tunSrcIp(dn, ifn) {
+    const t = tunOf(this.devs[dn].cfg.intfs[ifn]);
+    if (t.src) {
+      if (!this.devs[dn].cfg.intfs[t.src] || !this.ifUp(dn, t.src)) return null;
+      const a = this.ifAddr(dn, t.src);
+      return a ? a.ip : null;
+    }
+    if (t.srcIp !== undefined && t.srcIp !== null) return this.ownsIpIn(dn, t.srcIp, null) ? t.srcIp : null;
+    return null;
+  },
+
+  // Is each tunnel's line protocol up? Worked out in three steps so a tunnel never depends on itself:
+  // 1) with every tunnel down, which ones have a usable source and a route to their destination;
+  // 2) with those up, any whose destination is now reached through a tunnel is recursive routing;
+  // 3) the rest are up. Step 1's "underlay" view is kept for everything that asks whether two tunnel
+  // endpoints can reach each other (adjacencies, NHRP, IKE), so routing over tunnels can't loop back.
+  tun() {
+    if (this.c.tun) return this.c.tun;
+    const keep = this.c, all = [];
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      for (const n of Object.keys(d.cfg.intfs)) if (isTun(n)) all.push([d.name, n]);
+    }
+    // Without tunnels the underlay is simply the network as it is.
+    if (!all.length) { keep.tun = {}; keep.tunRec = {}; keep.base = keep; return keep.tun; }
+    this.touch();
+    const base = this.c;
+    base.tun = {};
+    base.isBase = true;
+    const cand = {};
+    for (const [dn, n] of all) if (this.tunCan(dn, n)) cand[dn + "|" + n] = true;
+    this.touch();
+    const mid = this.c;
+    mid.tun = { ...cand };
+    mid.base = base;
+    const rec = {};
+    for (const [dn, n] of all) {
+      const t = tunOf(this.devs[dn].cfg.intfs[n]);
+      if (!cand[dn + "|" + n] || tunMode(t) === "gre-mp" || t.dst === undefined || t.dst === null) continue;
+      const e = this.routerEgress(dn, t.dst);
+      if (!e.fail && isTun(e.ifn)) rec[dn + "|" + n] = true;
+    }
+    const fin = {};
+    for (const k of Object.keys(cand)) if (!rec[k]) fin[k] = true;
+    this.c = keep;
+    keep.tun = fin;
+    keep.tunRec = rec;
+    keep.base = base;
+    return fin;
+  },
+
+  tunUp(dn, ifn) { return !!this.tun()[dn + "|" + ifn]; },
+
+  // Step 1 for one tunnel (run with every tunnel down).
+  tunCan(dn, ifn) {
+    const i = this.devs[dn].cfg.intfs[ifn], t = tunOf(i), mode = tunMode(t);
+    if (i.shut) return false;
+    if (this.tunSrcIp(dn, ifn) === null) return false;
+    if (mode === "gre-mp") return true;
+    if (t.dst === undefined || t.dst === null) return false;
+    const e = this.routerEgress(dn, t.dst);
+    if (e.fail) return false;
+    // With keepalives the far end has to answer; an IPsec tunnel (VTI) is only up with an SA.
+    if ((i.ka || mode === "ipsec") && !this.tunPeer(dn, ifn, true)) return false;
+    return true;
+  },
+
+  // Run fn in the underlay view: the network as it is with every tunnel down.
+  inBase(fn) {
+    if (this.c.isBase) return fn();
+    if (!this.c.base) this.tun();
+    const keep = this.c;
+    this.c = keep.base;
+    try { return fn(); } finally { this.c = keep; }
+  },
+
+  // Can dn send a packet from src to dst across the underlay (protocol proto, UDP port)?
+  underlay(dn, src, dst, proto, port) {
+    return this.inBase(() => {
+      const r = this.deliver(dn, { src, dst, proto, port, id: 1 }, { natTmp: {} });
+      return r.ok ? r.at : null;
+    });
+  },
+
+  // The router and tunnel interface whose tunnel source is nbma (and, when given, whose tunnel
+  // address is ip), with a matching tunnel key.
+  tunEndAt(nbma, ip, key, notDev) {
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router" || d.name === notDev) continue;
+      for (const [n, i] of Object.entries(d.cfg.intfs)) {
+        if (!isTun(n) || i.shut) continue;
+        const t = tunOf(i);
+        if ((t.key ?? null) !== (key ?? null)) continue;
+        if (this.tunSrcIpRaw(d.name, n) !== nbma) continue;
+        if (ip !== undefined && ip !== null && (i.ip !== ip)) continue;
+        return { dev: d.name, ifn: n };
+      }
+    }
+    return null;
+  },
+
+  // A tunnel's configured source address, whether or not that interface is up.
+  tunSrcIpRaw(dn, ifn) {
+    const t = tunOf(this.devs[dn].cfg.intfs[ifn]);
+    if (t.src) { const a = this.devs[dn].cfg.intfs[t.src] && this.ifAddr(dn, t.src); return a ? a.ip : null; }
+    return t.srcIp ?? null;
+  },
+
+  // The far end of a point-to-point tunnel. strict: it must also be reachable, agree on protection
+  // and (towards a DMVPN hub) have this spoke registered.
+  tunPeer(dn, ifn, strict) {
+    const i = this.devs[dn].cfg.intfs[ifn], t = tunOf(i), mode = tunMode(t);
+    const src = this.tunSrcIp(dn, ifn);
+    if (src === null || t.dst === undefined || t.dst === null) return null;
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router" || d.name === dn) continue;
+      for (const [n, j] of Object.entries(d.cfg.intfs)) {
+        if (!isTun(n) || j.shut) continue;
+        const u = tunOf(j), um = tunMode(u);
+        if ((u.key ?? null) !== (t.key ?? null) || this.tunSrcIpRaw(d.name, n) !== t.dst) continue;
+        const fits = um === "gre-mp" ? mode === "gre" : u.dst === src && um === mode;
+        if (!fits) continue;
+        const far = { dev: d.name, ifn: n, nbma: t.dst };
+        if (!strict) return far;
+        if (this.underlay(dn, src, t.dst, this.tunProt(dn, ifn) ? "esp" : "gre") !== d.name) return null;
+        if (!this.protMatch(dn, ifn, d.name, n).ok) return null;
+        if (um === "gre-mp" && !this.nhrpRegs(d.name, n).some((r) => r.dev === dn && r.ifn === ifn)) return null;
+        return far;
+      }
+    }
+    return null;
+  },
+
+  // The tunnel's adjacency partners (what OSPF and EIGRP hellos reach), for flood().
+  tunFlood(dn, ifn) {
+    if (!this.ifUp(dn, ifn) || !this.ifAddr(dn, ifn)) return [];
+    const t = tunOf(this.devs[dn].cfg.intfs[ifn]), out = [];
+    const add = (p) => { if (this.ifUp(p.dev, p.ifn) && this.ifAddr(p.dev, p.ifn)) out.push({ dev: p.dev, ifn: p.ifn, trail: [] }); };
+    if (tunMode(t) !== "gre-mp") {
+      const p = this.tunPeer(dn, ifn, true);
+      if (p) add(p);
+      return out;
+    }
+    // Multicast has to get through both ways for hellos to form a neighbour.
+    for (const p of this.mcastPeers(dn, ifn)) {
+      if (this.mcastPeers(p.dev, p.ifn).some((q) => q.dev === dn && q.ifn === ifn)) add(p);
+    }
+    return out;
+  },
+
+  // Who a tunnel sends multicast (routing protocol hellos) to.
+  mcastPeers(dn, ifn) {
+    const i = this.devs[dn].cfg.intfs[ifn], t = tunOf(i), nh = nhrpOf(i), out = [];
+    if (tunMode(t) !== "gre-mp") {
+      const p = this.tunPeer(dn, ifn, true);
+      return p ? [p] : [];
+    }
+    if (nh.mcastDynamic) for (const r of this.nhrpRegs(dn, ifn)) out.push({ dev: r.dev, ifn: r.ifn });
+    const nbmas = [...(nh.mcast || []), ...(nh.nhs || []).filter((x) => x.mcast && x.nbma !== null).map((x) => x.nbma)];
+    for (const nbma of nbmas) {
+      const far = this.tunEndAt(nbma, undefined, t.key, dn);
+      if (far && this.nhrpOn(far.dev, far.ifn) && this.reachTun(dn, ifn, far)) out.push(far);
+    }
+    return out.filter((p, k) => out.findIndex((q) => q.dev === p.dev && q.ifn === p.ifn) === k);
+  },
+
+  nhrpOn(dn, ifn) { const n = nhrpOf(this.devs[dn].cfg.intfs[ifn]); return n.nid !== undefined && n.nid !== null; },
+
+  // Can tunnel (dn, ifn) exchange packets with tunnel far = {dev, ifn}: underlay, protection, NHRP auth?
+  reachTun(dn, ifn, far) {
+    const src = this.tunSrcIp(dn, ifn), dst = this.tunSrcIp(far.dev, far.ifn);
+    if (src === null || dst === null || !this.ifUp(dn, ifn) || !this.ifUp(far.dev, far.ifn)) return false;
+    const a = nhrpOf(this.devs[dn].cfg.intfs[ifn]), b = nhrpOf(this.devs[far.dev].cfg.intfs[far.ifn]);
+    if ((a.auth ?? null) !== (b.auth ?? null)) return false;
+    if (this.underlay(dn, src, dst, this.tunProt(dn, ifn) ? "esp" : "gre") !== far.dev) return false;
+    return this.protMatch(dn, ifn, far.dev, far.ifn).ok;
+  },
+
+  // Spokes registered with the NHRP server on (hub, ifn): [{dev, ifn, ip, nbma}].
+  nhrpRegs(hub, ifn) {
+    this.c.nhrpRegs = this.c.nhrpRegs || {};
+    const key = hub + "|" + ifn;
+    if (this.c.nhrpRegs[key]) return this.c.nhrpRegs[key];
+    this.c.nhrpRegs[key] = [];
+    const hi = this.devs[hub].cfg.intfs[ifn], out = [];
+    const hubIp = hi.ip, hubNbma = this.tunSrcIp(hub, ifn);
+    if (tunMode(tunOf(hi)) === "gre-mp" && this.ifUp(hub, ifn) && hubIp !== null && hubNbma !== null && this.nhrpOn(hub, ifn)) {
+      for (const d of Object.values(this.devs)) {
+        if (d.type !== "router" || d.name === hub) continue;
+        for (const [n, i] of Object.entries(d.cfg.intfs)) {
+          if (!isTun(n) || i.ip === null || !this.ifUp(d.name, n) || !this.nhrpOn(d.name, n)) continue;
+          const nh = nhrpOf(i);
+          const nhs = (nh.nhs || []).find((x) => x.ip === hubIp);
+          if (!nhs) continue;
+          const nbma = nhs.nbma ?? ((nh.maps || []).find((m) => m.ip === hubIp) || {}).nbma ?? (tunOf(i).dst ?? null);
+          if (nbma !== hubNbma || (tunOf(i).key ?? null) !== (tunOf(hi).key ?? null)) continue;
+          if (!this.reachTun(d.name, n, { dev: hub, ifn })) continue;
+          out.push({ dev: d.name, ifn: n, ip: i.ip, nbma: this.tunSrcIp(d.name, n) });
+        }
+      }
+    }
+    this.c.nhrpRegs[key] = out;
+    return out;
+  },
+
+  // What (dn, ifn) knows about tunnel addresses: [{ip, nbma, type}] (static, NHS, registered spokes,
+  // and dynamic entries learned from resolutions and redirects).
+  nhrpMap(dn, ifn) {
+    const i = this.devs[dn].cfg.intfs[ifn], nh = nhrpOf(i), out = [];
+    for (const m of nh.maps || []) out.push({ ip: m.ip, nbma: m.nbma, type: "static" });
+    for (const s of nh.nhs || []) if (s.nbma !== null && !out.some((x) => x.ip === s.ip)) out.push({ ip: s.ip, nbma: s.nbma, type: "static" });
+    for (const r of this.nhrpRegs(dn, ifn)) out.push({ ip: r.ip, nbma: r.nbma, type: "dynamic", registered: true });
+    for (const [k, e] of Object.entries(this.devs[dn].rt.nhrp || {})) {
+      const [n, ip] = k.split("|");
+      if (n === ifn && !out.some((x) => x.ip === +ip)) out.push({ ip: +ip, nbma: e.nbma, type: "dynamic" });
+    }
+    return out;
+  },
+
+  // The NHS a spoke uses, as a reachable tunnel end.
+  nhsPeer(dn, ifn) {
+    const i = this.devs[dn].cfg.intfs[ifn], nh = nhrpOf(i);
+    for (const s of nh.nhs || []) {
+      const nbma = s.nbma ?? ((nh.maps || []).find((m) => m.ip === s.ip) || {}).nbma;
+      if (nbma === undefined || nbma === null) continue;
+      const far = this.tunEndAt(nbma, s.ip, tunOf(i).key, dn);
+      if (far && this.nhrpRegs(far.dev, far.ifn).some((r) => r.dev === dn && r.ifn === ifn)) return { ...far, nbma };
+    }
+    return null;
+  },
+
+  tunProt(dn, ifn) { return tunOf(this.devs[dn].cfg.intfs[ifn]).prot || null; },
+
+  // -- crossing a tunnel or a crypto map --------------------------------------------------
+  // Called by deliver() once it has picked the egress: returns null for ordinary forwarding, or
+  // {dev, ifn} where the packet comes out at the far end, or {fail}.
+  vpnHop(cur, eg, pkt, opts, res, ctx) {
+    const d = this.devs[cur];
+    if (isTun(eg.ifn)) {
+      if (!ctx.originated && ctx.inIf === eg.ifn && opts.record) this.nhrpRedirect(cur, eg, ctx.prev, pkt);
+      return this.tunHop(cur, eg, pkt, opts, res);
+    }
+    if (d.cfg.intfs[eg.ifn].cmap && !ikeOrEsp(pkt)) return this.cryptoHop(cur, eg, pkt, opts, res);
+    return null;
+  },
+
+  // Split horizon and next-hop-self for EIGRP on a tunnel (both on unless turned off).
+  eigrpTunSH(dn, ifn) { return !this.devs[dn].cfg.intfs[ifn].eigrpNoSH; },
+  eigrpTunNHS(dn, ifn) { return !this.devs[dn].cfg.intfs[ifn].eigrpNoNHS; },
+
+  tunHop(cur, eg, pkt, opts, res) {
+    const i = this.devs[cur].cfg.intfs[eg.ifn], t = tunOf(i), src = this.tunSrcIp(cur, eg.ifn);
+    if (src === null) return { fail: "drop" };
+    let far = null;
+    if (tunMode(t) === "gre-mp") {
+      const known = this.nhrpMap(cur, eg.ifn).find((m) => m.ip === eg.nh);
+      if (known) far = this.tunEndAt(known.nbma, eg.nh, t.key, cur);
+      if (far) far.nbma = known.nbma;
+      else {
+        // Not resolved yet: send it via the hub, and (when really sent) resolve for next time.
+        far = this.nhsPeer(cur, eg.ifn);
+        if (!far) return { fail: "encap" };
+        if (opts.record) this.nhrpResolve(cur, eg.ifn, eg.nh, far);
+      }
+    } else {
+      far = this.tunPeer(cur, eg.ifn, false);
+      if (!far) {
+        // Nobody terminates the tunnel at the destination: the GRE packet is dropped there.
+        const r = this.deliver(cur, { src, dst: t.dst, proto: "gre", id: pkt.id }, { ...opts, vrf: null });
+        res.links.push(...r.links);
+        return { fail: "drop" };
+      }
+    }
+    if (!this.ifAddr(far.dev, far.ifn)) return { fail: "drop" };
+    const prot = this.tunProt(cur, eg.ifn);
+    if (prot || this.tunProt(far.dev, far.ifn)) {
+      const m = this.protMatch(cur, eg.ifn, far.dev, far.ifn);
+      if (opts.record) this.ikeNote(cur, src, far.nbma, m, far.dev);
+      if (!m.ok) return { fail: "crypto" };
+    }
+    const outer = this.deliver(cur, { src, dst: far.nbma, proto: prot ? "esp" : "gre", id: pkt.id }, { ...opts, vrf: null });
+    res.links.push(...outer.links);
+    res.arpMiss = res.arpMiss || outer.arpMiss;
+    if (!outer.ok || outer.at !== far.dev || !this.ifUp(far.dev, far.ifn)) return { fail: "drop" };
+    if (prot) {
+      res.crypto = true;
+      if (opts.record) this.ipsecCount(cur, src, far.dev, far.nbma);
+    }
+    return { dev: far.dev, ifn: far.ifn };
+  },
+
+  // A crypto map entry whose ACL matches the packet encrypts it to that entry's peer.
+  cryptoHop(cur, eg, pkt, opts, res) {
+    const d = this.devs[cur], ci = d.cfg.intfs[eg.ifn], map = cryptoOf(d.cfg).maps[ci.cmap];
+    const local = this.ifAddr(cur, eg.ifn);
+    if (!map || !local) return null;
+    const e = Object.values(map).sort((a, b) => a.seq - b.seq)
+      .find((x) => x.acl && d.cfg.acls[x.acl] && x.peer !== null && x.tsets.length && this.aclPermits(cur, x.acl, pkt, false));
+    if (!e) return null;
+    const m = this.mapMatch(cur, local.ip, e, pkt);
+    if (opts.record) this.ikeNote(cur, local.ip, e.peer, m, m.dev);
+    if (!m.ok) return { fail: "crypto" };
+    const outer = this.deliver(cur, { src: local.ip, dst: e.peer, proto: "esp", id: pkt.id }, { ...opts, vrf: null });
+    res.links.push(...outer.links);
+    res.arpMiss = res.arpMiss || outer.arpMiss;
+    if (!outer.ok || outer.at !== m.dev) return { fail: "drop" };
+    res.crypto = true;
+    if (opts.record) this.ipsecCount(cur, local.ip, m.dev, e.peer);
+    return { dev: m.dev, ifn: m.ifn };
+  },
+
+  // Cleartext arriving on a crypto-map interface that its ACL says should have been encrypted.
+  cryptoWantsEncrypted(dn, ifn, pkt) {
+    const d = this.devs[dn], ci = d.cfg.intfs[ifn];
+    if (!ci || !ci.cmap || ikeOrEsp(pkt)) return false;
+    const map = cryptoOf(d.cfg).maps[ci.cmap];
+    if (!map) return false;
+    const back = { ...pkt, src: pkt.dst, dst: pkt.src };
+    const hit = Object.values(map).some((e) => e.acl && d.cfg.acls[e.acl] && e.peer !== null && this.aclPermits(dn, e.acl, back, false));
+    if (hit) this.note(dn, `%CRYPTO-4-RECVD_PKT_NOT_IPSEC: Rec'd packet not an IPSEC packet.\n\t(ip) vrf/dest_addr= /${n2ip(pkt.dst)}, src_addr= ${n2ip(pkt.src)}, prot= ${pkt.proto === "icmp" ? 1 : pkt.proto === "udp" ? 17 : 47}`);
+    return hit;
+  },
+
+  // -- IKE and IPsec negotiation ------------------------------------------------------------
+  policies(c) {
+    const ps = Object.values(cryptoOf(c).policies).sort((a, b) => a.prio - b.prio);
+    return ps.length ? ps : DEFAULT_POLICIES;
+  },
+
+  psk(c, addr) {
+    let best = null;
+    for (const k of cryptoOf(c).keys) {
+      if (!sameNet(addr, k.addr, k.mask)) continue;
+      if (!best || maskLen(k.mask) > maskLen(best.mask)) best = k;
+    }
+    return best ? best.key : null;
+  },
+
+  // Phase 1 between a (address aAddr) and b (address bAddr): {ok, why}.
+  ikeMatch(a, aAddr, b, bAddr) {
+    const ca = this.devs[a].cfg, cb = this.devs[b].cfg;
+    if (this.underlay(a, aAddr, bAddr, "udp", 500) !== b) return { ok: false, why: "unreachable" };
+    const common = this.policies(ca).find((p) => this.policies(cb).some((q) => policySig(p) === policySig(q)));
+    if (!common) return { ok: false, why: "policy" };
+    if (common.auth !== "pre-share") return { ok: false, why: "auth" };
+    const ka = this.psk(ca, bAddr), kb = this.psk(cb, aAddr);
+    if (ka === null) return { ok: false, why: "nokey" };
+    if (kb === null || ka !== kb) return { ok: false, why: "key" };
+    return { ok: true, policy: common };
+  },
+
+  // Phase 2: a transform set both ends offer.
+  tsetMatch(ca, namesA, cb, namesB) {
+    const sa = namesA.map((n) => cryptoOf(ca).tsets[n]).filter(Boolean).map(tsetSig);
+    const sb = namesB.map((n) => cryptoOf(cb).tsets[n]).filter(Boolean).map(tsetSig);
+    return sa.some((x) => sb.includes(x));
+  },
+
+  // Do two tunnel ends agree on protection? Unprotected on both ends is fine.
+  protMatch(a, aIf, b, bIf) {
+    const pa = this.tunProt(a, aIf), pb = this.tunProt(b, bIf);
+    if (!pa && !pb) return { ok: true, none: true };
+    if (!pa || !pb) return { ok: false, why: "one-sided", dev: b };
+    const ca = this.devs[a].cfg, cb = this.devs[b].cfg;
+    const fa = cryptoOf(ca).profiles[pa], fb = cryptoOf(cb).profiles[pb];
+    if (!fa || !fb) return { ok: false, why: "profile", dev: b };
+    const aAddr = this.tunSrcIp(a, aIf), bAddr = this.tunSrcIp(b, bIf);
+    if (aAddr === null || bAddr === null) return { ok: false, why: "unreachable", dev: b };
+    const ike = this.ikeMatch(a, aAddr, b, bAddr);
+    if (!ike.ok) return { ...ike, dev: b };
+    if (!this.tsetMatch(ca, fa.tsets, cb, fb.tsets)) return { ok: false, phase1: true, why: "tset", dev: b };
+    if (fa.pfs && fb.pfs && fa.pfs !== fb.pfs) return { ok: false, phase1: true, why: "pfs", dev: b };
+    return { ok: true, phase1: true, dev: b };
+  },
+
+  // A crypto map entry and its peer: the peer must have a map on the interface that owns the peer
+  // address, with an entry pointing back at us, a mirrored ACL and a common transform set.
+  mapMatch(a, aAddr, e, pkt) {
+    const b = this.ownerOf(e.peer);
+    const bIf = b && this.devs[b].type === "router" ? this.upIfs(b).find((n) => this.ifAddrs(b, n).some((x) => x.ip === e.peer)) : null;
+    if (!b || !bIf) return { ok: false, why: "unreachable" };
+    const base = { dev: b, ifn: bIf };
+    const ike = this.ikeMatch(a, aAddr, b, e.peer);
+    if (!ike.ok) return { ...ike, ...base };
+    const cb = this.devs[b].cfg, mb = cryptoOf(cb).maps[cb.intfs[bIf].cmap];
+    const back = { ...pkt, src: pkt.dst, dst: pkt.src };
+    const eb = mb && Object.values(mb).find((x) => x.peer === aAddr && x.acl && cb.acls[x.acl] && this.aclPermits(b, x.acl, back, false));
+    if (!eb) return { ok: false, phase1: true, why: "proxy", ...base };
+    if (!this.tsetMatch(this.devs[a].cfg, e.tsets, cb, eb.tsets)) return { ok: false, phase1: true, why: "tset", ...base };
+    if (e.pfs && eb.pfs && e.pfs !== eb.pfs) return { ok: false, phase1: true, why: "pfs", ...base };
+    return { ok: true, phase1: true, ...base };
+  },
+
+  // Record the IKE outcome the first time (and whenever it changes), with the log messages IOS gives.
+  ikeNote(a, aAddr, bAddr, m, b) {
+    const rt = this.devs[a].rt;
+    rt.ike = rt.ike || {};
+    const key = aAddr + "|" + bAddr, state = m.ok ? "QM_IDLE" : m.phase1 ? "QM_IDLE" : "MM_NO_STATE";
+    const prev = rt.ike[key];
+    const sig = state + "/" + !!m.ok;
+    if (prev && prev.sig === sig) return;
+    rt.ike[key] = { local: aAddr, peer: bAddr, state, ok: !!m.ok, sig, id: prev ? prev.id : 1000 + Object.keys(rt.ike).length + 1 };
+    const peer = n2ip(bAddr), dbg = rt.debug && rt.debug.isakmp;
+    if (dbg) this.note(a, `ISAKMP:(0):Old State = IKE_READY  New State = IKE_I_MM1`);
+    if (m.ok) {
+      if (dbg) this.note(a, `ISAKMP:(1001):Old State = IKE_QM_I_QM1  New State = IKE_QM_PHASE2_COMPLETE`);
+      this.note(a, `%CRYPTO-5-SESSION_STATUS: Crypto tunnel is UP  .  Peer ${peer}:500       Id: ${peer}`);
+      return;
+    }
+    if (m.why === "policy" || m.why === "auth") {
+      if (dbg) { this.note(a, "ISAKMP:(0):atts are not acceptable. Next payload is 0"); this.note(a, "ISAKMP:(0):no offers accepted!"); }
+      this.note(a, `%CRYPTO-6-IKMP_MODE_FAILURE: Processing of Main mode failed with peer at ${peer}`);
+    } else if (m.why === "nokey") {
+      this.note(a, `%CRYPTO-4-IKMP_NO_SA: IKE message from ${peer} has no SA and is not an initialization offer`);
+      if (dbg) this.note(a, `ISAKMP:(0):No pre-shared key with ${peer}!`);
+    } else if (m.why === "key") {
+      this.note(a, `%CRYPTO-4-IKMP_BAD_MESSAGE: IKE message from ${peer} failed its sanity check or is malformed`);
+    } else if (m.why === "tset" || m.why === "proxy" || m.why === "pfs") {
+      if (dbg) this.note(a, "ISAKMP:(1001):IPSec policy invalidated proposal with error 32");
+      this.note(a, `%CRYPTO-6-IKMP_MODE_FAILURE: Processing of Quick mode failed with peer at ${peer}`);
+    }
+    if (b && this.devs[b] && m.why === "key") this.note(b, `%CRYPTO-4-IKMP_BAD_MESSAGE: IKE message from ${n2ip(aAddr)} failed its sanity check or is malformed`);
+  },
+
+  ipsecCount(a, aAddr, b, bAddr) {
+    for (const [dn, key, k] of [[a, aAddr + "|" + bAddr, "encaps"], [b, bAddr + "|" + aAddr, "decaps"]]) {
+      const rt = this.devs[dn].rt;
+      rt.ipsec = rt.ipsec || {};
+      const c = rt.ipsec[key] = rt.ipsec[key] || { encaps: 0, decaps: 0 };
+      c[k]++;
+    }
+  },
+
+  // -- NHRP ------------------------------------------------------------------------------------
+  // Phase 2: a spoke resolving another spoke through the hub learns its NBMA address (and the other
+  // spoke learns ours from the request), so later packets go direct.
+  nhrpResolve(dn, ifn, ip, hub) {
+    const reg = this.nhrpRegs(hub.dev, hub.ifn).find((r) => r.ip === ip);
+    if (!reg) return;
+    if (!this.reachTun(dn, ifn, { dev: reg.dev, ifn: reg.ifn })) return;
+    const me = this.devs[dn].cfg.intfs[ifn];
+    this.nhrpLearn(dn, ifn, ip, reg.nbma);
+    this.nhrpLearn(reg.dev, reg.ifn, me.ip, this.tunSrcIp(dn, ifn));
+  },
+
+  nhrpLearn(dn, ifn, ip, nbma) {
+    const rt = this.devs[dn].rt;
+    rt.nhrp = rt.nhrp || {};
+    rt.nhrp[ifn + "|" + ip] = { nbma };
+  },
+
+  // Phase 3: the hub sends a packet back out the tunnel it arrived on, so it redirects the sending
+  // spoke; the spokes resolve each other and install shortcuts to each other's networks.
+  nhrpRedirect(hub, eg, prevDev, pkt) {
+    if (!nhrpOf(this.devs[hub].cfg.intfs[eg.ifn]).redirect || !prevDev) return;
+    const regs = this.nhrpRegs(hub, eg.ifn);
+    const from = regs.find((r) => r.dev === prevDev), to = regs.find((r) => r.ip === eg.nh);
+    if (!from || !to || from.dev === to.dev || !this.reachTun(from.dev, from.ifn, { dev: to.dev, ifn: to.ifn })) return;
+    const prefix = (dn, ip) => {
+      const r = lpm(this.routes(dn), ip);
+      return r && (r.code === "C") ? { net: r.net, len: r.len } : { net: ip, len: 32 };
+    };
+    const install = (a, b, ip) => {
+      if (!nhrpOf(this.devs[a.dev].cfg.intfs[a.ifn]).shortcut) return;
+      this.nhrpLearn(a.dev, a.ifn, b.ip, b.nbma);
+      const p = prefix(b.dev, ip), rt = this.devs[a.dev].rt;
+      rt.nhrpShort = (rt.nhrpShort || []).filter((s) => !(s.net === p.net && s.len === p.len));
+      rt.nhrpShort.push({ ifn: a.ifn, net: p.net, len: p.len, nh: b.ip });
+    };
+    install(from, to, pkt.dst);
+    install(to, from, pkt.src);
+  },
+
+  // NHRP shortcuts on top of the routing table: an H route, or an override of the same prefix.
+  nhrpOverlay(dn, table) {
+    const d = this.devs[dn];
+    if (d.type !== "router" || !d.rt.nhrpShort || !d.rt.nhrpShort.length) return table;
+    const out = [...table];
+    for (const s of d.rt.nhrpShort) {
+      if (!this.ifUp(dn, s.ifn) || !this.nhrpMap(dn, s.ifn).some((m) => m.ip === s.nh)) continue;
+      const path = { ip: s.nh, ifn: s.ifn };
+      const k = out.findIndex((r) => r.net === s.net && r.len === s.len);
+      if (k >= 0) {
+        if (out[k].code === "C" || out[k].code === "L") continue;
+        out[k] = { ...out[k], paths: [{ ...path, metric: out[k].metric }], nho: true };
+      } else out.push({ code: "H", net: s.net, len: s.len, ad: 250, metric: 255, paths: [{ ...path, metric: 255 }] });
+    }
+    return out;
+  },
+
+  // -- log messages and the diagram -----------------------------------------------------------
+  // %TUN-5-RECURDOWN when a tunnel is pulled down for recursive routing.
+  tunLog(log) {
+    this.tun();
+    const rec = this.c.tunRec || {};
+    this.recSeen = this.recSeen || {};
+    for (const k of Object.keys(rec)) {
+      if (this.recSeen[k]) continue;
+      const [dn, ifn] = k.split("|");
+      log(dn, `%TUN-5-RECURDOWN: ${ifn} temporarily disabled due to recursive routing`);
+    }
+    this.recSeen = { ...rec };
+  },
+
+  // Logical links for the topology diagram: point-to-point tunnels, DMVPN hub-spoke registrations
+  // and spoke-spoke dynamic tunnels, and crypto map peerings.
+  tunnelInfo() {
+    const out = [], seen = new Set();
+    const add = (x) => {
+      const k = [x.a + "|" + x.aIf, x.b + "|" + x.bIf].sort().join("~");
+      if (!seen.has(k)) { seen.add(k); out.push(x); }
+    };
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      for (const [n, i] of Object.entries(d.cfg.intfs)) {
+        if (!isTun(n)) continue;
+        const t = tunOf(i), prot = !!this.tunProt(d.name, n);
+        if (tunMode(t) !== "gre-mp") {
+          const p = this.tunPeer(d.name, n, false);
+          if (p) add({ a: d.name, aIf: n, b: p.dev, bIf: p.ifn, up: this.ifUp(d.name, n) && this.ifUp(p.dev, p.ifn) && !!this.tunPeer(d.name, n, true),
+            kind: tunMode(this.devs[p.dev].cfg.intfs[p.ifn].tun || {}) === "gre-mp" ? "dmvpn" : prot ? "ipsec" : "gre", protected: prot });
+          continue;
+        }
+        for (const r of this.nhrpRegs(d.name, n)) add({ a: r.dev, aIf: r.ifn, b: d.name, bIf: n, up: true, kind: "dmvpn", protected: prot });
+        for (const m of this.nhrpMap(d.name, n)) {
+          if (m.type !== "dynamic" || m.registered) continue;
+          const far = this.tunEndAt(m.nbma, m.ip, t.key, d.name);
+          if (far) add({ a: d.name, aIf: n, b: far.dev, bIf: far.ifn, up: this.reachTun(d.name, n, far), kind: "dmvpn", dynamic: true, protected: prot });
+        }
+      }
+      for (const [n, i] of Object.entries(d.cfg.intfs)) {
+        const map = i.cmap && cryptoOf(d.cfg).maps[i.cmap];
+        if (!map) continue;
+        for (const e of Object.values(map)) {
+          if (e.peer === null) continue;
+          const b = this.ownerOf(e.peer);
+          const bIf = b && this.upIfs(b).find((x) => this.ifAddrs(b, x).some((a) => a.ip === e.peer));
+          const local = this.ifAddr(d.name, n);
+          if (!bIf || !local) continue;
+          const ike = this.devs[d.name].rt.ike && this.devs[d.name].rt.ike[local.ip + "|" + e.peer];
+          add({ a: d.name, aIf: n, b, bIf, up: !!ike && ike.ok, kind: "ipsec", protected: true });
+        }
+      }
+    }
+    return out;
+  },
+
+  // -- lab checks for this section ---------------------------------------------------------
+  vpnCheck(c, d, intf) {
+    switch (c.type) {
+      case "vrf": {
+        const v = vrfsOf(d.cfg)[c.vrf];
+        return !!v && (!c.rd || v.rd === c.rd) && (c.ipv4 === undefined || !!(v.legacy || v.af4) === c.ipv4);
+      }
+      case "vrf-if": return this.vrfOf(d.name, intf) === c.vrf;
+      case "tunnel": {
+        const i = d.cfg.intfs[intf];
+        if (!i || !isTun(intf)) return false;
+        return (!c.state || (this.tunUp(d.name, intf) ? "up" : "down") === c.state) && (!c.mode || tunMode(tunOf(i)) === c.mode);
+      }
+      case "ipsec-sa": {
+        const peer = ip2n(c.peer);
+        for (const [n, i] of Object.entries(d.cfg.intfs)) {
+          if (isTun(n) && this.tunProt(d.name, n)) {
+            const far = tunMode(tunOf(i)) === "gre-mp" ? null : this.tunPeer(d.name, n, false);
+            if (far && far.nbma === peer && this.protMatch(d.name, n, far.dev, far.ifn).ok) return true;
+          }
+          const map = i.cmap && cryptoOf(d.cfg).maps[i.cmap], local = this.ifAddr(d.name, n);
+          if (!map || !local) continue;
+          for (const e of Object.values(map)) {
+            if (e.peer !== peer || !e.acl || !d.cfg.acls[e.acl]) continue;
+            const acl = d.cfg.acls[e.acl].entries.find((x) => x.remark === undefined && x.action === "permit");
+            if (!acl) continue;
+            const probe = { src: acl.src.addr, dst: acl.dst ? acl.dst.addr : 0, proto: acl.proto === "ip" ? "icmp" : acl.proto, icmp: "echo", id: 1 };
+            if (this.mapMatch(d.name, local.ip, e, probe).ok) return true;
+          }
+        }
+        return false;
+      }
+      case "nhrp-peer": {
+        const ifs = intf ? [intf] : Object.keys(d.cfg.intfs).filter(isTun);
+        return ifs.some((n) => this.nhrpMap(d.name, n).some((m) => m.ip === ip2n(c.peer) && (!c.registered || m.registered)));
+      }
+      case "trace-avoids": {
+        const hops = this.trace(c.from, ip2n(c.to), 30);
+        const last = hops[hops.length - 1];
+        return !!last && last.last && last.ip !== null && !hops.some((h) => h.ip === ip2n(c.avoid));
+      }
+      case "nhrp-shortcut": {
+        const [net, len] = c.prefix.split("/");
+        const r = this.routes(d.name).find((x) => x.net === ip2n(net) && x.len === +len);
+        return !!r && (r.code === "H" || !!r.nho);
+      }
+      default: return undefined;
+    }
+  },
+});
+
+// -- running-config pieces ---------------------------------------------------------------
+function vrfFwdLine(c, i) {
+  const v = vrfsOf(c)[i.vrf];
+  return (v && v.legacy ? " ip vrf forwarding " : " vrf forwarding ") + i.vrf;
+}
+
+function vpnIntfLines(c, n, i) {
+  const L = [], t = tunOf(i), nh = nhrpOf(i);
+  if (i.mtu) L.push(" ip mtu " + i.mtu);
+  if (nh.auth) L.push(" ip nhrp authentication " + nh.auth);
+  for (const m of nh.maps || []) L.push(` ip nhrp map ${n2ip(m.ip)} ${n2ip(m.nbma)}`);
+  for (const m of nh.mcast || []) L.push(" ip nhrp map multicast " + n2ip(m));
+  if (nh.mcastDynamic) L.push(" ip nhrp map multicast dynamic");
+  if (nh.nid !== undefined && nh.nid !== null) L.push(" ip nhrp network-id " + nh.nid);
+  if (nh.hold) L.push(" ip nhrp holdtime " + nh.hold);
+  for (const s of nh.nhs || []) L.push(` ip nhrp nhs ${n2ip(s.ip)}${s.nbma !== null ? " nbma " + n2ip(s.nbma) : ""}${s.mcast ? " multicast" : ""}`);
+  if (nh.redirect) L.push(" ip nhrp redirect");
+  if (nh.shortcut) L.push(" ip nhrp shortcut");
+  if (i.mss) L.push(" ip tcp adjust-mss " + i.mss);
+  if (i.eigrpNoSH) L.push(" no ip split-horizon eigrp " + i.eigrpNoSH);
+  if (i.eigrpNoNHS) L.push(" no ip next-hop-self eigrp " + i.eigrpNoNHS);
+  if (i.ka) L.push(" keepalive" + (i.ka[0] !== 10 || i.ka[1] !== 3 ? ` ${i.ka[0]} ${i.ka[1]}` : ""));
+  if (isTun(n)) {
+    if (t.src) L.push(" tunnel source " + t.src);
+    else if (t.srcIp !== undefined && t.srcIp !== null) L.push(" tunnel source " + n2ip(t.srcIp));
+    if (t.dst !== undefined && t.dst !== null) L.push(" tunnel destination " + n2ip(t.dst));
+    if (tunMode(t) === "gre-mp") L.push(" tunnel mode gre multipoint");
+    if (tunMode(t) === "ipsec") L.push(" tunnel mode ipsec ipv4");
+    if (t.key !== undefined && t.key !== null) L.push(" tunnel key " + t.key);
+    if (t.prot) L.push(" tunnel protection ipsec profile " + t.prot);
+  }
+  if (i.cmap) L.push(" crypto map " + i.cmap);
+  return L;
+}
+
+function vpnGlobalLines(c) {
+  const L = [];
+  for (const [name, v] of Object.entries(vrfsOf(c)).sort()) {
+    if (v.legacy) {
+      L.push("ip vrf " + name);
+      if (v.desc) L.push(" description " + v.desc);
+      if (v.rd) L.push(" rd " + v.rd);
+      for (const rt of v.rts || []) L.push(` route-target ${rt.dir} ${rt.val}`);
+    } else {
+      L.push("vrf definition " + name);
+      if (v.desc) L.push(" description " + v.desc);
+      if (v.rd) L.push(" rd " + v.rd);
+      for (const rt of v.rts || []) L.push(` route-target ${rt.dir} ${rt.val}`);
+      if (v.af4) L.push(" !", " address-family ipv4", " exit-address-family");
+      if (v.af6) L.push(" !", " address-family ipv6", " exit-address-family");
+    }
+    L.push("!");
+  }
+  const k = cryptoOf(c);
+  const pols = Object.values(k.policies).sort((a, b) => a.prio - b.prio);
+  for (const p of pols) {
+    L.push("crypto isakmp policy " + p.prio);
+    if (p.encr !== "des") L.push(" encr " + p.encr + (p.bits ? " " + p.bits : ""));
+    if (p.hash !== "sha") L.push(" hash " + p.hash);
+    if (p.auth !== "rsa-sig") L.push(" authentication " + p.auth);
+    if (p.group !== 1) L.push(" group " + p.group);
+    if (p.life !== 86400) L.push(" lifetime " + p.life);
+  }
+  for (const x of k.keys) L.push(`crypto isakmp key ${x.key} address ${n2ip(x.addr)}${x.mask !== 0xffffffff ? " " + n2ip(x.mask) : ""}`);
+  if (pols.length || k.keys.length) L.push("!");
+  for (const [name, t] of Object.entries(k.tsets)) {
+    L.push(`crypto ipsec transform-set ${name} ${t.transforms.join(" ")}`);
+    L.push(" mode " + (t.mode || "tunnel"));
+  }
+  if (Object.keys(k.tsets).length) L.push("!");
+  for (const [name, p] of Object.entries(k.profiles)) {
+    L.push("crypto ipsec profile " + name);
+    if (p.tsets.length) L.push(" set transform-set " + p.tsets.join(" "));
+    if (p.pfs) L.push(" set pfs " + p.pfs);
+    L.push("!");
+  }
+  for (const [name, m] of Object.entries(k.maps)) {
+    for (const e of Object.values(m).sort((a, b) => a.seq - b.seq)) {
+      L.push(`crypto map ${name} ${e.seq} ipsec-isakmp`);
+      if (e.peer !== null) L.push(" set peer " + n2ip(e.peer));
+      if (e.tsets.length) L.push(" set transform-set " + e.tsets.join(" "));
+      if (e.pfs) L.push(" set pfs " + e.pfs);
+      if (e.acl) L.push(" match address " + e.acl);
+    }
+    L.push("!");
+  }
+  return L;
+}
+
+function vpnRoutingLines(c) {
+  const L = [];
+  for (const r of c.vrfRoutes || []) {
+    L.push(["ip route vrf", r.vrf, n2ip(r.net), n2ip(lenMask(r.len)), r.ifn, r.nh !== null ? n2ip(r.nh) : null, r.ad !== 1 ? r.ad : null]
+      .filter((x) => x !== null && x !== undefined).join(" "));
+  }
+  for (const o of Object.values(c.ospfVrf || {}).sort((a, b) => a.pid - b.pid)) {
+    L.push(`router ospf ${o.pid} vrf ${o.vrf}`);
+    if (o.rid !== null) L.push(" router-id " + n2ip(o.rid));
+    if (o.passiveDefault) {
+      L.push(" passive-interface default");
+      for (const n of o.noPassive) L.push(" no passive-interface " + n);
+    } else for (const n of o.passive) L.push(" passive-interface " + n);
+    for (const n of o.networks) L.push(` network ${n2ip(n.addr)} ${n2ip(n.wild)} area ${n.area}`);
+    if (o.defaultOriginate) L.push(" default-information originate" + (o.defaultAlways ? " always" : ""));
+    L.push("!");
+  }
+  return L;
+}
+
+// The code column of `show ip route`, with "%" for a next hop NHRP has overridden.
+const routeCode = (r) => (r.nho ? r.code + "   %" : r.code);
+
+// -- show commands ------------------------------------------------------------------------
+function showTunnelIf(net, dn, n) {
+  const d = net.devs[dn], i = d.cfg.intfs[n], s = net.ifState(dn, n), t = tunOf(i), mode = tunMode(t);
+  const src = net.tunSrcIpRaw(dn, n);
+  const L = [`${n} is ${s.status}, line protocol is ${s.proto}`, "  Hardware is Tunnel"];
+  if (i.desc) L.push("  Description: " + i.desc);
+  if (i.ip !== null) L.push(`  Internet address is ${n2ip(i.ip)}/${maskLen(i.mask)}`);
+  L.push(`  MTU 17916 bytes, BW ${net.bandwidth(d, n)} Kbit/sec, DLY ${net.delay(d, n) * 10} usec,`,
+    "     reliability 255/255, txload 1/255, rxload 1/255", "  Encapsulation TUNNEL, loopback not set",
+    i.ka ? `  Keepalive set (${i.ka[0]} sec), retries ${i.ka[1]}` : "  Keepalive not set",
+    `  Tunnel linestate evaluation ${s.proto}${s.proto === "down" && !i.shut ? (net.c.tunRec && net.c.tunRec[dn + "|" + n] ? " - recursive routing" : src === null ? " - source down" : "") : ""}`,
+    `  Tunnel source ${src === null ? "UNKNOWN" : n2ip(src)}${t.src ? ` (${t.src})` : ""}${mode === "gre-mp" ? "" : `, destination ${t.dst !== undefined && t.dst !== null ? n2ip(t.dst) : "UNKNOWN"}`}`,
+    `  Tunnel protocol/transport ${mode === "gre-mp" ? "multi-GRE/IP" : mode === "ipsec" ? "IPSEC/IP" : "GRE/IP"}`,
+    `    Key ${t.key !== undefined && t.key !== null ? t.key : "disabled"}, sequencing disabled`,
+    "    Checksumming of packets disabled", "  Tunnel TTL 255, Fast tunneling enabled",
+    `  Tunnel transport MTU ${mode === "ipsec" ? 1438 : t.prot ? 1438 : 1476} bytes`,
+    "  Tunnel transmit bandwidth 8000 (kbps)", "  Tunnel receive bandwidth 8000 (kbps)");
+  if (t.prot) L.push(`  Tunnel protection via IPSec (profile "${t.prot}")`);
+  return L;
+}
+
+function showVrf(net, dn, legacyView) {
+  const d = net.devs[dn], vs = vrfsOf(d.cfg);
+  const ifsOf = (v) => Object.keys(d.cfg.intfs).filter((n) => d.cfg.intfs[n].vrf === v).sort(ifSort).map(shortIf);
+  if (legacyView) {
+    const L = ["  Name                             Default RD            Interfaces"];
+    for (const [name, v] of Object.entries(vs).sort()) {
+      const ifs = ifsOf(name);
+      L.push("  " + pad(name, 33) + pad(v.rd || "<not set>", 22) + (ifs[0] || ""));
+      for (const x of ifs.slice(1)) L.push("".padEnd(57) + x);
+    }
+    return L.join("\n");
+  }
+  const L = ["  Name                             Default RD            Protocols   Interfaces"];
+  for (const [name, v] of Object.entries(vs).sort()) {
+    const ifs = ifsOf(name), protos = v.legacy ? "ipv4" : [v.af4 && "ipv4", v.af6 && "ipv6"].filter(Boolean).join(",") || "<not set>";
+    L.push("  " + pad(name, 33) + pad(v.rd || "<not set>", 22) + pad(protos, 12) + (ifs[0] || ""));
+    for (const x of ifs.slice(1)) L.push("".padEnd(69) + x);
+  }
+  return L.join("\n");
+}
+
+function showVrfInterfaces(net, dn) {
+  const d = net.devs[dn];
+  const L = ["Interface              IP-Address      VRF                              Protocol"];
+  for (const n of Object.keys(d.cfg.intfs).sort(ifSort)) {
+    const i = d.cfg.intfs[n];
+    if (!i.vrf) continue;
+    L.push(pad(shortIf(n), 23) + pad(i.ip === null ? "unassigned" : n2ip(i.ip), 16) + pad(i.vrf, 33) + net.ifState(dn, n).proto);
+  }
+  return L.join("\n");
+}
+
+const ENCR_NAME = { des: "DES - Data Encryption Standard (56 bit keys).", "3des": "Three key triple DES",
+  aes: "AES - Advanced Encryption Standard" };
+const HASH_NAME = { sha: "Secure Hash Standard", md5: "Message Digest 5", sha256: "Secure Hash Standard 2 (256 bit)",
+  sha384: "Secure Hash Standard 2 (384 bit)", sha512: "Secure Hash Standard 2 (512 bit)" };
+const AUTH_NAME = { "pre-share": "Pre-Shared Key", "rsa-sig": "Rivest-Shamir-Adleman Signature", "rsa-encr": "Rivest-Shamir-Adleman Encryption" };
+const GROUP_BITS = { 1: 768, 2: 1024, 5: 1536, 14: 2048, 15: 3072, 16: 4096, 19: "256 bit ECP", 20: "384 bit ECP", 21: "521 bit ECP", 24: 2048 };
+
+function showIsakmpPolicy(net, dn) {
+  const c = net.devs[dn].cfg, mine = Object.values(cryptoOf(c).policies).sort((a, b) => a.prio - b.prio);
+  const L = ["", "Global IKE policy"];
+  const show = (p, dflt) => {
+    L.push(`${dflt ? "Default protection suite of priority " : "Protection suite of priority "}${p.prio}`,
+      `\tencryption algorithm:\t${p.encr === "aes" ? `AES - Advanced Encryption Standard (${p.bits || 128} bit keys).` : ENCR_NAME[p.encr]}`,
+      `\thash algorithm:\t\t${HASH_NAME[p.hash]}`, `\tauthentication method:\t${AUTH_NAME[p.auth]}`,
+      `\tDiffie-Hellman group:\t#${p.group} (${GROUP_BITS[p.group]}${typeof GROUP_BITS[p.group] === "number" ? " bit" : ""})`,
+      `\tlifetime:\t\t${p.life || 86400} seconds, no volume limit`);
+  };
+  for (const p of mine) show(p, false);
+  if (!mine.length) for (const p of DEFAULT_POLICIES) show(p, true);
+  return L.join("\n");
+}
+
+// IKE SAs: crypto-map peers seen in traffic, plus protected tunnels (which negotiate as they come up).
+function ikeRows(net, dn) {
+  const d = net.devs[dn], rows = {};
+  for (const e of Object.values(d.rt.ike || {})) rows[e.local + "|" + e.peer] = { local: e.local, peer: e.peer, state: e.state, ok: e.ok, id: e.id };
+  for (const [n, i] of Object.entries(d.cfg.intfs)) {
+    if (!isTun(n) || !net.tunProt(dn, n) || !net.ifUp(dn, n)) continue;
+    const local = net.tunSrcIp(dn, n);
+    const fars = tunMode(tunOf(i)) === "gre-mp" ? [...net.nhrpRegs(dn, n).map((r) => ({ dev: r.dev, ifn: r.ifn, nbma: r.nbma })),
+      ...[net.nhsPeer(dn, n)].filter(Boolean)] : [net.tunPeer(dn, n, false)].filter(Boolean);
+    for (const far of fars) {
+      const m = net.protMatch(dn, n, far.dev, far.ifn);
+      const k = local + "|" + far.nbma;
+      rows[k] = { local, peer: far.nbma, state: m.ok || m.phase1 ? "QM_IDLE" : "MM_NO_STATE", ok: m.ok, id: rows[k] ? rows[k].id : 1001 + Object.keys(rows).length };
+    }
+  }
+  return Object.values(rows);
+}
+
+function showIsakmpSa(net, dn) {
+  const L = ["IPv4 Crypto ISAKMP SA", "dst             src             state          conn-id status"];
+  for (const r of ikeRows(net, dn)) {
+    L.push(pad(n2ip(r.peer), 16) + pad(n2ip(r.local), 16) + pad(r.state, 15) + lpad(r.id, 7) + " " + (r.state === "QM_IDLE" ? "ACTIVE" : "ACTIVE (deleted)"));
+  }
+  L.push("", "IPv6 Crypto ISAKMP SA", "");
+  return L.join("\n");
+}
+
+function aclIdent(acl) {
+  const e = acl && acl.entries.find((x) => x.remark === undefined && x.action === "permit");
+  if (!e) return ["(0.0.0.0/0.0.0.0/0/0)", "(0.0.0.0/0.0.0.0/0/0)"];
+  const id = (a) => `(${n2ip(a.addr)}/${n2ip((~a.wild) >>> 0)}/${e.proto === "icmp" ? 1 : e.proto === "gre" ? 47 : 0}/0)`;
+  return [id(e.src), e.dst ? id(e.dst) : "(0.0.0.0/0.0.0.0/0/0)"];
+}
+
+function showIpsecSa(net, dn) {
+  const d = net.devs[dn], k = cryptoOf(d.cfg), L = [];
+  const counters = (local, peer) => (d.rt.ipsec || {})[local + "|" + peer] || { encaps: 0, decaps: 0 };
+  const block = (ifn, tag, local, peer, ids, active) => {
+    const c = counters(local, peer);
+    L.push("", `interface: ${ifn}`, `    ${tag}, local addr ${n2ip(local)}`, "", "   protected vrf: (none)",
+      `   local  ident (addr/mask/prot/port): ${ids[0]}`, `   remote ident (addr/mask/prot/port): ${ids[1]}`,
+      `   current_peer ${n2ip(peer)} port 500`, "     PERMIT, flags={origin_is_acl,}",
+      `    #pkts encaps: ${c.encaps}, #pkts encrypt: ${c.encaps}, #pkts digest: ${c.encaps}`,
+      `    #pkts decaps: ${c.decaps}, #pkts decrypt: ${c.decaps}, #pkts verify: ${c.decaps}`,
+      "    #pkts compressed: 0, #pkts decompressed: 0", "    #pkts not compressed: 0, #pkts compr. failed: 0",
+      "    #pkts not decompressed: 0, #pkts decompress failed: 0", "    #send errors 0, #recv errors 0", "",
+      `     local crypto endpt.: ${n2ip(local)}, remote crypto endpt.: ${n2ip(peer)}`,
+      `     plaintext mtu 1438, path mtu 1500, ip mtu 1500, ip mtu idb ${ifn}`,
+      `     current outbound spi: ${active ? "0x" + hex(spi(local, peer), 8).toUpperCase() + "(" + spi(local, peer) + ")" : "0x0(0)"}`,
+      `     PFS (Y/N): N, DH group: none`, "", "     inbound esp sas:", ...(active ? ["      spi: active", "        status: ACTIVE"] : []),
+      "", "     outbound esp sas:", ...(active ? ["      spi: active", "        status: ACTIVE"] : []));
+  };
+  for (const [n, i] of Object.entries(d.cfg.intfs).sort((a, b) => ifSort(a[0], b[0]))) {
+    if (i.cmap && k.maps[i.cmap]) {
+      const local = net.ifAddr(dn, n);
+      if (!local) continue;
+      for (const e of Object.values(k.maps[i.cmap]).sort((a, b) => a.seq - b.seq)) {
+        if (e.peer === null) continue;
+        const ike = (d.rt.ike || {})[local.ip + "|" + e.peer];
+        block(n, `Crypto map tag: ${i.cmap}`, local.ip, e.peer, aclIdent(d.cfg.acls[e.acl]), !!ike && ike.ok);
+      }
+    }
+    if (isTun(n) && net.tunProt(dn, n)) {
+      const local = net.tunSrcIp(dn, n);
+      if (local === null) continue;
+      const fars = tunMode(tunOf(i)) === "gre-mp" ? net.nhrpMap(dn, n).map((m) => ({ nbma: m.nbma, far: net.tunEndAt(m.nbma, m.ip, tunOf(i).key, dn) }))
+        : [net.tunPeer(dn, n, false)].filter(Boolean).map((p) => ({ nbma: p.nbma, far: p }));
+      for (const f of fars) {
+        if (!f.far) continue;
+        const ok = net.protMatch(dn, n, f.far.dev, f.far.ifn).ok;
+        // GRE over IPsec protects the GRE packets between the endpoints; a VTI protects everything.
+        const ids = tunMode(tunOf(i)) === "ipsec" ? ["(0.0.0.0/0.0.0.0/0/0)", "(0.0.0.0/0.0.0.0/0/0)"]
+          : [`(${n2ip(local)}/255.255.255.255/47/0)`, `(${n2ip(f.nbma)}/255.255.255.255/47/0)`];
+        block(n, `Crypto map tag: ${n}-head-0`, local, f.nbma, ids, ok);
+      }
+    }
+  }
+  return L.join("\n");
+}
+
+function showTransformSets(net, dn) {
+  const k = cryptoOf(net.devs[dn].cfg), L = [];
+  L.push("Transform set default: { esp-aes esp-sha-hmac  } ", "   will negotiate = { Transport,  }, ", "   ");
+  for (const [name, t] of Object.entries(k.tsets)) {
+    L.push(`Transform set ${name}: { ${t.transforms.join(" ")}  } `, `   will negotiate = { ${(t.mode || "tunnel") === "tunnel" ? "Tunnel" : "Transport"},  }, `, "   ");
+  }
+  return L.join("\n");
+}
+
+function showCryptoMap(net, dn) {
+  const d = net.devs[dn], k = cryptoOf(d.cfg), L = [];
+  for (const [name, m] of Object.entries(k.maps)) {
+    for (const e of Object.values(m).sort((a, b) => a.seq - b.seq)) {
+      L.push(`Crypto Map IPv4 "${name}" ${e.seq} ipsec-isakmp`);
+      L.push(e.peer !== null ? `\tPeer = ${n2ip(e.peer)}` : "\tNo matching address list set.");
+      const acl = e.acl && d.cfg.acls[e.acl];
+      if (acl) {
+        L.push(`\tExtended IP access list ${e.acl}`);
+        for (const x of acl.entries) if (x.remark === undefined) L.push(`\t    access-list ${e.acl} ${x.action} ${aceStr(acl.type, x)}`);
+      } else if (e.acl) L.push(`\tExtended IP access list ${e.acl} (not defined)`);
+      if (e.peer !== null) L.push(`\tCurrent peer: ${n2ip(e.peer)}`);
+      L.push("\tSecurity association lifetime: 4608000 kilobytes/3600 seconds", "\tResponder-Only (Y/N): N",
+        `\tPFS (Y/N): ${e.pfs ? "Y" : "N"}`, "\tMixed-mode : Disabled", "\tTransform sets={ ",
+        ...e.tsets.map((t) => `\t\t${t}:  { ${(k.tsets[t] ? k.tsets[t].transforms : []).join(" ")}  } , `), "\t}");
+    }
+    const ifs = Object.keys(d.cfg.intfs).filter((n) => d.cfg.intfs[n].cmap === name);
+    L.push(`\tInterfaces using crypto map ${name}:`, ...ifs.map((n) => "\t\t" + n), "");
+  }
+  return L.join("\n");
+}
+
+function showCryptoSession(net, dn) {
+  const d = net.devs[dn], L = ["Crypto session current status", ""];
+  for (const r of ikeRows(net, dn)) {
+    const ifn = Object.keys(d.cfg.intfs).find((n) => (net.ifAddr(dn, n) || {}).ip === r.local && d.cfg.intfs[n].cmap)
+      || Object.keys(d.cfg.intfs).find((n) => isTun(n) && net.tunSrcIp(dn, n) === r.local) || "";
+    L.push(`Interface: ${ifn}`, `Session status: ${r.ok ? "UP-ACTIVE" : r.state === "QM_IDLE" ? "UP-IDLE" : "DOWN-NEGOTIATING"}     `,
+      `Peer: ${n2ip(r.peer)} port 500 `, `  IKEv1 SA: local ${n2ip(r.local)}/500 remote ${n2ip(r.peer)}/500 ${r.state === "QM_IDLE" ? "Active" : "Inactive"} `,
+      `        Active SAs: ${r.ok ? 2 : 0}, origin: ${isTun(ifn) ? "crypto map" : "crypto map"}`, "");
+  }
+  return L.join("\n");
+}
+
+function showDmvpn(net, dn, detail) {
+  const d = net.devs[dn];
+  const L = ["Legend: Attrb --> S - Static, D - Dynamic, I - Incomplete", "\tN - NATed, L - Local, X - No Socket",
+    "\tT1 - Route Installed, T2 - Nexthop-override", "\tC - CTS Capable, I2 - Temporary",
+    "\t# Ent --> Number of NHRP entries with same NBMA peer", "\tNHS Status: E --> Expecting Replies, R --> Responding, W --> Waiting",
+    "\tUpDn Time --> Up or Down Time for a Tunnel", "=========================================================================="];
+  for (const n of Object.keys(d.cfg.intfs).filter(isTun).sort(ifSort)) {
+    if (!net.nhrpOn(dn, n)) continue;
+    const i = d.cfg.intfs[n], peers = net.nhrpMap(dn, n);
+    const hub = net.nhrpRegs(dn, n).length > 0 || nhrpOf(i).mcastDynamic;
+    L.push("", `Interface: ${n}, IPv4 NHRP Details `, `Type:${hub ? "Hub" : "Spoke"}, NHRP Peers:${peers.length},`, "");
+    if (detail) {
+      L.push(`IPv4 NHS: ${(nhrpOf(i).nhs || []).map((s) => n2ip(s.ip) + (net.nhsPeer(dn, n) ? " RE" : " E")).join(" ") || "None"}`);
+    }
+    L.push(" # Ent  Peer NBMA Addr Peer Tunnel Add State  UpDn Tm Attrb", " ----- --------------- --------------- ----- -------- -----");
+    for (const p of peers) {
+      const far = net.tunEndAt(p.nbma, p.ip, tunOf(i).key, dn);
+      const up = !!far && net.reachTun(dn, n, far);
+      L.push("     1 " + pad(n2ip(p.nbma), 16) + pad(n2ip(p.ip), 16) + pad(up ? "UP" : p.type === "static" ? "NHRP" : "IKE", 6)
+        + pad("00:01:12", 9) + (p.type === "static" ? "S" : "D"));
+    }
+  }
+  return L.join("\n");
+}
+
+function showNhrp(net, dn, brief) {
+  const d = net.devs[dn], L = [];
+  if (brief) L.push("   Target             Via            NBMA           Mode   Intfc   Claimed");
+  for (const n of Object.keys(d.cfg.intfs).filter(isTun).sort(ifSort)) {
+    const i = d.cfg.intfs[n];
+    for (const p of net.nhrpMap(dn, n)) {
+      if (brief) {
+        L.push("     " + pad(n2ip(p.ip) + "/32", 19) + pad(n2ip(p.ip), 15) + pad(n2ip(p.nbma), 15) + pad(p.type === "static" ? "static" : "dynamic", 7) + pad(shortIf(n), 8) + "   >");
+        continue;
+      }
+      L.push(`${n2ip(p.ip)}/32 via ${n2ip(p.ip)}`, `   ${n} created 00:01:12, ${p.type === "static" ? "never expire " : "expire 01:58:47"}`,
+        `   Type: ${p.type}, Flags: ${p.registered ? "registered nhop" : p.type === "static" ? "used" : "router nhop rib"}`,
+        `   NBMA address: ${n2ip(p.nbma)} `);
+    }
+    for (const s of d.rt.nhrpShort || []) {
+      if (s.ifn !== n || brief) continue;
+      L.push(`${n2ip(s.net)}/${s.len} via ${n2ip(s.nh)}`, `   ${n} created 00:00:12, expire 01:59:47`, "   Type: dynamic, Flags: router rib nho",
+        `   NBMA address: ${n2ip((net.nhrpMap(dn, n).find((m) => m.ip === s.nh) || { nbma: 0 }).nbma)} `);
+    }
+    void i;
+  }
+  return L.join("\n");
+}
+
+// -- configuration commands -------------------------------------------------------------------
+Object.assign(HELP, {
+  vrf: "VPN Routing/Forwarding parameters on the interface", definition: "VRF definition", rd: "Specify Route Distinguisher",
+  "route-target": "Specify Target VPN Extended Communities", import: "Import Target-VPN community", export: "Export Target-VPN community",
+  both: "Both import and export Target-VPN community", forwarding: "Configure forwarding table",
+  "exit-address-family": "Exit from Address Family configuration mode", tunnel: "protocol-over-protocol tunneling",
+  destination: "destination of tunnel", gre: "generic route encapsulation protocol",
+  multipoint: "over IPv4 (multipoint)", ipsec: "IPSec tunnel encapsulation", ipv4: "over IPv4", key: "security or selector key",
+  protection: "Enable tunneling protection", profile: "Determine the ipsec policy profile to use.", keepalive: "Enable keepalive",
+  mtu: "Set IP Maximum Transmission Unit", tcp: "TCP header compression and/or Adjust MSS parameters", "adjust-mss": "Adjust the mss of transit packets",
+  nhrp: "NHRP interface subcommands", "network-id": "NBMA network identifier", map: "Map dest IP addresses to NBMA addresses",
+  multicast: "Use this NBMA mapping for broadcasts/multicasts", nhs: "Specify a next hop server",
+  nbma: "Specify NBMA address/FQDN", redirect: "Enable NHRP redirect", shortcut: "Enable shortcut switching", holdtime: "Advertised holdtime",
+  "split-horizon": "Perform split horizon", "next-hop-self": "Use own IP address as next hop when advertising",
+  crypto: "Encryption module", isakmp: "Configure ISAKMP policy", policy: "Set policy for an ISAKMP protection suite",
+  encryption: "Set encryption algorithm for protection suite", hash: "Set hash algorithm for protection suite",
+  group: "Set the Diffie-Hellman group", lifetime: "Set lifetime for ISAKMP security association", "pre-share": "Pre-Shared Key",
+  "rsa-sig": "Rivest-Shamir-Adleman Signature", "rsa-encr": "Rivest-Shamir-Adleman Encryption", des: "Data Encryption Standard (56 bit keys).",
+  "3des": "Three key triple DES (168 bit keys).", aes: "AES - Advanced Encryption Standard.", sha: "Secure Hash Standard",
+  md5: "Message Digest 5", sha256: "Secure Hash Standard 2 (256 bit)", sha384: "Secure Hash Standard 2 (384 bit)",
+  sha512: "Secure Hash Standard 2 (512 bit)", "transform-set": "Define transform and settings", "esp-aes": "ESP transform using AES cipher",
+  "esp-3des": "ESP transform using 3DES(EDE) cipher (168 bits)", "esp-des": "ESP transform using DES cipher (56 bits)",
+  "esp-null": "ESP transform w/o cipher", "esp-gcm": "ESP transform using GCM cipher", "esp-sha-hmac": "ESP transform using HMAC-SHA auth",
+  "esp-md5-hmac": "ESP transform using HMAC-MD5 auth", "esp-sha256-hmac": "ESP transform using HMAC-SHA256 auth",
+  "esp-sha384-hmac": "ESP transform using HMAC-SHA384 auth", "esp-sha512-hmac": "ESP transform using HMAC-SHA512 auth",
+  "ah-sha-hmac": "AH-HMAC-SHA transform", "ah-md5-hmac": "AH-HMAC-MD5 transform",
+  "ipsec-isakmp": "IPSEC w/ISAKMP", peer: "Allowed Encryption/Decryption peer.", pfs: "Specify pfs settings",
+  group2: "D-H Group2 (1024-bit modulus)", group5: "D-H Group5 (1536-bit modulus)", group14: "D-H Group14 (2048-bit modulus)",
+  sa: "Show all current IKE SAs", session: "crypto session", dmvpn: "DMVPN information",
+});
+Object.assign(HELP_PATH, { "esp-aes 128": "128 bit keys.", "esp-aes 192": "192 bit keys.", "esp-aes 256": "256 bit keys.",
+  "mode tunnel": "tunnel (datagram encapsulation)", "mode transport": "transport (payload encapsulation)",
+  "aes 128": "128 bit keys.", "aes 192": "192 bit keys.", "aes 256": "256 bit keys.",
+  "group 1": "Diffie-Hellman group 1 (768 bit)", "group 2": "Diffie-Hellman group 2 (1024 bit)", "group 5": "Diffie-Hellman group 5 (1536 bit)",
+  "group 14": "Diffie-Hellman group 14 (2048 bit)", "group 15": "Diffie-Hellman group 15 (3072 bit)", "group 16": "Diffie-Hellman group 16 (4096 bit)",
+  "group 19": "Diffie-Hellman group 19 (256 bit ecp)", "group 20": "Diffie-Hellman group 20 (384 bit ecp)", "group 21": "Diffie-Hellman group 21 (521 bit ecp)",
+  "group 24": "Diffie-Hellman group 24 (2048 bit, 256 bit subgroup)" });
+HELP_MODE.config.vrf = "Configure a VRF";
+HELP_MODE.tset = { mode: "encapsulation mode (transport/tunnel)" };
+HELP_MODE.vrfdef = { description: "VRF specific description", "address-family ipv4": "Address family", "address-family ipv6": "Address family" };
+HELP_MODE.ipvrf = { description: "VRF specific description" };
+HELP_MODE.cmap = { set: "Set values for encryption/decryption", match: "Match values." };
+HELP_MODE.ipsecprof = { set: "Specify parameter settings" };
+HELP_MODE.isakmp = { authentication: "Set authentication method for protection suite" };
+for (const m of ["if", "subif", "range", "tunif"]) HELP_MODE[m] = { ...(HELP_MODE[m] || {}), crypto: "Encryption/Decryption commands" };
+Object.assign(HELP_PATH, {
+  "vrf definition": "VRF definition", "ip vrf": "Configure an IP VPN Routing/Forwarding instance", "vrf forwarding": "Configure forwarding table",
+  "ip vrf forwarding": "Configure forwarding table", "route vrf": "Configure static route for a VPN Routing/Forwarding instance",
+  "ping vrf": "Select VPN Routing/Forwarding instance", "traceroute vrf": "Select VPN Routing/Forwarding instance",
+  "show ip route vrf": "Display routes from a VPN Routing/Forwarding instance", "show ip arp vrf": "Show entries in VPN Routing/Forwarding instance",
+  "show vrf": "VPN Routing/Forwarding instance information", "show ip vrf": "VPN Routing/Forwarding instance information",
+  "show ip vrf brief": "Brief VPN Routing/Forwarding instance information", "show ip vrf interfaces": "Show VPN Routing/Forwarding interface information",
+  "ospf vrf": "VPN Routing/Forwarding Instance", "address-family ipv6": "Address family", "tunnel mode": "tunnel encapsulation method",
+  "tunnel source": "source of tunnel packets", "tunnel destination": "destination of tunnel", "tunnel mode gre": "generic route encapsulation protocol",
+  "mode gre ip": "over IP", "mode gre multipoint": "over IPv4 (multipoint)", "mode ipsec": "IPSec tunnel encapsulation",
+  "mode ipsec ipv4": "over IPv4", "tunnel key": "security or selector key", "tunnel protection": "Enable tunneling protection",
+  "protection ipsec": "Determine the ipsec policy profile to use.", "ipsec profile": "Determine the ipsec policy profile to use.",
+  "ip mtu": "Set IP Maximum Transmission Unit", "ip tcp": "TCP header compression and/or Adjust MSS parameters",
+  "ip nhrp": "NHRP interface subcommands", "nhrp map": "Map dest IP addresses to NBMA addresses",
+  "map multicast": "Use this NBMA mapping for broadcasts/multicasts", "multicast dynamic": "IP NBMA address dynamically learnt",
+  "nhrp authentication": "Authentication string", "nhrp nhs": "Specify a next hop server", "nhs nbma": "Specify NBMA address/FQDN",
+  "nbma multicast": "Map this NBMA for multicast traffic", "split-horizon eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)",
+  "next-hop-self eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)", "crypto isakmp": "Configure ISAKMP policy",
+  "isakmp policy": "Set policy for an ISAKMP protection suite", "isakmp key": "Set pre-shared key for remote peer",
+  "key address": "define shared key with IP address", "crypto ipsec": "Configure IPSEC policy",
+  "ipsec transform-set": "Define transform and settings", "crypto map": "Enter a crypto map", "map ipsec-isakmp": "IPSEC w/ISAKMP",
+  "set peer": "Allowed Encryption/Decryption peer.", "set transform-set": "Specify list of transform sets in priority order",
+  "match address": "Match address of packets to encrypt.", "set pfs": "Specify pfs settings", "authentication pre-share": "Pre-Shared Key",
+  "show crypto": "Encryption module", "show crypto isakmp": "Show ISAKMP", "show crypto isakmp sa": "Show all current IKE SAs",
+  "show crypto isakmp policy": "Show ISAKMP protection suite policy", "show crypto ipsec": "Show IPSEC policy",
+  "show crypto ipsec sa": "IPSEC SA table", "show crypto ipsec transform-set": "Crypto transform sets", "show crypto map": "Crypto maps",
+  "show crypto session": "Show crypto sessions (tunnels)", "clear crypto": "Encryption module", "clear crypto sa": "Clear all IPSEC security associations",
+  "clear crypto isakmp": "Flush the ISAKMP database", "show dmvpn": "DMVPN information", "show dmvpn detail": "detailed DMVPN information",
+  "show ip nhrp": "NHRP information", "show ip nhrp brief": "Brief display", "show ip nhrp nhs": "Next Hop Server information",
+  "clear ip nhrp": "Clear NHRP cache", "debug crypto": "Cryptographic subsystem", "debug crypto isakmp": "ISAKMP Key Management",
+  "debug crypto ipsec": "IPSEC processing", "debug nhrp": "NHRP protocol",
+});
+
+const vrfName = (c, name) => vrfsOf(c)[name];
+const newVrf = (legacy) => ({ legacy, rd: null, desc: "", af4: legacy, af6: false, rts: [] });
+const RD_RE = /^(\d{1,10}:\d{1,10}|\d+\.\d+\.\d+\.\d+:\d{1,5})$/;
+
+def("R", "config", "vrf definition <word|VRF name>", (c, [name]) => {
+  const v = vrfName(c.cfg, name);
+  if (v && v.legacy) { c.print(`% VRF ${name} was configured with "ip vrf"; remove it or use "ip vrf ${name}"`); return; }
+  if (!v) (c.cfg.vrfs = c.cfg.vrfs || {})[name] = newVrf(false);
+  c.s.enter("vrfdef", name);
+});
+def("R", "config", "ip vrf <word|VRF name>", (c, [name]) => {
+  const v = vrfName(c.cfg, name);
+  if (v && !v.legacy) { c.print(`% VRF ${name} was configured with "vrf definition"; use "vrf definition ${name}"`); return; }
+  if (!v) (c.cfg.vrfs = c.cfg.vrfs || {})[name] = newVrf(true);
+  c.s.enter("ipvrf", name);
+});
+const dropVrf = (c, name) => {
+  if (!vrfName(c.cfg, name)) { c.print(`% VRF ${name} not configured`); return; }
+  let moved = false;
+  for (const i of Object.values(c.cfg.intfs)) {
+    if (i.vrf !== name) continue;
+    delete i.vrf;
+    i.ip = null; i.mask = null; i.secondary = [];
+    moved = true;
+  }
+  if (moved) c.print(`% IPv4 addresses from all interfaces in VRF ${name} have been removed`);
+  delete c.cfg.vrfs[name];
+  if (c.cfg.vrfRoutes) c.cfg.vrfRoutes = c.cfg.vrfRoutes.filter((r) => r.vrf !== name);
+  for (const [pid, o] of Object.entries(c.cfg.ospfVrf || {})) if (o.vrf === name) delete c.cfg.ospfVrf[pid];
+};
+def("R", "config", "no vrf definition <word|VRF name>", (c, [name]) => dropVrf(c, name));
+def("R", "config", "no ip vrf <word|VRF name>", (c, [name]) => dropVrf(c, name));
+for (const m of ["vrfdef", "ipvrf"]) {
+  def("R", m, "rd <word|VPN Route Distinguisher (ASN:nn or IP-address:nn)>", (c, [rd]) => {
+    const v = vrfName(c.cfg, c.target);
+    if (!RD_RE.test(rd)) { c.print("% Invalid RD format"); return; }
+    if (v.rd && v.rd !== rd) { c.print(`% Can not change existing RD ${v.rd}; remove it with "no rd ${v.rd}" first`); return; }
+    v.rd = rd;
+  });
+  def("R", m, "no rd", (c) => { vrfName(c.cfg, c.target).rd = null; });
+  def("R", m, "no rd <word|VPN Route Distinguisher (ASN:nn or IP-address:nn)>", (c) => { vrfName(c.cfg, c.target).rd = null; });
+  def("R", m, "description <line|Up to 244 characters describing this VRF>", (c, [t]) => { vrfName(c.cfg, c.target).desc = t; });
+  def("R", m, "no description", (c) => { vrfName(c.cfg, c.target).desc = ""; });
+  def("R", m, "route-target {export|import|both} <word|Target VPN Extended Community (ASN:nn or IP-address:nn)>", (c, [dir, val]) => {
+    const v = vrfName(c.cfg, c.target);
+    v.rts = v.rts || [];
+    const dirs = dir === "both" ? ["export", "import"] : [dir];
+    for (const x of dirs) if (!v.rts.some((r) => r.dir === x && r.val === val)) v.rts.push({ dir: x, val });
+  });
+}
+def("R", "vrfdef", "address-family {ipv4|ipv6}", (c, [af]) => {
+  vrfName(c.cfg, c.target)[af === "ipv4" ? "af4" : "af6"] = true;
+  c.s.enter("vrfaf", c.target);
+});
+def("R", "vrfdef", "no address-family {ipv4|ipv6}", (c, [af]) => { vrfName(c.cfg, c.target)[af === "ipv4" ? "af4" : "af6"] = false; });
+def("R", "vrfaf", "exit-address-family", (c) => c.s.enter("vrfdef", c.target));
+
+// Moving an interface into (or out of) a VRF removes its addresses, as IOS warns.
+const setVrf = (c, name, legacy) => eachIf(c, (n, i) => {
+  if (name !== null) {
+    const v = vrfName(c.cfg, name);
+    if (!v || v.legacy !== legacy) { c.print(`% VRF ${name} not configured.`); return false; }
+  }
+  const was = i.vrf || null;
+  if (was === name) return;
+  if (i.ip !== null || (i.secondary || []).length) {
+    c.print(`% Interface ${n} IPv4 disabled and address(es) removed due to ${name !== null ? "enabling" : "disabling"} VRF ${name ?? was}`);
+    i.ip = null; i.mask = null; i.secondary = [];
+  }
+  if (name === null) delete i.vrf; else i.vrf = name;
+});
+def("R", IF_MODES, "vrf forwarding <word|Table name>", (c, [name]) => setVrf(c, name, false));
+def("R", IF_MODES, "ip vrf forwarding <word|Table name>", (c, [name]) => setVrf(c, name, true));
+def("R", IF_MODES, "no vrf forwarding", (c) => setVrf(c, null, false));
+def("R", IF_MODES, "no vrf forwarding <word|Table name>", (c) => setVrf(c, null, false));
+def("R", IF_MODES, "no ip vrf forwarding", (c) => setVrf(c, null, true));
+def("R", IF_MODES, "no ip vrf forwarding <word|Table name>", (c) => setVrf(c, null, true));
+
+const addVrfRoute = (c, vrf, net, mask, ifn, nh, ad) => {
+  if (!vrfName(c.cfg, vrf)) { c.print(`% VRF ${vrf} does not exist`); return; }
+  if (ifn === null) { c.print("% Incomplete command."); return; }
+  const len = maskLen(mask);
+  if (len < 0 || and(net, mask) !== net) { c.print("%Inconsistent address and mask"); return; }
+  if (ifn && !c.cfg.intfs[ifn]) { c.print("%Invalid interface " + ifn); return; }
+  const list = c.cfg.vrfRoutes = c.cfg.vrfRoutes || [];
+  const ex = list.find((r) => r.vrf === vrf && r.net === net && r.len === len && r.ifn === (ifn || null) && r.nh === nh);
+  if (ex) ex.ad = ad;
+  else list.push({ vrf, net, len, ifn: ifn || null, nh, ad });
+};
+const VR = "ip route vrf <word|Destination VRF> <ip|Destination prefix> <ip|Destination prefix mask>";
+def("R", "config", `${VR} <ip|Forwarding router's address>`, (c, [v, n, m, nh]) => addVrfRoute(c, v, n, m, undefined, nh, 1));
+def("R", "config", `${VR} <ip|Forwarding router's address> <num:1-255|Distance metric for this route>`, (c, [v, n, m, nh, ad]) => addVrfRoute(c, v, n, m, undefined, nh, ad));
+def("R", "config", `${VR} <intf>`, (c, [v, n, m, i]) => addVrfRoute(c, v, n, m, i, null, 1));
+def("R", "config", `${VR} <intf> <ip|Forwarding router's address>`, (c, [v, n, m, i, nh]) => addVrfRoute(c, v, n, m, i, nh, 1));
+def("R", "config", `${VR} <intf> <ip|Forwarding router's address> <num:1-255|Distance metric for this route>`, (c, [v, n, m, i, nh, ad]) => addVrfRoute(c, v, n, m, i, nh, ad));
+def("R", "config", `no ${VR}`, (c, [v, n, m]) => {
+  const len = maskLen(m), before = (c.cfg.vrfRoutes || []).length;
+  c.cfg.vrfRoutes = (c.cfg.vrfRoutes || []).filter((r) => !(r.vrf === v && r.net === n && r.len === len));
+  if (c.cfg.vrfRoutes.length === before) c.print("%No matching route to delete");
+});
+def("R", "config", `no ${VR} <ip|Forwarding router's address>`, (c, [v, n, m, nh]) => {
+  const len = maskLen(m), before = (c.cfg.vrfRoutes || []).length;
+  c.cfg.vrfRoutes = (c.cfg.vrfRoutes || []).filter((r) => !(r.vrf === v && r.net === n && r.len === len && r.nh === nh));
+  if (c.cfg.vrfRoutes.length === before) c.print("%No matching route to delete");
+});
+
+// OSPF in a VRF: its own process, configured like the global one.
+def("R", "config", "router ospf <num:1-65535|Process ID> vrf <word|VPN Routing/Forwarding Instance (VRF) name>", (c, [pid, vrf]) => {
+  if (!vrfName(c.cfg, vrf)) { c.print(`%VRF ${vrf} not configured`); return; }
+  if (c.cfg.ospf && c.cfg.ospf.pid === pid) { c.print(`% OSPF: process ${pid} is already running in the global table`); return; }
+  const all = c.cfg.ospfVrf || {};
+  if (all[pid] && all[pid].vrf !== vrf) { c.print(`% OSPF: process ${pid} is already running in VRF ${all[pid].vrf}`); return; }
+  const other = Object.values(all).find((o) => o.vrf === vrf && o.pid !== pid);
+  if (other) { c.print(`% This simulator runs one OSPF process per VRF; VRF ${vrf} already has process ${other.pid}`); return; }
+  if (!all[pid]) {
+    (c.cfg.ospfVrf = all)[pid] = { pid, vrf, rid: null, networks: [], passive: [], noPassive: [], passiveDefault: false,
+      defaultOriginate: false, defaultAlways: false, refBw: 100 };
+  }
+  c.s.enter("vrfospf", pid);
+});
+const vo = (c) => c.cfg.ospfVrf[c.target];
+def("R", "vrfospf", "network <ip|Network number> <ip|OSPF wild card bits> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [addr, wild, a]) => {
+  const area = parseArea(a);
+  if (area === null) { c.invalid(4); return; }
+  const o = vo(c), base = and(addr, ~wild);
+  if (!o.networks.some((n) => n.addr === base && n.wild === wild)) o.networks.push({ addr: base, wild, area });
+});
+def("R", "vrfospf", "no network <ip|Network number> <ip|OSPF wild card bits> area <word|OSPF area ID as a decimal value or in IP address format>", (c, [addr, wild]) => {
+  const o = vo(c), base = and(addr, ~wild), before = o.networks.length;
+  o.networks = o.networks.filter((n) => !(n.addr === base && n.wild === wild));
+  if (before === o.networks.length) c.print("% OSPF: Specified network not found");
+});
+def("R", "vrfospf", "router-id <ip|OSPF router-id in IP address format>", (c, [rid]) => { vo(c).rid = rid; });
+def("R", "vrfospf", "no router-id", (c) => { vo(c).rid = null; });
+def("R", "vrfospf", "passive-interface <intf>", (c, [n]) => c.s.withIf(n, 1, (ifn) => {
+  const o = vo(c);
+  if (o.passiveDefault) o.noPassive = o.noPassive.filter((x) => x !== ifn);
+  else if (!o.passive.includes(ifn)) o.passive.push(ifn);
+}));
+def("R", "vrfospf", "no passive-interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => {
+  const o = vo(c);
+  if (o.passiveDefault) { if (!o.noPassive.includes(ifn)) o.noPassive.push(ifn); } else o.passive = o.passive.filter((x) => x !== ifn);
+}));
+def("R", "vrfospf", "passive-interface default", (c) => Object.assign(vo(c), { passiveDefault: true, noPassive: [], passive: [] }));
+def("R", "vrfospf", "no passive-interface default", (c) => Object.assign(vo(c), { passiveDefault: false, noPassive: [], passive: [] }));
+def("R", "vrfospf", "default-information originate", (c) => Object.assign(vo(c), { defaultOriginate: true, defaultAlways: false }));
+def("R", "vrfospf", "default-information originate always", (c) => Object.assign(vo(c), { defaultOriginate: true, defaultAlways: true }));
+def("R", "vrfospf", "no default-information originate", (c) => Object.assign(vo(c), { defaultOriginate: false, defaultAlways: false }));
+
+// Tunnel interfaces.
+const eachTun = (c, fn) => eachIf(c, (n, i) => { i.tun = i.tun || {}; return fn(n, i, i.tun); });
+const tunTidy = (i) => { if (i.tun && !Object.keys(i.tun).length) delete i.tun; };
+def("R", "tunif", "tunnel source <intf>", (c, [s]) => c.s.withIf(s, 2, (src) => eachTun(c, (n, i, t) => {
+  if (src === n) { c.print("% Tunnel source cannot be the tunnel itself"); return false; }
+  t.src = src;
+  delete t.srcIp;
+})));
+def("R", "tunif", "tunnel source <ip|ip address>", (c, [ip]) => eachTun(c, (n, i, t) => { t.srcIp = ip; delete t.src; }));
+def("R", "tunif", "no tunnel source", (c) => eachTun(c, (n, i, t) => { delete t.src; delete t.srcIp; tunTidy(i); }));
+def("R", "tunif", "tunnel destination <ip|ip address or host name>", (c, [ip]) => eachTun(c, (n, i, t) => {
+  if (tunMode(t) === "gre-mp") { c.print("% Tunnel destination can not be configured for multipoint tunnels"); return false; }
+  t.dst = ip;
+}));
+def("R", "tunif", "no tunnel destination", (c) => eachTun(c, (n, i, t) => { delete t.dst; tunTidy(i); }));
+def("R", "tunif", "tunnel mode gre ip", (c) => eachTun(c, (n, i, t) => { delete t.mode; tunTidy(i); }));
+def("R", "tunif", "tunnel mode gre multipoint", (c) => eachTun(c, (n, i, t) => {
+  if (t.dst !== undefined && t.dst !== null) {
+    c.print("Tunnel destination must be removed before setting tunnel mode to multipoint");
+    return false;
+  }
+  t.mode = "gre-mp";
+}));
+def("R", "tunif", "tunnel mode ipsec ipv4", (c) => eachTun(c, (n, i, t) => { t.mode = "ipsec"; }));
+def("R", "tunif", "no tunnel mode", (c) => eachTun(c, (n, i, t) => { delete t.mode; tunTidy(i); }));
+def("R", "tunif", "tunnel key <num:0-4294967295|key>", (c, [k]) => eachTun(c, (n, i, t) => { t.key = k; }));
+def("R", "tunif", "no tunnel key", (c) => eachTun(c, (n, i, t) => { delete t.key; tunTidy(i); }));
+def("R", "tunif", "tunnel protection ipsec profile <word|Determine the ipsec policy profile to use.>", (c, [p]) => eachTun(c, (n, i, t) => {
+  if (!cryptoOf(c.cfg).profiles[p]) { c.print(`% ipsec profile ${p} not found`); return false; }
+  t.prot = p;
+}));
+def("R", "tunif", "no tunnel protection ipsec profile", (c) => eachTun(c, (n, i, t) => { delete t.prot; tunTidy(i); }));
+def("R", "tunif", "no tunnel protection ipsec profile <word|Determine the ipsec policy profile to use.>", (c) => eachTun(c, (n, i, t) => { delete t.prot; tunTidy(i); }));
+def("R", "tunif", "keepalive", (c) => eachIf(c, (n, i) => { i.ka = [10, 3]; }));
+def("R", "tunif", "keepalive <num:0-32767|Keepalive period (default 10 seconds)>", (c, [p]) => eachIf(c, (n, i) => { if (p === 0) delete i.ka; else i.ka = [p, 3]; }));
+def("R", "tunif", "keepalive <num:0-32767|Keepalive period (default 10 seconds)> <num:1-255|Keepalive retries>", (c, [p, r]) => eachIf(c, (n, i) => { if (p === 0) delete i.ka; else i.ka = [p, r]; }));
+def("R", "tunif", "no keepalive", (c) => eachIf(c, (n, i) => { delete i.ka; }));
+def("R", IF_MODES, "ip mtu <num:68-1500|MTU (bytes)>", (c, [m]) => eachIf(c, (n, i) => { i.mtu = m; }));
+def("R", IF_MODES, "no ip mtu", (c) => eachIf(c, (n, i) => { delete i.mtu; }));
+def("R", IF_MODES, "ip tcp adjust-mss <num:500-1460|Maximum segment size in bytes>", (c, [m]) => eachIf(c, (n, i) => { i.mss = m; }));
+def("R", IF_MODES, "no ip tcp adjust-mss", (c) => eachIf(c, (n, i) => { delete i.mss; }));
+def("R", IF_MODES, "no ip split-horizon eigrp <num:1-65535|Autonomous system number>", (c, [as]) => eachIf(c, (n, i) => { i.eigrpNoSH = as; }));
+def("R", IF_MODES, "ip split-horizon eigrp <num:1-65535|Autonomous system number>", (c) => eachIf(c, (n, i) => { delete i.eigrpNoSH; }));
+def("R", IF_MODES, "no ip next-hop-self eigrp <num:1-65535|Autonomous system number>", (c, [as]) => eachIf(c, (n, i) => { i.eigrpNoNHS = as; }));
+def("R", IF_MODES, "ip next-hop-self eigrp <num:1-65535|Autonomous system number>", (c) => eachIf(c, (n, i) => { delete i.eigrpNoNHS; }));
+
+// NHRP on a tunnel.
+const eachNhrp = (c, fn) => eachIf(c, (n, i) => { i.nhrp = i.nhrp || {}; const r = fn(n, i, i.nhrp); if (!Object.keys(i.nhrp).length) delete i.nhrp; return r; });
+const listDel = (o, k, keep) => { o[k] = (o[k] || []).filter(keep); if (!o[k].length) delete o[k]; };
+def("R", "tunif", "ip nhrp network-id <num:1-4294967295|Network identifier>", (c, [id]) => eachNhrp(c, (n, i, h) => { h.nid = id; }));
+def("R", "tunif", "no ip nhrp network-id", (c) => eachNhrp(c, (n, i, h) => { delete h.nid; }));
+def("R", "tunif", "ip nhrp authentication <word|Authentication string>", (c, [a]) => eachNhrp(c, (n, i, h) => {
+  if (a.length > 8) { c.print("% NHRP authentication string truncated to 8 characters"); a = a.slice(0, 8); }
+  h.auth = a;
+}));
+def("R", "tunif", "no ip nhrp authentication", (c) => eachNhrp(c, (n, i, h) => { delete h.auth; }));
+def("R", "tunif", "ip nhrp map <ip|IP address of destination> <ip|IP NBMA address>", (c, [ip, nbma]) => eachNhrp(c, (n, i, h) => {
+  listDel(h, "maps", (m) => m.ip !== ip);
+  (h.maps = h.maps || []).push({ ip, nbma });
+}));
+def("R", "tunif", "no ip nhrp map <ip|IP address of destination> <ip|IP NBMA address>", (c, [ip]) => eachNhrp(c, (n, i, h) => listDel(h, "maps", (m) => m.ip !== ip)));
+def("R", "tunif", "ip nhrp map multicast <ip|IP NBMA address>", (c, [nbma]) => eachNhrp(c, (n, i, h) => {
+  if (!(h.mcast || []).includes(nbma)) (h.mcast = h.mcast || []).push(nbma);
+}));
+def("R", "tunif", "no ip nhrp map multicast <ip|IP NBMA address>", (c, [nbma]) => eachNhrp(c, (n, i, h) => listDel(h, "mcast", (m) => m !== nbma)));
+def("R", "tunif", "ip nhrp map multicast dynamic", (c) => eachNhrp(c, (n, i, h) => { h.mcastDynamic = true; }));
+def("R", "tunif", "no ip nhrp map multicast dynamic", (c) => eachNhrp(c, (n, i, h) => { delete h.mcastDynamic; }));
+const addNhs = (c, ip, nbma, mcast) => eachNhrp(c, (n, i, h) => {
+  listDel(h, "nhs", (s) => s.ip !== ip);
+  (h.nhs = h.nhs || []).push({ ip, nbma, mcast });
+});
+def("R", "tunif", "ip nhrp nhs <ip|Next hop server address>", (c, [ip]) => addNhs(c, ip, null, false));
+def("R", "tunif", "ip nhrp nhs <ip|Next hop server address> nbma <ip|NBMA address>", (c, [ip, nbma]) => addNhs(c, ip, nbma, false));
+def("R", "tunif", "ip nhrp nhs <ip|Next hop server address> nbma <ip|NBMA address> multicast", (c, [ip, nbma]) => addNhs(c, ip, nbma, true));
+def("R", "tunif", "no ip nhrp nhs <ip|Next hop server address>", (c, [ip]) => eachNhrp(c, (n, i, h) => listDel(h, "nhs", (s) => s.ip !== ip)));
+def("R", "tunif", "ip nhrp redirect", (c) => eachNhrp(c, (n, i, h) => { h.redirect = true; }));
+def("R", "tunif", "no ip nhrp redirect", (c) => eachNhrp(c, (n, i, h) => { delete h.redirect; }));
+def("R", "tunif", "ip nhrp shortcut", (c) => eachNhrp(c, (n, i, h) => { h.shortcut = true; }));
+def("R", "tunif", "no ip nhrp shortcut", (c) => eachNhrp(c, (n, i, h) => { delete h.shortcut; }));
+def("R", "tunif", "ip nhrp holdtime <num:1-65535|Number of seconds>", (c, [s]) => eachNhrp(c, (n, i, h) => { h.hold = s; }));
+def("R", "tunif", "no ip nhrp holdtime", (c) => eachNhrp(c, (n, i, h) => { delete h.hold; }));
+
+// Crypto: ISAKMP, transform sets, profiles and maps.
+const crypto = (c) => (c.cfg.crypto = c.cfg.crypto || { policies: {}, keys: [], tsets: {}, profiles: {}, maps: {} });
+def("R", "config", "crypto isakmp policy <num:1-10000|Priority of protection suite>", (c, [p]) => {
+  const k = crypto(c);
+  if (!k.policies[p]) k.policies[p] = newPolicy(p);
+  c.s.enter("isakmp", p);
+});
+def("R", "config", "no crypto isakmp policy <num:1-10000|Priority of protection suite>", (c, [p]) => { delete crypto(c).policies[p]; });
+const pol = (c) => crypto(c).policies[c.target];
+def("R", "isakmp", "encryption {des|3des|aes}", (c, [e]) => Object.assign(pol(c), { encr: e, bits: e === "aes" ? 128 : null }));
+def("R", "isakmp", "encryption aes {128|192|256}", (c, args) => Object.assign(pol(c), { encr: "aes", bits: +args[args.length - 1] }));
+def("R", "isakmp", "no encryption", (c) => Object.assign(pol(c), { encr: "des", bits: null }));
+def("R", "isakmp", "hash {sha|md5|sha256|sha384|sha512}", (c, [h]) => { pol(c).hash = h; });
+def("R", "isakmp", "no hash", (c) => { pol(c).hash = "sha"; });
+def("R", "isakmp", "authentication {pre-share|rsa-sig|rsa-encr}", (c, [a]) => { pol(c).auth = a; });
+def("R", "isakmp", "no authentication", (c) => { pol(c).auth = "rsa-sig"; });
+def("R", "isakmp", "group {1|2|5|14|15|16|19|20|21|24}", (c, [g]) => { pol(c).group = +g; });
+def("R", "isakmp", "no group", (c) => { pol(c).group = 1; });
+def("R", "isakmp", "lifetime <num:60-86400|lifetime in seconds>", (c, [s]) => { pol(c).life = s; });
+def("R", "isakmp", "no lifetime", (c) => { pol(c).life = 86400; });
+const addKey = (c, key, addr, mask) => {
+  const k = crypto(c);
+  k.keys = k.keys.filter((x) => !(x.addr === and(addr, mask) && x.mask === mask));
+  k.keys.push({ key, addr: and(addr, mask), mask });
+};
+def("R", "config", "crypto isakmp key <word|pre-shared key> address <ip|define shared key with IP address>", (c, [key, a]) => addKey(c, key, a, 0xffffffff));
+def("R", "config", "crypto isakmp key <word|pre-shared key> address <ip|define shared key with IP address> <ip|Peer's IP address mask>", (c, [key, a, m]) => addKey(c, key, a, m));
+def("R", "config", "no crypto isakmp key <word|pre-shared key> address <ip|define shared key with IP address>", (c, [, a]) => {
+  const k = crypto(c), before = k.keys.length;
+  k.keys = k.keys.filter((x) => x.addr !== a);
+  if (k.keys.length === before) c.print("% Key not found");
+});
+def("R", "config", "no crypto isakmp key <word|pre-shared key> address <ip|define shared key with IP address> <ip|Peer's IP address mask>", (c, [, a, m]) => {
+  const k = crypto(c);
+  k.keys = k.keys.filter((x) => !(x.addr === and(a, m) && x.mask === m));
+});
+
+const ENC_T = ["esp-aes", "esp-3des", "esp-des", "esp-null", "esp-gcm"];
+const AUTH_T = ["esp-sha-hmac", "esp-md5-hmac", "esp-sha256-hmac", "esp-sha384-hmac", "esp-sha512-hmac"];
+// The words after the name, as IOS prints them ("esp-aes 256 esp-sha-hmac").
+const setTset = (c, args) => {
+  const [name, ...transforms] = args;
+  if (/^\d/.test(transforms[0])) transforms.unshift("esp-aes");
+  const k = crypto(c), had = k.tsets[name];
+  k.tsets[name] = { transforms, mode: had ? had.mode : "tunnel" };
+  c.s.enter("tset", name);
+};
+const TS = "crypto ipsec transform-set <word|Transform set tag>";
+def("R", "config", `${TS} {${ENC_T.join("|")}|ah-sha-hmac|ah-md5-hmac}`, (c, args) => setTset(c, args));
+def("R", "config", `${TS} esp-aes {128|192|256}`, (c, args) => setTset(c, args));
+def("R", "config", `${TS} {esp-aes|esp-3des|esp-des|esp-null} {${AUTH_T.join("|")}}`, (c, args) => setTset(c, args));
+def("R", "config", `${TS} esp-aes {128|192|256} {${AUTH_T.join("|")}}`, (c, args) => setTset(c, args));
+def("R", "config", "no crypto ipsec transform-set <word|Transform set tag>", (c, [n]) => {
+  const k = crypto(c);
+  if (!k.tsets[n]) { c.print(`% Transform set ${n} not found`); return; }
+  delete k.tsets[n];
+});
+def("R", "tset", "mode {tunnel|transport}", (c, [m]) => { crypto(c).tsets[c.target].mode = m; });
+def("R", "tset", "no mode", (c) => { crypto(c).tsets[c.target].mode = "tunnel"; });
+
+def("R", "config", "crypto ipsec profile <word|Profile name>", (c, [n]) => {
+  const k = crypto(c);
+  if (!k.profiles[n]) k.profiles[n] = { tsets: [], pfs: null };
+  c.s.enter("ipsecprof", n);
+});
+def("R", "config", "no crypto ipsec profile <word|Profile name>", (c, [n]) => { delete crypto(c).profiles[n]; });
+const tsetList = (c, line) => {
+  const names = tokenize(line).map((t) => t.t);
+  const missing = names.find((n) => !crypto(c).tsets[n]);
+  if (missing) { c.print(`ERROR: transform set with tag "${missing}" does not exist.`); return null; }
+  if (names.length > 6) { c.print("% Too many transform sets (at most 6)"); return null; }
+  return names;
+};
+def("R", "ipsecprof", "set transform-set <line|Proposal tag(s)>", (c, [line]) => { const t = tsetList(c, line); if (t) crypto(c).profiles[c.target].tsets = t; });
+def("R", "ipsecprof", "no set transform-set", (c) => { crypto(c).profiles[c.target].tsets = []; });
+def("R", "ipsecprof", "set pfs {group2|group5|group14}", (c, [g]) => { crypto(c).profiles[c.target].pfs = g; });
+def("R", "ipsecprof", "no set pfs", (c) => { crypto(c).profiles[c.target].pfs = null; });
+
+def("R", "config", "crypto map <word|Crypto map tag> <num:1-65535|Sequence to insert into crypto map entry> ipsec-isakmp", (c, [name, seq]) => {
+  const k = crypto(c), m = k.maps[name] = k.maps[name] || {};
+  if (!m[seq]) {
+    m[seq] = { seq, peer: null, tsets: [], acl: null, pfs: null };
+    c.print("% NOTE: This new crypto map will remain disabled until a peer", "        and a valid access list have been configured.");
+  }
+  c.s.enter("cmap", [name, seq]);
+});
+def("R", "config", "no crypto map <word|Crypto map tag>", (c, [name]) => { delete crypto(c).maps[name]; });
+def("R", "config", "no crypto map <word|Crypto map tag> <num:1-65535|Sequence to delete>", (c, [name, seq]) => {
+  const m = crypto(c).maps[name];
+  if (m) { delete m[seq]; if (!Object.keys(m).length) delete crypto(c).maps[name]; }
+});
+const ent = (c) => crypto(c).maps[c.target[0]][c.target[1]];
+def("R", "cmap", "set peer <ip|IP address of peer>", (c, [ip]) => { ent(c).peer = ip; });
+def("R", "cmap", "no set peer <ip|IP address of peer>", (c) => { ent(c).peer = null; });
+def("R", "cmap", "set transform-set <line|Proposal tag(s)>", (c, [line]) => { const t = tsetList(c, line); if (t) ent(c).tsets = t; });
+def("R", "cmap", "no set transform-set", (c) => { ent(c).tsets = []; });
+def("R", "cmap", "match address <word|IP access-list number or name>", (c, [acl]) => { ent(c).acl = acl; });
+def("R", "cmap", "no match address", (c) => { ent(c).acl = null; });
+def("R", "cmap", "set pfs {group2|group5|group14}", (c, [g]) => { ent(c).pfs = g; });
+def("R", "cmap", "no set pfs", (c) => { ent(c).pfs = null; });
+def("R", IF_MODES, "crypto map <word|Crypto map tag>", (c, [name]) => eachIf(c, (n, i) => {
+  if (!cryptoOf(c.cfg).maps[name]) c.print(`% Crypto map ${name} does not exist: it will be applied when it is created`);
+  if (!i.cmap) c.net.note(c.d.name, "%CRYPTO-6-ISAKMP_ON_OFF: ISAKMP is ON");
+  i.cmap = name;
+}));
+def("R", IF_MODES, "no crypto map", (c) => eachIf(c, (n, i) => { delete i.cmap; }));
+def("R", IF_MODES, "no crypto map <word|Crypto map tag>", (c) => eachIf(c, (n, i) => { delete i.cmap; }));
+
+// -- exec commands -------------------------------------------------------------------------------
+def("R", ["user", "priv"], "ping vrf <word|VRF name> <ip|Ping destination address>", (c, [v, ip]) => c.s.pingVrf(v, ip, null, 5));
+def("R", ["user", "priv"], "ping vrf <word|VRF name> <ip|Ping destination address> repeat <num:1-100>", (c, [v, ip, n]) => c.s.pingVrf(v, ip, null, n));
+def("R", ["user", "priv"], "ping vrf <word|VRF name> <ip|Ping destination address> source <intf>", (c, [v, ip, ifn]) => c.s.withIf(ifn, 5, (n) => {
+  const a = c.net.ifAddr(c.d.name, n);
+  if (!a || !c.net.ifUp(c.d.name, n) || c.net.vrfOf(c.d.name, n) !== v) { c.print("% Invalid source interface - IP not enabled or interface is down"); return; }
+  c.s.pingVrf(v, ip, a.ip, 5);
+}));
+def("R", ["user", "priv"], "traceroute vrf <word|VRF name> <ip|Trace route to destination address>", (c, [v, ip]) => c.s.traceVrf(v, ip));
+def("R", both, "show ip route vrf <word|VPN Routing/Forwarding instance name>", (c, [v]) => {
+  if (!vrfName(c.cfg, v)) { c.print(`% IP routing table ${v} does not exist`); return; }
+  c.print(showIpRoute(c.net, c.d.name, null, v));
+});
+def("R", both, "show ip route vrf <word|VPN Routing/Forwarding instance name> {connected|static|ospf}", (c, [v, f]) => {
+  if (!vrfName(c.cfg, v)) { c.print(`% IP routing table ${v} does not exist`); return; }
+  c.print(showIpRoute(c.net, c.d.name, f[0].toUpperCase(), v));
+});
+def("R", both, "show ip arp vrf <word|VPN Routing/Forwarding instance name>", (c, [v]) => c.print(showArp(c.net, c.d.name, v)));
+def("R", both, "show vrf", (c) => c.print(showVrf(c.net, c.d.name, false)));
+def("R", both, "show ip vrf", (c) => c.print(showVrf(c.net, c.d.name, true)));
+def("R", both, "show ip vrf brief", (c) => c.print(showVrf(c.net, c.d.name, true)));
+def("R", both, "show ip vrf interfaces", (c) => c.print(showVrfInterfaces(c.net, c.d.name)));
+def("R", "priv", "show crypto isakmp sa", (c) => c.print(showIsakmpSa(c.net, c.d.name)));
+def("R", "priv", "show crypto isakmp policy", (c) => c.print(showIsakmpPolicy(c.net, c.d.name)));
+def("R", "priv", "show crypto ipsec sa", (c) => c.print(showIpsecSa(c.net, c.d.name)));
+def("R", "priv", "show crypto ipsec transform-set", (c) => c.print(showTransformSets(c.net, c.d.name)));
+def("R", "priv", "show crypto map", (c) => c.print(showCryptoMap(c.net, c.d.name)));
+def("R", "priv", "show crypto session", (c) => c.print(showCryptoSession(c.net, c.d.name)));
+def("R", "priv", "clear crypto sa", (c) => { c.d.rt.ipsec = {}; for (const e of Object.values(c.d.rt.ike || {})) e.sig = null; });
+def("R", "priv", "clear crypto isakmp", (c) => { c.d.rt.ike = {}; });
+def("R", "priv", "debug crypto isakmp", (c) => { c.d.rt.debug = { ...(c.d.rt.debug || {}), isakmp: true }; c.print("Crypto ISAKMP debugging is on"); });
+def("R", "priv", "debug crypto ipsec", (c) => { c.d.rt.debug = { ...(c.d.rt.debug || {}), ipsec: true }; c.print("Crypto IPSEC debugging is on"); });
+def("R", "priv", "debug nhrp", (c) => { c.d.rt.debug = { ...(c.d.rt.debug || {}), nhrp: true }; c.print("NHRP protocol debugging is on"); });
+def("R", "priv", "show dmvpn", (c) => c.print(showDmvpn(c.net, c.d.name, false)));
+def("R", "priv", "show dmvpn detail", (c) => c.print(showDmvpn(c.net, c.d.name, true)));
+def("R", both, "show ip nhrp", (c) => c.print(showNhrp(c.net, c.d.name, false)));
+def("R", both, "show ip nhrp brief", (c) => c.print(showNhrp(c.net, c.d.name, true)));
+def("R", both, "show ip nhrp nhs", (c) => {
+  const d = c.d, L = ["Legend: E=Expecting replies, R=Responding, W=Waiting"];
+  for (const n of Object.keys(d.cfg.intfs).filter(isTun).sort(ifSort)) {
+    const nhs = nhrpOf(d.cfg.intfs[n]).nhs || [];
+    if (!nhs.length) continue;
+    const up = c.net.nhsPeer(d.name, n);
+    L.push(`${n}:`, ...nhs.map((s, k) => `${k + 1} ${n2ip(s.ip)}${up ? "           RE" : "            E"}  priority = 0 cluster = 0`));
+  }
+  c.print(L.join("\n"));
+});
+def("R", "priv", "clear ip nhrp", (c) => { c.d.rt.nhrp = {}; c.d.rt.nhrpShort = []; });
+
+Object.assign(Session.prototype, {
+  pingVrf(vrf, dst, source, count) {
+    const net = this.net, dn = this.d.name;
+    if (!vrfName(this.d.cfg, vrf)) { this.print(`% VRF ${vrf} does not have a valid routing table`); return; }
+    this.print("Type escape sequence to abort.", `Sending ${count}, 100-byte ICMP Echos to ${n2ip(dst)}, timeout is 2 seconds:`);
+    if (source !== null) this.print(`Packet sent with a source address of ${n2ip(source)}`);
+    let marks = "", ok = 0, first = null;
+    for (let i = 0; i < count; i++) {
+      const r = net.ping(dn, dst, { source: source ?? undefined, record: true, vrf });
+      first = first || r;
+      if (r.ok && !(i === 0 && r.arpMiss)) { marks += "!"; ok++; continue; }
+      const unreachable = !r.ok && r.by !== null && r.by !== undefined && r.failAt !== dn && (r.fail === "noroute" || r.fail === "acl");
+      marks += unreachable && i % 2 === 0 ? "U" : ".";
+    }
+    this.print(marks, `Success rate is ${Math.floor((ok * 100) / count)} percent (${ok}/${count})${ok ? ", round-trip min/avg/max = 1/1/2 ms" : ""}`);
+    this.anim = { from: dn, links: first.links, ok: first.ok, failAt: first.failAt };
+  },
+
+  traceVrf(vrf, dst) {
+    const net = this.net, dn = this.d.name;
+    if (!vrfName(this.d.cfg, vrf)) { this.print(`% VRF ${vrf} does not have a valid routing table`); return; }
+    if (net.sourceIp(dn, dst, undefined, vrf) === null) { this.print("% No valid source address for destination"); return; }
+    this.print("Type escape sequence to abort.", `Tracing the route to ${n2ip(dst)}`, `VRF info: (vrf in name/id, vrf out name/id)`);
+    net.trace(dn, dst, 30, undefined, vrf).forEach((h, i) => {
+      const n = lpad(i + 1, 3);
+      if (h.ip === null) this.print(`${n}  *  *  * `);
+      else if (h.code) this.print(`${n} ${n2ip(h.ip)} !${h.code}  *  !${h.code} `);
+      else this.print(`${n} ${n2ip(h.ip)} ${i + 1} msec ${i} msec ${i + 1} msec`);
+    });
+    const r = net.ping(dn, dst, { vrf });
+    this.anim = { from: dn, links: r.links, ok: r.ok, failAt: r.failAt };
+  },
+});
+// ======== end of VRF, tunnels, IPsec, DMVPN ========
+
 // Apply a list of lines to a device as if typed at a fresh console, starting in
 // global configuration mode for IOS devices. Throws on any error so broken lab
 // definitions fail loudly in tests.
@@ -9220,7 +11007,7 @@ export function applyConfig(net, devName, lines) {
   if (net.devs[devName].type !== "pc") s.frames[0].mode = "config";
   for (const line of lines) {
     const out = s.input(line);
-    const notes = /^%\s?(Access VLAN does not exist|Login disabled|OSPF: Reference|OSPFv3: Reference|The key modulus|Generating|Warning: portfast|Warning: this command enables portfast|Portfast has been configured|Only classful|OSPFv3-4-NORTRID|This simulator doesn't summarise|Voice VLAN does not exist|Warning: VLAN \d+ is not configured as a remote-span|Warning: UplinkFast)/;
+    const notes = /^%\s?(Access VLAN does not exist|Login disabled|OSPF: Reference|OSPFv3: Reference|The key modulus|Generating|Warning: portfast|Warning: this command enables portfast|Portfast has been configured|Only classful|OSPFv3-4-NORTRID|This simulator doesn't summarise|Interface \S+ IPv[46] disabled and address|NOTE: This new crypto map|AAA: Warning|Voice VLAN does not exist|Warning: VLAN \d+ is not configured as a remote-span|Warning: UplinkFast)/;
     if (out.split("\n").some((l) => (l.startsWith("%") && !notes.test(l)) || /^(Bad mask|Bad command|Invalid address|Command rejected)/.test(l))) {
       throw new Error(`${devName}: "${line}" -> ${out}`);
     }
@@ -9244,3 +11031,2183 @@ export function buildLab(lab, state) {
   for (const [dev, lines] of entries) if (kind(dev) === "pc" && lines.some(act)) applyConfig(net, dev, lines.filter(act));
   return net;
 }
+
+// ======== QoS & management services ========
+// QoS (MQC and switch mls qos), AAA and privilege levels, SNMP, syslog, NTP, NetFlow and Flexible
+// NetFlow, LLDP, name resolution and EEM applets. Device settings live in cfg.svc, per-interface
+// settings in intf.svc and runtime state (log buffer, counters, flow caches) in rt.svc.
+
+function newSvc() {
+  return {
+    ts: { log: "datetime", debug: "datetime" }, seq: false,
+    logging: { on: true, buffered: null, console: 7, monitor: 7, trap: 6, hosts: [], source: null },
+    aaa: { on: false, authen: {}, author: {}, console: false, groups: {}, servers: {} },
+    privs: [], enableLevels: {}, blockFor: null, onFail: false, onSuccess: false, minLen: 0,
+    bannerLogin: "", bannerExec: "",
+    snmp: { communities: {}, groups: {}, users: {}, views: {}, hosts: [], traps: null, location: null, contact: null },
+    ntp: { master: null, servers: [], auth: false, keys: {}, trusted: [], source: null },
+    qos: { classes: {}, policies: {}, mls: false },
+    flow: { records: {}, exporters: {}, monitors: {}, exportDst: null, exportVer: null, exportSrc: null },
+    lldp: { run: false, timer: 30, hold: 120 },
+    http: { server: false, secure: false },
+    hosts: {}, nameServers: [],
+    eem: {},
+  };
+}
+
+function newSvcIf() {
+  return { sp: { input: null, output: null }, flowIn: false, flowOut: false, mon: { input: [], output: [] },
+    lldpTx: true, lldpRx: true, trust: null, autoqos: false };
+}
+
+function newSvcRt() {
+  return { log: [], seq: 0, counts: { console: 0, monitor: 0, buffer: 0, trap: 0, hosts: {} }, qos: {}, flows: {}, tflows: {},
+    exported: {}, fails: [], quietUntil: 0, totalFails: 0, eem: [], eemCount: {}, traps: {}, snmpIn: 0, boot: Date.now() };
+}
+
+// Saves made before these services existed kept SNMP communities, NTP servers and log hosts at the top level.
+function svcMigrate(cfg) {
+  if (cfg.svc) return;
+  cfg.svc = newSvc();
+  for (const [s, a] of Object.entries(cfg.snmp || {})) cfg.svc.snmp.communities[s] = { access: a, acl: null, view: null };
+  if (cfg.snmpLoc) cfg.svc.snmp.location = cfg.snmpLoc;
+  if (cfg.snmpContact) cfg.svc.snmp.contact = cfg.snmpContact;
+  for (const ip of cfg.ntp || []) cfg.svc.ntp.servers.push({ ip, key: null, prefer: false });
+  cfg.svc.logging.hosts = [...(cfg.logHosts || [])];
+  for (const k of ["snmp", "snmpLoc", "snmpContact", "ntp", "logHosts"]) delete cfg[k];
+}
+
+const SEVERITIES = ["emergencies", "alerts", "critical", "errors", "warnings", "notifications", "informational", "debugging"];
+const SEV_HELP = ["Immediate action needed", "Immediate action needed", "Critical conditions", "Error conditions",
+  "Warning conditions", "Normal but significant conditions", "Informational messages", "Debugging messages"];
+const sevOf = (m) => { const x = /^%[A-Z0-9_]+(?:-[A-Z0-9_]+)*?-([0-7])-[A-Z0-9_]+:/.exec(m); return x ? +x[1] : 7; };
+
+const DSCP_NAMES = { default: 0, cs0: 0, cs1: 8, af11: 10, af12: 12, af13: 14, cs2: 16, af21: 18, af22: 20, af23: 22, cs3: 24,
+  af31: 26, af32: 28, af33: 30, cs4: 32, af41: 34, af42: 36, af43: 38, cs5: 40, ef: 46, cs6: 48, cs7: 56 };
+const dscpName = (v) => Object.entries(DSCP_NAMES).find(([n, x]) => x === v && n !== "cs0")?.[0] || String(v);
+const parseDscp = (t) => (/^\d+$/.test(t) && +t <= 63 ? +t : DSCP_NAMES[t.toLowerCase()] ?? null);
+
+// Parameters used only by these commands.
+Object.assign(PARAMS, {
+  dscp: { fmt: "<0-63>", help: "Differentiated services codepoint value", match: (t, k) => {
+    const v = parseDscp(t[k].t);
+    return v === null ? null : { used: 1, value: v };
+  } },
+  dscps: { fmt: "<0-63>", help: "Differentiated services codepoint value", match: (t, k) => {
+    const vals = [];
+    while (k + vals.length < t.length && vals.length < 8) {
+      const v = parseDscp(t[k + vals.length].t);
+      if (v === null) break;
+      vals.push(v);
+    }
+    return vals.length && k + vals.length === t.length ? { used: vals.length, value: vals } : null;
+  } },
+  precs: { fmt: "<0-7>", help: "Enter up to 4 precedence values separated by white-spaces", match: (t, k) => {
+    const vals = t.slice(k).map((x) => x.t);
+    return vals.length <= 4 && vals.every((x) => /^[0-7]$/.test(x)) ? { used: vals.length, value: vals.map(Number) } : null;
+  } },
+  quoted: { fmt: "LINE", help: "", rest: true, match: (t, k, ctx) => ({ used: t.length - k, value: ctx.line.slice(t[k].i).trimEnd() }) },
+  sev: { fmt: "<0-7>", help: "Logging severity level", match: (t, k) => {
+    const w = t[k].t.toLowerCase();
+    if (/^[0-7]$/.test(w)) return { used: 1, value: +w };
+    const hits = SEVERITIES.filter((s) => s.startsWith(w));
+    return hits.length === 1 ? { used: 1, value: SEVERITIES.indexOf(hits[0]) } : null;
+  } },
+});
+
+// Modes these commands open.
+Object.assign(MODES, {
+  classmap: "(config-cmap)#", pmap: "(config-pmap)#", pmapc: "(config-pmap-c)#", police: "(config-pmap-c-police)#",
+  flowrec: "(config-flow-record)#", flowexp: "(config-flow-exporter)#", flowmon: "(config-flow-monitor)#",
+  applet: "(config-applet)#", radsrv: "(config-radius-server)#", tacsrv: "(config-server-tacacs)#",
+  sgrad: "(config-sg-radius)#", sgtac: "(config-sg-tacacs+)#",
+});
+const SVC_MODES = ["classmap", "pmap", "pmapc", "police", "flowrec", "flowexp", "flowmon", "applet", "radsrv", "tacsrv", "sgrad", "sgtac"];
+// Where a command a nested mode doesn't know is tried next, and the target that mode works on.
+const SVC_CLIMB = { police: ["pmapc", (t) => t], pmapc: ["pmap", (t) => t.pol] };
+SUBMODES.push(...SVC_MODES);
+CONFIG_MODES.push(...SVC_MODES);
+
+Object.assign(HELP, {
+  "class-map": "Configure Class Map", "policy-map": "Configure QoS Policy Map", "match-all": "Logical-AND all matching statements under this classmap",
+  "match-any": "Logical-OR all matching statements under this classmap", "service-policy": "Configure CPL Service Policy",
+  police: "Police", shape: "Traffic Shaping", "fair-queue": "Enable Flow-based Fair Queuing", "conform-action": "action when rate is less than conform burst",
+  "exceed-action": "action when rate is within conform and conform + exceed burst", "violate-action": "action when rate is greater than conform + exceed burst",
+  transmit: "transmit packet", drop: "drop packet", "set-dscp-transmit": "set dscp and send it", cir: "Committed information rate",
+  bc: "Conform burst", average: "configure token bucket: CIR (bps) [Bc (bits) [Be (bits)]] ", mls: "mls global commands",
+  qos: "qos configuration", trust: "trust state for the interface", cos: "trust COS in the incoming packet", "ip-precedence": "trust IP precedence in the incoming packet",
+  auto: "Configure AutoQoS", voip: "Configure AutoQoS for VoIP", "aaa": "Authentication, Authorization and Accounting.",
+  "new-model": "Enable NEW access control commands and functions.(Disables OLD commands.)", authentication: "Authentication configurations parameters.",
+  authorization: "Authorization configurations parameters.", accounting: "Accounting configurations parameters.",
+  "local-case": "Use case-sensitive local username authentication.", "if-authenticated": "Succeed if user has authenticated.",
+  radius: "Use list of all Radius hosts.", "tacacs+": "Use list of all Tacacs+ hosts.", lldp: "LLDP information",
+  "event": "Event related commands", "action": "Add or modify an action statement", applet: "Register an Event Manager applet",
+  "flow": "Global Flow configuration subcommands", record: "Flow Record configuration", exporter: "Flow Exporter configuration",
+  collect: "Specify a collection field", "flow-export": "Specify host/port to send flow statistics", "name-server": "Specify address of name server to use",
+  http: "HTTP server configuration", "secure-server": "Enable HTTP secure server", "sequence-numbers": "Stamp logger messages with a sequence number",
+  timestamps: "Timestamp debug/log messages", datetime: "Timestamp with date and time", uptime: "Timestamp with system uptime",
+  msec: "Include milliseconds in timestamp", localtime: "Use local time zone for timestamps", buffered: "Set buffered logging parameters",
+  trap: "Set syslog server logging level", "source-interface": "Specify interface for source address in logging transactions",
+  master: "Act as NTP master clock", authenticate: "Authenticate time sources", "authentication-key": "Authentication key for trusted time sources",
+  "trusted-key": "Key numbers for trusted time sources", prefer: "Prefer this peer when possible", privilege: "Command privilege parameters",
+  "block-for": "Set quiet-mode active time period", "on-failure": "Set options for failed login attempt", "on-success": "Set options for successful login attempt",
+  security: "Infra Security CLI configurations", passwords: "Password security configuration", "min-length": "Minimum length of passwords",
+  "community": "Enable SNMP; set community string and access privs", traps: "Enable SNMP Traps",
+  group: "Use Server-group", "start-stop": "Record start and stop without waiting", size: "Datagram size",
+  timeout: "Timeout in seconds", "df-bit": "enable do not fragment bit in IP header", tos: "Type of service",
+});
+
+Object.assign(HELP_PATH, {
+  "logging host": "Set syslog server IP address and parameters", "logging trap": "Set syslog server logging level",
+  "logging console": "Set console logging parameters", "logging monitor": "Set terminal line (monitor) logging parameters",
+  "logging buffered": "Set buffered logging parameters", "logging source-interface": "Specify interface for source address in logging transactions",
+  "logging on": "Enable logging to all enabled destinations", "show logging": "Show the contents of logging buffers",
+  "clear logging": "Clear logging buffer", "service timestamps": "Timestamp debug/log messages", "timestamps log": "Timestamp log messages",
+  "timestamps debug": "Timestamp debug messages", "snmp-server community": "Enable SNMP; set community string and access privs",
+  "snmp-server view": "Define an SNMP MIB view", "snmp-server group": "Define a User Security Model group", "snmp-server user": "Define a user who can access the SNMP engine",
+  "snmp-server host": "Specify hosts to receive SNMP notifications", "snmp-server enable": "Enable SNMP Traps or Informs",
+  "snmp-server location": "Text for mib object sysLocation", "snmp-server contact": "Text for mib object sysContact",
+  "snmp-server ifindex": "Enable ifindex persistence", "community view": "Restrict this community to a named MIB view",
+  "group v3": "group using the User Security Model (SNMPv3)", "v3 noauth": "group using the noAuthNoPriv Security Level",
+  "v3 auth": "group using the authNoPriv Security Level", "v3 priv": "group using SNMPv3 authPriv security level",
+  "group read": "specify a read view for the group", "group write": "specify a write view for the group", "read write": "specify a write view for the group",
+  "group access": "specify an access-list associated with this group", "read access": "specify an access-list associated with this group",
+  "write access": "specify an access-list associated with this group", "user v3": "user using the v3 security model",
+  "v3 auth md5": "Use HMAC MD5 algorithm for authentication", "v3 auth sha": "Use HMAC SHA algorithm for authentication",
+  "user auth": "authentication parameters for the user", "md5 priv": "encryption parameters for the user", "sha priv": "encryption parameters for the user",
+  "priv des": "Use 56 bit DES algorithm for encryption", "priv 3des": "Use 168 bit 3DES algorithm for encryption", "priv aes": "Use AES algorithm for encryption",
+  "host version": "SNMP version to use for notification messages", "version 1": "Use SNMPv1", "version 2c": "Use SNMPv2c", "version 3": "Use SNMPv3",
+  "show snmp": "snmp statistics", "snmp community": "show snmp communities", "snmp user": "show snmp users", "snmp group": "show snmp groups",
+  "snmp host": "show snmp notification host", "snmp view": "show snmp view", "enable traps": "Enable SNMP Traps",
+  "ntp master": "Act as NTP master clock", "ntp server": "Configure NTP server", "server key": "Configure peer authentication key",
+  "server prefer": "Prefer this peer when possible", "ntp authenticate": "Authenticate time sources", "ntp authentication-key": "Authentication key for trusted time sources",
+  "ntp trusted-key": "Key numbers for trusted time sources", "ntp source": "Configure interface for source address",
+  "authentication-key md5": "MD5 authentication", "show ntp": "Network time protocol", "ntp status": "NTP status", "ntp associations": "NTP associations",
+  "aaa new-model": "Enable NEW access control commands and functions.(Disables OLD commands.)", "aaa authentication": "Authentication configurations parameters.",
+  "aaa authorization": "Authorization configurations parameters.", "aaa accounting": "Accounting configurations parameters.",
+  "aaa group": "AAA group definitions", "aaa session-id": "AAA Session ID", "authentication login": "Set authentication lists for logins.",
+  "authentication enable": "Set authentication list for enable.", "authorization exec": "For starting an exec (shell).",
+  "authorization console": "For enabling console authorization", "login default": "The default authentication list.",
+  "exec default": "The default authorization list.", "enable default": "The default authentication list.",
+  "group server": "AAA group definition", "server radius": "Radius server-group definition", "server tacacs+": "Tacacs+ server-group definition",
+  "login local": "Use local username authentication.", "default local": "Use local username authentication.", "default enable": "Use enable password for authentication.",
+  "default line": "Use line password for authentication.", "default none": "NO authentication.", "default group": "Use Server-group",
+  "local local": "Use local username authentication.", "radius server": "Server configuration", "tacacs server": "Server configuration",
+  "radius-server host": "Specify a RADIUS server", "tacacs-server host": "Specify a TACACS server", "address ipv4": "IPv4 address",
+  "login authentication": "Authentication parameters.", "show aaa": "Show AAA values", "aaa servers": "Show AAA Server info",
+  "aaa method-lists": "Show AAA method lists", "privilege exec": "Exec mode", "exec level": "Set privilege level of command",
+  "secret level": "Set exec level password", "password level": "Set exec level password", "show privilege": "Show current privilege level",
+  "login block-for": "Set quiet-mode active time period", "block-for attempts": "Set max number of fail attempts",
+  "attempts within": "Watch period for repeated login failures", "on-failure log": "Generate syslogs on failure logins",
+  "on-success log": "Generate syslogs on successful logins", "show login": "Show login information", "login failures": "Show login failures",
+  "security passwords": "Password security configuration", "banner login": "Set login banner", "banner exec": "Set EXEC process creation banner",
+  "ip host": "Add an entry to the ip hostname table", "ip name-server": "Specify address of name server to use",
+  "ip http": "HTTP server configuration", "http server": "Enable HTTP server", "http secure-server": "Enable HTTP secure server",
+  "http authentication": "Set HTTP server authentication method", "show hosts": "IP domain-name, lookup style, nameservers, and host table",
+  "service sequence-numbers": "Stamp logger messages with a sequence number", "lldp run": "Enable LLDP", "lldp timer": "Specify the rate at which LLDP packets are sent (in sec)",
+  "lldp holdtime": "Specify the holdtime (in sec) to be sent in packets", "lldp transmit": "Enable LLDP transmission on interface",
+  "lldp receive": "Enable LLDP reception on interface", "show lldp": "LLDP information", "lldp neighbors": "LLDP neighbor entries",
+  "neighbors detail": "Show detailed information", "lldp interface": "LLDP interface status and configuration",
+  "class-map match-all": "Logical-AND all matching statements under this classmap", "class-map match-any": "Logical-OR all matching statements under this classmap",
+  "policy-map class": "policy criteria", "service-policy input": "Assign policy-map to the input of an interface",
+  "service-policy output": "Assign policy-map to the output of an interface", "show class-map": "Show QoS Class Map",
+  "show policy-map": "Show QoS Policy Map", "policy-map interface": "Show Qos Policy Map Interface", "set dscp": "Set DSCP in IP(v4) and IPv6 packets",
+  "set ip": "Set IP specific values", "ip dscp": "Set IP DSCP (DiffServ CodePoints)", "set precedence": "Set precedence in IP(v4) and IPv6 packets",
+  "ip precedence": "Set IP precedence", "bandwidth percent": "% of total Bandwidth", "bandwidth remaining": "percent/ratio of the remaining bandwidth",
+  "remaining percent": "% of the remaining bandwidth", "priority percent": "% of total bandwidth", "shape average": "configure token bucket: CIR (bps) [Bc (bits) [Be (bits)]], send out Bc only per interval",
+  "police cir": "Committed information rate", "cir bc": "Conform burst", "set-dscp-transmit": "set dscp and send it",
+  "mls qos": "qos configuration", "qos trust": "trust state for the interface", "trust dscp": "trust DSCP in the incoming packet",
+  "trust cos": "trust COS in the incoming packet", "auto qos": "Configure AutoQoS", "qos voip": "Configure AutoQoS for VoIP",
+  "voip trust": "Trust the DSCP/CoS marking", "show mls": "Show MultiLayer Switching information", "mls qos interface": "Interface qos information",
+  "ip flow": "NetFlow related commands", "flow ingress": "Enable inbound NetFlow", "flow egress": "Enable outbound NetFlow",
+  "flow monitor": "Flow Monitor configuration", "ip flow monitor": "Apply a Flow Monitor", "flow record": "Flow Record configuration",
+  "flow exporter": "Flow Exporter configuration", "show flow": "Flow information", "show flow monitor": "Flow monitor information",
+  "show flow exporter": "Flow Exporter information", "show flow record": "Flow Record information", "show flow interface": "Flow interface information",
+  "monitor cache": "Contents of the cache for the flow monitor", "ip cache": "IP fast-switching route cache", "cache flow": "Flow cache entries",
+  "ip flow-export": "Specify host/port to send flow statistics", "flow-export destination": "Specify the Destination IP address",
+  "flow-export version": "Specify the version number", "flow-export source": "Specify the interface for the source address",
+  "match ipv4": "IPv4 fields", "ipv4 source": "IPv4 source address", "ipv4 destination": "IPv4 destination address",
+  "ipv4 protocol": "IPv4 protocol", "ipv4 tos": "IPv4 type of service", "source address": "IPv4 address", "destination address": "IPv4 address",
+  "match transport": "Transport layer fields", "transport source-port": "Transport source port", "transport destination-port": "Transport destination port",
+  "match interface": "Interface fields", "interface input": "Input interface", "interface output": "Output interface",
+  "collect counter": "Counter fields", "counter bytes": "Total number of bytes", "counter packets": "Total number of packets",
+  "bytes long": "Total number of bytes (64 bit counter)", "packets long": "Total number of packets (64 bit counter)",
+  "collect interface": "Interface fields", "collect timestamp": "Timestamp fields", "timestamp sys-uptime": "Value of sysUpTime",
+  "sys-uptime first": "Value of sysUpTime at the first packet of the flow", "sys-uptime last": "Value of sysUpTime at the most recent packet of the flow",
+  "export-protocol netflow-v9": "NetFlow Version 9", "export-protocol netflow-v5": "NetFlow Version 5", "export-protocol ipfix": "IPFIX",
+  "cache timeout": "Cache timeout values", "timeout active": "Active timeout", "timeout inactive": "Inactive timeout",
+  "event manager": "Event Manager configuration commands", "manager applet": "Register an Event Manager applet", "event syslog": "Syslog event",
+  "syslog pattern": "Specify syslog pattern", "event none": "Manually run policy event", "event timer": "Timer event",
+  "timer countdown": "Countdown timer", "timer watchdog": "Watchdog timer", "countdown time": "Countdown timer value", "watchdog time": "Watchdog timer value",
+  "cli command": "Specify the CLI command", "syslog msg": "Specify the syslog message", "syslog priority": "Specify the syslog priority",
+  "manager run": "Run an Event Manager policy", "show event": "Event information", "manager policy": "Registered policies",
+  "policy registered": "Registered policies", "manager history": "History information", "history events": "Event history",
+  "pattern occurs": "Number of occurrences before raising event",
+  "action cli": "Execute a CLI command", "action syslog": "Log a syslog message", "priority emergencies": "System is unusable",
+  "priority alerts": "Immediate action needed", "priority critical": "Critical conditions", "priority errors": "Error conditions",
+  "priority warnings": "Warning conditions", "priority notifications": "Normal but significant conditions",
+  "priority informational": "Informational messages", "priority debugging": "Debugging messages", msg: "Specify the syslog message",
+  "ipv4 auth-port": "UDP port for RADIUS authentication server (default is 1812)", "auth-port acct-port": "UDP port for RADIUS accounting server (default is 1813)",
+  "level 5": "Specifies an ENCRYPTED secret will follow", "monitor input": "Apply Flow Monitor on input traffic",
+  "monitor output": "Apply Flow Monitor on output traffic", "flow-export version 1": "Version 1 export format",
+  "flow-export version 5": "Version 5 export format", "flow-export version 9": "Version 9 export format",
+  "key 0": "Specifies an UNENCRYPTED key will follow", "key 7": "Specifies HIDDEN key will follow",
+  "protocol dns": "Domain Name Server lookup", "protocol https": "Secure Hypertext Transfer Protocol",
+  "protocol snmp": "Simple Network Management Protocol", "protocol http": "World Wide Web traffic", "protocol icmp": "Internet Control Message Protocol",
+  "protocol ip": "IP", "protocol telnet": "Telnet", "protocol ssh": "Secure Shell Protocol", "protocol ntp": "Network Time Protocol",
+  "md5 7": "Encryption type", "tacacs server": "Server configuration", "flow export": "Display export statistics",
+  "auth read": "specify a read view for the group", "noauth read": "specify a read view for the group", "priv read": "specify a read view for the group",
+  "version 3 auth": "Use the SNMPv3 authNoPriv Security Level", "version 3 noauth": "Use the SNMPv3 noAuthNoPriv Security Level",
+  "version 3 priv": "Use the SNMPv3 authPriv Security Level", "ifindex persist": "Persist interface indices",
+  "aes 128": "Use 128 bit AES algorithm for encryption", "aes 192": "Use 192 bit AES algorithm for encryption",
+  "aes 256": "Use 256 bit AES algorithm for encryption", included: "MIB family is included in the view",
+  excluded: "MIB family is excluded from the view", "transport udp": "UDP transport protocol",
+  "accounting exec": "For starting an exec (shell).", "session-id common": "Common Session ID",
+});
+Object.assign(HELP, { tacacs: "Modify TACACS query parameters", msg: "Specify the syslog message",
+  included: "MIB family is included in the view", excluded: "MIB family is excluded from the view" });
+// Words inside an AAA method list, whatever came before them.
+{
+  const METHOD_HELP = { local: "Use local username authentication.", "local-case": "Use case-sensitive local username authentication.",
+    enable: "Use enable password for authentication.", line: "Use line password for authentication.", none: "NO authentication.",
+    group: "Use Server-group", "if-authenticated": "Succeed if user has authenticated." };
+  for (const prev of ["default", "login", "exec", "local", "local-case", "enable", "line", "none", "radius", "tacacs+", "group", "if-authenticated"]) {
+    for (const [m, h] of Object.entries(METHOD_HELP)) if (!(prev === "login" && m === "local")) HELP_PATH[prev + " " + m] = h;
+  }
+  HELP_PATH["login local"] = "Use local username authentication.";
+}
+Object.assign(HELP_PATH, {
+  "authentication local": "Use local username and passwords", "policy-map interface input": "Input policy",
+  "policy-map interface output": "Output policy", "match interface input": "Input interface", "collect interface output": "Output interface",
+});
+Object.assign(HELP_MODE, { config: { ...(HELP_MODE.config || {}), lldp: "Global LLDP configuration subcommands" } });
+for (const m of ["subif", "range"]) HELP_MODE[m] = { ...(HELP_MODE[m] || {}), "service-policy": "Configure CPL Service Policy", lldp: "LLDP interface subcommands" };
+
+const HELP_POLICY = { description: "Policy-Map description" };
+Object.assign(HELP_MODE, {
+  classmap: { description: "Class-Map description", match: "classification criteria", "match any": "Any packets",
+    "match dscp": "Match DSCP in IPv4 and IPv6 packets", "match precedence": "Match Precedence in IPv4 and IPv6 packets",
+    "match access-group": "Access group", "match access-group name": "Named Access List", "match protocol": "Protocol" },
+  pmap: { ...HELP_POLICY, class: "policy criteria" },
+  pmapc: { bandwidth: "Bandwidth", priority: "Strict Scheduling Priority for this Class", set: "Set QoS values", police: "Police",
+    shape: "Traffic Shaping", "service-policy": "Configure Flow Next", description: "Policy-Map class description" },
+  police: { "conform-action": "action when rate is less than conform burst", "exceed-action": "action when rate is within conform and conform + exceed burst",
+    "violate-action": "action when rate is greater than conform + exceed burst" },
+  flowrec: { match: "Specify a key field", collect: "Specify a non-key field", description: "Provide a description for this Flow Record" },
+  flowexp: { destination: "Export destination configuration", source: "Originating interface", transport: "Transport protocol",
+    "export-protocol": "Export protocol version", description: "Provide a description for this Flow Exporter" },
+  flowmon: { record: "Specify flow record name", exporter: "Add an exporter", cache: "Configure Flow Cache parameters",
+    description: "Provide a description for this Flow Monitor" },
+  applet: { event: "Add or modify event information", action: "Add or modify an action statement", description: "Add or modify an applet description" },
+  radsrv: { address: "Specify the radius server address", key: "Per-server encryption key" },
+  tacsrv: { address: "Specify the tacacs server address", key: "Per-server encryption key" },
+  sgrad: { server: "Specify a RADIUS server" }, sgtac: { server: "Specify a TACACS+ server" },
+});
+for (const [m, h] of [["if", { "service-policy": "Configure CPL Service Policy", lldp: "LLDP interface subcommands" }],
+  ["line", { login: "Enable password checking" }]]) HELP_MODE[m] = { ...(HELP_MODE[m] || {}), ...h };
+
+const svcOf = (d) => d.cfg.svc;
+const ifSvc = (d, ifn) => (d.cfg.intfs[ifn] && d.cfg.intfs[ifn].svc) || newSvcIf();
+const levelName = (n) => SEVERITIES[n];
+
+Object.assign(Network.prototype, {
+  // -- one-way and round-trip UDP reachability (syslog, traps, NetFlow export, NTP) ---------
+  svcUdp(dn, dst, port, srcIf, both = false) {
+    const d = this.devs[dn];
+    let src = null;
+    if (srcIf && d.cfg.intfs[srcIf]) { const a = this.ifAddr(dn, srcIf); src = a && this.ifUp(dn, srcIf) ? a.ip : null; }
+    if (src === null) src = this.sourceIp(dn, dst);
+    if (src === null) return false;
+    if (this.ownsIp(dn, dst)) return true;
+    const there = this.deliver(dn, { src, dst, proto: "udp", port, id: 1 }, { natTmp: {} });
+    if (!there.ok) return false;
+    if (!both) return true;
+    const back = this.deliver(there.at, { src: there.pkt.dst, dst: there.pkt.src, proto: "udp", port, id: 1 }, { natTmp: {} });
+    return back.ok && back.at === dn;
+  },
+
+  // -- syslog -----------------------------------------------------------------------------
+  // The clock a device shows: an NTP client follows the master at the top of its chain.
+  svcClock(dn) {
+    const st = this.svcNtp()[dn];
+    let root = dn;
+    for (let k = 0; k < 16 && st && this.svcNtp()[root] && this.svcNtp()[root].peerDev; k++) root = this.svcNtp()[root].peerDev;
+    return { offset: this.devs[root].rt.clockOffset || 0, synced: !!(st && st.stratum < 16) };
+  },
+
+  svcStamp(dn, sev) {
+    const d = this.devs[dn], s = svcOf(d), r = d.rt.svc;
+    const kind = sev === 7 ? s.ts.debug : s.ts.log;
+    let p = "";
+    if (s.seq) p += String(r.seq).padStart(6, "0") + ": ";
+    if (kind === "datetime") {
+      const c = this.svcClock(dn);
+      p += (c.synced ? "" : "*") + clock(c.offset) + ": ";
+    } else if (kind === "uptime") {
+      const up = Math.floor((Date.now() - r.boot) / 1000);
+      p += [Math.floor(up / 3600), Math.floor(up / 60) % 60, up % 60].map((x) => String(x).padStart(2, "0")).join(":") + ": ";
+    }
+    return p;
+  },
+
+  // Every message a device raises goes through here: buffer, syslog hosts, SNMP traps.
+  // Returns [{sev, text}] with each message stamped the way the device stamps it.
+  svcLog(dn, msgs) {
+    const d = this.devs[dn];
+    if (d.type === "pc") return [];
+    const s = svcOf(d), r = d.rt.svc, L = s.logging, out = [];
+    for (const m of msgs) {
+      const sev = sevOf(m);
+      r.seq++;
+      const text = this.svcStamp(dn, sev) + m;
+      out.push({ sev, text, raw: m });
+      if (!L.on) continue;
+      if (L.console !== null && sev <= L.console) r.counts.console++;
+      if (L.buffered && sev <= L.buffered.level) {
+        r.counts.buffer++;
+        r.log.push(text);
+        let size = r.log.reduce((n, x) => n + x.length + 1, 0);
+        while (size > L.buffered.size && r.log.length) size -= r.log.shift().length + 1;
+      }
+      if (sev <= L.trap) {
+        for (const h of L.hosts) {
+          if (this.svcUdp(dn, h, 514, L.source)) { r.counts.hosts[h] = (r.counts.hosts[h] || 0) + 1; r.counts.trap++; }
+        }
+      }
+      // linkUp/linkDown and config-change notifications.
+      const sn = s.snmp;
+      if (sn.traps !== null && sn.hosts.length) {
+        const types = sn.traps;
+        const link = /^%LINK-(3-UPDOWN|5-CHANGED)/.test(m), conf = /^%SYS-5-CONFIG_I/.test(m);
+        const want = (link && (types === "" || /\bsnmp\b|\blinkup\b|\blinkdown\b/.test(types))) || (conf && (types === "" || /\bconfig\b/.test(types)));
+        if (want) for (const h of sn.hosts) if (this.svcUdp(dn, h.ip, 162, null)) r.traps[n2ip(h.ip)] = (r.traps[n2ip(h.ip)] || 0) + 1;
+      }
+    }
+    return out;
+  },
+
+  // -- QoS ----------------------------------------------------------------------------------
+  svcClassMatch(dn, cls, pkt) {
+    if (!cls) return false;
+    const test = (m) => {
+      switch (m.kind) {
+        case "any": return true;
+        case "dscp": return m.vals.includes(pkt.dscp || 0);
+        case "prec": return m.vals.includes((pkt.dscp || 0) >> 3);
+        case "acl": return !!this.devs[dn].cfg.acls && !!this.devs[dn].cfg.acls[m.name] && this.aclPermits(dn, m.name, pkt, false);
+        case "proto": return m.name === "ip" || pkt.proto === m.name
+          || ({ http: 80, https: 443, telnet: 23, ssh: 22, dns: 53, ntp: 123, snmp: 161 })[m.name] === pkt.port;
+        default: return false;
+      }
+    };
+    const res = cls.matches.map((m) => (m.not ? !test(m) : test(m)));
+    if (!res.length) return false;
+    return cls.any ? res.some(Boolean) : res.every(Boolean);
+  },
+
+  // Run a policy on a packet. Returns false when a policer drops it. Counters only count recorded traffic.
+  svcPolicy(dn, ifn, dir, name, pkt, opts, depth = 0) {
+    const d = this.devs[dn], q = svcOf(d).qos, pol = q.policies[name];
+    if (!pol || depth > 2) return true;
+    const size = (pkt.size || 100) + 14;
+    const classes = [...pol.classes.filter((c) => c.name !== "class-default"), pol.classes.find((c) => c.name === "class-default") || { name: "class-default", act: {} }];
+    for (const c of classes) {
+      if (c.name !== "class-default" && !this.svcClassMatch(dn, q.classes[c.name], pkt)) continue;
+      const key = `${ifn}|${dir}|${name}|${c.name}`;
+      const ctr = opts.record ? (d.rt.svc.qos[key] = d.rt.svc.qos[key] || { pkts: 0, bytes: 0, marked: 0, conf: [0, 0], exc: [0, 0], drops: 0 }) : null;
+      if (ctr) { ctr.pkts++; ctr.bytes += size; }
+      const a = c.act || {};
+      if (a.dscp !== undefined && a.dscp !== null) { pkt.dscp = a.dscp; if (ctr) ctr.marked++; }
+      if (a.prec !== undefined && a.prec !== null) { pkt.dscp = a.prec << 3; if (ctr) ctr.marked++; }
+      if (a.police) {
+        const p = a.police, buckets = opts.qosBuckets || (opts.qosBuckets = {});
+        const b = buckets[key] || (buckets[key] = { tokens: p.bc, t: 0 });
+        const now = (opts.seq || 0) * 0.002;
+        b.tokens = Math.min(p.bc, b.tokens + (p.cir / 8) * Math.max(0, now - b.t));
+        b.t = now;
+        const conform = size <= b.tokens;
+        if (conform) b.tokens -= size;
+        const act = conform ? p.conform : p.exceed;
+        if (ctr) { const x = conform ? ctr.conf : ctr.exc; x[0]++; x[1] += size; }
+        if (act.kind === "drop") { if (ctr) ctr.drops++; return false; }
+        if (act.kind === "set-dscp-transmit") pkt.dscp = act.dscp;
+      }
+      if (a.child && !this.svcPolicy(dn, ifn, dir, a.child, pkt, opts, depth + 1)) return false;
+      return true;
+    }
+    return true;
+  },
+
+  // A router receiving a packet on ifn. Returns false to drop it.
+  svcIngress(dn, ifn, pkt, opts) {
+    const d = this.devs[dn];
+    if (d.type !== "router" || !d.cfg.intfs[ifn]) return true;
+    const s = ifSvc(d, ifn);
+    if (s.sp.input && !this.svcPolicy(dn, ifn, "input", s.sp.input, pkt, opts)) return false;
+    pkt._in = { dn, ifn };
+    if (this.ownsIp(dn, pkt.dst)) this.svcFlows(dn, ifn, null, pkt, opts);
+    return true;
+  },
+
+  // A router sending a packet out of ifn (routed or its own). Returns false to drop it.
+  svcEgress(dn, ifn, pkt, opts, originated) {
+    const d = this.devs[dn];
+    if (d.type !== "router" || !d.cfg.intfs[ifn]) return true;
+    const s = ifSvc(d, ifn);
+    if (s.sp.output && !this.svcPolicy(dn, ifn, "output", s.sp.output, pkt, opts)) return false;
+    if (!originated) this.svcFlows(dn, pkt._in && pkt._in.dn === dn ? pkt._in.ifn : null, ifn, pkt, opts);
+    return true;
+  },
+
+  // Frames crossing switches: with mls qos on, an ingress port that doesn't trust DSCP rewrites it to 0
+  // (CoS trust on an access port also ends at 0: untagged frames carry CoS 0). Input policies mark.
+  svcTrail(trail, pkt, opts) {
+    for (const hop of trail) {
+      const sw = this.devs[hop.b];
+      if (sw.type !== "switch" || !sw.cfg.intfs[hop.bp]) continue;
+      const s = ifSvc(sw, hop.bp);
+      if (svcOf(sw).qos.mls) {
+        const trust = s.trust;
+        if (trust === "dscp") { /* kept */ } else if (trust === "ip-precedence") pkt.dscp = ((pkt.dscp || 0) >> 3) << 3;
+        else if (trust === "cos") pkt.dscp = hop.vlan !== null && this.swMode(sw, hop.bp) === "trunk" ? pkt.dscp || 0 : 0;
+        else pkt.dscp = 0;
+      }
+      if (s.sp.input && !this.svcPolicy(hop.b, hop.bp, "input", s.sp.input, pkt, opts)) return false;
+    }
+    return true;
+  },
+
+  // -- NetFlow -----------------------------------------------------------------------------
+  svcFlows(dn, inIf, outIf, pkt, opts) {
+    if (!opts.record) return;
+    const d = this.devs[dn], rt = d.rt.svc, f = svcOf(d).flow, size = (pkt.size || 100);
+    const add = (store, key, base) => {
+      const e = store[key] || (store[key] = { ...base, pkts: 0, bytes: 0, first: Date.now() - rt.boot });
+      if (!e.pkts) this.svcExport(dn, base.mon);
+      e.pkts++;
+      e.bytes += size;
+      e.last = Date.now() - rt.boot;
+    };
+    const base = { src: pkt.src, dst: pkt.dst, proto: pkt.proto, tos: (pkt.dscp || 0) << 2, sport: 0,
+      dport: pkt.proto === "icmp" ? (pkt.icmp === "echo-reply" ? 0 : 0x0800) : pkt.port || 0, inIf, outIf };
+    const trad = (inIf && ifSvc(d, inIf).flowIn) || (outIf && ifSvc(d, outIf).flowOut);
+    if (trad) add(rt.tflows, [base.src, base.dst, base.proto, base.dport, inIf, outIf].join("|"), { ...base, mon: null });
+    const mons = [...(inIf ? ifSvc(d, inIf).mon.input.map((m) => [m, "input"]) : []), ...(outIf ? ifSvc(d, outIf).mon.output.map((m) => [m, "output"]) : [])];
+    for (const [m] of mons) {
+      const mon = f.monitors[m], rec = mon && f.records[mon.record];
+      if (!rec) continue;
+      const key = rec.match.map((field) => flowField(field, base)).join("|");
+      const store = rt.flows[m] || (rt.flows[m] = {});
+      add(store, key, { ...base, mon: m });
+    }
+  },
+
+  svcExport(dn, mon) {
+    const d = this.devs[dn], f = svcOf(d).flow, rt = d.rt.svc;
+    if (mon) {
+      const m = f.monitors[mon];
+      for (const x of (m && m.exporters) || []) {
+        const e = f.exporters[x];
+        if (e && e.dst !== null && this.svcUdp(dn, e.dst, e.port, e.src)) rt.exported[x] = (rt.exported[x] || 0) + 1;
+      }
+    } else if (f.exportDst && this.svcUdp(dn, f.exportDst.ip, f.exportDst.port, f.exportSrc)) {
+      rt.exported["(traditional)"] = (rt.exported["(traditional)"] || 0) + 1;
+    }
+  },
+
+  // -- NTP -------------------------------------------------------------------------------------
+  // {device: {stratum, peer (address), peerDev, master, assoc: [{ip, ref, st, reach, sel}]}}
+  svcNtp() {
+    if (this.c.svcNtp) return this.c.svcNtp;
+    const out = {};
+    const ios = Object.values(this.devs).filter((d) => d.type !== "pc");
+    for (const d of ios) {
+      const n = svcOf(d).ntp;
+      out[d.name] = n.master !== null ? { stratum: n.master, peer: null, peerDev: null, master: true } : { stratum: 16, peer: null, peerDev: null, master: false };
+    }
+    this.c.svcNtp = out; // provisional, so nested lookups during the passes see something
+    const reach = {};
+    const reachable = (d, s) => {
+      const k = d.name + "|" + s.ip;
+      if (reach[k] === undefined) reach[k] = this.svcUdp(d.name, s.ip, 123, svcOf(d).ntp.source, true);
+      return reach[k];
+    };
+    const authOk = (d, s, owner) => {
+      const n = svcOf(d).ntp;
+      if (!n.auth) return true;
+      if (s.key === null || !n.trusted.includes(s.key) || n.keys[s.key] === undefined) return false;
+      return svcOf(owner).ntp.keys[s.key] === n.keys[s.key];
+    };
+    for (let pass = 0; pass < 16; pass++) {
+      let changed = false;
+      for (const d of ios) {
+        const n = svcOf(d).ntp, me = out[d.name];
+        let best = null;
+        const assoc = [];
+        for (const s of n.servers) {
+          const ownerName = this.ownerOf(s.ip), owner = ownerName && this.devs[ownerName];
+          const up = !!owner && owner.type !== "pc" && ownerName !== d.name && reachable(d, s);
+          const st = up ? out[ownerName].stratum : 16;
+          const ok = up && st < 15 && authOk(d, s, owner);
+          const a = { ip: s.ip, st: up ? st : 16, reach: up ? 377 : 0, ok, prefer: s.prefer,
+            ref: !up ? ".INIT." : out[ownerName].master && !out[ownerName].peer ? "127.127.1.1" : out[ownerName].peer !== null ? n2ip(out[ownerName].peer) : ".INIT.", dev: ownerName };
+          assoc.push(a);
+          if (ok && (!best || (a.prefer && !best.prefer) || (a.prefer === best.prefer && a.st < best.st))) best = a;
+        }
+        let next;
+        if (best && (!n.master || best.st + 1 < n.master)) next = { stratum: best.st + 1, peer: best.ip, peerDev: best.dev, master: n.master !== null };
+        else if (n.master !== null) next = { stratum: n.master, peer: null, peerDev: null, master: true };
+        else next = { stratum: 16, peer: null, peerDev: null, master: false };
+        next.assoc = assoc;
+        if (next.stratum !== me.stratum || next.peer !== me.peer) changed = true;
+        out[d.name] = next;
+      }
+      if (!changed) break;
+    }
+    return out;
+  },
+
+  // -- LLDP ------------------------------------------------------------------------------------
+  svcLldp(dn) {
+    const d = this.devs[dn], out = [];
+    if (d.type === "pc" || !svcOf(d).lldp.run) return out;
+    for (const port of d.ports) {
+      const p = this.peer(dn, port);
+      if (!p || !this.portUp(dn, port) || !ifSvc(d, port).lldpRx) continue;
+      const pd = this.devs[p.dev];
+      if (pd.type === "pc" || !svcOf(pd).lldp.run || !ifSvc(pd, p.port).lldpTx) continue;
+      let addr = null;
+      if (pd.type === "router") addr = this.ifAddr(p.dev, p.port);
+      else { const s = this.upIfs(p.dev)[0]; addr = s ? this.ifAddr(p.dev, s) : null; }
+      out.push({ local: port, dev: pd, port: p.port, ip: addr && addr.ip, hold: svcOf(pd).lldp.hold });
+    }
+    return out;
+  },
+
+  // -- SNMP access -------------------------------------------------------------------------------
+  // Can a manager at `from` read (or write) the agent on `dn`? {ok, why}
+  svcSnmpAccess(from, dn, cred, write) {
+    const d = this.devs[dn], sn = svcOf(d).snmp;
+    const target = this.upIfs(dn).map((n) => this.ifAddr(dn, n)).find((a) => a && this.ping(from, a.ip).ok);
+    if (!target) return { ok: false, why: "unreachable" };
+    const src = this.sourceIp(from, target.ip);
+    if (!this.svcUdp(from, target.ip, 161, null)) return { ok: false, why: "filtered" };
+    const aclOk = (acl) => !acl || !d.cfg.acls || !d.cfg.acls[acl] || this.aclPermits(dn, acl, { src, dst: target.ip, proto: "udp", port: 161 }, false);
+    if (cred.community !== undefined) {
+      const c = sn.communities[cred.community];
+      if (!c) return { ok: false, why: "unknown community" };
+      if (write && c.access !== "RW") return { ok: false, why: "read-only community" };
+      if (!aclOk(c.acl)) return { ok: false, why: "access-list" };
+      return { ok: true };
+    }
+    const u = sn.users[cred.user];
+    if (!u) return { ok: false, why: "unknown user" };
+    const g = sn.groups[u.group];
+    if (!g) return { ok: false, why: "no group" };
+    if (g.level !== "noauth" && (!u.auth || cred.auth !== u.auth.pw || (cred.authProto && cred.authProto !== u.auth.proto))) return { ok: false, why: "authentication" };
+    if (g.level === "priv" && (!u.priv || cred.priv !== u.priv.pw)) return { ok: false, why: "privacy" };
+    if (write && !g.write) return { ok: false, why: "no write view" };
+    if (!aclOk(g.acl) || !aclOk(u.acl)) return { ok: false, why: "access-list" };
+    return { ok: true };
+  },
+});
+
+function flowField(field, b) {
+  switch (field) {
+    case "ipv4 source address": return n2ip(b.src);
+    case "ipv4 destination address": return n2ip(b.dst);
+    case "ipv4 protocol": return String(({ icmp: 1, tcp: 6, udp: 17 })[b.proto] ?? 0);
+    case "ipv4 tos": return "0x" + hex(b.tos, 2).toUpperCase();
+    case "transport source-port": return String(b.sport);
+    case "transport destination-port": return String(b.dport);
+    case "interface input": return b.inIf ? shortIf(b.inIf) : "Null";
+    case "interface output": return b.outIf ? shortIf(b.outIf) : "Null";
+    default: return "";
+  }
+}
+
+const FLOW_COLS = {
+  "ipv4 source address": "IPV4 SOURCE ADDRESS", "ipv4 destination address": "IPV4 DESTINATION ADDRESS", "ipv4 protocol": "IP PROT",
+  "ipv4 tos": "IP TOS", "transport source-port": "TRNS SOURCE PORT", "transport destination-port": "TRNS DESTINATION PORT",
+  "interface input": "INTF INPUT", "interface output": "INTF OUTPUT",
+};
+
+// -- login: AAA method lists, local users and privilege levels -----------------------------------
+// The methods a login on `line` ("con" or "vty") goes through, or null without AAA.
+function loginMethods(d, lineKey) {
+  const a = svcOf(d).aaa;
+  if (!a.on) return null;
+  const l = lineKey === "con" ? d.cfg.lines.con : d.cfg.lines.vty0;
+  const name = l.authList || "default";
+  if (a.authen[name]) return a.authen[name];
+  // No default list: the console needs nothing, VTYs use the local database. A named list that
+  // doesn't exist leaves the line with no way in.
+  if (name === "default") return lineKey === "con" ? ["none"] : ["local"];
+  return [];
+}
+
+// Does this method list prompt for a username first?
+const wantsUser = (methods) => !!methods.find((m) => m !== "none") && /^(local|local-case|group )/.test(methods.find((m) => m !== "none"));
+
+// One attempt: {ok, level, user}. Group methods fail over: no AAA server answers in the lab.
+function authenticate(net, d, lineKey, user, pw) {
+  const methods = loginMethods(d, lineKey);
+  const s = svcOf(d), a = s.aaa;
+  const local = (u, p) => {
+    const x = d.cfg.users[u];
+    return x && (x.secret ?? x.password) === p ? { ok: true, level: x.priv ?? 1, user: u } : { ok: false };
+  };
+  if (!methods) return null;
+  for (const m of methods) {
+    if (m === "none") return { ok: true, level: 1, user };
+    if (m === "local" || m === "local-case") {
+      if (!Object.keys(d.cfg.users).length) continue; // an empty database is an error: try the next method
+      return local(user, pw);
+    }
+    if (m === "enable") {
+      const e = d.cfg.enableSecret ?? d.cfg.enablePassword;
+      if (e === null) continue;
+      return e === pw ? { ok: true, level: 1, user } : { ok: false };
+    }
+    if (m === "line") {
+      const l = lineKey === "con" ? d.cfg.lines.con : d.cfg.lines.vty0;
+      if (l.password === null) continue;
+      return l.password === pw ? { ok: true, level: 1, user } : { ok: false };
+    }
+    if (m.startsWith("group ")) continue; // servers unreachable: ERROR, fall through to the next method
+  }
+  return { ok: false, none: true };
+}
+
+// The privilege level a successful login lands at.
+function loginLevel(d, lineKey, res) {
+  const a = svcOf(d).aaa;
+  const u = res.user && d.cfg.users[res.user];
+  if (!a.on) return u && u.priv !== undefined ? u.priv : 1;
+  const author = a.author.default;
+  // Exec authorization isn't applied on the console unless "aaa authorization console" is set.
+  if (!author || (lineKey === "con" && !a.console)) return 1;
+  if (author.includes("local") || author.includes("if-authenticated")) return u && u.priv !== undefined ? u.priv : 1;
+  return 1;
+}
+
+// Expand a typed exec command to its full keywords, to compare with "privilege exec" rules.
+function kwPath(tree, toks, ctx) {
+  let node = tree;
+  const out = [];
+  for (let k = 0; k < toks.length;) {
+    const w = toks[k].t.toLowerCase();
+    const kws = node.kids.filter((c) => c.kw && c.kw.startsWith(w));
+    let next = kws.find((c) => c.kw === w) || (kws.length === 1 ? kws[0] : null), used = 1;
+    if (!next) {
+      for (const c of node.kids) {
+        if (!c.param) continue;
+        const m = c.param.match(toks, k, ctx);
+        if (m) { next = c; used = m.used; break; }
+      }
+    }
+    if (!next) return null;
+    out.push(next.kw ? next.kw : "*");
+    node = next;
+    k += used;
+  }
+  return out;
+}
+
+// -- console session: levels, logins, log output, EEM -------------------------------------------
+Object.assign(Session.prototype, {
+  level() { return this.f.level ?? (this.f.mode === "user" ? 1 : 15); },
+
+  enterLevel(level) {
+    this.f.level = level;
+    this.enter(level >= 2 ? "priv" : "user", null);
+  },
+
+  // After each command: log every message (buffer, hosts, traps), run EEM applets that match, then
+  // show this console what its logging settings let through.
+  svcAfter() {
+    const net = this.net, depth = this.eemDepth || 0, fmt = {};
+    for (const [dn, msgs] of Object.entries(this.events)) fmt[dn] = net.svcLog(dn, msgs);
+    if (this.eemExtra) {
+      for (const [xd, xs] of Object.entries(this.eemExtra.events)) this.events[xd] = [...(this.events[xd] || []), ...xs];
+      for (const [xd, xs] of Object.entries(this.eemExtra.fmt)) fmt[xd] = [...(fmt[xd] || []), ...xs];
+      this.eemExtra = null;
+    }
+    if (depth < 3) {
+      for (const [dn, msgs] of Object.entries({ ...this.events })) {
+        const d = net.devs[dn];
+        if (d.type === "pc") continue;
+        for (const [name, ap] of Object.entries(svcOf(d).eem)) {
+          if (!ap.event || ap.event.kind !== "syslog") continue;
+          let re;
+          try { re = new RegExp(ap.event.pattern); } catch (e) { continue; }
+          const hit = msgs.find((m) => re.test(m));
+          if (!hit) continue;
+          const r = d.rt.svc;
+          r.eemCount[name] = (r.eemCount[name] || 0) + 1;
+          if (r.eemCount[name] % (ap.event.occurs || 1) !== 0) continue;
+          const res = net.svcRunApplet(dn, name, depth + 1, "syslog");
+          for (const [xd, xs] of Object.entries(res.events)) this.events[xd] = [...(this.events[xd] || []), ...xs];
+          for (const [xd, xs] of Object.entries(res.fmt)) fmt[xd] = [...(fmt[xd] || []), ...xs];
+        }
+      }
+    }
+    this.fmt = fmt;
+    this.consoleLines = {};
+    for (const [dn, lines] of Object.entries(fmt)) {
+      const d = net.devs[dn];
+      if (d.type === "pc") continue;
+      const L = svcOf(d).logging;
+      this.consoleLines[dn] = L.on && L.console !== null ? lines.filter((x) => x.sev <= L.console).map((x) => x.text) : [];
+    }
+    for (const t of this.consoleLines[this.home] || []) this.out.push(t);
+    // A VTY session sees its device's messages only after "terminal monitor".
+    if (this.f.via && this.f.monitor && this.f.dev !== this.home) {
+      const L = svcOf(this.d).logging;
+      for (const x of fmt[this.f.dev] || []) if (L.on && L.monitor !== null && x.sev <= L.monitor) this.out.push(x.text);
+    }
+  },
+
+  // An AAA login: the method list decides the prompts and the outcome.
+  aaaLogin(d, lineKey, user, ok, fail, from) {
+    const methods = loginMethods(d, lineKey);
+    if (methods[0] === "none") { ok(1, user); return; }
+    const s = svcOf(d);
+    if (s.bannerLogin) this.print(s.bannerLogin);
+    this.print("", "User Access Verification", "");
+    let tries = 0;
+    const attempt = (u) => this.ask("Password: ", { mask: true }, (pw) => {
+      const r = authenticate(this.net, d, lineKey, u, pw);
+      if (lineKey === "vty") this.net.svcLoginResult(d.name, u, r.ok, from);
+      if (r.ok) { ok(loginLevel(d, lineKey, r), u); return; }
+      this.print("", "% Authentication failed", "");
+      if (++tries >= 3) { fail(); return; }
+      start();
+    });
+    const start = () => (user === null && wantsUser(methods) ? this.ask("Username: ", {}, (u) => attempt(u.trim())) : attempt(user));
+    start();
+  },
+});
+
+Object.assign(Network.prototype, {
+  // Watch VTY login failures for "login block-for", and log them when asked to.
+  svcLoginResult(dn, user, ok, from) {
+    const d = this.devs[dn], s = svcOf(d), r = d.rt.svc, now = Date.now();
+    const src = from ? n2ip(from) : "0.0.0.0", at = clock().split(".")[0] + " UTC";
+    if (ok) {
+      if (s.onSuccess) this.note(dn, `%SEC_LOGIN-5-LOGIN_SUCCESS: Login Success [user: ${user ?? ""}] [Source: ${src}] [localport: 23] at ${at}`);
+      return;
+    }
+    r.totalFails++;
+    if (s.onFail) this.note(dn, `%SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: ${user ?? ""}] [Source: ${src}] [localport: 23] [Reason: Login Authentication Failed] at ${at}`);
+    const b = s.blockFor;
+    if (!b) return;
+    r.fails = r.fails.filter((t) => now - t < b.within * 1000);
+    r.fails.push(now);
+    if (r.fails.length >= b.attempts && r.quietUntil <= now) {
+      r.quietUntil = now + b.secs * 1000;
+      r.fails = [];
+      this.note(dn, `%SEC_LOGIN-1-QUIET_MODE_ON: Still timeleft for watching failures is ${b.within} secs, [user: ${user ?? ""}] [Source: ${src}] [localport: 23] [Reason: Login Authentication Failed] [ACL: sl_def_acl] at ${at}`);
+    }
+  },
+
+  svcQuiet(dn) { return this.devs[dn].rt.svc.quietUntil > Date.now(); },
+
+  // Run an EEM applet's actions in label order (IOS sorts the labels as text).
+  svcRunApplet(dn, name, depth, why) {
+    const d = this.devs[dn], ap = svcOf(d).eem[name], events = {}, fmt = {};
+    const add = (map, k, xs) => { if (xs && xs.length) map[k] = [...(map[k] || []), ...xs]; };
+    const s = new Session(this, dn);
+    s.eemDepth = depth;
+    s.eemName = name;
+    for (const label of Object.keys(ap.actions).sort()) {
+      const a = ap.actions[label];
+      if (a.kind === "cli") {
+        s.input(a.text);
+        for (const [k, xs] of Object.entries(s.events || {})) add(events, k, xs);
+        for (const [k, xs] of Object.entries(s.fmt || {})) add(fmt, k, xs);
+      } else if (a.kind === "syslog") {
+        const m = `%HA_EM-${a.prio}-LOG: ${name}: ${a.text}`;
+        add(events, dn, [m]);
+        add(fmt, dn, this.svcLog(dn, [m]));
+      }
+    }
+    // The applet's CLI session closes when it finishes; leaving configuration mode logs CONFIG_I.
+    if (CONFIG_MODES.includes(s.f.mode)) {
+      s.input("end");
+      for (const [k, xs] of Object.entries(s.events || {})) add(events, k, xs);
+      for (const [k, xs] of Object.entries(s.fmt || {})) add(fmt, k, xs);
+    }
+    d.rt.svc.eem.push({ name, at: clock(), why });
+    if (d.rt.svc.eem.length > 20) d.rt.svc.eem.shift();
+    return { events, fmt };
+  },
+});
+
+// -- small helpers for the commands below ---------------------------------------------------------
+const qosOf = (c) => svcOf(c.d).qos;
+const flowOf = (c) => svcOf(c.d).flow;
+const eachSvcIf = (c, fn) => eachIf(c, (n, i) => { i.svc = i.svc || newSvcIf(); return fn(n, i.svc, i); });
+const unquote = (t) => { const m = /^"(.*)"$/.exec(t.trim()); return m ? m[1] : t.trim(); };
+const R_S = "RS";
+
+// Passwords shorter than "security passwords min-length" are refused, as IOS does.
+function minLenOk(c, pw) {
+  const n = svcOf(c.d).minLen;
+  if (n && pw.length < n) { c.print(`% Password too short - must be at least ${n} characters. Password configuration failed`); return false; }
+  return true;
+}
+
+// Wrap the commands already defined under a keyword path so they check something first.
+function guardRuns(types, modes, words, guard) {
+  for (const t of types) {
+    for (const m of [].concat(modes)) {
+      let node = TREES[t][m];
+      for (const w of words) node = node && node.kids.find((k) => k.kw === w);
+      if (!node) continue;
+      const visit = (n) => {
+        if (n.run && !n.guarded) {
+          const orig = n.run;
+          n.run = (c, args) => { if (guard(c, args) !== false) orig(c, args); };
+          n.guarded = true;
+        }
+        n.kids.forEach(visit);
+      };
+      visit(node);
+    }
+  }
+}
+const lastStr = (args) => [...args].reverse().find((a) => typeof a === "string") || "";
+guardRuns(["router", "switch"], "config", ["enable", "secret"], (c, a) => minLenOk(c, lastStr(a)));
+guardRuns(["router", "switch"], "config", ["enable", "password"], (c, a) => minLenOk(c, lastStr(a)));
+guardRuns(["router", "switch"], "config", ["username"], (c, a) => (a.length >= 2 ? minLenOk(c, lastStr(a)) : true));
+guardRuns(["router", "switch"], "line", ["password"], (c, a) => minLenOk(c, lastStr(a)));
+
+// "disable" drops to level 1; "show clock" follows NTP (no leading * once synchronised).
+guardRuns(["router", "switch"], "priv", ["disable"], (c) => { c.s.f.level = 1; });
+for (const t of ["router", "switch"]) {
+  for (const m of ["user", "priv"]) {
+    const show = TREES[t][m].kids.find((k) => k.kw === "show");
+    const node = show && show.kids.find((k) => k.kw === "clock");
+    if (node) node.run = (c) => {
+      const k = c.net.svcClock(c.d.name);
+      c.print((k.synced ? "" : "*") + clock(k.offset) + " " + (c.cfg.tz ? c.cfg.tz[0] : "UTC"));
+    };
+    const term = TREES[t][m].kids.find((k) => k.kw === "terminal");
+    const mon = term && term.kids.find((k) => k.kw === "monitor");
+    if (mon) mon.run = (c) => { if (!c.s.f.via) c.print("% Console already monitors"); else c.s.f.monitor = true; };
+    const no = term && term.kids.find((k) => k.kw === "no");
+    const nmon = no && no.kids.find((k) => k.kw === "monitor");
+    if (nmon) nmon.run = (c) => { c.s.f.monitor = false; };
+  }
+}
+
+// ---- privilege levels ---------------------------------------------------------------------
+def(R_S, ["user", "priv"], "enable <num:0-15|Enable level>", (c, [n]) => {
+  const s = c.s, cur = s.level();
+  if (n <= cur) { s.enterLevel(n); return; }
+  const pw = n === 15 ? (c.cfg.enableSecret ?? c.cfg.enablePassword) : svcOf(c.d).enableLevels[n] ?? null;
+  if (pw === null) {
+    if (n === 15 && !s.f.via) { s.enterLevel(15); return; }
+    c.print("% No password set");
+    return;
+  }
+  let tries = 0;
+  const ask = () => s.ask("Password: ", { mask: true }, (ans) => {
+    if (ans === pw || (n !== 15 && md5ish(ans) === pw)) { s.enterLevel(n); return; }
+    if (++tries >= 3) { s.print("% Bad secrets", ""); return; }
+    ask();
+  });
+  ask();
+});
+// From a level between 2 and 14, plain "enable" goes on to level 15.
+def(R_S, "priv", "enable", (c) => { if (c.s.level() < 15) c.s.enable(); });
+def(R_S, ["user", "priv"], "show privilege",(c) => c.print("Current privilege level is " + c.s.level()));
+def(R_S, "config", "enable secret level <num:1-15|Level number> <word|The UNENCRYPTED (cleartext) 'enable' secret>", (c, [n, pw]) => {
+  // Kept as the hash IOS shows, so a pasted "enable secret level N 5 ..." line works the same way.
+  if (minLenOk(c, pw)) svcOf(c.d).enableLevels[n] = md5ish(pw);
+});
+def(R_S, "config", "enable secret level <num:1-15|Level number> 5 <word|The ENCRYPTED 'enable' secret string>", (c, [n, h]) => {
+  svcOf(c.d).enableLevels[n] = h;
+});
+def(R_S, "config", "no enable secret level <num:1-15|Level number>", (c, [n]) => { delete svcOf(c.d).enableLevels[n]; });
+def(R_S, "config", "privilege exec level <num:0-15|Privilege level> <line|Initial keywords of the command to modify>", (c, [n, text]) => {
+  const toks = tokenize(text);
+  const path = kwPath(TREES[c.d.type].priv, toks, c.s.ctx(text, toks));
+  if (!path) { c.print("% Invalid input detected"); return; }
+  const s = svcOf(c.d);
+  s.privs = s.privs.filter((p) => p.path.join(" ") !== path.join(" "));
+  s.privs.push({ level: n, path });
+});
+def(R_S, "config", "no privilege exec level <num:0-15|Privilege level> <line|Initial keywords of the command to modify>", (c, [, text]) => {
+  const toks = tokenize(text);
+  const path = kwPath(TREES[c.d.type].priv, toks, c.s.ctx(text, toks)) || [];
+  svcOf(c.d).privs = svcOf(c.d).privs.filter((p) => p.path.join(" ") !== path.join(" "));
+});
+
+// ---- login hardening ----------------------------------------------------------------------
+def(R_S, "config", "login block-for <num:1-65535|Time period in seconds> attempts <num:1-65535|Fail attempts> within <num:1-65535|Time period in seconds>",
+  (c, [secs, attempts, within]) => { svcOf(c.d).blockFor = { secs, attempts, within }; });
+def(R_S, "config", "no login block-for", (c) => { svcOf(c.d).blockFor = null; c.d.rt.svc.quietUntil = 0; });
+def(R_S, "config", "login on-failure log", (c) => { svcOf(c.d).onFail = true; });
+def(R_S, "config", "no login on-failure log", (c) => { svcOf(c.d).onFail = false; });
+def(R_S, "config", "login on-success log", (c) => { svcOf(c.d).onSuccess = true; });
+def(R_S, "config", "no login on-success log", (c) => { svcOf(c.d).onSuccess = false; });
+def(R_S, "config", "security passwords min-length <num:0-16|Minimum length of a configured password>", (c, [n]) => { svcOf(c.d).minLen = n; });
+def(R_S, "config", "no security passwords min-length", (c) => { svcOf(c.d).minLen = 0; });
+def(R_S, ["user", "priv"], "show login", (c) => {
+  const s = svcOf(c.d), r = c.d.rt.svc, b = s.blockFor, now = Date.now();
+  const L = ["     A login delay of 1 seconds is applied.", "     No Quiet-Mode access list has been configured.", ""];
+  if (!b) L.push("     Router NOT enabled to watch for login Attacks");
+  else {
+    L.push("     Router enabled to watch for login Attacks.", `     If more than ${b.attempts} login failures occur in ${b.within} seconds or less,`,
+      `     logins will be disabled for ${b.secs} seconds.`, "");
+    if (r.quietUntil > now) L.push(`     Router presently in Quiet-Mode.`, `     Will remain in Quiet-Mode for ${Math.ceil((r.quietUntil - now) / 1000)} seconds.`, "     Denying logins from all sources.");
+    else {
+      const recent = r.fails.filter((t) => now - t < b.within * 1000);
+      L.push("     Router presently in Normal-Mode.", "     Current Watch Window", `         Time remaining: ${recent.length ? Math.max(1, b.within - Math.floor((now - recent[0]) / 1000)) : b.within} seconds.`,
+        `         Login failures for current window: ${recent.length}.`);
+    }
+    L.push(`     Total login failures: ${r.totalFails}.`);
+  }
+  c.print(L.join("\n"));
+});
+def(R_S, "priv", "show login failures", (c) => c.print(c.d.rt.svc.totalFails ? `Total failed logins: ${c.d.rt.svc.totalFails}` : "*** No logged failed login attempts with the device.***"));
+
+// ---- banners ------------------------------------------------------------------------------
+function svcBanner(c, key, text) {
+  const s = svcOf(c.d);
+  const delim = text.startsWith("^C") ? "^C" : text[0];
+  const rest = text.slice(delim.length);
+  const end = rest.indexOf(delim);
+  if (end >= 0) { s[key] = rest.slice(0, end).trim(); return; }
+  c.print(`Enter TEXT message.  End with the character '${delim}'.`);
+  const lines = rest.trim() ? [rest.trim()] : [];
+  const more = () => c.s.ask("", {}, (l) => {
+    const k = l.indexOf(delim);
+    if (k < 0) { lines.push(l); more(); return; }
+    lines.push(l.slice(0, k));
+    s[key] = lines.join("\n").replace(/^\n+|\n+$/g, "");
+  });
+  more();
+}
+def(R_S, "config", "banner login <line|c  banner-text c, where 'c' is a delimiting character>", (c, [t]) => svcBanner(c, "bannerLogin", t));
+def(R_S, "config", "banner exec <line|c  banner-text c, where 'c' is a delimiting character>", (c, [t]) => svcBanner(c, "bannerExec", t));
+def(R_S, "config", "no banner login", (c) => { svcOf(c.d).bannerLogin = ""; });
+def(R_S, "config", "no banner exec", (c) => { svcOf(c.d).bannerExec = ""; });
+
+// ---- AAA ----------------------------------------------------------------------------------
+const AAA_METHODS = ["local", "local-case", "enable", "line", "none", "group radius", "group tacacs+", "group <word|Server-group name>"];
+function aaaLists(prefix, methods, depth, fn) {
+  const walk = (spec, n) => {
+    if (n >= depth) return;
+    for (const m of methods) {
+      const s = spec + " " + m;
+      def(R_S, "config", s, fn);
+      walk(s, n + 1);
+    }
+  };
+  walk(prefix, 0);
+}
+const methodsOf = (c) => {
+  const toks = c.toks.map((t) => t.t);
+  const out = [];
+  for (let i = 0; i < toks.length; i++) {
+    const w = toks[i].toLowerCase();
+    const full = ["local", "local-case", "enable", "line", "none", "group", "if-authenticated"].find((x) => x.startsWith(w) && (x !== "local" || !"local-case".startsWith(w) || w === "local" || w.length <= 5));
+    if (full === "group") { const g = toks[++i]; out.push("group " + (/^r/i.test(g) && "radius".startsWith(g.toLowerCase()) ? "radius" : /^t/i.test(g) && "tacacs+".startsWith(g.toLowerCase()) ? "tacacs+" : g)); }
+    else if (full) out.push(full);
+  }
+  return out;
+};
+def(R_S, "config", "aaa new-model", (c) => { svcOf(c.d).aaa.on = true; });
+def(R_S, "config", "no aaa new-model", (c) => { const a = svcOf(c.d).aaa; Object.assign(a, { on: false, authen: {}, author: {}, console: false }); });
+for (const list of ["default", "<word|Named authentication list (max 31 characters, longer will be rejected).>"]) {
+  aaaLists("aaa authentication login " + list, AAA_METHODS, 3, (c) => {
+    const a = svcOf(c.d).aaa;
+    if (!a.on) { c.print("% AAA must be enabled first: use \"aaa new-model\""); return; }
+    const name = c.toks[3].t.toLowerCase() === "default" ? "default" : c.toks[3].t;
+    a.authen[name] = methodsOf({ toks: c.toks.slice(4) });
+  });
+  def(R_S, "config", "no aaa authentication login " + list, (c) => { delete svcOf(c.d).aaa.authen[c.toks[4].t.toLowerCase() === "default" ? "default" : c.toks[4].t]; });
+  aaaLists("aaa authorization exec " + list, ["local", "none", "if-authenticated", "group radius", "group tacacs+"], 2, (c) => {
+    const a = svcOf(c.d).aaa;
+    if (!a.on) { c.print("% AAA must be enabled first: use \"aaa new-model\""); return; }
+    a.author[c.toks[3].t.toLowerCase() === "default" ? "default" : c.toks[3].t] = methodsOf({ toks: c.toks.slice(4) });
+  });
+  def(R_S, "config", "no aaa authorization exec " + list, (c) => { delete svcOf(c.d).aaa.author[c.toks[4].t.toLowerCase() === "default" ? "default" : c.toks[4].t]; });
+}
+def(R_S, "config", "aaa authorization console", (c) => { svcOf(c.d).aaa.console = true; });
+def(R_S, "config", "no aaa authorization console", (c) => { svcOf(c.d).aaa.console = false; });
+def(R_S, "config", "aaa session-id common", () => {});
+def(R_S, "config", "aaa accounting exec default start-stop group {radius|tacacs+}", () => {});
+for (const kind of ["radius", "tacacs"]) {
+  def(R_S, "config", `${kind} server <word|Name for the ${kind} server configuration>`, (c, [n]) => {
+    const a = svcOf(c.d).aaa;
+    a.servers[n] = a.servers[n] || { kind, ip: null, key: null };
+    c.s.enter(kind === "radius" ? "radsrv" : "tacsrv", n);
+  });
+  def(R_S, "config", `no ${kind} server <word|Name for the ${kind} server configuration>`, (c, [n]) => { delete svcOf(c.d).aaa.servers[n]; });
+  const m = kind === "radius" ? "radsrv" : "tacsrv";
+  def(R_S, m, "address ipv4 <ip|IPv4 address of the server>", (c, [ip]) => { svcOf(c.d).aaa.servers[c.target].ip = ip; });
+  if (kind === "radius") def(R_S, m, "address ipv4 <ip|IPv4 address of the server> auth-port <num:0-65535|UDP port> acct-port <num:0-65535|UDP port>", (c, [ip]) => { svcOf(c.d).aaa.servers[c.target].ip = ip; });
+  def(R_S, m, "key <word|The UNENCRYPTED (cleartext) server key>", (c, [k]) => { svcOf(c.d).aaa.servers[c.target].key = k; });
+  def(R_S, m, "key 0 <word|The UNENCRYPTED (cleartext) server key>", (c, [k]) => { svcOf(c.d).aaa.servers[c.target].key = k; });
+  def(R_S, m, "key 7 <word|The HIDDEN server key>", (c, [k]) => { svcOf(c.d).aaa.servers[c.target].key = type7decode(k); });
+  def(R_S, m, "exit", (c) => c.s.enter("config", null));
+  def(R_S, "config", `aaa group server ${kind === "radius" ? "radius" : "tacacs+"} <word|Server group name>`, (c, [n]) => {
+    const a = svcOf(c.d).aaa;
+    a.groups[n] = a.groups[n] || { kind, servers: [] };
+    c.s.enter(kind === "radius" ? "sgrad" : "sgtac", n);
+  });
+  def(R_S, "config", `no aaa group server ${kind === "radius" ? "radius" : "tacacs+"} <word|Server group name>`, (c, [n]) => { delete svcOf(c.d).aaa.groups[n]; });
+  const g = kind === "radius" ? "sgrad" : "sgtac";
+  def(R_S, g, "server name <word|Name of server>", (c, [n]) => { const x = svcOf(c.d).aaa.groups[c.target]; if (!x.servers.includes(n)) x.servers.push(n); });
+  def(R_S, g, "no server name <word|Name of server>", (c, [n]) => { const x = svcOf(c.d).aaa.groups[c.target]; x.servers = x.servers.filter((s) => s !== n); });
+  def(R_S, g, "exit", (c) => c.s.enter("config", null));
+}
+def(R_S, "line", "login authentication default", (c) => eachLine(c, (l) => { l.authList = null; }));
+def(R_S, "line", "login authentication <word|Use an authentication list with this name.>", (c, [n]) => {
+  const a = svcOf(c.d).aaa;
+  if (!a.on) { c.print("% AAA must be enabled first: use \"aaa new-model\""); return; }
+  if (!a.authen[n]) c.print(`% AAA: Warning, authentication list "${n}" is not defined for LOGIN.`);
+  eachLine(c, (l) => { l.authList = n; });
+});
+def(R_S, "line", "no login authentication", (c) => eachLine(c, (l) => { l.authList = null; }));
+def(R_S, "priv", "show aaa servers", (c) => {
+  const L = [];
+  let id = 0;
+  for (const [n, s] of Object.entries(svcOf(c.d).aaa.servers)) {
+    L.push(`${s.kind === "radius" ? "RADIUS" : "TACACS+"}: id ${++id}, priority ${id}, host ${s.ip !== null ? n2ip(s.ip) : "(none)"}, ${s.kind === "radius" ? "auth-port 1812, acct-port 1813" : "port 49"}, hostname ${n}`,
+      "     State: current DEAD, duration 30s, previous duration 0s", "     Dead: total time 30s, count 1",
+      "     Authen: request 0, timeouts 3, failover 1, retransmission 2", "             Response: accept 0, reject 0, challenge 0", "");
+  }
+  c.print(L.length ? L.join("\n") : "");
+});
+def(R_S, "priv", "show aaa method-lists authentication", (c) => {
+  const a = svcOf(c.d).aaa, L = ["authen queue=AAA_ML_AUTHEN_LOGIN"];
+  let id = 0;
+  for (const [n, ms] of Object.entries(a.authen)) {
+    L.push(`  name=${n} valid=TRUE id=${hex(id++, 8).toUpperCase()} :state=ALIVE : ${ms.map((m) => (m.startsWith("group ") ? "SERVER_GROUP " + m.slice(6) : m.toUpperCase())).join(" ")}`);
+  }
+  c.print(L.join("\n"));
+});
+
+// ---- name resolution and HTTP -----------------------------------------------------------------
+def(R_S, "config", "ip host <word|Name of host> <ip|Host IP address>", (c, [n, ip]) => { svcOf(c.d).hosts[n] = ip; });
+def(R_S, "config", "no ip host <word|Name of host>", (c, [n]) => { delete svcOf(c.d).hosts[n]; });
+def(R_S, "config", "ip name-server <ip|Domain server IP address (maximum of 6)>", (c, [ip]) => {
+  const s = svcOf(c.d);
+  if (!s.nameServers.includes(ip) && s.nameServers.length < 6) s.nameServers.push(ip);
+});
+def(R_S, "config", "no ip name-server <ip|Domain server IP address (maximum of 6)>", (c, [ip]) => { const s = svcOf(c.d); s.nameServers = s.nameServers.filter((x) => x !== ip); });
+def(R_S, ["user", "priv"], "show hosts", (c) => {
+  const s = svcOf(c.d);
+  const L = [`Default domain is ${c.cfg.domain || "not set"}`, `Name/address lookup uses ${c.cfg.domainLookup ? "domain service" : "static mappings"}`,
+    `Name servers are ${s.nameServers.length ? s.nameServers.map(n2ip).join(", ") : "255.255.255.255"}`, "",
+    "Codes: UN - unknown, EX - expired, OK - OK, ?? - revalidate", "       temp - temporary, perm - permanent", "       NA - Not Applicable None - Not defined", "",
+    "Host                      Port  Flags      Age Type   Address(es)"];
+  for (const [n, ip] of Object.entries(s.hosts)) L.push(pad(n, 26) + pad("None", 6) + pad("(perm, OK)", 11) + pad("0", 4) + pad("IP", 7) + n2ip(ip));
+  c.print(L.join("\n"));
+});
+def(R_S, "config", "ip http server", (c) => { svcOf(c.d).http.server = true; });
+def(R_S, "config", "no ip http server", (c) => { svcOf(c.d).http.server = false; });
+def(R_S, "config", "ip http secure-server", (c) => { svcOf(c.d).http.secure = true; });
+def(R_S, "config", "no ip http secure-server", (c) => { svcOf(c.d).http.secure = false; });
+def(R_S, "config", "ip http authentication local", () => {});
+def(R_S, ["user", "priv"], "ping <word|Ping destination address or hostname>", (c, [name]) => {
+  const ip = svcOf(c.d).hosts[name];
+  if (ip === undefined) {
+    c.print(c.cfg.domainLookup && svcOf(c.d).nameServers.length ? `Translating "${name}"...domain server (${n2ip(svcOf(c.d).nameServers[0])})` : "",
+      `% Unrecognized host or address, or protocol not running.`);
+    return;
+  }
+  c.s.ping(ip, null, 5);
+});
+
+// ---- syslog ---------------------------------------------------------------------------------
+const LV = "<sev|Logging severity level>";
+const logOf = (c) => svcOf(c.d).logging;
+def(R_S, "config", "logging host <ip|IP address of the syslog server>", (c, [ip]) => { const L = logOf(c); if (!L.hosts.includes(ip)) L.hosts.push(ip); });
+def(R_S, "config", "logging <ip|IP address of the logging host>", (c, [ip]) => { const L = logOf(c); if (!L.hosts.includes(ip)) L.hosts.push(ip); });
+def(R_S, "config", "no logging host <ip|IP address of the syslog server>", (c, [ip]) => { const L = logOf(c); L.hosts = L.hosts.filter((x) => x !== ip); });
+def(R_S, "config", "logging trap " + LV, (c, [n]) => { logOf(c).trap = n; });
+def(R_S, "config", "logging trap", (c) => { logOf(c).trap = 6; });
+def(R_S, "config", "no logging trap", (c) => { logOf(c).trap = 6; });
+def(R_S, "config", "logging console " + LV, (c, [n]) => { logOf(c).console = n; });
+def(R_S, "config", "logging console", (c) => { logOf(c).console = 7; });
+def(R_S, "config", "no logging console", (c) => { logOf(c).console = null; });
+def(R_S, "config", "logging monitor " + LV, (c, [n]) => { logOf(c).monitor = n; });
+def(R_S, "config", "no logging monitor", (c) => { logOf(c).monitor = null; });
+def(R_S, "config", "logging buffered", (c) => { logOf(c).buffered = { size: 8192, level: 7 }; });
+def(R_S, "config", "logging buffered <num:4096-2147483647|Logging buffer size>", (c, [n]) => { logOf(c).buffered = { size: n, level: (logOf(c).buffered || { level: 7 }).level }; });
+def(R_S, "config", "logging buffered <num:4096-2147483647|Logging buffer size> " + LV, (c, [n, l]) => { logOf(c).buffered = { size: n, level: l }; });
+def(R_S, "config", "logging buffered " + LV, (c, [l]) => { logOf(c).buffered = { size: (logOf(c).buffered || { size: 8192 }).size, level: l }; });
+def(R_S, "config", "no logging buffered", (c) => { logOf(c).buffered = null; c.d.rt.svc.log = []; });
+def(R_S, "config", "logging source-interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => { logOf(c).source = ifn; }));
+def(R_S, "config", "no logging source-interface", (c) => { logOf(c).source = null; });
+def(R_S, "config", "logging on", (c) => { logOf(c).on = true; });
+def(R_S, "config", "no logging on", (c) => { logOf(c).on = false; });
+for (const which of ["log", "debug"]) {
+  const set = (v) => (c) => { svcOf(c.d).ts[which] = v; };
+  def(R_S, "config", `service timestamps ${which}`, set("uptime"));
+  def(R_S, "config", `service timestamps ${which} uptime`, set("uptime"));
+  def(R_S, "config", `service timestamps ${which} datetime`, set("datetime"));
+  def(R_S, "config", `service timestamps ${which} datetime msec`, set("datetime"));
+  def(R_S, "config", `service timestamps ${which} datetime msec localtime`, set("datetime"));
+  def(R_S, "config", `service timestamps ${which} datetime localtime`, set("datetime"));
+  def(R_S, "config", `no service timestamps ${which}`, set(null));
+}
+def(R_S, "config", "service sequence-numbers", (c) => { svcOf(c.d).seq = true; });
+def(R_S, "config", "no service sequence-numbers", (c) => { svcOf(c.d).seq = false; });
+def(R_S, "priv", "clear logging", (c) => c.s.ask("Clear logging buffer [confirm]", {}, (a) => { if (!a.trim() || /^y/i.test(a.trim())) c.d.rt.svc.log = []; }));
+def(R_S, ["user", "priv"], "show logging", (c) => {
+  const L = logOf(c), r = c.d.rt.svc;
+  const lvl = (n) => (n === null ? "disabled" : "level " + levelName(n));
+  const out = [`Syslog logging: ${L.on ? "enabled" : "disabled"} (0 messages dropped, 0 messages rate-limited, 0 flushes, 0 overruns, xml disabled, filtering disabled)`, "",
+    "No Active Message Discriminator.", "", "", "", "No Inactive Message Discriminator.", "", "",
+    `    Console logging: ${lvl(L.console)}${L.console === null ? "" : `, ${r.counts.console} messages logged, xml disabled,`}`,
+    ...(L.console === null ? [] : ["                     filtering disabled"]),
+    `    Monitor logging: ${lvl(L.monitor)}${L.monitor === null ? "" : ", 0 messages logged, xml disabled,"}`,
+    ...(L.monitor === null ? [] : ["                     filtering disabled"]),
+    `    Buffer logging:  ${L.buffered ? `level ${levelName(L.buffered.level)}, ${r.counts.buffer} messages logged, xml disabled,` : "disabled, xml disabled,"}`,
+    "                    filtering disabled", "    Exception Logging: size (4096 bytes)", "    Count and timestamp logging messages: disabled",
+    "    Persistent logging: disabled", "", "No active filter modules.", "", `    Trap logging: level ${levelName(L.trap)}, ${r.counts.trap} message lines logged`];
+  for (const h of L.hosts) {
+    const ok = c.net.svcUdp(c.d.name, h, 514, L.source);
+    out.push(`        Logging to ${n2ip(h)}  (udp port 514, audit disabled,`, `              link ${ok ? "up" : "down"}),`, `              ${r.counts.hosts[h] || 0} message lines logged, `,
+      "              0 message lines rate-limited, ", "              0 message lines dropped-by-MD, ", "              xml disabled, sequence number disabled",
+      "              filtering disabled");
+  }
+  out.push(`        Logging Source-Interface:       VRF Name:${L.source ? "\n        " + L.source : ""}`, "TLS Profiles: ", "");
+  if (L.buffered) out.push(`Log Buffer (${L.buffered.size} bytes):`, "", ...r.log);
+  c.print(out.join("\n"));
+});
+
+// ---- SNMP -------------------------------------------------------------------------------------
+const snmpOf = (c) => svcOf(c.d).snmp;
+const community = (access) => (c, args) => {
+  const [name, view, acc, acl] = args;
+  snmpOf(c).communities[name] = { access: (acc || access || "RO").toUpperCase(), acl: acl ?? null, view: view ?? null };
+};
+def(R_S, "config", "snmp-server community <word|SNMP community string>", (c, [n]) => community("RO")(c, [n]));
+def(R_S, "config", "snmp-server community <word|SNMP community string> {RO|RW}", (c, [n, a]) => community()(c, [n, null, a]));
+def(R_S, "config", "snmp-server community <word|SNMP community string> {RO|RW} <word|Std IP accesslist allowing access with this community string>", (c, [n, a, acl]) => community()(c, [n, null, a, acl]));
+def(R_S, "config", "snmp-server community <word|SNMP community string> view <word|MIB view to which this community has access> {RO|RW}", (c, [n, v, a]) => community()(c, [n, v, a]));
+def(R_S, "config", "no snmp-server community <word|SNMP community string>", (c, [n]) => { delete snmpOf(c).communities[n]; });
+def(R_S, "config", "snmp-server location <line|The physical location of this node>", (c, [l]) => { snmpOf(c).location = l; });
+def(R_S, "config", "snmp-server contact <line|identification of the contact person for this managed node>", (c, [l]) => { snmpOf(c).contact = l; });
+def(R_S, "config", "no snmp-server location", (c) => { snmpOf(c).location = null; });
+def(R_S, "config", "no snmp-server contact", (c) => { snmpOf(c).contact = null; });
+def(R_S, "config", "snmp-server ifindex persist", () => {});
+def(R_S, "config", "snmp-server view <word|Name of the view> <word|MIB view family name or OID> {included|excluded}", (c, [n, oid, inc]) => {
+  const v = snmpOf(c).views;
+  v[n] = (v[n] || []).filter((x) => x.oid !== oid).concat([{ oid, included: inc === "included" }]);
+});
+def(R_S, "config", "no snmp-server view <word|Name of the view>", (c, [n]) => { delete snmpOf(c).views[n]; });
+for (const tail of ["", " read <word|View name>", " write <word|View name>", " read <word|View name> write <word|View name>",
+  " access <word|Standard IP Access-list allowing access with this group>", " read <word|View name> access <word|Standard IP Access-list allowing access with this group>",
+  " read <word|View name> write <word|View name> access <word|Standard IP Access-list allowing access with this group>"]) {
+  def(R_S, "config", "snmp-server group <word|Name of the group> v3 {noauth|auth|priv}" + tail, (c, args) => {
+    const [name, level, ...rest] = args, words = c.toks.map((t) => t.t.toLowerCase()), g = { level, read: null, write: null, acl: null };
+    let k = 0;
+    for (let i = 5; i < words.length; i++) {
+      if ("read".startsWith(words[i])) g.read = rest[k++];
+      else if ("write".startsWith(words[i])) g.write = rest[k++];
+      else if ("access".startsWith(words[i])) g.acl = rest[k++];
+    }
+    snmpOf(c).groups[name] = g;
+  });
+}
+def(R_S, "config", "no snmp-server group <word|Name of the group> v3 {noauth|auth|priv}", (c, [n]) => { delete snmpOf(c).groups[n]; });
+const snmpUser = (c, [name, group, ...rest]) => {
+  const w = c.toks.map((t) => t.t.toLowerCase()), u = { group, auth: null, priv: null, acl: null };
+  const i = w.indexOf("auth");
+  if (i > 0) u.auth = { proto: w[i + 1] === "m" || "md5".startsWith(w[i + 1]) ? "md5" : "sha", pw: c.toks[i + 2].t };
+  const j = w.indexOf("priv");
+  if (j > 0) u.priv = { proto: w[j + 1].startsWith("a") ? "aes " + w[j + 2] : w[j + 1].startsWith("3") ? "3des" : "des", pw: c.toks[w[j + 1].startsWith("a") ? j + 3 : j + 2].t };
+  if (u.priv && !u.auth) { c.print("% Privacy requires authentication"); return; }
+  snmpOf(c).users[name] = u;
+};
+def(R_S, "config", "snmp-server user <word|Name of the user> <word|Group to which the user belongs> v3", snmpUser);
+def(R_S, "config", "snmp-server user <word|Name of the user> <word|Group to which the user belongs> v3 auth {md5|sha} <word|Authentication password for user>", snmpUser);
+def(R_S, "config", "snmp-server user <word|Name of the user> <word|Group to which the user belongs> v3 auth {md5|sha} <word|Authentication password for user> priv {des|3des} <word|Privacy password for user>", snmpUser);
+def(R_S, "config", "snmp-server user <word|Name of the user> <word|Group to which the user belongs> v3 auth {md5|sha} <word|Authentication password for user> priv aes {128|192|256} <word|Privacy password for user>", snmpUser);
+def(R_S, "config", "no snmp-server user <word|Name of the user> <word|Group to which the user belongs> v3", (c, [n]) => { delete snmpOf(c).users[n]; });
+const snmpHost = (c, args) => {
+  const w = c.toks.map((t) => t.t.toLowerCase()), ip = args[0], name = args[args.length - 1];
+  const vi = w.indexOf("version"), ver = vi > 0 ? w[vi + 1] : "1", level = ver === "3" ? w[vi + 2] : null;
+  const s = snmpOf(c);
+  s.hosts = s.hosts.filter((h) => h.ip !== ip).concat([{ ip, ver, level, name }]);
+};
+def(R_S, "config", "snmp-server host <ip|IP address of SNMP notification host> <word|SNMPv1/v2c community string or SNMPv3 user name>", snmpHost);
+def(R_S, "config", "snmp-server host <ip|IP address of SNMP notification host> version {1|2c} <word|SNMPv1/v2c community string or SNMPv3 user name>", snmpHost);
+def(R_S, "config", "snmp-server host <ip|IP address of SNMP notification host> version 3 {noauth|auth|priv} <word|SNMPv1/v2c community string or SNMPv3 user name>", snmpHost);
+def(R_S, "config", "no snmp-server host <ip|IP address of SNMP notification host>", (c, [ip]) => { const s = snmpOf(c); s.hosts = s.hosts.filter((h) => h.ip !== ip); });
+def(R_S, "config", "snmp-server enable traps", (c) => { snmpOf(c).traps = ""; });
+def(R_S, "config", "snmp-server enable traps <line|Notification types>", (c, [t]) => { snmpOf(c).traps = t.toLowerCase().trim(); });
+def(R_S, "config", "no snmp-server enable traps", (c) => { snmpOf(c).traps = null; });
+def(R_S, ["user", "priv"], "show snmp", (c) => {
+  const s = snmpOf(c), r = c.d.rt.svc;
+  if (!Object.keys(s.communities).length && !Object.keys(s.users).length && !s.hosts.length) { c.print("%SNMP agent not enabled"); return; }
+  const traps = Object.values(r.traps).reduce((a, b) => a + b, 0);
+  c.print([`Chassis: NETLAB${hex(c.d.idx, 4).toUpperCase()}`, ...(s.contact ? ["Contact: " + s.contact] : []), ...(s.location ? ["Location: " + s.location] : []),
+    `${r.snmpIn} SNMP packets input`, "    0 Bad SNMP version errors", "    0 Unknown community name", "    0 Illegal operation for community name supplied",
+    "    0 Encoding errors", `    ${r.snmpIn} Number of requested variables`, "    0 Number of altered variables", "    0 Get-request PDUs",
+    "    0 Get-next PDUs", "    0 Set-request PDUs", "    0 Input queue packet drops (Maximum queue size 1000)", `${traps} SNMP packets output`,
+    "    0 Too big errors (Maximum packet size 1500)", "    0 No such name errors", "    0 Bad values errors", "    0 General errors",
+    "    0 Response PDUs", `    ${traps} Trap PDUs`, "", ...(s.hosts.length ? ["SNMP logging: enabled", ...s.hosts.map((h) => `    Logging to ${n2ip(h.ip)}.162, 0/10, ${r.traps[n2ip(h.ip)] || 0} sent, 0 dropped.`)] : ["SNMP logging: disabled"])].join("\n"));
+});
+def(R_S, ["user", "priv"], "show snmp community", (c) => {
+  const L = [];
+  let i = 0;
+  for (const [n, x] of Object.entries(snmpOf(c).communities)) {
+    L.push("", `Community name: ${n}`, `Community Index: cisco${i++}`, `Community SecurityName: ${n}`, `storage-type: nonvolatile\t active${x.acl ? "\taccess-list: " + x.acl : ""}`, "");
+  }
+  c.print(L.join("\n"));
+});
+def(R_S, ["user", "priv"], "show snmp user", (c) => {
+  const L = [];
+  for (const [n, u] of Object.entries(snmpOf(c).users)) {
+    L.push(`User name: ${n}`, `Engine ID: 80000009030052540000${hex(c.d.idx, 2)}00`, "storage-type: nonvolatile\t active",
+      `Authentication Protocol: ${u.auth ? u.auth.proto.toUpperCase() : "None"}`, `Privacy Protocol: ${u.priv ? u.priv.proto.replace("aes ", "AES").toUpperCase() : "None"}`, `Group-name: ${u.group}`, "");
+  }
+  c.print(L.join("\n"));
+});
+def(R_S, ["user", "priv"], "show snmp group", (c) => {
+  const L = [];
+  for (const [n, g] of Object.entries(snmpOf(c).groups)) {
+    L.push(`groupname: ${pad(n, 33)}security model:v3 ${g.level === "noauth" ? "noauth" : g.level}`, `contextname: <no context specified>         storage-type: nonvolatile`,
+      `readview : ${pad(g.read || "v1default", 33)}writeview: ${g.write || "<no writeview specified>"}`, "notifyview: <no notifyview specified>",
+      `row status: active${g.acl ? "\taccess-list: " + g.acl : ""}`, "");
+  }
+  c.print(L.join("\n"));
+});
+def(R_S, ["user", "priv"], "show snmp host", (c) => {
+  const s = snmpOf(c);
+  c.print(s.hosts.map((h) => [`Notification host: ${n2ip(h.ip)}\tudp-port: 162\ttype: trap`, `user: ${h.name}\tsecurity model: ${h.ver === "3" ? "v3 " + h.level : h.ver === "2c" ? "v2c" : "v1"}`, ""].join("\n")).join("\n"));
+});
+def(R_S, ["user", "priv"], "show snmp view", (c) => {
+  const L = [];
+  for (const [n, v] of Object.entries(snmpOf(c).views)) for (const e of v) L.push(`${n} ${e.oid} - ${e.included ? "included" : "excluded"} nonvolatile active`);
+  c.print(L.join("\n"));
+});
+
+// ---- NTP ----------------------------------------------------------------------------------------
+const ntpOf = (c) => svcOf(c.d).ntp;
+def(R_S, "config", "ntp master", (c) => { ntpOf(c).master = 8; });
+def(R_S, "config", "ntp master <num:1-15|Stratum number>", (c, [n]) => { ntpOf(c).master = n; });
+def(R_S, "config", "no ntp master", (c) => { ntpOf(c).master = null; });
+const ntpServer = (c, args) => {
+  const [ip] = args, w = c.toks.map((t) => t.t.toLowerCase()), n = ntpOf(c);
+  const ki = w.indexOf("key");
+  const s = { ip, key: ki > 0 ? +w[ki + 1] : null, prefer: w.some((x) => x.length >= 2 && "prefer".startsWith(x)) };
+  n.servers = n.servers.filter((x) => x.ip !== ip).concat([s]);
+};
+def(R_S, "config", "ntp server <ip|IP address of peer>", ntpServer);
+def(R_S, "config", "ntp server <ip|IP address of peer> prefer", ntpServer);
+def(R_S, "config", "ntp server <ip|IP address of peer> key <num:1-4294967295|Peer key number>", ntpServer);
+def(R_S, "config", "ntp server <ip|IP address of peer> key <num:1-4294967295|Peer key number> prefer", ntpServer);
+def(R_S, "config", "no ntp server <ip|IP address of peer>", (c, [ip]) => { const n = ntpOf(c); n.servers = n.servers.filter((x) => x.ip !== ip); });
+def(R_S, "config", "ntp authenticate", (c) => { ntpOf(c).auth = true; });
+def(R_S, "config", "no ntp authenticate", (c) => { ntpOf(c).auth = false; });
+def(R_S, "config", "ntp authentication-key <num:1-4294967295|Key number> md5 <word|Authentication key>", (c, [n, k]) => { ntpOf(c).keys[n] = k; });
+def(R_S, "config", "ntp authentication-key <num:1-4294967295|Key number> md5 <word|Authentication key> 7", (c, [n, k]) => { ntpOf(c).keys[n] = type7decode(k); });
+def(R_S, "config", "no ntp authentication-key <num:1-4294967295|Key number>", (c, [n]) => { delete ntpOf(c).keys[n]; });
+def(R_S, "config", "ntp trusted-key <num:1-4294967295|Key number>", (c, [n]) => { const x = ntpOf(c); if (!x.trusted.includes(n)) x.trusted.push(n); });
+def(R_S, "config", "no ntp trusted-key <num:1-4294967295|Key number>", (c, [n]) => { const x = ntpOf(c); x.trusted = x.trusted.filter((k) => k !== n); });
+def(R_S, "config", "ntp source <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => { ntpOf(c).source = ifn; }));
+def(R_S, "config", "no ntp source", (c) => { ntpOf(c).source = null; });
+def(R_S, ["user", "priv"], "show ntp status", (c) => {
+  const st = c.net.svcNtp()[c.d.name];
+  const synced = st.stratum < 16;
+  const ref = !synced ? "no reference clock" : st.peer !== null ? "reference is " + n2ip(st.peer) : "reference is 127.127.1.1";
+  c.print([`Clock is ${synced ? "synchronized" : "unsynchronized"}, stratum ${st.stratum}, ${ref}`,
+    "nominal freq is 250.0000 Hz, actual freq is 250.0000 Hz, precision is 2**10", "ntp uptime is 1500 (1/100 of seconds), resolution is 4000",
+    synced ? `reference time is E9A4B2C1.6C8B4396 (${clock(c.net.svcClock(c.d.name).offset).split(".")[0]}.000 UTC)` : "reference time is 00000000.00000000 (00:00:00.000 UTC Mon Jan 1 1900)",
+    `clock offset is 0.0000 msec, root delay is ${synced && st.peer !== null ? "1.00" : "0.00"} msec`, `root dispersion is ${synced ? "2.00" : "0.00"} msec, peer dispersion is ${synced ? "0.12" : "0.00"} msec`,
+    `loopfilter state is '${synced ? "CTRL" : "FSET"}' (${synced ? "Normal Controlled Loop" : "Drift set from file"}), drift is 0.000000000 s/s`,
+    `system poll interval is 64, ${synced ? "last update was 12 sec ago" : "never updated"}.`].join("\n"));
+});
+def(R_S, ["user", "priv"], "show ntp associations", (c) => {
+  const st = c.net.svcNtp()[c.d.name];
+  const L = ["", "  address         ref clock       st   when   poll reach  delay  offset   disp"];
+  if (st.master && st.peer === null) L.push("*~127.127.1.1     .LOCL.     " + lpad(svcOf(c.d).ntp.master - 1, 6) + "     12     16   377  0.000   0.000  0.240");
+  for (const a of st.assoc || []) {
+    const sel = st.peer === a.ip ? "*" : a.ok ? "+" : " ";
+    L.push(sel + "~" + pad(n2ip(a.ip), 16) + pad(a.ref, 13) + lpad(a.st, 5) + lpad(a.reach ? "12" : "-", 7) + lpad("64", 7) + lpad(a.reach, 6)
+      + (a.reach ? "  1.000   0.500  0.190" : "  0.000   0.000 15937."));
+  }
+  L.push(" * sys.peer, # selected, + candidate, - outlyer, x falseticker, ~ configured");
+  c.print(L.join("\n"));
+});
+
+// ---- QoS: class-maps and policy-maps ----------------------------------------------------------------
+def(R_S, "config", "class-map <word|class-map name>", (c, [n]) => {
+  const q = qosOf(c);
+  q.classes[n] = q.classes[n] || { any: false, matches: [], desc: "" };
+  c.s.enter("classmap", n);
+});
+def(R_S, "config", "class-map {match-all|match-any} <word|class-map name>", (c, [k, n]) => {
+  const q = qosOf(c);
+  if (q.classes[n] && q.classes[n].any !== (k === "match-any")) { c.print(`% class-map ${n} already exists with a different match type`); return; }
+  q.classes[n] = q.classes[n] || { any: k === "match-any", matches: [], desc: "" };
+  c.s.enter("classmap", n);
+});
+def(R_S, "config", "no class-map <word|class-map name>", (c, [n]) => {
+  const q = qosOf(c);
+  if (Object.values(q.policies).some((p) => p.classes.some((x) => x.name === n))) { c.print(`Class-map ${n} is being used`); return; }
+  delete q.classes[n];
+});
+const cmatch = (m) => (c) => {
+  const cls = qosOf(c).classes[c.target];
+  cls.matches = cls.matches.filter((x) => JSON.stringify({ ...x, not: undefined }) !== JSON.stringify({ ...m, not: undefined })).concat([m]);
+};
+const cunmatch = (m) => (c) => {
+  const cls = qosOf(c).classes[c.target];
+  cls.matches = cls.matches.filter((x) => JSON.stringify(x) !== JSON.stringify(m));
+};
+for (const [neg, wrap] of [["", cmatch], ["no ", cunmatch]]) {
+  def(R_S, "classmap", neg + "match any", (c) => wrap({ kind: "any" })(c));
+  def(R_S, "classmap", neg + "match dscp <dscps>", (c, [v]) => wrap({ kind: "dscp", vals: v })(c));
+  def(R_S, "classmap", neg + "match ip dscp <dscps>", (c, [v]) => wrap({ kind: "dscp", vals: v })(c));
+  def(R_S, "classmap", neg + "match precedence <precs>", (c, [v]) => wrap({ kind: "prec", vals: v })(c));
+  def(R_S, "classmap", neg + "match access-group <num:1-2699|Access list index>", (c, [n]) => wrap({ kind: "acl", name: String(n) })(c));
+  def(R_S, "classmap", neg + "match access-group name <word|Named Access List>", (c, [n]) => wrap({ kind: "acl", name: n })(c));
+  def(R_S, "classmap", neg + "match protocol {ip|icmp|http|https|telnet|ssh|dns|ntp|snmp}", (c, [p]) => wrap({ kind: "proto", name: p })(c));
+}
+def(R_S, "classmap", "description <line|Class-Map description>", (c, [t]) => { qosOf(c).classes[c.target].desc = t; });
+def(R_S, "classmap", "exit", (c) => c.s.enter("config", null));
+
+def(R_S, "config", "policy-map <word|policy-map name>", (c, [n]) => {
+  const q = qosOf(c);
+  q.policies[n] = q.policies[n] || { classes: [], desc: "" };
+  c.s.enter("pmap", n);
+});
+def(R_S, "config", "no policy-map <word|policy-map name>", (c, [n]) => {
+  const q = qosOf(c);
+  const used = Object.values(c.cfg.intfs).some((i) => i.svc && (i.svc.sp.input === n || i.svc.sp.output === n));
+  if (used) { c.print(`Policy map ${n} is being used`); return; }
+  delete q.policies[n];
+});
+def(R_S, "pmap", "class <word|class-map name>", (c, [n]) => {
+  const q = qosOf(c), pol = q.policies[c.target];
+  if (n !== "class-default" && !q.classes[n]) { c.print(`class-map ${n} not configured`); return; }
+  if (!pol.classes.find((x) => x.name === n)) pol.classes.push({ name: n, act: {} });
+  c.s.enter("pmapc", { pol: c.target, cls: n });
+});
+def(R_S, "pmap", "no class <word|class-map name>", (c, [n]) => { const pol = qosOf(c).policies[c.target]; pol.classes = pol.classes.filter((x) => x.name !== n); });
+def(R_S, "pmap", "description <line|Policy-Map description>", (c, [t]) => { qosOf(c).policies[c.target].desc = t; });
+def(R_S, "pmap", "exit", (c) => c.s.enter("config", null));
+const actOf = (c) => qosOf(c).policies[c.target.pol].classes.find((x) => x.name === c.target.cls).act;
+const queueing = (a) => !!(a.bw || a.bwPct || a.bwRem || a.prio || a.prioPct || a.shape || a.fq);
+const policyUsedInput = (c, pol) => Object.values(c.cfg.intfs).some((i) => i.svc && i.svc.sp.input === pol);
+const qset = (fn) => (c, args) => {
+  const a = actOf(c);
+  const before = JSON.stringify(a);
+  fn(a, args, c);
+  if (queueing(a) && policyUsedInput(c, c.target.pol)) {
+    Object.assign(a, JSON.parse(before));
+    for (const k of Object.keys(a)) if (!(k in JSON.parse(before))) delete a[k];
+    c.print("% Queueing features are not supported on input: remove the policy from the input direction first");
+  }
+};
+def(R_S, "pmapc", "set dscp <dscp>", qset((a, [v]) => { a.dscp = v; a.prec = null; }));
+def(R_S, "pmapc", "set ip dscp <dscp>", qset((a, [v]) => { a.dscp = v; a.prec = null; }));
+def(R_S, "pmapc", "set precedence <num:0-7|Precedence value>", qset((a, [v]) => { a.prec = v; a.dscp = null; }));
+def(R_S, "pmapc", "set ip precedence <num:0-7|Precedence value>", qset((a, [v]) => { a.prec = v; a.dscp = null; }));
+def(R_S, "pmapc", "no set dscp", qset((a) => { a.dscp = null; }));
+def(R_S, "pmapc", "no set precedence", qset((a) => { a.prec = null; }));
+const noPrioWithBw = (a, c) => {
+  if (a.prio || a.prioPct) { c.print("% Cannot configure bandwidth and priority in the same class"); return false; }
+  return true;
+};
+def(R_S, "pmapc", "bandwidth <num:8-10000000|Kilo Bits per second>", qset((a, [n], c) => { if (noPrioWithBw(a, c)) { a.bw = n; a.bwPct = a.bwRem = null; } }));
+def(R_S, "pmapc", "bandwidth percent <num:1-100|Percentage>", qset((a, [n], c) => { if (noPrioWithBw(a, c)) { a.bwPct = n; a.bw = a.bwRem = null; } }));
+def(R_S, "pmapc", "bandwidth remaining percent <num:1-100|Percentage>", qset((a, [n], c) => { if (noPrioWithBw(a, c)) { a.bwRem = n; a.bw = a.bwPct = null; } }));
+def(R_S, "pmapc", "no bandwidth", qset((a) => { a.bw = a.bwPct = a.bwRem = null; }));
+const noBwWithPrio = (a, c) => {
+  if (a.bw || a.bwPct || a.bwRem) { c.print("% Cannot configure bandwidth and priority in the same class"); return false; }
+  return true;
+};
+def(R_S, "pmapc", "priority", qset((a, _, c) => { if (noBwWithPrio(a, c)) { a.prio = true; a.prioPct = null; } }));
+def(R_S, "pmapc", "priority <num:8-10000000|Kilo Bits per second>", qset((a, [n], c) => { if (noBwWithPrio(a, c)) { a.prio = n; a.prioPct = null; } }));
+def(R_S, "pmapc", "priority percent <num:1-100|Percentage>", qset((a, [n], c) => { if (noBwWithPrio(a, c)) { a.prioPct = n; a.prio = null; } }));
+def(R_S, "pmapc", "no priority", qset((a) => { a.prio = a.prioPct = null; }));
+def(R_S, "pmapc", "shape average <num:8000-10000000000|Target Bit Rate (bits per second)>", qset((a, [n]) => { a.shape = n; }));
+def(R_S, "pmapc", "no shape average", qset((a) => { a.shape = null; }));
+def(R_S, "pmapc", "fair-queue", qset((a) => { a.fq = true; }));
+def(R_S, "pmapc", "no fair-queue", qset((a) => { a.fq = null; }));
+def(R_S, "pmapc", "service-policy <word|policy-map name>", (c, [n]) => {
+  if (!qosOf(c).policies[n]) { c.print(`policy map ${n} not configured`); return; }
+  if (n === c.target.pol) { c.print("% A policy-map cannot contain itself"); return; }
+  actOf(c).child = n;
+});
+def(R_S, "pmapc", "no service-policy", (c) => { actOf(c).child = null; });
+const policeAct = { transmit: { kind: "transmit" }, drop: { kind: "drop" } };
+const startPolice = (c, cir, bc) => {
+  const a = actOf(c);
+  a.police = { cir, bc: bc ?? Math.max(1500, Math.floor(cir / 32)), conform: { kind: "transmit" }, exceed: { kind: "drop" } };
+  return a.police;
+};
+def(R_S, "pmapc", "police cir <num:8000-10000000000|Bits per second>", (c, [cir]) => { startPolice(c, cir); c.s.enter("police", c.target); });
+def(R_S, "pmapc", "police cir <num:8000-10000000000|Bits per second> bc <num:1000-512000000|Burst bytes>", (c, [cir, bc]) => { startPolice(c, cir, bc); c.s.enter("police", c.target); });
+def(R_S, "pmapc", "police <num:8000-10000000000|Bits per second>", (c, [cir]) => { startPolice(c, cir); c.s.enter("police", c.target); });
+for (const ca of ["transmit", "drop"]) {
+  for (const ea of ["transmit", "drop"]) {
+    def(R_S, "pmapc", `police cir <num:8000-10000000000|Bits per second> conform-action ${ca} exceed-action ${ea}`, (c, [cir]) => {
+      const p = startPolice(c, cir);
+      p.conform = policeAct[ca];
+      p.exceed = policeAct[ea];
+    });
+    def(R_S, "pmapc", `police <num:8000-10000000000|Bits per second> conform-action ${ca} exceed-action ${ea}`, (c, [cir]) => {
+      const p = startPolice(c, cir);
+      p.conform = policeAct[ca];
+      p.exceed = policeAct[ea];
+    });
+  }
+}
+def(R_S, "pmapc", "no police", (c) => { actOf(c).police = null; });
+def(R_S, "pmapc", "description <line|Policy-Map class description>", () => {});
+def(R_S, "pmapc", "exit", (c) => c.s.enter("pmap", c.target.pol));
+for (const which of ["conform", "exceed"]) {
+  def(R_S, "police", `${which}-action {transmit|drop}`, (c, [k]) => { actOf(c).police[which] = policeAct[k]; });
+  def(R_S, "police", `${which}-action set-dscp-transmit <dscp>`, (c, [v]) => { actOf(c).police[which] = { kind: "set-dscp-transmit", dscp: v }; });
+}
+def(R_S, "police", "violate-action {transmit|drop}", () => {});
+def(R_S, "police", "exit", (c) => c.s.enter("pmapc", c.target));
+
+def(R_S, IF_MODES, "service-policy {input|output} <word|policy-map name>", (c, [dir, n]) => {
+  const pol = qosOf(c).policies[n];
+  if (!pol) { c.print(`policy map ${n} not configured`); return; }
+  if (dir === "input" && pol.classes.some((x) => queueing(x.act))) {
+    c.print("% Queueing features (bandwidth, priority, shape, fair-queue) are only supported in the output direction");
+    return;
+  }
+  eachSvcIf(c, (ifn, s) => { s.sp[dir] = n; });
+});
+def(R_S, IF_MODES, "no service-policy {input|output} <word|policy-map name>", (c, [dir, n]) => eachSvcIf(c, (ifn, s) => {
+  if (s.sp[dir] === n) s.sp[dir] = null;
+}));
+def(R_S, IF_MODES, "no service-policy {input|output}", (c, [dir]) => eachSvcIf(c, (ifn, s) => { s.sp[dir] = null; }));
+
+// Switch QoS.
+def("S", "config", "mls qos", (c) => { qosOf(c).mls = true; });
+def("S", "config", "no mls qos", (c) => { qosOf(c).mls = false; });
+def("S", IF_MODES, "mls qos trust {dscp|cos|ip-precedence}", (c, [t]) => eachSvcIf(c, (n, s) => { s.trust = t; }));
+def("S", IF_MODES, "no mls qos trust", (c) => eachSvcIf(c, (n, s) => { s.trust = null; }));
+def("S", IF_MODES, "auto qos voip trust", (c) => {
+  qosOf(c).mls = true;
+  eachSvcIf(c, (n, s, i) => { s.autoqos = true; s.trust = i.mode === "trunk" ? "cos" : "dscp"; });
+});
+def("S", IF_MODES, "no auto qos voip trust", (c) => eachSvcIf(c, (n, s) => { s.autoqos = false; s.trust = null; }));
+def("S", ["user", "priv"], "show mls qos", (c) => c.print(qosOf(c).mls ? "QoS is enabled\nQoS ip packet dscp rewrite is enabled" : "QoS is disabled\nQoS ip packet dscp rewrite is enabled"));
+const mlsIf = (c, n) => {
+  const s = ifSvc(c.d, n), on = qosOf(c).mls, t = s.trust;
+  return [n, ...(on ? [] : ["QoS is disabled. When QoS is enabled, following settings will be applied"]),
+    `trust state: ${t ? "trust " + t : "not trusted"}`, `trust mode: ${t ? "trust " + t : "not trusted"}`, `trust enabled flag: ${t ? "ena" : "dis"}`,
+    "COS override: dis", "default COS: 0", "DSCP Mutation Map: Default DSCP Mutation Map", "Trust device: none", "qos mode: port-based"].join("\n");
+};
+def("S", ["user", "priv"], "show mls qos interface <intf>", (c, [n]) => c.s.withIf(n, 3, (ifn) => c.print(mlsIf(c, ifn))));
+def("S", ["user", "priv"], "show mls qos interface", (c) => c.print(c.d.ports.map((p) => mlsIf(c, p)).join("\n\n")));
+
+function showClassMap(c, only) {
+  const q = qosOf(c), L = [];
+  for (const [n, cls] of Object.entries(q.classes)) {
+    if (only && n !== only) continue;
+    L.push(` Class Map ${cls.any ? "match-any" : "match-all"} ${n} (id ${Object.keys(q.classes).indexOf(n) + 1})`, "");
+    if (cls.desc) L.push("   Description: " + cls.desc);
+    for (const m of cls.matches) L.push("   Match " + matchText(m));
+    L.push("");
+  }
+  if (!only) L.push(" Class Map match-any class-default (id 0)", "", "   Match any ", "");
+  return L.join("\n");
+}
+function matchText(m) {
+  switch (m.kind) {
+    case "any": return "any ";
+    case "dscp": return "dscp " + m.vals.map((v) => `${dscpName(v)} (${v})`).join(" ");
+    case "prec": return "precedence " + m.vals.join(" ");
+    case "acl": return (/^\d+$/.test(m.name) ? "access-group " : "access-group name ") + m.name;
+    case "proto": return "protocol " + m.name;
+    default: return "";
+  }
+}
+function policyLines(c, name, indent) {
+  const q = qosOf(c), pol = q.policies[name], sp = " ".repeat(indent), L = [];
+  if (!pol) return L;
+  for (const x of pol.classes) {
+    const a = x.act;
+    L.push(`${sp}Class ${x.name}`);
+    if (a.dscp !== undefined && a.dscp !== null) L.push(`${sp}  set dscp ${dscpName(a.dscp)}`);
+    if (a.prec !== undefined && a.prec !== null) L.push(`${sp}  set precedence ${a.prec}`);
+    if (a.prio || a.prioPct) L.push(`${sp}  priority ${a.prioPct ? a.prioPct + " (%)" : a.prio === true ? "" : a.prio + " (kbps)"}`.trimEnd());
+    if (a.bw) L.push(`${sp}  bandwidth ${a.bw} (kbps)`);
+    if (a.bwPct) L.push(`${sp}  bandwidth ${a.bwPct} (%)`);
+    if (a.bwRem) L.push(`${sp}  bandwidth remaining ${a.bwRem} (%)`);
+    if (a.shape) L.push(`${sp}  Average Rate Traffic Shaping`, `${sp}  cir ${a.shape} (bps)`);
+    if (a.fq) L.push(`${sp}  fair-queue`);
+    if (a.police) {
+      const p = a.police, act = (x) => (x.kind === "set-dscp-transmit" ? "set-dscp-transmit " + dscpName(x.dscp) : x.kind);
+      L.push(`${sp}  police cir ${p.cir} bc ${p.bc}`, `${sp}    conform-action ${act(p.conform)} `, `${sp}    exceed-action ${act(p.exceed)} `);
+    }
+    if (a.child) L.push(`${sp}  service-policy ${a.child}`);
+  }
+  return L;
+}
+def(R_S, ["user", "priv"], "show class-map", (c) => c.print(showClassMap(c, null)));
+def(R_S, ["user", "priv"], "show class-map <word|class-map name>", (c, [n]) => c.print(qosOf(c).classes[n] ? showClassMap(c, n) : `Class-map ${n} not found`));
+def(R_S, ["user", "priv"], "show policy-map", (c) => {
+  const L = [];
+  for (const n of Object.keys(qosOf(c).policies)) L.push(`  Policy Map ${n}`, ...policyLines(c, n, 4), "");
+  c.print(L.join("\n"));
+});
+def(R_S, ["user", "priv"], "show policy-map <word|policy-map name>", (c, [n]) => c.print(qosOf(c).policies[n] ? [`  Policy Map ${n}`, ...policyLines(c, n, 4)].join("\n") : `Policy Map ${n} not found`));
+
+function policyStats(c, ifn, dir, name, indent) {
+  const d = c.d, q = qosOf(c), pol = q.policies[name], sp = " ".repeat(indent), L = [];
+  if (!pol) return L;
+  L.push(`${sp}Service-policy ${dir}: ${name}`, "");
+  const classes = [...pol.classes.filter((x) => x.name !== "class-default"), pol.classes.find((x) => x.name === "class-default") || { name: "class-default", act: {} }];
+  for (const x of classes) {
+    const k = d.rt.svc.qos[`${ifn}|${dir}|${name}|${x.name}`] || { pkts: 0, bytes: 0, marked: 0, conf: [0, 0], exc: [0, 0], drops: 0 };
+    const cls = q.classes[x.name], a = x.act;
+    L.push(`${sp}  Class-map: ${x.name} (${x.name === "class-default" ? "match-any" : cls && cls.any ? "match-any" : "match-all"})  `,
+      `${sp}    ${k.pkts} packets, ${k.bytes} bytes`, `${sp}    5 minute offered rate 0000 bps, drop rate 0000 bps`);
+    if (x.name === "class-default") L.push(`${sp}    Match: any `);
+    else for (const m of (cls ? cls.matches : [])) L.push(`${sp}    Match: ${matchText(m)}`);
+    if (a.prio || a.prioPct) L.push(`${sp}    Priority: ${a.prioPct ? a.prioPct + "% " : a.prio === true ? "" : a.prio + " kbps"}, burst bytes 1500, b/w exceed drops: 0`, "");
+    if (a.bw || a.bwPct || a.bwRem) {
+      L.push(`${sp}    Queueing`, `${sp}    queue limit 64 packets`, `${sp}    (queue depth/total drops/no-buffer drops) 0/0/0`, `${sp}    (pkts output/bytes output) ${k.pkts}/${k.bytes}`,
+        `${sp}    bandwidth ${a.bw ? a.bw + " kbps" : a.bwPct ? a.bwPct + "% " : "remaining " + a.bwRem + "%"}`);
+    }
+    if (a.shape) L.push(`${sp}    shape (average) cir ${a.shape}, bc ${Math.floor(a.shape / 250)}, be ${Math.floor(a.shape / 250)}`, `${sp}    target shape rate ${a.shape}`);
+    if ((a.dscp !== undefined && a.dscp !== null) || (a.prec !== undefined && a.prec !== null)) {
+      L.push(`${sp}    QoS Set`, `${sp}      ${a.dscp !== null && a.dscp !== undefined ? "dscp " + dscpName(a.dscp) : "precedence " + a.prec}`, `${sp}        Packets marked ${k.marked}`);
+    }
+    if (a.police) {
+      const p = a.police, act = (z) => (z.kind === "set-dscp-transmit" ? "set-dscp-transmit " + dscpName(z.dscp) : z.kind);
+      L.push(`${sp}    police:`, `${sp}        cir ${p.cir} bps, bc ${p.bc} bytes`, `${sp}      conformed ${k.conf[0]} packets, ${k.conf[1]} bytes; actions:`,
+        `${sp}        ${act(p.conform)} `, `${sp}      exceeded ${k.exc[0]} packets, ${k.exc[1]} bytes; actions:`, `${sp}        ${act(p.exceed)} `,
+        `${sp}      conformed 0000 bps, exceeded 0000 bps`);
+    }
+    if (a.child) L.push("", ...policyStats(c, ifn, dir, a.child, indent + 6));
+    L.push("");
+  }
+  return L;
+}
+const showPmapIf = (c, ifn, onlyDir) => {
+  const s = ifSvc(c.d, ifn), L = [];
+  for (const dir of ["input", "output"]) {
+    if (onlyDir && dir !== onlyDir) continue;
+    if (s.sp[dir]) L.push(...policyStats(c, ifn, dir, s.sp[dir], 2));
+  }
+  return L.length ? [" " + ifn, "", ...L].join("\n") : "";
+};
+def(R_S, ["user", "priv"], "show policy-map interface", (c) => c.print(Object.keys(c.cfg.intfs).sort(ifSort).map((n) => showPmapIf(c, n)).filter(Boolean).join("\n")));
+def(R_S, ["user", "priv"], "show policy-map interface <intf>", (c, [n]) => c.s.withIf(n, 3, (ifn) => c.print(showPmapIf(c, ifn))));
+def(R_S, ["user", "priv"], "show policy-map interface <intf> {input|output}", (c, [n, dir]) => c.s.withIf(n, 3, (ifn) => c.print(showPmapIf(c, ifn, dir))));
+// "clear counters" also zeroes the policy-map counters.
+guardRuns(["router", "switch"], "priv", ["clear", "counters"], (c, args) => {
+  const ifn = typeof args[0] === "string" ? canonIf(c.d, args[0]) : null;
+  for (const k of Object.keys(c.d.rt.svc.qos)) if (!ifn || k.startsWith(ifn + "|")) delete c.d.rt.svc.qos[k];
+});
+
+// ---- ping options: repeat, size, timeout, df-bit, tos, source, in any order ------------------------
+{
+  const OPTS = {
+    repeat: "<num:1-100>", size: "<num:36-18024|Datagram size>", timeout: "<num:0-3600|Timeout in seconds>",
+    "df-bit": "", tos: "<num:0-255|Type of service value>", source: "<intf>",
+  };
+  const run = (c) => {
+    const w = c.toks.map((t) => t.t);
+    const dst = ip2n(w[1]);
+    let count = 5, size = 100, tos = 0, src = null, bad = false;
+    for (let i = 2; i < w.length; i++) {
+      const k = Object.keys(OPTS).find((o) => o.startsWith(w[i].toLowerCase()));
+      if (k === "repeat") count = +w[++i];
+      else if (k === "size") size = +w[++i];
+      else if (k === "timeout") i++;
+      else if (k === "tos") tos = +w[++i];
+      else if (k === "source") {
+        const r = parseIfName(c.d.type, c.toks, i + 1);
+        if (r && r.name && c.d.cfg.intfs[r.name]) {
+          const a = c.net.ifAddr(c.d.name, r.name);
+          if (!a || !c.net.ifUp(c.d.name, r.name)) bad = true; else src = a.ip;
+          i += r.used;
+        } else if (isIp(w[i + 1])) src = ip2n(w[++i]);
+      }
+    }
+    if (bad) { c.print("% Invalid source interface - IP not enabled or interface is down"); return; }
+    c.s.ping(dst, src, count, size, tos);
+  };
+  const names = Object.keys(OPTS);
+  const build = (spec, used, depth) => {
+    if (depth >= names.length) return;
+    for (const o of names) {
+      if (used.includes(o)) continue;
+      if (o === "source") {
+        // The source (an interface or an address) ends the line; the bare forms already exist.
+        if (used.length) for (const p of ["<intf>", "<ip|Source address>"]) def(R_S, ["user", "priv"], spec + " source " + p, run);
+        continue;
+      }
+      const s = spec + " " + o + (OPTS[o] ? " " + OPTS[o] : "");
+      if (!(used.length === 0 && o === "repeat")) def(R_S, ["user", "priv"], s, run);
+      build(s, [...used, o], depth + 1);
+    }
+  };
+  build("ping <ip|Ping destination address>", [], 0);
+}
+
+// ---- NetFlow (traditional) and Flexible NetFlow -----------------------------------------------------
+def("R", IF_MODES, "ip flow {ingress|egress}", (c, [k]) => eachSvcIf(c, (n, s) => { if (k === "ingress") s.flowIn = true; else s.flowOut = true; }));
+def("R", IF_MODES, "no ip flow {ingress|egress}", (c, [k]) => eachSvcIf(c, (n, s) => { if (k === "ingress") s.flowIn = false; else s.flowOut = false; }));
+def("R", "config", "ip flow-export destination <ip|Destination IP address> <num:1-65535|Destination UDP port>", (c, [ip, p]) => { flowOf(c).exportDst = { ip, port: p }; });
+def("R", "config", "no ip flow-export destination", (c) => { flowOf(c).exportDst = null; });
+def("R", "config", "ip flow-export version {1|5|9}", (c, [v]) => { flowOf(c).exportVer = v; });
+def("R", "config", "ip flow-export source <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => { flowOf(c).exportSrc = ifn; }));
+def("R", ["user", "priv"], "show ip cache flow", (c) => {
+  const fl = Object.values(c.d.rt.svc.tflows), total = fl.reduce((a, b) => a + b.pkts, 0);
+  const L = [`IP packet size distribution (${total} total packets):`, "   1-32   64   96  128  160  192  224  256  288  320  352  384  416  448  480",
+    "   .000 .000 .000 1.00 .000 .000 .000 .000 .000 .000 .000 .000 .000 .000 .000", "",
+    "IP Flow Switching Cache, 278544 bytes", `  ${fl.length} active, ${4096 - fl.length} inactive, ${fl.length} added`, "  0 ager polls, 0 flow alloc failures",
+    "  Active flows timeout in 30 minutes", "  Inactive flows timeout in 15 seconds", "",
+    "SrcIf          SrcIPaddress    DstIf          DstIPaddress    Pr SrcP DstP  Pkts"];
+  for (const f of fl) {
+    L.push(pad(f.inIf ? shortIf(f.inIf) : "Local", 15) + pad(n2ip(f.src), 16) + pad(f.outIf ? shortIf(f.outIf) : "Local", 15) + pad(n2ip(f.dst), 16)
+      + pad(hex(({ icmp: 1, tcp: 6, udp: 17 })[f.proto] ?? 0, 2), 3) + pad(hex(f.sport, 4).toUpperCase(), 5) + pad(hex(f.dport, 4).toUpperCase(), 5) + lpad(f.pkts, 5) + " ");
+  }
+  c.print(L.join("\n"));
+});
+def("R", ["user", "priv"], "show ip flow export", (c) => {
+  const f = flowOf(c);
+  c.print([`Flow export v${f.exportVer || 1} is ${f.exportDst ? "enabled" : "disabled"} for main cache`,
+    ...(f.exportDst ? [`  Export source and destination details :`, `  VRF ID : Default`, `    Destination(1)  ${n2ip(f.exportDst.ip)} (${f.exportDst.port})`] : []),
+    `  Version ${f.exportVer || 1} flow records`, `  ${c.d.rt.svc.exported["(traditional)"] || 0} flows exported in ${c.d.rt.svc.exported["(traditional)"] || 0} udp datagrams`].join("\n"));
+});
+
+def("R", "config", "flow record <word|User defined flow record name>", (c, [n]) => {
+  const f = flowOf(c);
+  f.records[n] = f.records[n] || { match: [], collect: [], desc: "" };
+  c.s.enter("flowrec", n);
+});
+def("R", "config", "no flow record <word|User defined flow record name>", (c, [n]) => {
+  const f = flowOf(c);
+  if (Object.values(f.monitors).some((m) => m.record === n)) { c.print(`% Flow Record: Flow Record '${n}' is in use and cannot be removed`); return; }
+  delete f.records[n];
+});
+const recOf = (c) => flowOf(c).records[c.target];
+const recField = (list, v) => (c) => {
+  const r = recOf(c);
+  if (Object.values(flowOf(c).monitors).some((m) => m.record === c.target && Object.values(c.cfg.intfs).some((i) => i.svc && (i.svc.mon.input.includes(c.target) || i.svc.mon.output.includes(c.target))))) {
+    c.print(`% Flow Record: Flow Record '${c.target}' is in use, cannot modify`);
+    return;
+  }
+  if (!r[list].includes(v)) r[list].push(v);
+};
+const recUnfield = (list, v) => (c) => { const r = recOf(c); r[list] = r[list].filter((x) => x !== v); };
+for (const field of ["ipv4 source address", "ipv4 destination address", "ipv4 protocol", "ipv4 tos", "transport source-port", "transport destination-port", "interface input"]) {
+  def("R", "flowrec", "match " + field, recField("match", field));
+  def("R", "flowrec", "no match " + field, recUnfield("match", field));
+}
+for (const field of ["counter bytes", "counter bytes long", "counter packets", "counter packets long", "interface output", "timestamp sys-uptime first", "timestamp sys-uptime last"]) {
+  def("R", "flowrec", "collect " + field, recField("collect", field));
+  def("R", "flowrec", "no collect " + field, recUnfield("collect", field));
+}
+def("R", "flowrec", "description <line|Description>", (c, [t]) => { recOf(c).desc = t; });
+def("R", "flowrec", "exit", (c) => c.s.enter("config", null));
+
+def("R", "config", "flow exporter <word|User defined flow exporter name>", (c, [n]) => {
+  const f = flowOf(c);
+  f.exporters[n] = f.exporters[n] || { dst: null, src: null, port: 9995, proto: "netflow-v9", desc: "" };
+  c.s.enter("flowexp", n);
+});
+def("R", "config", "no flow exporter <word|User defined flow exporter name>", (c, [n]) => {
+  const f = flowOf(c);
+  for (const m of Object.values(f.monitors)) m.exporters = m.exporters.filter((x) => x !== n);
+  delete f.exporters[n];
+});
+const expOf = (c) => flowOf(c).exporters[c.target];
+def("R", "flowexp", "destination <ip|Destination IPv4 address>", (c, [ip]) => { expOf(c).dst = ip; });
+def("R", "flowexp", "no destination", (c) => { expOf(c).dst = null; });
+def("R", "flowexp", "source <intf>", (c, [n]) => c.s.withIf(n, 1, (ifn) => { expOf(c).src = ifn; }));
+def("R", "flowexp", "no source", (c) => { expOf(c).src = null; });
+def("R", "flowexp", "transport udp <num:1-65535|Port value>", (c, [p]) => { expOf(c).port = p; });
+def("R", "flowexp", "export-protocol {netflow-v9|netflow-v5|ipfix}", (c, [p]) => { expOf(c).proto = p; });
+def("R", "flowexp", "description <line|Description>", (c, [t]) => { expOf(c).desc = t; });
+def("R", "flowexp", "exit", (c) => c.s.enter("config", null));
+
+def("R", "config", "flow monitor <word|User defined flow monitor name>", (c, [n]) => {
+  const f = flowOf(c);
+  f.monitors[n] = f.monitors[n] || { record: null, exporters: [], active: 1800, inactive: 15, desc: "" };
+  c.s.enter("flowmon", n);
+});
+def("R", "config", "no flow monitor <word|User defined flow monitor name>", (c, [n]) => {
+  if (Object.values(c.cfg.intfs).some((i) => i.svc && (i.svc.mon.input.includes(n) || i.svc.mon.output.includes(n)))) {
+    c.print(`% Flow Monitor: Flow Monitor '${n}' is in use`);
+    return;
+  }
+  delete flowOf(c).monitors[n];
+});
+const monOf = (c) => flowOf(c).monitors[c.target];
+def("R", "flowmon", "record <word|Flow record name>", (c, [n]) => {
+  if (!flowOf(c).records[n]) { c.print(`% Flow Record "${n}" does not exist`); return; }
+  monOf(c).record = n;
+});
+def("R", "flowmon", "no record", (c) => { monOf(c).record = null; });
+def("R", "flowmon", "exporter <word|Flow exporter name>", (c, [n]) => {
+  if (!flowOf(c).exporters[n]) { c.print(`% Flow Exporter "${n}" does not exist`); return; }
+  const m = monOf(c);
+  if (!m.exporters.includes(n)) m.exporters.push(n);
+});
+def("R", "flowmon", "no exporter <word|Flow exporter name>", (c, [n]) => { const m = monOf(c); m.exporters = m.exporters.filter((x) => x !== n); });
+def("R", "flowmon", "cache timeout active <num:1-604800|The active flow timeout in seconds>", (c, [t]) => { monOf(c).active = t; });
+def("R", "flowmon", "cache timeout inactive <num:1-604800|The inactive flow timeout in seconds>", (c, [t]) => { monOf(c).inactive = t; });
+def("R", "flowmon", "description <line|Description>", (c, [t]) => { monOf(c).desc = t; });
+def("R", "flowmon", "exit", (c) => c.s.enter("config", null));
+
+def("R", IF_MODES, "ip flow monitor <word|Flow monitor name> {input|output}", (c, [n, dir]) => {
+  const m = flowOf(c).monitors[n];
+  if (!m) { c.print(`% Flow Monitor: Flow Monitor '${n}' does not exist`); return; }
+  if (!m.record) { c.print(`% Flow Monitor: Flow Monitor '${n}' does not have a flow record assigned`); return; }
+  if (!flowOf(c).records[m.record].match.length) { c.print(`% Flow Monitor: Flow Record '${m.record}' has no match fields`); return; }
+  eachSvcIf(c, (ifn, s) => { if (!s.mon[dir].includes(n)) s.mon[dir].push(n); });
+});
+def("R", IF_MODES, "no ip flow monitor <word|Flow monitor name> {input|output}", (c, [n, dir]) => eachSvcIf(c, (ifn, s) => { s.mon[dir] = s.mon[dir].filter((x) => x !== n); }));
+
+function flowCache(c, name) {
+  const f = flowOf(c), m = f.monitors[name], rec = m && f.records[m.record], store = c.d.rt.svc.flows[name] || {};
+  const entries = Object.values(store);
+  const L = ["  Cache type:                               Normal (Platform cache)", "  Cache size:                                 4096",
+    `  Current entries:                       ${lpad(entries.length, 9)}`, "", `  Flows added:                           ${lpad(entries.length, 9)}`,
+    "  Flows aged:                                    0", ""];
+  if (!rec || !entries.length) return L.join("\n");
+  const cols = [...rec.match.map((x) => ({ h: FLOW_COLS[x], v: (e) => flowField(x, e) })),
+    ...rec.collect.map((x) => ({
+      h: { "counter bytes": "bytes", "counter bytes long": "bytes long", "counter packets": "pkts", "counter packets long": "pkts long",
+        "interface output": "intf output", "timestamp sys-uptime first": "time first", "timestamp sys-uptime last": "time last" }[x],
+      v: (e) => (x.startsWith("counter bytes") ? String(e.bytes) : x.startsWith("counter packets") ? String(e.pkts) : x === "interface output" ? (e.outIf ? shortIf(e.outIf) : "Null")
+        : new Date(c.d.rt.svc.boot + (x.endsWith("first") ? e.first : e.last)).toISOString().slice(11, 23)),
+    }))];
+  const widths = cols.map((col) => Math.max(col.h.length, ...entries.map((e) => col.v(e).length)));
+  L.push(cols.map((col, i) => pad(col.h, widths[i])).join("  "), widths.map((w) => "=".repeat(w)).join("  "));
+  for (const e of entries) L.push(cols.map((col, i) => (/^(bytes|pkts|IP PROT|TRNS)/.test(col.h) ? lpad(col.v(e), widths[i]) : pad(col.v(e), widths[i]))).join("  "));
+  return L.join("\n");
+}
+def("R", ["user", "priv"], "show flow monitor", (c) => {
+  const f = flowOf(c), L = [];
+  for (const [n, m] of Object.entries(f.monitors)) {
+    L.push(`Flow Monitor ${n}:`, `  Description:       ${m.desc || "User defined"}`, `  Flow Record:       ${m.record || "not configured"}`,
+      ...(m.exporters.length ? [`  Flow Exporter:     ${m.exporters.join(", ")}`] : []), "  Cache:", "    Type:                 normal (Platform cache)",
+      "    Status:               allocated", "    Size:                 4096 entries", `    Inactive Timeout:     ${m.inactive} secs`, `    Active Timeout:       ${m.active} secs`, "");
+  }
+  c.print(L.join("\n"));
+});
+def("R", ["user", "priv"], "show flow monitor <word|Flow monitor name>", (c, [n]) => {
+  if (!flowOf(c).monitors[n]) { c.print(`% Flow Monitor: Flow Monitor '${n}' does not exist`); return; }
+  const m = flowOf(c).monitors[n];
+  c.print([`Flow Monitor ${n}:`, `  Description:       ${m.desc || "User defined"}`, `  Flow Record:       ${m.record || "not configured"}`,
+    ...(m.exporters.length ? [`  Flow Exporter:     ${m.exporters.join(", ")}`] : []), "  Cache:", "    Type:                 normal (Platform cache)",
+    "    Status:               allocated", "    Size:                 4096 entries", `    Inactive Timeout:     ${m.inactive} secs`, `    Active Timeout:       ${m.active} secs`].join("\n"));
+});
+def("R", ["user", "priv"], "show flow monitor <word|Flow monitor name> cache", (c, [n]) => {
+  if (!flowOf(c).monitors[n]) { c.print(`% Flow Monitor: Flow Monitor '${n}' does not exist`); return; }
+  c.print(flowCache(c, n));
+});
+def("R", ["user", "priv"], "show flow exporter", (c) => {
+  const f = flowOf(c), L = [];
+  for (const [n, e] of Object.entries(f.exporters)) {
+    L.push(`Flow Exporter ${n}:`, `  Description:              ${e.desc || "User defined"}`, `  Export protocol:          ${e.proto === "netflow-v9" ? "NetFlow Version 9" : e.proto === "ipfix" ? "IPFIX (Version 10)" : "NetFlow Version 5"}`,
+      "  Transport Configuration:", `    Destination IP address: ${e.dst !== null ? n2ip(e.dst) : "Not configured"}`,
+      `    Source IP address:      ${e.src && c.net.ifAddr(c.d.name, e.src) ? n2ip(c.net.ifAddr(c.d.name, e.src).ip) : "0.0.0.0"}`,
+      ...(e.src ? [`    Source Interface:       ${e.src}`] : []), "    Transport Protocol:     UDP", `    Destination Port:       ${e.port}`,
+      `    Source Port:            ${50000 + Object.keys(f.exporters).indexOf(n)}`, "    DSCP:                   0x0", "    TTL:                    255",
+      `    Output Features:        Not Used`, "", `  Export statistics: ${c.d.rt.svc.exported[n] || 0} records sent`, "");
+  }
+  c.print(L.join("\n"));
+});
+def("R", ["user", "priv"], "show flow exporter <word|Flow exporter name>", (c, [n]) => {
+  const e = flowOf(c).exporters[n];
+  if (!e) { c.print(`% Flow Exporter: Flow Exporter '${n}' does not exist`); return; }
+  c.print([`Flow Exporter ${n}:`, `  Description:              ${e.desc || "User defined"}`, "  Transport Configuration:",
+    `    Destination IP address: ${e.dst !== null ? n2ip(e.dst) : "Not configured"}`, `    Destination Port:       ${e.port}`,
+    `  Export statistics: ${c.d.rt.svc.exported[n] || 0} records sent`].join("\n"));
+});
+def("R", ["user", "priv"], "show flow record", (c) => {
+  const L = [];
+  for (const [n, r] of Object.entries(flowOf(c).records)) {
+    L.push(`flow record ${n}:`, `  Description:        ${r.desc || "User defined"}`, "  No. of users:       1", "  Total field space:  29 bytes", "  Fields:",
+      ...r.match.map((x) => "    match " + x), ...r.collect.map((x) => "    collect " + x), "");
+  }
+  c.print(L.join("\n"));
+});
+def("R", ["user", "priv"], "show flow interface", (c) => {
+  const L = [];
+  for (const n of Object.keys(c.cfg.intfs).sort(ifSort)) {
+    const s = ifSvc(c.d, n);
+    if (!s.mon.input.length && !s.mon.output.length) continue;
+    L.push(`Interface ${n}`);
+    for (const dir of ["input", "output"]) for (const m of s.mon[dir]) L.push(`  FNF:  monitor:         ${m}`, `        direction:       ${dir === "input" ? "Input" : "Output"}`, "        traffic(ip):     on");
+  }
+  c.print(L.join("\n"));
+});
+
+// ---- LLDP ---------------------------------------------------------------------------------------
+const lldpOf = (c) => svcOf(c.d).lldp;
+def(R_S, "config", "lldp run", (c) => { lldpOf(c).run = true; });
+def(R_S, "config", "no lldp run", (c) => { lldpOf(c).run = false; });
+def(R_S, "config", "lldp timer <num:5-65534|Rate at which LLDP packets are sent (in sec)>", (c, [n]) => { lldpOf(c).timer = n; });
+def(R_S, "config", "lldp holdtime <num:0-65535|Length of time (in sec) that receiver must keep this packet>", (c, [n]) => { lldpOf(c).hold = n; });
+def(R_S, "config", "no lldp timer", (c) => { lldpOf(c).timer = 30; });
+def(R_S, "config", "no lldp holdtime", (c) => { lldpOf(c).hold = 120; });
+def(R_S, IF_MODES, "lldp {transmit|receive}", (c, [k]) => eachSvcIf(c, (n, s) => { if (k === "transmit") s.lldpTx = true; else s.lldpRx = true; }));
+def(R_S, IF_MODES, "no lldp {transmit|receive}", (c, [k]) => eachSvcIf(c, (n, s) => { if (k === "transmit") s.lldpTx = false; else s.lldpRx = false; }));
+def(R_S, ["user", "priv"], "show lldp", (c) => {
+  const l = lldpOf(c);
+  c.print(l.run ? ["", "Global LLDP Information:", "    Status: ACTIVE", `    LLDP advertisements are sent every ${l.timer} seconds`,
+    `    LLDP hold time advertised is ${l.hold} seconds`, "    LLDP interface reinitialisation delay is 2 seconds"].join("\n") : "% LLDP is not enabled");
+});
+def(R_S, ["user", "priv"], "show lldp neighbors", (c) => {
+  if (!lldpOf(c).run) { c.print("% LLDP is not enabled"); return; }
+  const nb = c.net.svcLldp(c.d.name);
+  const L = ["Capability codes:", "    (R) Router, (B) Bridge, (T) Telephone, (C) DOCSIS Cable Device", "    (W) WLAN Access Point, (P) Repeater, (S) Station, (O) Other", "",
+    "Device ID           Local Intf     Hold-time  Capability      Port ID"];
+  for (const x of nb) L.push(pad(x.dev.cfg.hostname.slice(0, 19), 20) + pad(shortIf(x.local), 15) + pad(x.hold, 11) + pad(x.dev.type === "router" ? "R" : "B", 16) + shortIf(x.port));
+  L.push("", `Total entries displayed: ${nb.length}`);
+  c.print(L.join("\n"));
+});
+def(R_S, ["user", "priv"], "show lldp neighbors detail", (c) => {
+  if (!lldpOf(c).run) { c.print("% LLDP is not enabled"); return; }
+  const nb = c.net.svcLldp(c.d.name), L = [];
+  for (const x of nb) {
+    const r = x.dev.type === "router";
+    L.push("------------------------------------------------", `Local Intf: ${shortIf(x.local)}`, `Chassis id: ${c.net.mac(x.dev.name, x.port)}`, `Port id: ${shortIf(x.port)}`,
+      `Port Description: ${x.dev.cfg.intfs[x.port].desc || x.port}`, `System Name: ${x.dev.cfg.hostname}`, "", "System Description: ",
+      r ? "Cisco IOS Software, IOSv Software (VIOS-ADVENTERPRISEK9-M), Version 15.9(3)M, RELEASE SOFTWARE (fc1)" : "Cisco IOS Software, C2960 Software (C2960-LANBASEK9-M), Version 15.2(7)E, RELEASE SOFTWARE (fc1)",
+      "", `Time remaining: ${x.hold - 7} seconds`, `System Capabilities: ${r ? "R" : "B"}`, `Enabled Capabilities: ${r ? "R" : "B"}`, "Management Addresses:",
+      ...(x.ip !== null ? [`    IP: ${n2ip(x.ip)}`] : ["    None"]), "Auto Negotiation - not supported", "Physical media capabilities - not advertised",
+      "Media Attachment Unit type - not advertised", "Vlan ID: - not advertised", "");
+  }
+  L.push("", `Total entries displayed: ${nb.length}`);
+  c.print(L.join("\n"));
+});
+def(R_S, ["user", "priv"], "show lldp interface", (c) => {
+  if (!lldpOf(c).run) { c.print("% LLDP is not enabled"); return; }
+  c.print(c.d.ports.map((p) => { const s = ifSvc(c.d, p); return `${p}:\n    Tx: ${s.lldpTx ? "enabled" : "disabled"}\n    Rx: ${s.lldpRx ? "enabled" : "disabled"}\n    Tx state: IDLE\n    Rx state: WAIT FOR FRAME\n`; }).join("\n"));
+});
+
+// ---- EEM applets --------------------------------------------------------------------------------
+const appletOf = (c) => svcOf(c.d).eem[c.target];
+def(R_S, "config", "event manager applet <word|Name of the Event Manager applet>", (c, [n]) => {
+  const e = svcOf(c.d).eem;
+  e[n] = e[n] || { event: null, actions: {}, desc: "" };
+  c.s.enter("applet", n);
+});
+def(R_S, "config", "no event manager applet <word|Name of the Event Manager applet>", (c, [n]) => { delete svcOf(c.d).eem[n]; });
+def(R_S, "applet", "event syslog pattern <quoted|Regular expression to match>", (c, [t]) => {
+  const m = /^"(.*)"(?:\s+occurs\s+(\d+))?\s*$/.exec(t.trim());
+  if (!m) { c.print("% Invalid pattern: put the regular expression in double quotes"); return; }
+  try { new RegExp(m[1]); } catch (e) { c.print("% Invalid regular expression"); return; }
+  appletOf(c).event = { kind: "syslog", pattern: m[1], occurs: m[2] ? +m[2] : 1 };
+});
+def(R_S, "applet", "event none", (c) => { appletOf(c).event = { kind: "none" }; });
+def(R_S, "applet", "event timer {countdown|watchdog} time <num:1-4294967|Time value in seconds>", (c, [k, n]) => { appletOf(c).event = { kind: "timer", timer: k, secs: n }; });
+def(R_S, "applet", "action <word|Action label> cli command <quoted|CLI command to be executed>", (c, [label, t]) => {
+  appletOf(c).actions[label] = { kind: "cli", text: unquote(t) };
+});
+def(R_S, "applet", "action <word|Action label> syslog msg <quoted|Syslog message>", (c, [label, t]) => {
+  appletOf(c).actions[label] = { kind: "syslog", text: unquote(t), prio: 6 };
+});
+def(R_S, "applet", "action <word|Action label> syslog priority {emergencies|alerts|critical|errors|warnings|notifications|informational|debugging} msg <quoted|Syslog message>", (c, [label, p, t]) => {
+  appletOf(c).actions[label] = { kind: "syslog", text: unquote(t), prio: SEVERITIES.indexOf(p) };
+});
+def(R_S, "applet", "no action <word|Action label>", (c, [label]) => { delete appletOf(c).actions[label]; });
+def(R_S, "applet", "description <line|Applet description>", (c, [t]) => { appletOf(c).desc = t; });
+def(R_S, "applet", "exit", (c) => {
+  const ap = appletOf(c);
+  if (!ap.event) c.print(`% Event Manager applet ${c.target}: an event must be specified before the applet can be registered`);
+  c.s.enter("config", null);
+});
+def(R_S, "priv", "event manager run <word|Name of the Event Manager policy>", (c, [n]) => {
+  const ap = svcOf(c.d).eem[n];
+  if (!ap) { c.print(`EEM policy ${n} not registered with event manager`); return; }
+  if (!ap.event || ap.event.kind !== "none") { c.print(`EEM policy ${n} not registered with event none Event Detector`); return; }
+  // Already logged by the applet's own session; this console just shows them with its command.
+  c.s.eemExtra = c.net.svcRunApplet(c.d.name, n, (c.s.eemDepth || 0) + 1, "none");
+});
+def(R_S, ["user", "priv"], "show event manager policy registered", (c) => {
+  const e = svcOf(c.d).eem, L = ["No.  Class     Type    Event Type          Trap  Time Registered           Secu  Name"];
+  let i = 0;
+  for (const [n, ap] of Object.entries(e)) {
+    if (!ap.event) continue;
+    const type = ap.event.kind === "syslog" ? "syslog" : ap.event.kind === "none" ? "none" : "timer " + ap.event.timer;
+    L.push(`${pad(++i, 5)}${pad("applet", 10)}${pad("user", 8)}${pad(type, 20)}${pad("Off", 6)}${pad(clock().split(".")[0] + " 2026", 27)}${pad("none", 6)}${n}`);
+    if (ap.event.kind === "syslog") L.push(` pattern {${ap.event.pattern}}${ap.event.occurs > 1 ? " occurs " + ap.event.occurs : ""}`);
+    if (ap.event.kind === "timer") L.push(` time ${ap.event.secs}.000`);
+    L.push(" maxrun 20.000");
+    for (const lb of Object.keys(ap.actions).sort()) {
+      const a = ap.actions[lb];
+      L.push(` action ${lb} ${a.kind === "cli" ? `cli command "${a.text}"` : `syslog ${a.prio !== 6 ? "priority " + SEVERITIES[a.prio] + " " : ""}msg "${a.text}"`}`);
+    }
+    L.push("");
+  }
+  c.print(L.join("\n"));
+});
+def(R_S, ["user", "priv"], "show event manager history events", (c) => {
+  const L = ["No.  Job Id Proc Status    Time of Event            Event Type          Name"];
+  c.d.rt.svc.eem.forEach((h, i) => L.push(`${pad(i + 1, 5)}${pad(i + 1, 7)}${pad("Actv", 5)}${pad("success", 10)}${pad(h.at.split(".")[0] + " 2026", 25)}${pad(h.why, 20)}applet: ${h.name}`));
+  c.print(L.join("\n"));
+});
+
+// ---- running-config -------------------------------------------------------------------------------
+// The lines these services add, by where IOS prints them.
+function svcConfig(d, where) {
+  const s = svcOf(d), c = d.cfg, L = [];
+  const pw = (x) => (c.pwEnc ? "7 " + type7(x) : x);
+  switch (where) {
+    case "service": {
+      const ts = (k) => (s.ts[k] === null ? `no service timestamps ${k}` : `service timestamps ${k} ${s.ts[k] === "uptime" ? "uptime" : "datetime msec"}`);
+      L.push(ts("debug"), ts("log"));
+      if (s.seq) L.push("service sequence-numbers");
+      break;
+    }
+    case "logging": {
+      const lg = s.logging;
+      if (lg.buffered) L.push(`logging buffered ${lg.buffered.size}${lg.buffered.level !== 7 ? " " + levelName(lg.buffered.level) : ""}`);
+      if (lg.console === null) L.push("no logging console");
+      else if (lg.console !== 7) L.push("logging console " + levelName(lg.console));
+      if (lg.monitor === null) L.push("no logging monitor");
+      else if (lg.monitor !== 7) L.push("logging monitor " + levelName(lg.monitor));
+      if (!lg.on) L.push("no logging on");
+      for (const [n, sec] of Object.entries(s.enableLevels)) L.push(`enable secret level ${n} 5 ${sec}`);
+      break;
+    }
+    case "aaa": {
+      const a = s.aaa;
+      if (!a.on) { L.push("no aaa new-model"); break; }
+      L.push("aaa new-model");
+      for (const [n, g] of Object.entries(a.groups)) L.push("!", `aaa group server ${g.kind === "radius" ? "radius" : "tacacs+"} ${n}`, ...g.servers.map((x) => " server name " + x));
+      if (Object.keys(a.groups).length) L.push("!");
+      for (const [n, ms] of Object.entries(a.authen)) L.push(`aaa authentication login ${n} ${ms.join(" ")}`);
+      for (const [n, ms] of Object.entries(a.author)) L.push(`aaa authorization exec ${n} ${ms.join(" ")}`);
+      if (a.console) L.push("aaa authorization console");
+      L.push("!", "!", "!", "!", "!", "aaa session-id common");
+      break;
+    }
+    case "global": {
+      for (const [n, ip] of Object.entries(s.hosts)) L.push(`ip host ${n} ${n2ip(ip)}`);
+      for (const ip of s.nameServers) L.push("ip name-server " + n2ip(ip));
+      if (s.blockFor) L.push(`login block-for ${s.blockFor.secs} attempts ${s.blockFor.attempts} within ${s.blockFor.within}`);
+      if (s.onFail) L.push("login on-failure log");
+      if (s.onSuccess) L.push("login on-success log");
+      if (s.minLen) L.push("security passwords min-length " + s.minLen);
+      break;
+    }
+    case "objects": {
+      const q = s.qos, f = s.flow;
+      if (s.lldp.run) {
+        L.push("!");
+        if (s.lldp.timer !== 30) L.push("lldp timer " + s.lldp.timer);
+        if (s.lldp.hold !== 120) L.push("lldp holdtime " + s.lldp.hold);
+        L.push("lldp run");
+      }
+      if (q.mls) L.push("mls qos");
+      for (const [n, r] of Object.entries(f.records)) {
+        L.push("!", "flow record " + n);
+        if (r.desc) L.push(" description " + r.desc);
+        for (const x of r.match) L.push(" match " + x);
+        for (const x of r.collect) L.push(" collect " + x);
+      }
+      for (const [n, e] of Object.entries(f.exporters)) {
+        L.push("!", "flow exporter " + n);
+        if (e.desc) L.push(" description " + e.desc);
+        if (e.dst !== null) L.push(" destination " + n2ip(e.dst));
+        if (e.src) L.push(" source " + e.src);
+        if (e.port !== 9995) L.push(" transport udp " + e.port);
+        if (e.proto !== "netflow-v9") L.push(" export-protocol " + e.proto);
+      }
+      for (const [n, m] of Object.entries(f.monitors)) {
+        L.push("!", "flow monitor " + n);
+        if (m.desc) L.push(" description " + m.desc);
+        for (const x of m.exporters) L.push(" exporter " + x);
+        if (m.inactive !== 15) L.push(" cache timeout inactive " + m.inactive);
+        if (m.active !== 1800) L.push(" cache timeout active " + m.active);
+        if (m.record) L.push(" record " + m.record);
+      }
+      for (const [n, cls] of Object.entries(q.classes)) {
+        L.push("!", `class-map ${cls.any ? "match-any" : "match-all"} ${n}`);
+        if (cls.desc) L.push(" description " + cls.desc);
+        for (const m of cls.matches) {
+          const t = m.kind === "dscp" ? "dscp " + m.vals.map(dscpName).join(" ") : m.kind === "prec" ? "precedence " + m.vals.join(" ")
+            : m.kind === "acl" ? (/^\d+$/.test(m.name) ? "access-group " : "access-group name ") + m.name : m.kind === "proto" ? "protocol " + m.name : "any";
+          L.push(" match " + t);
+        }
+      }
+      for (const [n, p] of Object.entries(q.policies)) {
+        L.push("!", "policy-map " + n);
+        if (p.desc) L.push(" description " + p.desc);
+        for (const x of p.classes) {
+          const a = x.act;
+          L.push(" class " + x.name);
+          if (a.prio === true) L.push("  priority");
+          else if (a.prio) L.push("  priority " + a.prio);
+          if (a.prioPct) L.push("  priority percent " + a.prioPct);
+          if (a.bw) L.push("  bandwidth " + a.bw);
+          if (a.bwPct) L.push("  bandwidth percent " + a.bwPct);
+          if (a.bwRem) L.push("  bandwidth remaining percent " + a.bwRem);
+          if (a.shape) L.push("  shape average " + a.shape);
+          if (a.fq) L.push("  fair-queue");
+          if (a.dscp !== undefined && a.dscp !== null) L.push("  set dscp " + dscpName(a.dscp));
+          if (a.prec !== undefined && a.prec !== null) L.push("  set precedence " + a.prec);
+          if (a.police) {
+            const act = (z) => (z.kind === "set-dscp-transmit" ? "set-dscp-transmit " + dscpName(z.dscp) : z.kind);
+            L.push(`  police cir ${a.police.cir} bc ${a.police.bc}`, `   conform-action ${act(a.police.conform)} `, `   exceed-action ${act(a.police.exceed)} `);
+          }
+          if (a.child) L.push("  service-policy " + a.child);
+        }
+      }
+      if (Object.keys(f.records).length + Object.keys(f.exporters).length + Object.keys(f.monitors).length + Object.keys(q.classes).length + Object.keys(q.policies).length) L.push("!");
+      break;
+    }
+    case "late": {
+      L.push(s.http.server ? "ip http server" : "no ip http server", s.http.secure ? "ip http secure-server" : "no ip http secure-server");
+      const f = s.flow;
+      if (f.exportVer) L.push("ip flow-export version " + f.exportVer);
+      if (f.exportSrc) L.push("ip flow-export source " + f.exportSrc);
+      if (f.exportDst) L.push(`ip flow-export destination ${n2ip(f.exportDst.ip)} ${f.exportDst.port}`);
+      const lg = s.logging;
+      if (lg.trap !== 6) L.push("logging trap " + levelName(lg.trap));
+      if (lg.source) L.push("logging source-interface " + lg.source);
+      for (const h of lg.hosts) L.push("logging host " + n2ip(h));
+      const sn = s.snmp;
+      for (const [n, v] of Object.entries(sn.views)) for (const e of v) L.push(`snmp-server view ${n} ${e.oid} ${e.included ? "included" : "excluded"}`);
+      for (const [n, x] of Object.entries(sn.communities)) L.push(`snmp-server community ${n}${x.view ? " view " + x.view : ""} ${x.access}${x.acl ? " " + x.acl : ""}`);
+      for (const [n, g] of Object.entries(sn.groups)) {
+        L.push(`snmp-server group ${n} v3 ${g.level}${g.read ? " read " + g.read : ""}${g.write ? " write " + g.write : ""}${g.acl ? " access " + g.acl : ""}`);
+      }
+      if (sn.location) L.push("snmp-server location " + sn.location);
+      if (sn.contact) L.push("snmp-server contact " + sn.contact);
+      if (sn.traps !== null) L.push("snmp-server enable traps" + (sn.traps ? " " + sn.traps : ""));
+      for (const h of sn.hosts) L.push(`snmp-server host ${n2ip(h.ip)}${h.ver !== "1" ? " version " + h.ver + (h.level ? " " + h.level : "") : ""} ${h.name}`);
+      for (const [n, x] of Object.entries(s.aaa.servers)) {
+        L.push("!", `${x.kind} server ${n}`);
+        if (x.ip !== null) L.push(` address ipv4 ${n2ip(x.ip)}${x.kind === "radius" ? " auth-port 1812 acct-port 1813" : ""}`);
+        if (x.key !== null) L.push(" key " + pw(x.key));
+      }
+      break;
+    }
+    case "banners": {
+      if (s.bannerExec) L.push("banner exec ^C" + s.bannerExec + "^C");
+      if (s.bannerLogin) L.push("banner login ^C" + s.bannerLogin + "^C");
+      break;
+    }
+    case "tail": {
+      const n = s.ntp;
+      for (const [k, v] of Object.entries(n.keys)) L.push(`ntp authentication-key ${k} md5 ${type7(v)} 7`);
+      if (n.auth) L.push("ntp authenticate");
+      for (const k of n.trusted) L.push("ntp trusted-key " + k);
+      if (n.source) L.push("ntp source " + n.source);
+      if (n.master !== null) L.push(n.master === 8 ? "ntp master" : "ntp master " + n.master);
+      for (const x of n.servers) L.push(`ntp server ${n2ip(x.ip)}${x.key !== null ? " key " + x.key : ""}${x.prefer ? " prefer" : ""}`);
+      for (const p of s.privs) L.push(`privilege exec level ${p.level} ${p.path.join(" ")}`);
+      for (const [name, ap] of Object.entries(s.eem)) {
+        L.push("event manager applet " + name);
+        if (ap.desc) L.push(" description " + ap.desc);
+        if (ap.event && ap.event.kind === "syslog") L.push(` event syslog pattern "${ap.event.pattern}"${ap.event.occurs > 1 ? " occurs " + ap.event.occurs : ""}`);
+        if (ap.event && ap.event.kind === "none") L.push(" event none");
+        if (ap.event && ap.event.kind === "timer") L.push(` event timer ${ap.event.timer} time ${ap.event.secs}`);
+        for (const lb of Object.keys(ap.actions).sort()) {
+          const a = ap.actions[lb];
+          L.push(a.kind === "cli" ? ` action ${lb} cli command "${a.text}"` : ` action ${lb} syslog ${a.prio !== 6 ? "priority " + SEVERITIES[a.prio] + " " : ""}msg "${a.text}"`);
+        }
+      }
+      if (Object.keys(s.eem).length) L.push("!");
+      break;
+    }
+    default: break;
+  }
+  return L;
+}
+
+// Interface lines, printed just before " shutdown" the way IOS orders them.
+function svcIfConfig(d, n) {
+  const s = d.cfg.intfs[n].svc, L = [];
+  if (!s) return L;
+  if (s.flowIn) L.push(" ip flow ingress");
+  if (s.flowOut) L.push(" ip flow egress");
+  for (const m of s.mon.input) L.push(` ip flow monitor ${m} input`);
+  for (const m of s.mon.output) L.push(` ip flow monitor ${m} output`);
+  if (s.autoqos) L.push(" auto qos voip trust ");
+  else if (s.trust) L.push(" mls qos trust " + s.trust);
+  if (!s.lldpTx) L.push(" no lldp transmit");
+  if (!s.lldpRx) L.push(" no lldp receive");
+  if (s.sp.input) L.push(" service-policy input " + s.sp.input);
+  if (s.sp.output) L.push(" service-policy output " + s.sp.output);
+  return L;
+}
+
+// ---- lab checks ------------------------------------------------------------------------------------
+// qos-class {device, intf, dir, policy?, class, min?}: packets matched by a class on an interface
+// qos-police {device, intf, dir, class, exceeded?, conformed?}: policer outcomes
+// qos-marked {device, intf, dir, class, min?}: packets the class re-marked
+// login {device, line: con|vty, user?, password, level?, ok?}: what a login attempt gets
+// quiet-mode {device}: login block-for has locked logins
+// snmp-access {device, from, community | user + auth + priv, write?, ok?}: can a manager there use the agent
+// snmp-traps {device, host, min?}: traps sent to a host
+// log-buffer {device, pattern}: a message in the logging buffer
+// log-host {device, host, min?}: messages delivered to a syslog server
+// ntp-sync {device, peer?, stratum?}: NTP synchronised (to a peer, at a stratum)
+// flow {device, monitor, src?, dst?, min?}: flows in a Flexible NetFlow cache (or the traditional cache with no monitor)
+// lldp-nbr {device, intf?, neighbor}: an LLDP neighbour seen
+// eem-ran {device, applet}: an EEM applet has run
+const SVC_CHECKS = {
+  "qos-class": (net, c, d) => {
+    const k = Object.entries(d.rt.svc.qos).find(([key]) => {
+      const [i, dir, pol, cls] = key.split("|");
+      return i === canonIf(d, c.intf) && dir === (c.dir || "output") && (!c.policy || pol === c.policy) && cls === c.class;
+    });
+    return !!k && k[1].pkts >= (c.min || 1);
+  },
+  "qos-police": (net, c, d) => {
+    const k = Object.entries(d.rt.svc.qos).find(([key]) => { const [i, dir, , cls] = key.split("|"); return i === canonIf(d, c.intf) && dir === (c.dir || "output") && cls === c.class; });
+    if (!k) return false;
+    return (c.exceeded === undefined || k[1].exc[0] >= c.exceeded) && (c.conformed === undefined || k[1].conf[0] >= c.conformed);
+  },
+  "qos-marked": (net, c, d) => {
+    const k = Object.entries(d.rt.svc.qos).find(([key]) => { const [i, dir, , cls] = key.split("|"); return i === canonIf(d, c.intf) && dir === (c.dir || "output") && cls === c.class; });
+    return !!k && k[1].marked >= (c.min || 1);
+  },
+  login: (net, c, d) => {
+    const lk = c.line || "vty";
+    let r = authenticate(net, d, lk, c.user ?? null, c.password);
+    if (!r) {
+      // Without AAA: the line's own login setting.
+      const l = lk === "con" ? d.cfg.lines.con : d.cfg.lines.vty0;
+      if (l.login === "local") { const u = d.cfg.users[c.user]; r = u && (u.secret ?? u.password) === c.password ? { ok: true, user: c.user } : { ok: false }; }
+      else if (l.login === "line") r = { ok: l.password !== null && l.password === c.password, user: null };
+      else r = { ok: true, user: null };
+    }
+    if (lk === "vty" && net.svcQuiet(d.name)) r = { ok: false };
+    const want = c.ok !== false;
+    if (r.ok !== want) return false;
+    return !r.ok || c.level === undefined || loginLevel(d, lk, r) === c.level;
+  },
+  "quiet-mode": (net, c, d) => net.svcQuiet(d.name),
+  "snmp-access": (net, c, d) => {
+    const cred = c.community !== undefined ? { community: c.community } : { user: c.user, auth: c.auth, priv: c.priv, authProto: c.authProto };
+    return net.svcSnmpAccess(c.from, d.name, cred, !!c.write).ok === (c.ok !== false);
+  },
+  "snmp-traps": (net, c, d) => (d.rt.svc.traps[c.host] || 0) >= (c.min || 1),
+  "log-buffer": (net, c, d) => d.rt.svc.log.some((l) => new RegExp(c.pattern).test(l)),
+  "log-host": (net, c, d) => (d.rt.svc.counts.hosts[ip2n(c.host)] || 0) >= (c.min || 1),
+  "ntp-sync": (net, c, d) => {
+    const st = net.svcNtp()[d.name];
+    return !!st && st.stratum < 16 && (!c.peer || (st.peer !== null && st.peer === ip2n(c.peer))) && (!c.stratum || st.stratum === c.stratum);
+  },
+  flow: (net, c, d) => {
+    const store = c.monitor ? d.rt.svc.flows[c.monitor] || {} : d.rt.svc.tflows;
+    return Object.values(store).some((e) => (!c.src || e.src === ip2n(c.src)) && (!c.dst || e.dst === ip2n(c.dst)) && e.pkts >= (c.min || 1));
+  },
+  "lldp-nbr": (net, c, d) => net.svcLldp(d.name).some((x) => x.dev.cfg.hostname === c.neighbor && (!c.intf || x.local === canonIf(d, c.intf))),
+  "eem-ran": (net, c, d) => d.rt.svc.eem.some((h) => h.name === c.applet),
+};
