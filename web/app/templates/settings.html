@@ -1,8 +1,16 @@
+{% from "_track.html" import track_switch with context %}
 {% extends "base.html" %}
 {% block title %}Settings{% endblock %}
 {% block content_class %}narrow{% endblock %}
 {% block content %}
 <div class="page-head"><h1>Settings</h1><p>These are your own settings; other users have theirs.</p></div>
+<section class="card stack track-card" style="margin-bottom:16px">
+  <div>
+    <h3 style="margin:0 0 4px">What are you studying?</h3>
+    <p class="muted small" style="margin:0">Pick a track and the whole site follows it: the guides you read, the quiz questions, flashcard decks, workbook labs, terminal labs and the dashboard. <strong>Both</strong> shows CCNP and CCNA side by side.</p>
+  </div>
+  {{ track_switch("track-large") }}
+</section>
 <form id="settings" class="card stack">
   <div>
     <label class="field" for="new_cards_per_day">New flashcards per day</label>

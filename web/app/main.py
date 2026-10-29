@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import config, services
-from .content import DOC_BLURBS, DOC_ORDER, SOURCE_TITLES, get_content
+from .content import DOC_BLURBS, DOC_ORDER, KIT_TITLES, SOURCE_TITLES, TRACKS, get_content, kits_for
 from .db import SessionLocal, as_utc, get_db, utcnow
 from .models import ROLES, User
 from .services import ServiceError
@@ -80,10 +80,14 @@ def _load_user(uid, version) -> User | None:
     with SessionLocal() as db:
         if not config.AUTH_ENABLED:
             # No login locally: everything happens as the first admin.
-            return db.scalars(select(User).where(User.role == "admin").order_by(User.id)).first()
-        user = db.get(User, uid) if isinstance(uid, int) else None
-        if user is None or user.session_version != version or not user.password_hash:
-            return None
+            user = db.scalars(select(User).where(User.role == "admin").order_by(User.id)).first()
+        else:
+            user = db.get(User, uid) if isinstance(uid, int) else None
+            if user is None or user.session_version != version or not user.password_hash:
+                return None
+        if user is not None:
+            # Which kit(s) the person is studying shapes every page, so it travels with them.
+            user.track = services.get_settings(db, user.id)["track"]
         return user
 
 
@@ -189,8 +193,16 @@ async def _validation_error(request: Request, exc: RequestValidationError):
 
 
 def render(request: Request, name: str, nav: str, **ctx):
-    return templates.TemplateResponse(request, name, dict(ctx, nav=nav, user=request.state.user,
-                                                          AUTH_ENABLED=config.AUTH_ENABLED))
+    user = request.state.user
+    track = user.track if user else "both"
+    return templates.TemplateResponse(request, name, dict(
+        ctx, nav=nav, user=user, AUTH_ENABLED=config.AUTH_ENABLED,
+        track=track, TRACKS=TRACKS, kits=kits_for(track), KIT_TITLES=KIT_TITLES))
+
+
+def kits(request: Request) -> set:
+    """The kits the signed-in person is studying: {"ccnp"}, {"ccna"} or both."""
+    return kits_for(request.state.user.track)
 
 
 def current_user(request: Request) -> User:
@@ -224,7 +236,7 @@ async def _not_found(request: Request, exc):
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
     content = get_content()
-    return render(request, "dashboard.html", "home", d=services.dashboard(db, user.id, content),
+    return render(request, "dashboard.html", "home", d=services.dashboard(db, user.id, content, kits(request)),
                   content=content)
 
 
@@ -232,13 +244,13 @@ def home(request: Request, db: Session = Depends(get_db), user: User = Depends(c
 def library(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
     content = get_content()
     docs = []
-    for doc_id in DOC_ORDER:
+    for doc_id in content.doc_ids(kits(request)):
         doc = content.docs[doc_id]
         prog = services.page_progress(db, user.id, doc_id)
         done = sum(1 for p in doc["order"] if prog.get(p) and prog[p].completed_at)
         visited = [r for r in prog.values() if r.last_visited_at]
         last = max(visited, key=lambda r: as_utc(r.last_visited_at)) if visited else None
-        docs.append({"id": doc_id, "title": doc["title"], "blurb": DOC_BLURBS[doc_id],
+        docs.append({"id": doc_id, "kit": doc["kit"], "title": doc["title"], "blurb": DOC_BLURBS[doc_id],
                      "done": done, "total": len(doc["order"]),
                      "chapters": sum(1 for c in doc["chapters"] if c["number"]),
                      "resume": doc["pages"][last.page_id] if last and last.page_id in doc["pages"] else None,
@@ -288,17 +300,18 @@ def read_page(request: Request, doc_id: str, page_id: str, db: Session = Depends
 
 
 @app.get("/quiz", response_class=HTMLResponse)
-def quiz_builder(request: Request, source: str = "bank", group: str | None = None,
+def quiz_builder(request: Request, source: str = "", group: str | None = None,
                  filter: str = "all", db: Session = Depends(get_db),
                  user: User = Depends(current_user)):
     content = get_content()
-    if source not in SOURCE_TITLES:
-        source = "bank"
+    visible = content.sources(kits(request))
+    if source not in visible:
+        source = visible[0]
     results = services.latest_results(db, user.id)
-    sources = {s: services.group_accuracy(content, results, s) for s in SOURCE_TITLES}
+    sources = {s: services.group_accuracy(content, results, s) for s in visible}
     return render(request, "quiz_builder.html", "quiz", sources=sources, source=source,
                   preselect=group, qfilter=filter if filter in services.QUIZ_FILTERS else "all",
-                  parts=content.ccnp_parts, quizzes=services.recent_quizzes(db, user.id, 15),
+                  parts=content.ccnp_parts, quizzes=services.recent_quizzes(db, user.id, 15, content, kits(request)),
                   settings=services.get_settings(db, user.id))
 
 
@@ -319,7 +332,7 @@ def cards_home(request: Request, db: Session = Depends(get_db), user: User = Dep
     settings = services.get_settings(db, user.id)
     tz = services.local_tz(db, user.id)
     new_left = max(0, settings["new_cards_per_day"] - services.new_cards_introduced_today(db, user.id, tz))
-    return render(request, "cards.html", "cards", decks=content.decks, counts=counts,
+    return render(request, "cards.html", "cards", decks=content.decks_for(kits(request)), counts=counts,
                   new_left=new_left, settings=settings)
 
 
@@ -330,9 +343,9 @@ def cards_study(request: Request, deck: str | None = None, mode: str = "due"):
         not_found()
     if mode not in ("due", "cram"):
         mode = "due"
+    pool = [c for c in content.cards if c["deck"] == deck] if deck else content.cards_for(kits(request))
     return render(request, "cards_study.html", "cards", deck=content.deck_by_id.get(deck), mode=mode,
-                  cram_cards=[c for c in content.cards if not deck or c["deck"] == deck]
-                  if mode == "cram" else None)
+                  cram_cards=pool if mode == "cram" else None)
 
 
 @app.get("/cards/browse", response_class=HTMLResponse)
@@ -342,9 +355,9 @@ def cards_browse(request: Request, deck: str | None = None, db: Session = Depend
     if deck and deck not in content.deck_by_id:
         not_found()
     states = services.card_states(db, user.id)
-    cards = [c for c in content.cards if not deck or c["deck"] == deck]
+    cards = [c for c in content.cards if c["deck"] == deck] if deck else content.cards_for(kits(request))
     return render(request, "cards_browse.html", "cards", deck=content.deck_by_id.get(deck),
-                  decks=content.decks, cards=cards, states=states, now=utcnow(), as_utc=as_utc)
+                  decks=content.decks_for(kits(request)), cards=cards, states=states, now=utcnow(), as_utc=as_utc)
 
 
 @app.get("/subnetting", response_class=HTMLResponse)
@@ -369,7 +382,7 @@ def subnetting_toolkit(request: Request):
 def labs(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
     content = get_content()
     progress, checks = services.lab_status(db, user.id)
-    return render(request, "labs.html", "labs", labs=content.labs, intro=content.labs_intro_html,
+    return render(request, "labs.html", "labs", labs=content.labs_for(kits(request)), intros=content.labs_intro_html,
                   progress=progress, checks=checks)
 
 
@@ -381,16 +394,18 @@ def lab_page(request: Request, lab_id: str, db: Session = Depends(get_db),
     if lab is None:
         not_found()
     progress, checks = services.lab_status(db, user.id)
-    idx = content.labs.index(lab)
+    # Previous/next stay inside the lab's own workbook.
+    book = content.labs_for({lab["kit"]})
+    idx = book.index(lab)
     return render(request, "lab.html", "labs", lab=lab, row=progress.get(lab_id),
                   checked=sorted(checks.get(lab_id, set())),
-                  prev=content.labs[idx - 1] if idx else None,
-                  next=content.labs[idx + 1] if idx + 1 < len(content.labs) else None)
+                  prev=book[idx - 1] if idx else None,
+                  next=book[idx + 1] if idx + 1 < len(book) else None)
 
 
 @app.get("/terminal", response_class=HTMLResponse)
 def terminal_labs(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
-    return render(request, "terminal.html", "terminal", labs=get_content().terminal_labs,
+    return render(request, "terminal.html", "terminal", labs=get_content().terminal_for(kits(request)),
                   progress=services.terminal_status(db, user.id))
 
 
@@ -402,13 +417,16 @@ def terminal_lab(request: Request, lab_id: str, db: Session = Depends(get_db),
     if lab is None:
         not_found()
     row = services.terminal_status(db, user.id).get(lab_id)
-    idx = content.terminal_labs.index(lab)
+    shown = content.terminal_for(kits(request))
+    if lab not in shown:
+        shown = content.terminal_labs  # opened by link from the other track
+    idx = shown.index(lab)
     spec = {k: lab[k] for k in ("id", "devices", "links", "initial", "height")}
     spec["tasks"] = [{"checks": t["checks"]} for t in lab["tasks"]]
     return render(request, "terminal_lab.html", "terminal", lab=lab, spec=spec, row=row,
                   saved=json.loads(row.state) if row and row.state else None,
-                  prev=content.terminal_labs[idx - 1] if idx else None,
-                  next=content.terminal_labs[idx + 1] if idx + 1 < len(content.terminal_labs) else None)
+                  prev=shown[idx - 1] if idx else None,
+                  next=shown[idx + 1] if idx + 1 < len(shown) else None)
 
 
 @app.get("/users", response_class=HTMLResponse)
@@ -420,7 +438,7 @@ def users_page(request: Request, db: Session = Depends(get_db), admin: User = De
 @app.get("/search", response_class=HTMLResponse)
 def search(request: Request, q: str = ""):
     q = q.strip()[:200]
-    results = get_content().search(q) if q else []
+    results = get_content().search(q, kits(request)) if q else []
     return render(request, "search.html", "search", q=q, results=results)
 
 
@@ -567,9 +585,9 @@ def api_quiz_delete(quiz_id: int, db: Session = Depends(get_db), user: User = De
 
 
 @app.get("/api/cards/queue")
-def api_card_queue(deck: str | None = None, db: Session = Depends(get_db),
+def api_card_queue(request: Request, deck: str | None = None, db: Session = Depends(get_db),
                    user: User = Depends(current_user)):
-    return services.card_queue(db, user.id, get_content(), deck or None)
+    return services.card_queue(db, user.id, get_content(), deck or None, kits(request))
 
 
 @app.post("/api/cards/{card_id}/review")

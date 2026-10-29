@@ -4,7 +4,7 @@
 <div class="crumbs"><a href="/cards">Flashcards</a><span>/</span></div>
 <div class="page-head spread">
   <h1>{{ deck.name if deck else "All cards" }}</h1>
-  <select onchange="location.href = '/cards/browse' + (this.value ? '?deck=' + this.value : '')" aria-label="Deck" style="width:auto">
+  <select class="deck-picker" onchange="location.href = '/cards/browse' + (this.value ? '?deck=' + this.value : '')" aria-label="Deck">
     <option value="">All decks</option>
     {% for d in decks %}<option value="{{ d.id }}" {{ 'selected' if deck and deck.id == d.id }}>{{ d.name }}</option>{% endfor %}
   </select>

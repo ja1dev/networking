@@ -1,31 +1,56 @@
 {% from "_icons.html" import icon %}
 {% extends "base.html" %}
-{% block title %}Labs{% endblock %}
+{% block title %}Workbook labs{% endblock %}
+{% set kit_names = KIT_TITLES if KIT_TITLES is defined else {"ccna": "CCNA", "ccnp": "CCNP"} %}
 {% block content %}
 <div class="page-head">
-  <h1>Labs</h1>
-  <p>Hands-on EVE-NG/GNS3 labs that follow the CCNA guide. Tick tasks and verification steps as you go; no hardware? The <a href="/read/devnet">DevNet companion</a> maps every lab to Cisco's free sandboxes, and the <a href="/terminal">terminal labs</a> run a simulated network right here in the browser and check your work automatically.</p>
+  <h1>Workbook labs</h1>
+  <p>Hands-on EVE-NG/GNS3 labs that follow the guides. Tick tasks and verification steps as you go. No lab gear handy? The <a href="/terminal">terminal labs</a> run a simulated network in the browser and check your work automatically.</p>
 </div>
-<details class="card reveal" style="padding:0;margin-bottom:16px">
-  <summary>How the labs work</summary>
-  <div class="reveal-body prose">{{ intro|safe }}</div>
-</details>
-<div class="grid grid-3">
-  {% for lab in labs %}
-  {% set done = progress.get(lab.id) and progress[lab.id].completed_at %}
-  {% set n = checks.get(lab.id, [])|length %}
-  <a class="card lab-card" href="/labs/{{ lab.id }}" style="color:inherit">
-    <div class="spread">
-      <span class="lab-num">{{ "Lab %d"|format(lab.number) if lab.number is not none else "Notes" }}</span>
-      {% if done %}<span class="pill pill-good">{{ icon("check", 12) }} done</span>
-      {% elif n %}<span class="pill pill-accent">in progress</span>{% endif %}
-    </div>
-    <h3>{{ lab.title }}</h3>
-    {% if lab["items"] %}
-    <div class="progress {{ 'good' if done }}"><span style="width: {{ pct(n, lab['items']|length) }}%"></span></div>
-    <span class="muted tiny">{{ n }} / {{ lab["items"]|length }} steps ticked</span>
-    {% endif %}
-  </a>
-  {% endfor %}
+{% set intro_map = intros if intros is defined and intros is mapping else {} %}
+{% set groups = [] %}
+{% for kit in ["ccnp", "ccna"] %}
+  {% set items = labs|selectattr("kit", "defined")|selectattr("kit", "equalto", kit)|list %}
+  {% if items %}{% set _ = groups.append((kit, items)) %}{% endif %}
+{% endfor %}
+{% if labs and not groups %}{% set _ = groups.append(("", labs)) %}{% endif %}
+{% if not labs %}
+<div class="card empty">
+  <p>No workbook labs for this track yet.</p>
+  <p class="small">The <a href="/terminal">terminal labs</a> cover this track in the browser, or switch to <strong>Both</strong> to see every workbook.</p>
 </div>
+{% endif %}
+{% for kit, items in groups %}
+<section class="kit-section">
+  <div class="spread" style="margin-bottom:12px">
+    <h2 class="section-title" style="margin:0">{% if kit %}<span class="kit-badge kit-{{ kit }}">{{ kit_names[kit] }}</span> {% endif %}Lab Workbook</h2>
+    <span class="muted small">{{ items|length }} labs</span>
+  </div>
+  {% set intro_html = intro_map.get(kit) if intro_map else (intros if intros is defined and intros is string else (intro if intro is defined else "")) %}
+  {% if intro_html %}
+  <details class="card reveal" style="padding:0;margin:0 0 14px">
+    <summary>How these labs work</summary>
+    <div class="reveal-body prose">{{ intro_html|safe }}</div>
+  </details>
+  {% endif %}
+  <div class="grid grid-cards">
+    {% for lab in items %}
+    {% set done = progress.get(lab.id) and progress[lab.id].completed_at %}
+    {% set n = checks.get(lab.id, [])|length %}
+    <a class="card lab-card" href="/labs/{{ lab.id }}" style="color:inherit">
+      <div class="spread">
+        <span class="lab-num">{{ "Lab %d"|format(lab.number) if lab.number is not none else "Notes" }}</span>
+        {% if done %}<span class="pill pill-good">{{ icon("check", 12) }} done</span>
+        {% elif n %}<span class="pill pill-accent">in progress</span>{% endif %}
+      </div>
+      <h3>{{ lab.title }}</h3>
+      {% if lab["items"] %}
+      <div class="progress {{ 'good' if done }}"><span style="width: {{ pct(n, lab['items']|length) }}%"></span></div>
+      <span class="muted tiny">{{ n }} / {{ lab["items"]|length }} steps ticked</span>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
 {% endblock %}

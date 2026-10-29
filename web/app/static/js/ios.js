@@ -678,7 +678,15 @@ export class Network {
 
   // -- routing ----------------------------------------------------------------
   // The routing table, from the control plane's fixed point (see the CCNP routing sections).
-  routes(dn) { return this.cp().ribs[dn] || []; }
+  // BGP computes its sessions against the IGP table (c.bgpBusy) and its routes are layered on top.
+  routes(dn) {
+    const igp = this.cp().ribs[dn] || [];
+    if (this.c.bgpBusy || !this.devs[dn].cfg.bgp) return igp;
+    const full = this.c.full || (this.c.full = {});
+    if (!full[dn]) full[dn] = ribSelect([...igp, ...this.bgpRoutes(dn).map((r) => ({ ...r, src: r.src || { proto: "bgp", id: this.devs[dn].cfg.bgp.asn } }))])
+      .sort((a, b) => a.net - b.net || a.len - b.len);
+    return full[dn];
+  }
 
   lookup(dn, ip) { return lpm(this.routes(dn), ip); }
 
@@ -1189,6 +1197,7 @@ export class Network {
       if (changed) this.touch();
       if (this.hsrpSettle(log)) { changed = true; this.touch(); }
       if (this.routingSettle(log)) changed = true;
+      if (this.bgpSettle(log)) { changed = true; this.touch(); }
       if (!changed) break;
     }
     return logs;
@@ -1357,7 +1366,7 @@ export class Network {
 
   // The IPv6 routing table. noOspf breaks the loop when OSPFv3 asks about a router's static default.
   routes6(dn, noOspf) {
-    const key = dn + (noOspf ? "|s" : "");
+    const key = dn + (noOspf ? "|s" : "") + (this.c.bgpBusy ? "|igp" : "");
     if (this.c.routes6[key]) return this.c.routes6[key];
     const d = this.devs[dn], cands = [];
     if (d.type !== "router") return [];
@@ -1400,6 +1409,7 @@ export class Network {
       if (!added) break;
       table = select(cands);
     }
+    if (!noOspf && !this.c.bgpBusy && d.cfg.bgp) table = select([...table, ...this.bgpRoutes6(dn)]);
     table.sort((a, b) => (a.net < b.net ? -1 : a.net > b.net ? 1 : a.len - b.len));
     this.c.routes6[key] = table;
     return table;
@@ -1410,6 +1420,7 @@ export class Network {
     if (!r) return { fail: "noroute" };
     if (r.code === "C" || r.code === "L") return { ifn: r.ifn, nh: dst };
     const p = r.paths[0];
+    if (p.ifn === "Null0") return { fail: "null0" };
     if (p.ifn && p.ip === null) return { ifn: p.ifn, nh: dst };
     if (p.ifn) return { ifn: p.ifn, nh: p.ip };
     if (depth > 4) return { fail: "noroute" };
@@ -1727,37 +1738,47 @@ export class Network {
         const t = e && e.topo[ip2n(net) + "/" + len];
         return !!t && t.fs.some((x) => x.ip === ip2n(c.via));
       }
-      default: return this.checkRouting(c);
+      default: {
+        const b = this.bgpCheck(d, c);
+        if (b !== undefined) return b;
+        return this.checkRouting(c);
+      }
     }
   }
 }
 
 // ======== route-maps & prefix-lists ========
-// Shared API for everything that filters or rewrites routes (redistribution, distribute-lists, OSPF
-// area filters, BGP policies) and for policy-based routing.
-//   cfg.prefixLists  {NAME: {desc, entries: [{seq, action, net, len, ge, le}]}}       (IPv4)
-//   cfg.prefixLists6 {NAME: {desc, entries: [{seq, action, net (string), len, ge, le}]}} (IPv6)
-//   cfg.routeMaps    {NAME: [{seq, action, desc, match: {...}, set: {...}}]}
-// match keys: ipAddress [acl names], ipPrefix [prefix-list names], ipv6Prefix [names], tag [n],
-//   metric n, routeType ["internal"|"external"|"type-1"|"type-2"|"local"|"nssa-external"],
-//   interface [ifn], nextHopPrefix [names], length [min, max], asPath [n], community [n]
-// set keys: metric (n, or [bw, dly, rel, load, mtu]), metricType ("type-1"|"type-2"), tag n,
-//   nextHop [ip], defaultNextHop [ip], interface [ifn], localPref n, weight n, prepend [asn],
-//   community [str], origin "igp"|"egp"|"incomplete"
-//
-// net.prefixListMatch(dn, name, net, len, v6) -> "permit" | "deny" | null (no entry matched)
-// net.prefixListPermits(dn, name, net, len, v6) -> bool; a list that doesn't exist permits all
-// net.routeMapEval(dn, name, subject, kind) -> {permit, set, seq} | null when the map doesn't exist
-//   kind "route": subject = {net, len, tag, metric, otype, ifn, nh, v6}
-//   kind "packet": subject = the packet being forwarded (match ip address uses ACLs on it)
-function plMatchEntry(e, net, len, v6) {
-  if (v6) {
-    const pn = parse6(e.net);
-    if (len < e.len || net6(net, e.len) !== pn) return false;
-  } else if (len < e.len || !sameNet(net, e.net, lenMask(e.len))) return false;
-  if (e.ge === null && e.le === null) return len === e.len;
-  const lo = e.ge ?? e.len, hi = e.le ?? (v6 ? 128 : 32);
-  return len >= lo && len <= hi;
+// One store, shared with BGP (the BGP section owns the commands both started with):
+//   cfg.prefixLists / cfg.prefixLists6  {NAME: {desc, entries: [{seq, action, pfx: "10.0.0.0/8", ge, le}]}}
+//   cfg.routeMaps  {NAME: [{seq, action, desc, match: [{kind, names} | {kind, value}], set: [{kind, value, list}]}]}
+// match kinds: "acl", "prefix-list", "ipv6-prefix-list", "as-path", "community", "interface",
+//   "next-hop-prefix-list" (names); "tag" (names, numbers); "metric" (value); "route-type" (value: words);
+//   "length" (value: [min, max]).
+// set kinds: "metric" (a number, or [bw, dly, rel, load, mtu] for EIGRP), "metric-type", "tag",
+//   "next-hop" (value: first address, list: all of them), "default-next-hop" (list), "interface" (list),
+//   and BGP's "weight", "local-preference", "origin", "prepend", "community".
+// Evaluators: BGP runs bgpPolicyRouteMap over BGP paths; everything else (redistribution,
+// distribute-lists, OSPF area filters, PBR) uses these:
+//   net.prefixListMatch(dn, name, net, len, v6) -> "permit" | "deny" | null (no such list)
+//   net.prefixListPermits(dn, name, net, len, v6) -> bool; a list that doesn't exist permits all
+//   net.routeMapEval(dn, name, subject, kind) -> {permit, set, seq} | null (no such route-map)
+//     kind "route": subject = {net, len, tag, metric, otype, ifn, nh, v6}
+//     kind "packet": subject = the packet being forwarded, plus inIf (match ip address runs the ACLs on it)
+function plEntryHit(e, net, len, v6) {
+  const i = e.pfx.lastIndexOf("/"), elen = +e.pfx.slice(i + 1), a = e.pfx.slice(0, i);
+  if (v6 !== a.includes(":")) return false;
+  if (v6) { if (len < elen || net6(net, elen) !== net6(parse6(a), elen)) return false; }
+  else if (len < elen || !sameNet(net, ip2n(a), lenMask(elen))) return false;
+  if (e.ge === null && e.le === null) return len === elen;
+  return len >= (e.ge ?? elen) && len <= (e.le ?? (v6 ? 128 : 32));
+}
+
+// A route-map entry's clauses as plain objects: {match: {kind: names|value}, set: {kind: value}}.
+function rmClause(e) {
+  const match = {}, set = {};
+  for (const m of e.match || []) match[m.kind] = m.names !== undefined ? m.names : m.value;
+  for (const s of e.set || []) set[s.kind] = s.list !== undefined ? s.list : s.value;
+  return { match, set };
 }
 
 const RMAP_ROUTE_TYPES = { intra: ["internal"], inter: ["internal"], e1: ["external", "type-1"], e2: ["external", "type-2"],
@@ -1767,12 +1788,12 @@ Object.assign(Network.prototype, {
   prefixListMatch(dn, name, net, len, v6) {
     const pl = ((v6 ? this.devs[dn].cfg.prefixLists6 : this.devs[dn].cfg.prefixLists) || {})[name];
     if (!pl) return null;
-    for (const e of pl.entries) {
-      if (plMatchEntry(e, net, len, v6)) {
-        const h = this.devs[dn].rt.plHits || (this.devs[dn].rt.plHits = {});
-        h[(v6 ? "6|" : "") + name + "|" + e.seq] = (h[(v6 ? "6|" : "") + name + "|" + e.seq] || 0) + 1;
-        return e.action;
-      }
+    for (const e of [...pl.entries].sort((a, b) => a.seq - b.seq)) {
+      if (!plEntryHit(e, net, len, v6)) continue;
+      const h = this.devs[dn].rt.plHits || (this.devs[dn].rt.plHits = {});
+      const k = (v6 ? "6|" : "") + name + "|" + e.seq;
+      h[k] = (h[k] || 0) + 1;
+      return e.action;
     }
     return "deny"; // the implicit deny at the end of every prefix list
   },
@@ -1793,38 +1814,44 @@ Object.assign(Network.prototype, {
   routeMapEval(dn, name, subj, kind = "route") {
     const rm = (this.devs[dn].cfg.routeMaps || {})[name];
     if (!rm) return null;
-    for (const cl of rm) {
-      const m = cl.match || {};
+    for (const e of [...rm].sort((a, b) => a.seq - b.seq)) {
+      const { match: m, set } = rmClause(e);
+      const route = kind === "route";
       let ok = true;
-      if (m.ipAddress) {
-        ok = kind === "packet"
-          ? m.ipAddress.some((a) => !!this.devs[dn].cfg.acls[a] && this.aclPermits(dn, a, subj, false))
-          : m.ipAddress.some((a) => this.aclPermitsRoute(dn, a, subj.net, subj.len));
+      if (m.acl) {
+        ok = !route
+          ? m.acl.some((a) => !!this.devs[dn].cfg.acls[a] && this.aclPermits(dn, a, subj, false))
+          : !subj.v6 && m.acl.some((a) => this.aclPermitsRoute(dn, a, subj.net, subj.len));
       }
-      if (ok && m.ipPrefix) ok = kind === "route" && !subj.v6 && m.ipPrefix.some((p) => this.prefixListMatch(dn, p, subj.net, subj.len, false) === "permit");
-      if (ok && m.ipv6Prefix) ok = kind === "route" && !!subj.v6 && m.ipv6Prefix.some((p) => this.prefixListMatch(dn, p, subj.net, subj.len, true) === "permit");
-      if (ok && m.tag) ok = kind === "route" && m.tag.includes(subj.tag ?? 0);
-      if (ok && m.metric !== undefined && m.metric !== null) ok = kind === "route" && subj.metric === m.metric;
-      if (ok && m.routeType) ok = kind === "route" && m.routeType.every((t) => (RMAP_ROUTE_TYPES[subj.otype] || []).includes(t));
-      if (ok && m.interface) ok = m.interface.includes(kind === "route" ? subj.ifn : subj.inIf);
-      if (ok && m.nextHopPrefix) ok = kind === "route" && subj.nh !== null && subj.nh !== undefined
-        && m.nextHopPrefix.some((p) => this.prefixListMatch(dn, p, subj.nh, 32, false) === "permit");
-      if (ok && m.length) ok = kind === "packet" && (subj.size ?? 100) >= m.length[0] && (subj.size ?? 100) <= m.length[1];
+      if (ok && m["prefix-list"]) ok = route && !subj.v6 && m["prefix-list"].some((p) => this.prefixListMatch(dn, p, subj.net, subj.len, false) === "permit");
+      if (ok && m["ipv6-prefix-list"]) ok = route && !!subj.v6 && m["ipv6-prefix-list"].some((p) => this.prefixListMatch(dn, p, subj.net, subj.len, true) === "permit");
+      if (ok && m.tag) ok = route && m.tag.includes(subj.tag ?? 0);
+      if (ok && m.metric !== undefined) ok = route && subj.metric === m.metric;
+      if (ok && m["route-type"]) ok = route && m["route-type"].every((t) => (RMAP_ROUTE_TYPES[subj.otype] || []).includes(t));
+      if (ok && m.interface) ok = m.interface.includes(route ? subj.ifn : subj.inIf);
+      if (ok && m["next-hop-prefix-list"]) ok = route && subj.nh !== null && subj.nh !== undefined
+        && m["next-hop-prefix-list"].some((p) => this.prefixListMatch(dn, p, subj.nh, 32, false) === "permit");
+      if (ok && m.length) ok = !route && (subj.size ?? 100) >= m.length[0] && (subj.size ?? 100) <= m.length[1];
+      if (ok && (m["as-path"] || m.community)) ok = false; // BGP attributes: only BGP paths carry them
       if (!ok) continue;
-      const h = this.devs[dn].rt.rmHits || (this.devs[dn].rt.rmHits = {});
-      if (kind === "packet" && subj.record) h[name + "|" + cl.seq] = (h[name + "|" + cl.seq] || 0) + 1;
-      return { permit: cl.action === "permit", set: cl.set || {}, seq: cl.seq };
+      if (!route && subj.record) {
+        const h = this.devs[dn].rt.rmHits || (this.devs[dn].rt.rmHits = {});
+        h[name + "|" + e.seq] = (h[name + "|" + e.seq] || 0) + 1;
+      }
+      return { permit: e.action === "permit", set, seq: e.seq };
     }
     return { permit: false, set: {}, seq: null }; // implicit deny
   },
 
-  // Run a route through an optional route-map; returns the (possibly rewritten) route or null.
+  // Run a route through an optional route-map: the (re-tagged) route, or null when it's denied.
   applyRouteMap(dn, name, route, v6) {
     if (!name) return route;
     const r = this.routeMapEval(dn, name, { ...route, v6 }, "route");
-    if (!r || !r.permit) return null; // a missing route-map lets nothing through, as in redistribution
-    const out = { ...route, set: r.set };
-    if (r.set.tag !== undefined) out.tag = r.set.tag;
+    if (!r || !r.permit) return null; // a route-map that doesn't exist lets nothing through
+    const set = { ...r.set };
+    if (set["metric-type"]) set.metricType = set["metric-type"];
+    const out = { ...route, set };
+    if (set.tag !== undefined) out.tag = set.tag;
     return out;
   },
 
@@ -1854,8 +1881,13 @@ Object.assign(Network.prototype, {
     const sig = (rs) => JSON.stringify(Object.keys(rs).sort().map((k) => rs[k].map((r) => [r.code, r.net, r.len, r.ad, r.metric,
       (r.paths || []).map((p) => p.ip + "|" + p.ifn), r.tag ?? null])));
     let last = sig(ribs);
+    // Redistributing BGP into an IGP: BGP runs over the IGP tables, and its routes then feed the IGPs.
+    const wantsBgp = routers.some((d) => [...ospfProcs(d.cfg), d.cfg.eigrp, d.cfg.rip].filter(Boolean).some((h) => (h.redist || []).some((e) => e.src === "bgp")));
+    let bgpSrc = {};
     for (let round = 0; round < 12; round++) {
-      const ospf = this.ospfRun(ribs), eigrp = this.eigrpRun(ribs, false), rip = this.ripRun(ribs);
+      const src = {};
+      for (const d of routers) src[d.name] = [...ribs[d.name], ...(bgpSrc[d.name] || [])];
+      const ospf = this.ospfRun(src), eigrp = this.eigrpRun(src, false), rip = this.ripRun(src);
       const next = {};
       for (const d of routers) {
         const cands = [];
@@ -1867,7 +1899,20 @@ Object.assign(Network.prototype, {
       state = { ospf, eigrp, rip };
       ribs = next;
       const s = sig(ribs);
-      if (s === last) break;
+      if (wantsBgp) {
+        this.c.cp = { ribs, ospf: state.ospf.per, ospfAll: state.ospf.byDev, eigrp: state.eigrp, rip: state.rip };
+        this.c.bgp = null;
+        const fresh = {};
+        for (const d of routers) {
+          if (!d.cfg.bgp) continue;
+          fresh[d.name] = this.bgpRoutes(d.name).filter((r) => !(r.paths || []).some((p) => p.ifn === "Null0"))
+            .map((r) => ({ ...r, src: { proto: "bgp", id: d.cfg.bgp.asn } }));
+        }
+        this.c.bgp = null;
+        const changed = JSON.stringify(fresh) !== JSON.stringify(bgpSrc);
+        bgpSrc = fresh;
+        if (s === last && !changed) break;
+      } else if (s === last) break;
       last = s;
     }
     this.c.cp = { ribs, ospf: state.ospf.per, ospfAll: state.ospf.byDev, ospfInsts: state.ospf.insts, ospfDiag: state.ospf.diag,
@@ -1886,21 +1931,7 @@ Object.assign(Network.prototype, {
       }
     }
     cands.push(...protoCands.filter((r) => r.ad < 255));
-    const select = (list) => {
-      const best = {};
-      for (const r of list) {
-        const k = pk(r.net, r.len), b = best[k];
-        if (!b || r.ad < b[0].ad || (r.ad === b[0].ad && rankOf(r) < rankOf(b[0]))
-          || (r.ad === b[0].ad && rankOf(r) === rankOf(b[0]) && r.metric < b[0].metric)) best[k] = [r];
-        else if (r.ad === b[0].ad && r.code === b[0].code && r.metric === b[0].metric && r !== b[0]) b.push(r);
-      }
-      return Object.values(best).map((rs) => {
-        if (rs.length === 1) return rs[0];
-        const paths = [];
-        for (const p of rs.flatMap((r) => r.paths || [])) if (!paths.some((x) => x.ip === p.ip && x.ifn === p.ifn)) paths.push(p);
-        return { ...rs[0], paths: paths.slice(0, 4) };
-      });
-    };
+    const select = ribSelect;
     let table = select(cands);
     const statics = d.type === "router" ? d.cfg.routes : [];
     const pending = new Set(statics.map((_, i) => i));
@@ -1986,6 +2017,24 @@ Object.assign(Network.prototype, {
 // Route preference inside one administrative distance: OSPF intra < inter < E1 < N1 < E2 < N2.
 function rankOf(r) {
   return { intra: 0, inter: 1, e1: 2, n1: 3, e2: 4, n2: 5 }[r.otype] ?? 0;
+}
+
+// One route per prefix: lowest administrative distance, then OSPF route type, then metric; equal
+// routes from the same source share the prefix (up to four paths).
+function ribSelect(list) {
+  const best = {};
+  for (const r of list) {
+    const k = pk(r.net, r.len), b = best[k];
+    if (!b || r.ad < b[0].ad || (r.ad === b[0].ad && rankOf(r) < rankOf(b[0]))
+      || (r.ad === b[0].ad && rankOf(r) === rankOf(b[0]) && r.metric < b[0].metric)) best[k] = [r];
+    else if (r.ad === b[0].ad && r.code === b[0].code && r.metric === b[0].metric && r !== b[0]) b.push(r);
+  }
+  return Object.values(best).map((rs) => {
+    if (rs.length === 1) return rs[0];
+    const paths = [];
+    for (const p of rs.flatMap((r) => r.paths || [])) if (!paths.some((x) => x.ip === p.ip && x.ifn === p.ifn)) paths.push(p);
+    return { ...rs[0], paths: paths.slice(0, 4) };
+  });
 }
 
 // ======== CCNP routing: OSPF ========
@@ -2999,18 +3048,19 @@ Object.assign(Network.prototype, {
         this.note(dn, `IP: s=${n2ip(pkt.src)} (${inIf || "local"}), d=${n2ip(pkt.dst)}, g=${how}, len ${pkt.size ?? 100}, FIB policy routed`);
       }
     };
-    for (const nh of set.nextHop || []) {
+    const nhs = [].concat(set["next-hop"] ?? []).map((x) => (typeof x === "string" ? ip2n(x) : x));
+    for (const nh of nhs) {
       const ifn = connected(nh);
       if (ifn) { note(n2ip(nh)); this.pbrCount(dn, true); return { ifn, nh }; }
     }
-    for (const ifn of set.interface || []) {
+    for (const ifn of [].concat(set.interface ?? [])) {
       if (ifn === "Null0") { this.pbrCount(dn, true); return { fail: "null0" }; }
       if (this.ifUp(dn, ifn)) { note(ifn); this.pbrCount(dn, true); return { ifn, nh: pkt.dst, proxy: true }; }
     }
-    if (set.defaultNextHop) {
+    if (set["default-next-hop"]) {
       const normal = this.routerEgress(dn, pkt.dst), r2 = this.lookup(dn, pkt.dst);
       if (normal.fail || (r2 && r2.len === 0)) {
-        for (const nh of set.defaultNextHop) {
+        for (const nh of set["default-next-hop"]) {
           const ifn = connected(nh);
           if (ifn) { note(n2ip(nh)); this.pbrCount(dn, true); return { ifn, nh }; }
         }
@@ -3635,6 +3685,7 @@ export function runningConfig(net, dn, onlyIf) {
   for (const n of Object.keys(c.intfs).sort(ifSort)) L.push(...intfBlock(n), "!");
   if (d.type === "router" && c.eigrp) L.push(...eigrpConfig(c.eigrp), "!");
   if (d.type === "router") for (const o of ospfProcs(c)) L.push(...ospfConfig(o), "!");
+  if (d.type === "router" && c.bgp) L.push(...bgpConfig(c), "!");
   if (d.type === "router") L.push(...routingTailLines(c));
   if (d.type === "switch" && c.gateway !== null) L.push("ip default-gateway " + n2ip(c.gateway));
   if (d.type === "router") {
@@ -3662,6 +3713,7 @@ export function runningConfig(net, dn, onlyIf) {
         L.push(e.remark !== undefined ? `access-list ${n} remark ${e.remark}` : `access-list ${n} ${actionStr(a.type, e.action)} ${aceStr(a.type, e)}`);
       }
     }
+    L.push(...bgpPolicyConfig(c));
     for (const r of c.routes6) L.push(["ipv6 route", `${r.net}/${r.len}`, r.ifn, r.nh, r.ad !== 1 ? r.ad : null].filter((x) => x !== null && x !== undefined).join(" "));
     if (c.ospf6) {
       const o = c.ospf6;
@@ -3721,9 +3773,10 @@ function showIpRoute(net, dn, filter) {
     L.push(`Gateway of last resort is ${p && p.ip !== null && p.ip !== undefined ? n2ip(p.ip) : "0.0.0.0"} to network 0.0.0.0`);
   } else L.push("Gateway of last resort is not set");
   L.push("");
-  const shown = all.filter((r) => !filter || r.code[0] === filter);
+  // The "is subnetted" headers count the whole table, even when a filter shows only some routes.
+  const shownOk = (r) => !filter || r.code[0] === filter;
   const groups = new Map();
-  for (const r of shown) {
+  for (const r of all) {
     const m = majorNet(r.net);
     const key = r.len < m.len ? "top|" + r.net + "/" + r.len : m.net + "/" + m.len;
     if (!groups.has(key)) groups.set(key, { major: m, routes: [] });
@@ -3732,6 +3785,9 @@ function showIpRoute(net, dn, filter) {
   const text = (r, showLen) => {
     const pfx = n2ip(r.net) + (showLen ? "/" + r.len : "");
     if (r.code === "C" || r.code === "L") return [`${pfx} is directly connected, ${r.ifn}`];
+    if (r.code === "B") {
+      return r.paths.map((x, i) => (i ? "".padEnd(pfx.length + 1) : pfx + " ") + `[${r.ad}/${r.metric}] via ${x.ifn === "Null0" ? "0.0.0.0" : n2ip(x.ip)}, 00:00:12${x.ifn ? ", " + x.ifn : ""}`);
+    }
     if (r.discard && r.code[0] !== "S") return [`${pfx} is a summary, 00:00:12, Null0`];
     if (r.code[0] === "S") {
       const p = r.paths[0];
@@ -3741,8 +3797,9 @@ function showIpRoute(net, dn, filter) {
     return r.paths.map((x, i) => (i ? "".padEnd(pfx.length + 1) : pfx + " ") + `[${r.ad}/${x.metric ?? r.metric}] via ${n2ip(x.ip)}, 00:00:12, ${x.ifn}`);
   };
   for (const [key, g] of groups) {
+    if (!g.routes.some(shownOk)) continue;
     if (key.startsWith("top|")) {
-      for (const r of g.routes) text(r, true).forEach((t, i) => L.push((i ? "" : r.code).padEnd(6) + t));
+      for (const r of g.routes.filter(shownOk)) text(r, true).forEach((t, i) => L.push((i ? "" : r.code).padEnd(6) + t));
       continue;
     }
     const lens = new Set(g.routes.map((r) => r.len));
@@ -3754,7 +3811,7 @@ function showIpRoute(net, dn, filter) {
     const n = g.routes.length;
     if (lens.size === 1) L.push(`      ${n2ip(g.major.net)}/${[...lens][0]} is subnetted, ${n} subnets`);
     else L.push(`      ${n2ip(g.major.net)}/${g.major.len} is variably subnetted, ${n} subnets, ${lens.size} masks`);
-    for (const r of g.routes) text(r, lens.size > 1).forEach((t, i) => L.push((i ? "" : r.code).padEnd(9) + t));
+    for (const r of g.routes.filter(shownOk)) text(r, lens.size > 1).forEach((t, i) => L.push((i ? "" : r.code).padEnd(9) + t));
   }
   return L.join("\n");
 }
@@ -4587,10 +4644,6 @@ function routingTailLines(c) {
     L.push("!");
   }
   if (c.localPolicy) L.push("ip local policy route-map " + c.localPolicy);
-  for (const [n, pl] of Object.entries(c.prefixLists || {})) {
-    if (pl.desc) L.push(`ip prefix-list ${n} description ${pl.desc}`);
-    for (const e of pl.entries) L.push(`ip prefix-list ${n} seq ${e.seq} ${e.action} ${n2ip(e.net)}/${e.len}${e.ge !== null ? " ge " + e.ge : ""}${e.le !== null ? " le " + e.le : ""}`);
-  }
   for (const [n, s] of Object.entries(c.slas || {})) {
     L.push("!", "ip sla " + n);
     if (s.kind === "icmp-echo") {
@@ -4603,36 +4656,7 @@ function routingTailLines(c) {
   for (const [n, sc] of Object.entries(c.slaSched || {})) L.push(`ip sla schedule ${n} life ${sc.life} start-time ${sc.start}`);
   for (const [n, p] of Object.entries(c.prefixLists6 || {})) {
     if (p.desc) L.push(`ipv6 prefix-list ${n} description ${p.desc}`);
-    for (const e of p.entries) L.push(`ipv6 prefix-list ${n} seq ${e.seq} ${e.action} ${e.net}/${e.len}${e.ge !== null ? " ge " + e.ge : ""}${e.le !== null ? " le " + e.le : ""}`);
-  }
-  for (const [n, entries] of Object.entries(c.routeMaps || {})) {
-    for (const e of entries) {
-      L.push("!", `route-map ${n} ${e.action} ${e.seq}`);
-      if (e.desc) L.push(" description " + e.desc);
-      const m = e.match || {}, s = e.set || {};
-      if (m.ipAddress) L.push(" match ip address " + m.ipAddress.join(" "));
-      if (m.ipPrefix) L.push(" match ip address prefix-list " + m.ipPrefix.join(" "));
-      if (m.ipv6Prefix) L.push(" match ipv6 address prefix-list " + m.ipv6Prefix.join(" "));
-      if (m.nextHopPrefix) L.push(" match ip next-hop prefix-list " + m.nextHopPrefix.join(" "));
-      if (m.interface) for (const x of m.interface) L.push(" match interface " + x);
-      if (m.metric !== undefined) L.push(" match metric " + m.metric);
-      if (m.routeType) L.push(" match route-type " + m.routeType.join(" "));
-      if (m.tag) L.push(" match tag " + m.tag.join(" "));
-      if (m.length) L.push(" match length " + m.length.join(" "));
-      if (m.asPath) for (const x of m.asPath) L.push(" match as-path " + x);
-      if (m.community) for (const x of m.community) L.push(" match community " + x);
-      if (s.metric !== undefined) L.push(" set metric " + (Array.isArray(s.metric) ? s.metric.join(" ") : s.metric));
-      if (s.metricType) L.push(" set metric-type " + s.metricType);
-      if (s.tag !== undefined) L.push(" set tag " + s.tag);
-      if (s.nextHop) L.push(" set ip next-hop " + s.nextHop.map(n2ip).join(" "));
-      if (s.defaultNextHop) L.push(" set ip default next-hop " + s.defaultNextHop.map(n2ip).join(" "));
-      if (s.interface) for (const x of s.interface) L.push(" set interface " + x);
-      if (s.localPref !== undefined) L.push(" set local-preference " + s.localPref);
-      if (s.weight !== undefined) L.push(" set weight " + s.weight);
-      if (s.prepend) L.push(" set as-path prepend " + s.prepend.join(" "));
-      if (s.community) L.push(" set community " + s.community.join(" "));
-      if (s.origin) L.push(" set origin " + s.origin);
-    }
+    for (const e of [...p.entries].sort((a, b) => a.seq - b.seq)) L.push(`ipv6 prefix-list ${n} seq ${e.seq} ${e.action} ${e.pfx}${e.ge !== null ? " ge " + e.ge : ""}${e.le !== null ? " le " + e.le : ""}`);
   }
   for (const [n, a] of Object.entries(c.acls6 || {})) {
     L.push("!", "ipv6 access-list " + n);
@@ -4923,6 +4947,7 @@ function showIpProtocols(net, dn) {
     for (const n of inst.nbrs) L.push("    " + pad(n2ip(n.rid), 16) + pad(String(ds.all ?? 110), 14) + "00:00:12");
     L.push(`  Distance: (default is ${ds.all ?? 110})${ds.intra || ds.inter || ds.ext ? `\n    Intra-area ${ds.intra ?? ds.all ?? 110} Inter-area ${ds.inter ?? ds.all ?? 110} External ${ds.ext ?? ds.all ?? 110}` : ""}`, "");
   }
+  if (d.cfg.bgp) L.push(...bgpProtocols(net, dn));
   const r = d.cfg.rip;
   if (r) {
     const per = net.cp().rip[dn];
@@ -5083,57 +5108,7 @@ function showKeyChain(net, dn) {
   return L.join("\n");
 }
 
-function showPrefixLists(net, dn, v6, only, detail) {
-  const d = net.devs[dn], lists = (v6 ? d.cfg.prefixLists6 : d.cfg.prefixLists) || {}, hits = d.rt.plHits || {}, L = [];
-  for (const [n, pl] of Object.entries(lists)) {
-    if (only && n !== only) continue;
-    L.push(`ip${v6 ? "v6" : ""} prefix-list ${n}: ${pl.entries.length} entries`);
-    if (detail) {
-      if (pl.desc) L.push("   Description: " + pl.desc);
-      L.push(`   count: ${pl.entries.length}, range entries: ${pl.entries.filter((e) => e.ge !== null || e.le !== null).length}, sequences: ${pl.entries.length ? pl.entries[0].seq : 0} - ${pl.entries.length ? pl.entries[pl.entries.length - 1].seq : 0}, refcount: 2`);
-    }
-    for (const e of pl.entries) {
-      const h = hits[(v6 ? "6|" : "") + n + "|" + e.seq] || 0;
-      L.push(`   seq ${e.seq} ${e.action} ${v6 ? e.net : n2ip(e.net)}/${e.len}${e.ge !== null ? " ge " + e.ge : ""}${e.le !== null ? " le " + e.le : ""}${detail ? ` (hit count: ${h}, refcount: 1)` : ""}`);
-    }
-  }
-  return L.join("\n");
-}
 
-function showRouteMaps(net, dn, only) {
-  const d = net.devs[dn], hits = d.rt.rmHits || {}, L = [];
-  for (const [n, entries] of Object.entries(d.cfg.routeMaps || {})) {
-    if (only && n !== only) continue;
-    for (const e of entries) {
-      const m = e.match || {}, s = e.set || {};
-      L.push(`route-map ${n}, ${e.action}, sequence ${e.seq}`, "  Match clauses:");
-      if (m.ipAddress) L.push("    ip address (access-lists): " + m.ipAddress.join(" "));
-      if (m.ipPrefix) L.push("    ip address prefix-lists: " + m.ipPrefix.join(" "));
-      if (m.ipv6Prefix) L.push("    ipv6 address prefix-list: " + m.ipv6Prefix.join(" "));
-      if (m.nextHopPrefix) L.push("    ip next-hop prefix-lists: " + m.nextHopPrefix.join(" "));
-      if (m.interface) L.push("    interface " + m.interface.join(" "));
-      if (m.metric !== undefined) L.push("    metric " + m.metric);
-      if (m.routeType) L.push("    route-type " + m.routeType.join(" "));
-      if (m.tag) L.push("    tag " + m.tag.join(" "));
-      if (m.length) L.push(`    length ${m.length[0]} ${m.length[1]}`);
-      L.push("  Set clauses:");
-      if (s.metric !== undefined) L.push("    metric " + (Array.isArray(s.metric) ? s.metric.join(" ") : s.metric));
-      if (s.metricType) L.push("    metric-type " + s.metricType);
-      if (s.tag !== undefined) L.push("    tag " + s.tag);
-      if (s.nextHop) L.push("    ip next-hop " + s.nextHop.map(n2ip).join(" "));
-      if (s.defaultNextHop) L.push("    ip default next-hop " + s.defaultNextHop.map(n2ip).join(" "));
-      if (s.interface) L.push("    interface " + s.interface.join(" "));
-      if (s.localPref !== undefined) L.push("    local-preference " + s.localPref);
-      if (s.weight !== undefined) L.push("    weight " + s.weight);
-      if (s.prepend) L.push("    as-path prepend " + s.prepend.join(" "));
-      if (s.community) L.push("    community " + s.community.join(" "));
-      if (s.origin) L.push("    origin " + s.origin);
-      const h = hits[n + "|" + e.seq] || 0;
-      L.push(`  Policy routing matches: ${h} packets, ${h * 100} bytes`);
-    }
-  }
-  return L.join("\n");
-}
 
 function showIpPolicy(net, dn) {
   const d = net.devs[dn], L = ["Interface      Route map"];
@@ -5616,11 +5591,12 @@ const MODES = {
   stdacl: "(config-std-nacl)#", extacl: "(config-ext-nacl)#", ospf6: "(config-rtr)#", eigrp: "(config-router)#",
   eigrpn: "(config-router)#", eigrpaf: "(config-router-af)#", afif: "(config-router-af-interface)#",
   aftop: "(config-router-af-topology)#", track: "(config-track)#",
+  bgp: "(config-router)#", bgpaf: "(config-router-af)#", rmap: "(config-route-map)#",
 };
 const SUBMODES = ["if", "subif", "range", "line", "ospf", "vlan", "pool", "stdacl", "extacl", "ospf6", "eigrp", "eigrpn",
-  "eigrpaf", "afif", "aftop", "track"];
+  "eigrpaf", "afif", "aftop", "track", "bgp", "bgpaf", "rmap"];
 // Where "exit" goes from each nested mode (everything else returns to global configuration).
-const PARENT = { afif: "eigrpaf", aftop: "eigrpaf", eigrpaf: "eigrpn" };
+const PARENT = { afif: "eigrpaf", aftop: "eigrpaf", eigrpaf: "eigrpn", bgpaf: "bgp" };
 const CONFIG_MODES = ["config", ...SUBMODES];
 const IF_MODES = ["if", "subif", "range"];
 
@@ -5685,7 +5661,7 @@ def("R", both, "show ip route eigrp", (c) => c.print(showIpRoute(c.net, c.d.name
 def("RS", both, "show ip route <ip|Network to display information about or hostname>", (c, [ip]) => {
   const r = lpm(c.net.routes(c.d.name), ip);
   if (!r) { c.print("% Network not in table"); return; }
-  const via = { C: "connected", L: "connected", S: "static", O: `ospf ${r.src && r.src.id}`, D: `eigrp ${r.src && r.src.id}`, R: "rip" }[r.code[0]];
+  const via = { C: "connected", L: "connected", S: "static", O: `ospf ${r.src && r.src.id}`, D: `eigrp ${r.src && r.src.id}`, R: "rip", B: `bgp ${c.cfg.bgp && c.cfg.bgp.asn}` }[r.code[0]];
   const kind = { intra: "intra area", inter: "inter area", e1: "type extern 1", e2: "type extern 2", n1: "type NSSA extern 1", n2: "type NSSA extern 2" }[r.otype];
   const L = [`Routing entry for ${n2ip(r.net)}/${r.len}`, `  Known via "${via}", distance ${r.ad}, metric ${r.metric}${r.code === "C" ? " (connected, via interface)" : ""}${r.code[0] === "O" && kind ? ", " + kind : r.code === "D EX" ? ", type external" : r.code === "D" ? ", type internal" : ""}`];
   if (r.tag) L.push(`  Tag ${r.tag}, type ${r.otype === "e1" ? "extern 1" : "extern 2"}`);
@@ -6771,12 +6747,12 @@ def("RS", ["user", "priv"], "traceroute <ip|Trace route to destination address> 
 
 // ======== CCNP routing: commands ========
 Object.assign(MODES, {
-  rmap: "(config-route-map)#", kchain: "(config-keychain)#", kckey: "(config-keychain-key)#", rip: "(config-router)#",
+  kchain: "(config-keychain)#", kckey: "(config-keychain-key)#", rip: "(config-router)#",
   ripng: "(config-rtr)#", eigrp6: "(config-rtr)#", eigrpaf6: "(config-router-af)#", afif6: "(config-router-af-interface)#",
   aftop6: "(config-router-af-topology)#", sla: "(config-ip-sla)#", slaecho: "(config-ip-sla-echo)#", acl6: "(config-ipv6-acl)#",
   dhcp6: "(config-dhcpv6)#",
 });
-const NEW_MODES = ["rmap", "kchain", "kckey", "rip", "ripng", "eigrp6", "eigrpaf6", "afif6", "aftop6", "sla", "slaecho", "acl6", "dhcp6"];
+const NEW_MODES = ["kchain", "kckey", "rip", "ripng", "eigrp6", "eigrpaf6", "afif6", "aftop6", "sla", "slaecho", "acl6", "dhcp6"];
 SUBMODES.push(...NEW_MODES);
 CONFIG_MODES.push(...NEW_MODES);
 Object.assign(PARENT, { kckey: "kchain", afif6: "eigrpaf6", aftop6: "eigrpaf6", eigrpaf6: "eigrpn", slaecho: "config" });
@@ -6904,142 +6880,6 @@ const parsePfx = (t) => {
   const m = /^(\d+\.\d+\.\d+\.\d+)\/(\d{1,2})$/.exec(t);
   return m && isIp(m[1]) && +m[2] <= 32 ? { net: and(ip2n(m[1]), lenMask(+m[2])), len: +m[2] } : null;
 };
-
-// ---- prefix lists
-const plAdd = (c, v6, name, seq, action, text, at) => {
-  const words = tokenize(text).map((t) => t.t);
-  let net, len;
-  if (v6) {
-    const m = /^([^/]+)\/(\d{1,3})$/.exec(words[0] || "");
-    const a = m && parse6(m[1]);
-    if (!m || a === null || +m[2] > 128) { c.invalid(at); return; }
-    len = +m[2]; net = fmt6(net6(a, len));
-  } else {
-    const p = parsePfx(words[0] || "");
-    if (!p) { c.invalid(at); return; }
-    ({ net, len } = p);
-  }
-  let ge = null, le = null;
-  for (let i = 1; i < words.length; i += 2) {
-    const v = +words[i + 1];
-    if (!/^\d+$/.test(words[i + 1] || "") || !["ge", "le"].includes(words[i].toLowerCase())) { c.invalid(at + i); return; }
-    if (words[i].toLowerCase() === "ge") ge = v; else le = v;
-  }
-  const max = v6 ? 128 : 32;
-  if ((ge !== null && (ge <= len || ge > max)) || (le !== null && (le < (ge ?? len + 1) || le > max)) || (le !== null && le <= len)) {
-    c.print(`% Invalid prefix range for ${v6 ? net : n2ip(net)}/${len}, make sure: len < ge-value <= le-value`);
-    return;
-  }
-  const key = v6 ? "prefixLists6" : "prefixLists";
-  const lists = c.cfg[key] || (c.cfg[key] = {});
-  const pl = lists[name] || (lists[name] = { desc: null, entries: [] });
-  const dup = pl.entries.find((e) => e.net === net && e.len === len && e.ge === ge && e.le === le && e.seq !== seq);
-  if (dup) { c.print(`% Duplicate prefix, ${v6 ? net : n2ip(net)}/${len} already exists in ${name} at seq ${dup.seq}`); return; }
-  const s = seq ?? (pl.entries.length ? Math.max(...pl.entries.map((e) => e.seq)) + 5 : 5);
-  pl.entries = pl.entries.filter((e) => e.seq !== s);
-  pl.entries.push({ seq: s, action, net, len, ge, le });
-  pl.entries.sort((a, b) => a.seq - b.seq);
-};
-for (const [kw, v6] of [["ip", false], ["ipv6", true]]) {
-  const what = v6 ? "IPv6 prefix x:x::y/<z>, e.g., 2001:db8::/32 [ge n] [le n]" : "IP prefix network/length, e.g., 35.0.0.0/8 [ge n] [le n]";
-  const W = "<word|Name of a prefix list>";
-  def("R", "config", `${kw} prefix-list ${W} seq <num:1-4294967294|Sequence number> {permit|deny} <line|${what}>`, (c, [n, seq, a, t]) => plAdd(c, v6, n, seq, a, t, 6));
-  def("R", "config", `${kw} prefix-list ${W} {permit|deny} <line|${what}>`, (c, [n, a, t]) => plAdd(c, v6, n, null, a, t, 4));
-  def("R", "config", `${kw} prefix-list ${W} description <line|Up to 80 characters describing this prefix-list>`, (c, [n, t]) => {
-    const key = v6 ? "prefixLists6" : "prefixLists", lists = c.cfg[key] || (c.cfg[key] = {});
-    (lists[n] || (lists[n] = { desc: null, entries: [] })).desc = t;
-  });
-  def("R", "config", `no ${kw} prefix-list ${W}`, (c, [n]) => { delete (c.cfg[v6 ? "prefixLists6" : "prefixLists"] || {})[n]; });
-  def("R", "config", `no ${kw} prefix-list ${W} seq <num:1-4294967294|Sequence number>`, (c, [n, seq]) => {
-    const pl = (c.cfg[v6 ? "prefixLists6" : "prefixLists"] || {})[n];
-    if (!pl) return;
-    pl.entries = pl.entries.filter((e) => e.seq !== seq);
-  });
-  def("R", "config", `no ${kw} prefix-list ${W} seq <num:1-4294967294|Sequence number> {permit|deny} <line|${what}>`, (c, [n, seq]) => {
-    const pl = (c.cfg[v6 ? "prefixLists6" : "prefixLists"] || {})[n];
-    if (pl) pl.entries = pl.entries.filter((e) => e.seq !== seq);
-  });
-}
-
-// ---- route maps
-const RM = "<word|Route map tag>";
-const rmEnter = (c, name, action, seq) => {
-  const maps = c.cfg.routeMaps || (c.cfg.routeMaps = {});
-  const m = maps[name] || (maps[name] = []);
-  if (seq === null) {
-    if (m.length > 1) { c.print("% Please specify the entry by its sequence"); return; }
-    seq = m.length ? m[0].seq : 10;
-  }
-  let e = m.find((x) => x.seq === seq);
-  if (!e) { e = { seq, action: action || "permit", desc: null, match: {}, set: {} }; m.push(e); m.sort((a, b) => a.seq - b.seq); }
-  else if (action) e.action = action;
-  c.s.enter("rmap", { name, seq });
-};
-def("R", "config", `route-map ${RM}`, (c, [n]) => rmEnter(c, n, null, null));
-def("R", "config", `route-map ${RM} {permit|deny}`, (c, [n, a]) => rmEnter(c, n, a, null));
-def("R", "config", `route-map ${RM} {permit|deny} <num:0-65535|Sequence to insert to/delete from existing route-map entry>`, (c, [n, a, s]) => rmEnter(c, n, a, s));
-def("R", "config", `no route-map ${RM}`, (c, [n]) => { delete (c.cfg.routeMaps || {})[n]; });
-def("R", "config", `no route-map ${RM} {permit|deny} <num:0-65535|Sequence to insert to/delete from existing route-map entry>`, (c, [n, , s]) => {
-  const m = (c.cfg.routeMaps || {})[n];
-  if (!m) return;
-  c.cfg.routeMaps[n] = m.filter((x) => x.seq !== s);
-  if (!c.cfg.routeMaps[n].length) delete c.cfg.routeMaps[n];
-});
-const words = (t) => tokenize(t).map((x) => x.t);
-const rmSet = (key, conv) => (c, args) => { rmapCur(c).set[key] = conv ? conv(args, c) : args[0]; };
-const rmMatch = (key, conv) => (c, args) => { const m = rmapCur(c).match; m[key] = conv ? conv(args, m[key]) : args[0]; };
-const rmUnset = (where, key) => (c) => { delete rmapCur(c)[where][key]; };
-def("R", "rmap", "description <line|Comment up to 100 characters>", (c, [t]) => { rmapCur(c).desc = t; });
-def("R", "rmap", "no description", (c) => { rmapCur(c).desc = null; });
-def("R", "rmap", "match ip address <line|IP access-list number or name>", rmMatch("ipAddress", ([t], old) => [...new Set([...(old || []), ...words(t)])]));
-def("R", "rmap", "match ip address prefix-list <line|IP prefix-list name>", rmMatch("ipPrefix", ([t], old) => [...new Set([...(old || []), ...words(t)])]));
-def("R", "rmap", "match ipv6 address prefix-list <line|IPv6 prefix-list name>", rmMatch("ipv6Prefix", ([t], old) => [...new Set([...(old || []), ...words(t)])]));
-def("R", "rmap", "match ip next-hop prefix-list <line|IP prefix-list name>", rmMatch("nextHopPrefix", ([t], old) => [...new Set([...(old || []), ...words(t)])]));
-def("R", "rmap", "match tag <line|Tag value>", (c, [t]) => {
-  const v = words(t);
-  if (!v.every((x) => /^\d+$/.test(x))) { c.invalid(2); return; }
-  const m = rmapCur(c).match;
-  m.tag = [...new Set([...(m.tag || []), ...v.map(Number)])];
-});
-def("R", "rmap", "match metric <num:0-4294967295|Metric value>", rmMatch("metric"));
-def("R", "rmap", "match interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => { const m = rmapCur(c).match; m.interface = [...new Set([...(m.interface || []), ifn])]; }));
-def("R", "rmap", "match length <num:0-2147483647|Minimum packet length> <num:0-2147483647|Maximum packet length>", rmMatch("length", (a) => a));
-def("R", "rmap", "match as-path <num:1-500|AS path access-list>", rmMatch("asPath", ([n], old) => [...new Set([...(old || []), n])]));
-def("R", "rmap", "match community <word|Community-list number or name>", rmMatch("community", ([n], old) => [...new Set([...(old || []), n])]));
-for (const t of ["internal", "local", "external", "nssa-external"]) {
-  def("R", "rmap", `match route-type ${t}`, (c) => { rmapCur(c).match.routeType = [t]; });
-  if (t === "external" || t === "nssa-external") def("R", "rmap", `match route-type ${t} {type-1|type-2}`, (c, [x]) => { rmapCur(c).match.routeType = [t, x]; });
-}
-for (const [spec, key] of [["ip address", "ipAddress"], ["ip address prefix-list", "ipPrefix"], ["ipv6 address prefix-list", "ipv6Prefix"], ["ip next-hop prefix-list", "nextHopPrefix"],
-  ["tag", "tag"], ["metric", "metric"], ["interface", "interface"], ["length", "length"], ["route-type", "routeType"], ["as-path", "asPath"], ["community", "community"]]) {
-  def("R", "rmap", "no match " + spec, rmUnset("match", key));
-}
-def("R", "rmap", "set metric <num:0-4294967295|Metric value or Bandwidth in Kbits per second>", rmSet("metric"));
-def("R", "rmap", "set metric <num:1-4294967295|Bandwidth in Kbits per second> <num:0-4294967295|EIGRP delay metric, in 10 microsecond units> <num:0-255|EIGRP reliability metric where 255 is 100% reliable> <num:1-255|EIGRP Effective bandwidth metric (Loading) where 255 is 100% loaded> <num:1-65535|EIGRP MTU of the path>", rmSet("metric", (a) => a));
-def("R", "rmap", "set metric-type {type-1|type-2|internal|external}", rmSet("metricType"));
-def("R", "rmap", "set tag <num:0-4294967295|Tag value>", rmSet("tag"));
-const ipList = (c, t, at) => {
-  const v = words(t);
-  if (!v.length || !v.every(isIp)) { c.invalid(at); return null; }
-  return v.map(ip2n);
-};
-def("R", "rmap", "set ip next-hop <line|IP address of next hop>", (c, [t]) => { const v = ipList(c, t, 3); if (v) rmapCur(c).set.nextHop = v; });
-def("R", "rmap", "set ip default next-hop <line|Default next hop IP address>", (c, [t]) => { const v = ipList(c, t, 4); if (v) rmapCur(c).set.defaultNextHop = v; });
-def("R", "rmap", "set interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => { const s = rmapCur(c).set; s.interface = [...new Set([...(s.interface || []), ifn])]; }));
-def("R", "rmap", "set interface Null0", (c) => { const s = rmapCur(c).set; s.interface = [...new Set([...(s.interface || []), "Null0"])]; });
-def("R", "rmap", "set local-preference <num:0-4294967295|Preference value>", rmSet("localPref"));
-def("R", "rmap", "set weight <num:0-65535|Weight value>", rmSet("weight"));
-def("R", "rmap", "set as-path prepend <line|AS number>", (c, [t]) => {
-  const v = words(t);
-  if (!v.every((x) => /^\d+$/.test(x))) { c.invalid(3); return; }
-  rmapCur(c).set.prepend = v.map(Number);
-});
-def("R", "rmap", "set community <line|community-number>", (c, [t]) => { rmapCur(c).set.community = words(t); });
-def("R", "rmap", "set origin {igp|egp|incomplete}", rmSet("origin"));
-for (const [spec, key] of [["metric", "metric"], ["metric-type", "metricType"], ["tag", "tag"], ["ip next-hop", "nextHop"], ["ip default next-hop", "defaultNextHop"],
-  ["interface", "interface"], ["local-preference", "localPref"], ["weight", "weight"], ["as-path prepend", "prepend"], ["community", "community"], ["origin", "origin"]]) {
-  def("R", "rmap", "no set " + spec, rmUnset("set", key));
-}
 
 // ---- redistribution, distribute-lists, offset-lists, distance (OSPF, EIGRP, RIP)
 const REDIST_SRCS = [["static", null], ["connected", null], ["rip", null], ["ospf", "<num:1-65535|Process ID>"],
@@ -7723,13 +7563,6 @@ def("R", both, "show ipv6 route {rip|eigrp}", (c, [f]) => c.print(showIpv6Route(
 def("R", both, "show ipv6 rip", (c) => c.print(showRipng(c.net, c.d.name, false)));
 def("R", both, "show ipv6 rip database", (c) => c.print(showRipng(c.net, c.d.name, true)));
 def("R", "priv", "show key chain", (c) => c.print(showKeyChain(c.net, c.d.name)));
-def("R", both, "show ip prefix-list", (c) => c.print(showPrefixLists(c.net, c.d.name, false, null, false)));
-def("R", both, "show ip prefix-list detail", (c) => c.print(showPrefixLists(c.net, c.d.name, false, null, true)));
-def("R", both, "show ip prefix-list <word|Name of a prefix list>", (c, [n]) => c.print(showPrefixLists(c.net, c.d.name, false, n, false)));
-def("R", both, "show ip prefix-list detail <word|Name of a prefix list>", (c, [n]) => c.print(showPrefixLists(c.net, c.d.name, false, n, true)));
-def("R", both, "show ipv6 prefix-list", (c) => c.print(showPrefixLists(c.net, c.d.name, true, null, false)));
-def("R", both, "show route-map", (c) => c.print(showRouteMaps(c.net, c.d.name, null)));
-def("R", both, "show route-map <word|route-map name>", (c, [n]) => c.print(showRouteMaps(c.net, c.d.name, n)));
 def("R", both, "show ip policy", (c) => c.print(showIpPolicy(c.net, c.d.name)));
 def("R", both, "show ip sla statistics", (c) => c.print(showSlaStats(c.net, c.d.name, null)));
 def("R", both, "show ip sla statistics <num:1-2147483647|Entry number>", (c, [n]) => c.print(showSlaStats(c.net, c.d.name, n)));
@@ -7749,6 +7582,1500 @@ def("R", "priv", "clear ip ospf <num:1-65535|Process ID> process", (c, [pid]) =>
   const o = ospfProcs(c.cfg).find((x) => x.pid === pid);
   if (o) o.ridHeld = null;
 }));
+
+// ======== BGP ========
+// BGP-4 with the IPv4 and IPv6 unicast address families: sessions that only come up when TCP 179
+// really gets through, the path-vector exchange between established peers, IOS's best-path
+// algorithm, and the commands and show output around them. The shared code reaches in through
+// Network#bgp (sessions and tables), bgpRoutes/bgpRoutes6 (what BGP adds to the routing table),
+// bgpSettle (log messages and the policy each session was brought up with), bgpCheck (lab checks)
+// and bgpConfig/bgpPolicyConfig (running-config).
+//
+// Route-maps, prefix-lists and as-path access-lists are kept here too, in their own small
+// subsection (bgpPolicy...), so BGP policy works on its own; they should be unified with the
+// routing section's route-map API when the two meet.
+
+const BGP_AFS = ["ipv4", "ipv6"];
+const isV6Key = (k) => k.includes(":");
+const newBgpAf = () => ({ networks: [], aggs: [], redist: {} });
+const newBgp = (asn) => ({ asn, rid: null, defLp: 100, v4default: true, logChanges: true, clusterId: null,
+  alwaysMed: false, sync: false, maxPaths: 1, timers: null, nbrs: {}, af: { ipv4: newBgpAf(), ipv6: null } });
+const newNbrAf = (active) => ({ active, nhs: false, rrc: false, sendComm: false, defOrig: false, soft: false,
+  weight: null, rmIn: null, rmOut: null, plIn: null, plOut: null });
+const newBgpNbr = (remoteAs, v4default) => ({ remoteAs, desc: null, password: null, shutdown: false, multihop: null,
+  noConnCheck: false, updateSource: null, af: { ipv4: newNbrAf(v4default), ipv6: newNbrAf(false) } });
+const ORIGIN_RANK = { i: 0, e: 1, "?": 2 };
+const ORIGIN_NAME = { i: "IGP", e: "EGP", "?": "incomplete" };
+// Prefix keys: "10.1.1.0/24" for IPv4 and "2001:DB8:1::/64" for IPv6, so tables sort and compare as text.
+const pfx4 = (net, len) => n2ip(net) + "/" + len;
+const pfx6 = (a, len) => fmt6(net6(typeof a === "bigint" ? a : parse6(a), len)) + "/" + len;
+const splitPfx = (k) => { const i = k.lastIndexOf("/"); return [k.slice(0, i), +k.slice(i + 1)]; };
+const pfxNet = (k) => { const [a, l] = splitPfx(k); return isV6Key(k) ? { a: parse6(a), len: l } : { net: ip2n(a), len: l }; };
+const asPathLen = (p) => p.asPath.length + (p.asSet && p.asSet.length ? 1 : 0);
+const asPathStr = (p) => p.asPath.join(" ") + (p.asSet && p.asSet.length ? (p.asPath.length ? " " : "") + "{" + p.asSet.join(",") + "}" : "");
+// Within the aggregate: is prefix k a more-specific of aggregate a?
+const inside = (k, a) => {
+  const x = pfxNet(k), y = pfxNet(a);
+  if (isV6Key(k) !== isV6Key(a)) return false;
+  if (isV6Key(k)) return x.len > y.len && net6(x.a, y.len) === net6(y.a, y.len);
+  return x.len > y.len && and(x.net, lenMask(y.len)) === y.net;
+};
+// The next hop a peer sees for IPv6 prefixes sent over an IPv4 session: the IPv4-mapped address,
+// which nothing can route to unless a route-map sets a real IPv6 next hop.
+const mapped6 = (ip) => fmt6(parse6("::FFFF:" + n2ip(ip)));
+const addrNum = (k) => (isV6Key(k) ? parse6(k) : ip2n(k));
+const cmpAddr = (a, b) => { const x = addrNum(a), y = addrNum(b); return x < y ? -1 : x > y ? 1 : 0; };
+
+// ---- policy: prefix-lists, as-path access-lists and route-maps --------------------------------
+const bgpPolicyLists = (c) => (c.prefixLists = c.prefixLists || {});
+const bgpPolicyMaps = (c) => (c.routeMaps = c.routeMaps || {});
+const bgpPolicyAsLists = (c) => (c.asPathLists = c.asPathLists || {});
+
+// Does a prefix-list permit prefix k? A list that doesn't exist permits everything, like IOS.
+function bgpPolicyPrefixList(list, k) {
+  if (!list) return true;
+  const x = pfxNet(k);
+  for (const e of [...list.entries].sort((a, b) => a.seq - b.seq)) {
+    const y = pfxNet(e.pfx);
+    if (isV6Key(k) !== isV6Key(e.pfx)) continue;
+    const max = isV6Key(k) ? 128 : 32;
+    const covers = isV6Key(k) ? net6(x.a, y.len) === net6(y.a, y.len) : and(x.net, lenMask(y.len)) === y.net;
+    const hit = e.ge === null && e.le === null ? covers && x.len === y.len
+      : covers && x.len >= (e.ge ?? y.len) && x.len <= (e.le ?? max) && x.len >= y.len;
+    if (hit) return e.action === "permit";
+  }
+  return false;
+}
+
+// Cisco AS-path regular expressions: "_" matches a delimiter (start, end, space, braces, comma).
+function bgpPolicyAsRegex(s) {
+  try { return new RegExp(s.replace(/_/g, "(?:^|$|[ ,{}()])")); } catch (e) { return null; }
+}
+
+function bgpPolicyAsList(list, path) {
+  if (!list) return false;
+  const text = asPathStr(path);
+  for (const e of list) {
+    const re = bgpPolicyAsRegex(e.re);
+    if (re && re.test(text)) return e.action === "permit";
+  }
+  return false;
+}
+
+// Run route-map `map` (a snapshot or the live one) over a path. Returns null when it denies,
+// otherwise the path with the route-map's set clauses applied. `ctx` gives the lists to match
+// against and whether the path is going out to an eBGP peer (as-path prepend applies there).
+function bgpPolicyRouteMap(map, path, ctx) {
+  if (!map) return null; // a route-map that doesn't exist denies everything
+  for (const e of [...map].sort((a, b) => a.seq - b.seq)) {
+    let ok = true;
+    for (const m of e.match) {
+      if (m.kind === "prefix-list") ok = m.names.some((n) => bgpPolicyPrefixList(ctx.prefixLists[n], path.pfx));
+      else if (m.kind === "acl") ok = m.names.some((n) => {
+        const acl = ctx.acls[n];
+        if (!acl) return true;
+        if (isV6Key(path.pfx)) return false;
+        // For routes, an access-list is matched against the network number; the first hit decides.
+        const net = pfxNet(path.pfx).net;
+        const hit = acl.entries.find((x) => x.remark === undefined && wildMatch(net, x.src.addr, x.src.wild));
+        return !!hit && hit.action === "permit";
+      });
+      else if (m.kind === "as-path") ok = m.names.some((n) => bgpPolicyAsList(ctx.asPathLists[n], path));
+      else if (m.kind === "community") ok = m.names.some((n) => (path.comm || []).includes(n));
+      if (!ok) break;
+    }
+    if (!ok) continue;
+    if (e.action === "deny") return null;
+    const out = { ...path, asPath: [...path.asPath], comm: [...(path.comm || [])] };
+    for (const s of e.set) {
+      if (s.kind === "weight") out.weight = s.value;
+      else if (s.kind === "local-preference") out.lp = s.value;
+      else if (s.kind === "metric") out.med = s.value;
+      else if (s.kind === "origin") out.origin = s.value;
+      else if (s.kind === "next-hop") out.nhSet = s.value;
+      else if (s.kind === "prepend") out.prepend = [...(out.prepend || []), ...s.value];
+      else if (s.kind === "community") out.comm = s.additive ? [...new Set([...out.comm, ...s.value])] : [...s.value];
+    }
+    return out;
+  }
+  return null;
+}
+
+// ---- the engine --------------------------------------------------------------------------------
+Object.assign(Network.prototype, {
+  bgpRid(dn) {
+    const b = this.devs[dn].cfg.bgp;
+    if (!b) return null;
+    if (b.rid !== null) return b.rid;
+    const ips = (lo) => this.upIfs(dn).filter((n) => lo === n.startsWith("Loopback")).map((n) => this.ifAddr(dn, n).ip);
+    const l = ips(true), all = ips(false);
+    return l.length ? Math.max(...l) : all.length ? Math.max(...all) : null;
+  },
+
+  // The local address a router sources a session from: its update-source, or the interface it
+  // routes out of towards the neighbor.
+  bgpSource(dn, key, n) {
+    const v6 = isV6Key(key);
+    if (n.updateSource) {
+      if (!this.ifUp(dn, n.updateSource)) return null;
+      if (v6) { const g = this.addrs6(dn, n.updateSource)[0]; return g ? fmt6(g.a) : null; }
+      const a = this.ifAddr(dn, n.updateSource);
+      return a ? n2ip(a.ip) : null;
+    }
+    if (v6) { const s = this.sourceIp6(dn, parse6(key)); return s === null ? null : fmt6(s); }
+    const s = this.sourceIp(dn, ip2n(key));
+    return s === null ? null : n2ip(s);
+  },
+
+  bgpConnected(dn, key) {
+    if (isV6Key(key)) {
+      const a = parse6(key);
+      return this.v6Ifs(dn).some((n) => this.ifUp(dn, n) && this.addrs6(dn, n).some((x) => net6(x.a, x.len) === net6(a, x.len)));
+    }
+    const ip = ip2n(key);
+    return this.upIfs(dn).some((n) => this.ifAddrs(dn, n).some((a) => sameNet(a.ip, ip, a.mask)));
+  },
+
+  // One TCP connection attempt to port 179 from dn to neighbor `key`.
+  bgpAttempt(dn, key) {
+    const me = this.devs[dn].cfg.bgp, n = me.nbrs[key];
+    if (n.shutdown) return { reason: "admin" };
+    if (this.bgpRid(dn) === null) return { reason: "norid" };
+    const v6 = isV6Key(key), ebgp = n.remoteAs !== me.asn;
+    const eg = v6 ? this.routerEgress6(dn, parse6(key)) : this.routerEgress(dn, ip2n(key));
+    if (eg.fail) return { reason: "noroute" };
+    const single = ebgp && !(n.multihop > 1) && !n.noConnCheck;
+    if (single && !this.bgpConnected(dn, key)) return { reason: "notconnected" };
+    const src = this.bgpSource(dn, key, n);
+    if (src === null) return { reason: "nosource" };
+    const ttl = ebgp ? n.multihop || 1 : 255;
+    const send = (from, a, b, hops) => (v6
+      ? this.deliver6(from, { src: parse6(a), dst: parse6(b), proto: "tcp", port: 179 }, {})
+      : this.deliver(from, { src: ip2n(a), dst: ip2n(b), proto: "tcp", port: 179, ttl: hops, id: 179 }, { natTmp: {} }));
+    const there = send(dn, src, key, ttl);
+    if (!there.ok || there.at === dn) return { reason: "tcp" };
+    const peer = this.devs[there.at], pb = peer.cfg.bgp;
+    if (peer.type !== "router" || !pb || this.bgpRid(peer.name) === null) return { reason: "refused", peer: peer.name };
+    const seen = v6 ? fmt6(there.pkt.src) : n2ip(there.pkt.src);
+    const pn = pb.nbrs[seen];
+    if (!pn || pn.shutdown) return { reason: "refused", peer: peer.name, seen };
+    const pEbgp = pn.remoteAs !== pb.asn;
+    if (pEbgp && !(pn.multihop > 1) && !pn.noConnCheck && !this.bgpConnected(peer.name, seen)) return { reason: "refused", peer: peer.name, seen };
+    const back = send(peer.name, key, seen, pEbgp ? pn.multihop || 1 : 255);
+    if (!back.ok || back.at !== dn) return { reason: "tcp" };
+    if ((n.password || null) !== (pn.password || null)) return { reason: "auth", peer: peer.name, seen, src };
+    if (pn.remoteAs !== me.asn) return { reason: "wrongas", peer: peer.name, seen, src, sentBy: "peer", told: pn.remoteAs };
+    if (n.remoteAs !== pb.asn) return { reason: "wrongas", peer: peer.name, seen, src, sentBy: "me", told: n.remoteAs };
+    if (this.bgpRid(dn) === this.bgpRid(peer.name)) return { reason: "rid", peer: peer.name, seen, src };
+    return { ok: true, peer: peer.name, seen, src };
+  },
+
+  // Sessions and BGP tables for every router. Computed against the routing table without BGP in
+  // it (routes() hands back the IGP-only table while this runs), so BGP never resolves through itself.
+  bgp() {
+    if (this.c.bgp) return this.c.bgp;
+    this.c.bgpBusy = true;
+    try { this.c.bgp = this.bgpCompute(); } finally { this.c.bgpBusy = false; }
+    return this.c.bgp;
+  },
+
+  bgpCompute() {
+    const out = {};
+    const rtrs = Object.values(this.devs).filter((d) => d.type === "router" && d.cfg.bgp);
+    for (const d of rtrs) {
+      const b = d.cfg.bgp;
+      out[d.name] = { asn: b.asn, rid: this.bgpRid(d.name), nbrs: {}, tables: { ipv4: {}, ipv6: {} }, best: { ipv4: {}, ipv6: {} } };
+      for (const [k, n] of Object.entries(b.nbrs)) {
+        out[d.name].nbrs[k] = { key: k, remoteAs: n.remoteAs, ebgp: n.remoteAs !== b.asn, state: "Idle", up: false,
+          attempt: null, peer: null, peerKey: null, local: null, rcvd: { ipv4: 0, ipv6: 0 }, sent: { ipv4: 0, ipv6: 0 },
+          adjIn: { ipv4: [], ipv6: [] }, raw: { ipv4: [], ipv6: [] }, afs: [] };
+      }
+    }
+    // Sessions: either end's connection attempt is enough.
+    for (const d of rtrs) {
+      for (const k of Object.keys(d.cfg.bgp.nbrs)) {
+        const s = out[d.name].nbrs[k], a = this.bgpAttempt(d.name, k);
+        s.attempt = a;
+        if (!a.ok) continue;
+        // Each end records who it talks to, the address that end knows the peer by, and its own address.
+        Object.assign(s, { up: true, state: "Established", peer: a.peer, peerKey: a.seen, local: a.src });
+        Object.assign(out[a.peer].nbrs[a.seen], { up: true, state: "Established", peer: d.name, peerKey: k, local: k });
+      }
+    }
+    for (const r of Object.values(out)) {
+      for (const s of Object.values(r.nbrs)) {
+        if (s.up) continue;
+        const why = s.attempt && s.attempt.reason;
+        s.state = why === "admin" ? "Idle (Admin)" : ["noroute", "notconnected", "norid"].includes(why) ? "Idle" : "Active";
+      }
+    }
+    for (const [dn, r] of Object.entries(out)) {
+      const b = this.devs[dn].cfg.bgp;
+      for (const s of Object.values(r.nbrs)) {
+        if (!s.up) continue;
+        const pb = this.devs[s.peer].cfg.bgp;
+        s.afs = BGP_AFS.filter((af) => b.nbrs[s.key].af[af].active && pb.nbrs[s.peerKey].af[af].active);
+      }
+    }
+    for (const af of BGP_AFS) this.bgpExchange(out, af);
+    return out;
+  },
+
+  // The policy a session runs with: the snapshot taken when it came up (or was last cleared), so a
+  // route-map edited later only takes effect after `clear ip bgp ... soft`, as on IOS.
+  bgpPol(dn, key, af, dir) {
+    const d = this.devs[dn], live = d.cfg.bgp.nbrs[key].af[af];
+    const snap = d.rt.bgp && d.rt.bgp.up[key] && d.rt.bgp.up[key].pol && d.rt.bgp.up[key].pol[af];
+    if (snap && snap[dir]) return snap[dir];
+    return this.bgpPolNow(d, live, dir);
+  },
+
+  bgpPolNow(d, live, dir) {
+    const c = d.cfg, rm = dir === "in" ? live.rmIn : live.rmOut, pl = dir === "in" ? live.plIn : live.plOut;
+    const lists = {}, asl = {};
+    const maps = c.routeMaps || {}, pls = c.prefixLists || {}, asls = c.asPathLists || {};
+    if (pl && pls[pl]) lists[pl] = clone(pls[pl]);
+    let map = null;
+    if (rm) {
+      map = maps[rm] ? clone(maps[rm]) : null;
+      for (const e of map || []) {
+        for (const m of e.match) {
+          for (const n of m.names) {
+            if (m.kind === "prefix-list" && pls[n]) lists[n] = clone(pls[n]);
+            if (m.kind === "as-path" && asls[n]) asl[n] = clone(asls[n]);
+          }
+        }
+      }
+    }
+    return { rm, map, pl, lists, asl, weight: dir === "in" ? live.weight : null };
+  },
+
+  bgpPolicyCtx(dn, pol) {
+    return { prefixLists: pol.lists, asPathLists: pol.asl, acls: this.devs[dn].cfg.acls };
+  },
+
+  // The IGP route a next hop resolves through (null when it doesn't resolve).
+  bgpNhRoute(dn, af, nh) {
+    if (nh === null || nh === undefined) return null;
+    if (af === "ipv6") {
+      const a = parse6(nh);
+      if (a === null || (a >> 32n) === 0xffffn) return null; // an IPv4-mapped next hop goes nowhere
+      return lpm6(this.routes6(dn), a);
+    }
+    return lpm(this.routes(dn), ip2n(nh));
+  },
+
+  // Paths a router originates itself: network statements, redistribution and aggregates.
+  bgpLocal(dn, af) {
+    const b = this.devs[dn].cfg.bgp, conf = b.af[af], paths = [];
+    if (!conf) return paths;
+    const v6 = af === "ipv6";
+    const table = v6 ? this.routes6(dn) : this.routes(dn);
+    const keyOf = (r) => (v6 ? pfx6(r.net, r.len) : pfx4(r.net, r.len));
+    const nhOf = (r) => {
+      if (r.code === "C" || !r.paths || !r.paths[0] || r.paths[0].ip === null || r.paths[0].ip === undefined) return v6 ? "::" : "0.0.0.0";
+      return v6 ? fmt6(r.paths[0].ip) : n2ip(r.paths[0].ip);
+    };
+    const base = (r, origin, how) => ({ pfx: keyOf(r), nh: nhOf(r), med: r.code === "C" || r.code[0] === "S" ? 0 : r.metric ?? 0,
+      lp: b.defLp, weight: 32768, origin, asPath: [], comm: [], local: true, how, ebgp: false, ibgp: false });
+    const pol = { lists: this.devs[dn].cfg.prefixLists || {}, asl: this.devs[dn].cfg.asPathLists || {} };
+    const ctx = this.bgpPolicyCtx(dn, pol), maps = this.devs[dn].cfg.routeMaps || {};
+    for (const nw of conf.networks) {
+      const r = table.find((x) => keyOf(x) === nw.pfx && x.code !== "L");
+      if (!r) continue;
+      let p = base(r, "i", "network");
+      if (nw.rm) p = bgpPolicyRouteMap(maps[nw.rm], p, ctx);
+      if (p) paths.push(p);
+    }
+    for (const [src, rd] of Object.entries(conf.redist)) {
+      const want = (r) => (src === "connected" ? r.code === "C" : src === "static" ? r.code[0] === "S"
+        : src === "ospf" ? r.code === "O" || r.code === "O IA" : src === "eigrp" ? r.code === "D" : false);
+      for (const r of table.filter(want)) {
+        if (paths.some((x) => x.pfx === keyOf(r))) continue;
+        let p = base(r, "?", "redistribute");
+        if (rd.rm) p = bgpPolicyRouteMap(maps[rd.rm], p, ctx);
+        if (p) paths.push(p);
+      }
+    }
+    return paths;
+  },
+
+  bgpBetter(dn, af, a, b) {
+    const cfg = this.devs[dn].cfg.bgp;
+    if (a.weight !== b.weight) return a.weight > b.weight;
+    if (a.lp !== b.lp) return a.lp > b.lp;
+    if (!!a.local !== !!b.local) return !!a.local;
+    if (asPathLen(a) !== asPathLen(b)) return asPathLen(a) < asPathLen(b);
+    if (ORIGIN_RANK[a.origin] !== ORIGIN_RANK[b.origin]) return ORIGIN_RANK[a.origin] < ORIGIN_RANK[b.origin];
+    if ((cfg.alwaysMed || a.asPath[0] === b.asPath[0]) && (a.med ?? 0) !== (b.med ?? 0)) return (a.med ?? 0) < (b.med ?? 0);
+    if (a.ebgp !== b.ebgp) return a.ebgp;
+    if ((a.igp ?? 0) !== (b.igp ?? 0)) return (a.igp ?? 0) < (b.igp ?? 0);
+    const ra = a.originator ?? a.peerRid ?? 0, rb = b.originator ?? b.peerRid ?? 0;
+    if (ra !== rb) return ra < rb;
+    if ((a.clusters || []).length !== (b.clusters || []).length) return (a.clusters || []).length < (b.clusters || []).length;
+    return cmpAddr(a.from || "0.0.0.0", b.from || "0.0.0.0") < 0;
+  },
+
+  // Equal enough for eBGP multipath (maximum-paths): everything up to the IGP metric matches.
+  bgpMultiEqual(a, b) {
+    return a.weight === b.weight && a.lp === b.lp && asPathLen(a) === asPathLen(b) && a.origin === b.origin
+      && (a.med ?? 0) === (b.med ?? 0) && a.ebgp && b.ebgp && a.asPath[0] === b.asPath[0] && (a.igp ?? 0) === (b.igp ?? 0);
+  },
+
+  // Rebuild every router's table for one address family from what its peers advertise, round by
+  // round, until nothing changes.
+  bgpExchange(out, af) {
+    const names = Object.keys(out);
+    for (let round = 0; round < 40; round++) {
+      // 1. Every router's candidate paths and best path per prefix.
+      for (const dn of names) {
+        const r = out[dn], b = this.devs[dn].cfg.bgp, rid = r.rid;
+        const clusterId = b.clusterId ?? rid;
+        const cands = {};
+        const add = (p) => (cands[p.pfx] = cands[p.pfx] || []).push(p);
+        for (const p of this.bgpLocal(dn, af)) add(p);
+        for (const s of Object.values(r.nbrs)) {
+          s.adjIn[af] = [];
+          if (!s.up || !s.afs.includes(af)) continue;
+          const pol = this.bgpPol(dn, s.key, af, "in"), ctx = this.bgpPolicyCtx(dn, pol);
+          for (const raw of s.raw[af]) {
+            if (raw.asPath.includes(b.asn) || (raw.asSet || []).includes(b.asn)) continue;
+            if (!s.ebgp && raw.originator === rid) continue;
+            if (!s.ebgp && (raw.clusters || []).includes(clusterId)) continue;
+            let p = { ...raw, from: s.key, ebgp: s.ebgp, ibgp: !s.ebgp, local: false, peerRid: out[s.peer].rid,
+              weight: pol.weight ?? 0, lp: s.ebgp ? b.defLp : raw.lp ?? b.defLp };
+            if (pol.pl && !bgpPolicyPrefixList(pol.lists[pol.pl], p.pfx)) continue;
+            if (pol.rm) { p = bgpPolicyRouteMap(pol.map, p, ctx); if (!p) continue; }
+            if (p.nhSet) { p.nh = p.nhSet; delete p.nhSet; }
+            delete p.prepend;
+            s.adjIn[af].push(p);
+            add(p);
+          }
+        }
+        // Aggregates exist while a more-specific is in the table.
+        const conf = b.af[af];
+        for (const ag of conf ? conf.aggs : []) {
+          const kids = Object.keys(cands).filter((k) => inside(k, ag.pfx));
+          if (!kids.length) continue;
+          const set = ag.asSet ? [...new Set(kids.flatMap((k) => cands[k].flatMap((p) => [...p.asPath, ...(p.asSet || [])])))] : [];
+          add({ pfx: ag.pfx, nh: af === "ipv6" ? "::" : "0.0.0.0", med: null, lp: b.defLp, weight: 32768, origin: "i", asPath: [],
+            asSet: set, comm: [], local: true, how: "aggregate", atomic: !ag.asSet, aggregator: { asn: b.asn, rid }, ebgp: false, ibgp: false });
+        }
+        const best = {};
+        for (const [k, list] of Object.entries(cands)) {
+          for (const p of list) {
+            const via = p.local ? true : this.bgpNhRoute(dn, af, p.nh);
+            p.valid = !!via;
+            p.igp = via && via !== true ? via.metric ?? 0 : 0;
+            // With synchronization on, an iBGP path also has to be in the IGP.
+            if (p.valid && b.sync && p.ibgp) {
+              const igp = af === "ipv6" ? this.routes6(dn) : this.routes(dn);
+              p.valid = igp.some((x) => (af === "ipv6" ? pfx6(x.net, x.len) : pfx4(x.net, x.len)) === k);
+            }
+          }
+          let top = null;
+          for (const p of list) if (p.valid && (!top || this.bgpBetter(dn, af, p, top))) top = p;
+          for (const p of list) p.best = p === top;
+          if (top) {
+            best[k] = top;
+            if (b.maxPaths > 1 && top.ebgp) {
+              const extra = list.filter((p) => p !== top && p.valid && this.bgpMultiEqual(p, top)).slice(0, b.maxPaths - 1);
+              for (const p of extra) p.multipath = true;
+              if (extra.length) top.multipath = true;
+            }
+          }
+          list.sort((x, y) => (x.best ? -1 : y.best ? 1 : 0));
+        }
+        for (const ag of conf ? conf.aggs : []) {
+          if (!ag.summaryOnly || !best[ag.pfx]) continue;
+          for (const [k, list] of Object.entries(cands)) if (inside(k, ag.pfx)) for (const p of list) p.suppressed = true;
+        }
+        r.tables[af] = cands;
+        r.best[af] = best;
+      }
+      // 2. What every router sends each peer; compare with what the peer had.
+      let changed = false;
+      for (const dn of names) {
+        for (const s of Object.values(out[dn].nbrs)) {
+          if (!s.up) continue;
+          const sent = s.afs.includes(af) ? this.bgpAdvertise(out, dn, s, af) : [];
+          s.sent[af] = sent.length;
+          const t = out[s.peer].nbrs[s.peerKey];
+          if (JSON.stringify(t.raw[af]) !== JSON.stringify(sent)) { t.raw[af] = sent; changed = true; }
+          t.rcvd[af] = sent.length;
+        }
+      }
+      if (!changed) break;
+    }
+  },
+
+  // The updates router dn sends to session s for one address family (attributes as the peer sees them).
+  bgpAdvertise(out, dn, s, af) {
+    const r = out[dn], b = this.devs[dn].cfg.bgp, n = b.nbrs[s.key], naf = n.af[af];
+    const clusterId = b.clusterId ?? r.rid;
+    const pol = this.bgpPol(dn, s.key, af, "out"), ctx = this.bgpPolicyCtx(dn, pol);
+    const sent = [];
+    const v6 = af === "ipv6", sessV6 = isV6Key(s.key);
+    const self = v6 ? (sessV6 ? s.local : mapped6(ip2n(s.local))) : sessV6 ? null : s.local;
+    // Outbound policy sees the AS_PATH before this router adds its own AS (so `^$` matches routes
+    // it originated); the AS, and any prepends, go on afterwards for eBGP peers.
+    const emit = (p) => {
+      if (pol.pl && !bgpPolicyPrefixList(pol.lists[pol.pl], p.pfx)) return;
+      let q = p;
+      if (pol.rm) { q = bgpPolicyRouteMap(pol.map, { ...p }, ctx); if (!q) return; }
+      if (s.ebgp) q.asPath = [b.asn, ...(q.prepend || []), ...q.asPath];
+      if (q.nhSet) q.nh = q.nhSet;
+      delete q.prepend;
+      delete q.nhSet;
+      if (s.ebgp) delete q.lp;
+      if (!naf.sendComm) q.comm = [];
+      sent.push(q);
+    };
+    if (naf.defOrig) {
+      emit({ pfx: v6 ? "::/0" : "0.0.0.0/0", nh: self, med: null, lp: s.ebgp ? undefined : b.defLp, origin: "i", asPath: [], comm: [] });
+    }
+    for (const [k, p] of Object.entries(r.best[af]).sort(([x], [y]) => (x < y ? -1 : 1))) {
+      if (p.suppressed || p.from === s.key) continue;
+      if (naf.defOrig && /^(0\.0\.0\.0|::)\/0$/.test(k)) continue;
+      if (p.ibgp && !s.ebgp) {
+        // iBGP split horizon, relaxed by route reflection.
+        const fromClient = b.nbrs[p.from] && b.nbrs[p.from].af[af].rrc;
+        if (!fromClient && !naf.rrc) continue;
+      }
+      const comm = p.comm || [];
+      if (comm.includes("no-advertise") || (s.ebgp && comm.includes("no-export"))) continue;
+      const q = { pfx: k, origin: p.origin, asPath: [...p.asPath], comm: [...comm] };
+      if (p.asSet && p.asSet.length) q.asSet = [...p.asSet];
+      if (p.atomic) q.atomic = true;
+      if (p.aggregator) q.aggregator = p.aggregator;
+      const ownNh = p.local && (p.nh === "0.0.0.0" || p.nh === "::");
+      if (s.ebgp) {
+        q.nh = self;
+        q.med = p.local ? p.med : null;
+      } else {
+        q.nh = ownNh || (naf.nhs && !p.ibgp) ? self : p.nh;
+        q.lp = p.lp;
+        q.med = p.med ?? null;
+        if (p.ibgp) {
+          q.originator = p.originator ?? p.peerRid;
+          q.clusters = [clusterId, ...(p.clusters || [])];
+        }
+      }
+      if (q.nh === null) continue; // no usable next hop for this family over this session
+      emit(q);
+    }
+    return sent;
+  },
+
+  // What BGP puts in the IPv4 routing table: best paths learned from peers, and aggregates (to Null0).
+  bgpRoutes(dn) { return this.bgpRib(dn, "ipv4"); },
+  bgpRoutes6(dn) { return this.bgpRib(dn, "ipv6"); },
+
+  bgpRib(dn, af) {
+    const r = this.bgp()[dn];
+    if (!r) return [];
+    const outR = [];
+    for (const [k, p] of Object.entries(r.best[af])) {
+      if (p.local && p.how !== "aggregate") continue;
+      const { net, a, len } = pfxNet(k);
+      const ad = p.how === "aggregate" ? 200 : p.ebgp ? 20 : 200;
+      const list = (r.tables[af][k] || []).filter((x) => x.best || x.multipath);
+      const paths = p.how === "aggregate" ? [{ ip: null, ifn: "Null0", bgp: true }]
+        : list.map((x) => ({ ip: af === "ipv6" ? parse6(x.nh) : ip2n(x.nh), ifn: null, bgp: true, from: x.from }));
+      outR.push({ code: "B", net: af === "ipv6" ? a : net, len, ad, metric: p.med ?? 0, paths, bgp: true, bgpPfx: k });
+    }
+    return outR;
+  },
+
+  // Log messages, and the policy each session was brought up with. Called from settle().
+  bgpSettle(log) {
+    const all = this.bgp();
+    let changed = false;
+    for (const d of Object.values(this.devs)) {
+      if (d.type !== "router") continue;
+      if (!d.cfg.bgp && !d.rt.bgp) continue;
+      const rt = d.rt.bgp = d.rt.bgp || { up: {}, seen: {}, ribSig: {} };
+      const r = all[d.name], b = d.cfg.bgp, say = (m) => { if (!b || b.logChanges) log(d.name, m); };
+      const resets = rt.reset || [];
+      delete rt.reset;
+      // A router with no IPv4 address and no `bgp router-id` can't run BGP.
+      const noRid = !!b && Object.keys(b.nbrs).length > 0 && this.bgpRid(d.name) === null;
+      if (noRid && !rt.seen._rid) log(d.name, "%BGP-4-NORTRID: BGP could not pick a router-id. Please configure manually.");
+      if (noRid !== !!rt.seen._rid) { if (noRid) rt.seen._rid = true; else delete rt.seen._rid; changed = true; }
+      for (const [k, s] of Object.entries(r ? r.nbrs : {})) {
+        const was = rt.up[k];
+        if (s.up && was && resets.includes(k)) {
+          say(`%BGP-5-ADJCHANGE: neighbor ${k} Down User reset`);
+          say(`%BGP_SESSION-5-ADJCHANGE: neighbor ${k} IPv4 Unicast topology base removed from session  User reset`);
+          rt.up[k] = { pol: this.bgpSnapshot(d, k) };
+          say(`%BGP-5-ADJCHANGE: neighbor ${k} Up `);
+          changed = true;
+        } else if (s.up && !was) {
+          rt.up[k] = { pol: this.bgpSnapshot(d, k) };
+          say(`%BGP-5-ADJCHANGE: neighbor ${k} Up `);
+          changed = true;
+        } else if (!s.up && was) {
+          delete rt.up[k];
+          const why = s.attempt && s.attempt.reason === "admin" ? "Admin. shutdown" : "Peer closed the session";
+          say(`%BGP-5-ADJCHANGE: neighbor ${k} Down ${why}`);
+          changed = true;
+        }
+        // One-off complaints for sessions that can't come up.
+        const a = s.attempt, why = !s.up && a ? a.reason : null;
+        if (why !== (rt.seen[k] || null)) {
+          if (why === "wrongas" && a.sentBy === "me") log(d.name, `%BGP-3-NOTIFICATION: sent to neighbor ${k} passive 2/2 (peer in wrong AS) 2 bytes ${(this.devs[a.peer].cfg.bgp.asn >>> 0).toString(16).toUpperCase().padStart(4, "0")}`);
+          if (why === "wrongas" && a.sentBy === "peer") log(d.name, `%BGP-3-NOTIFICATION: received from neighbor ${k} active 2/2 (peer in wrong AS) 2 bytes ${(b.asn >>> 0).toString(16).toUpperCase().padStart(4, "0")}`);
+          if (why === "auth") log(a.peer, `%TCP-6-BADAUTH: ${d.cfg.bgp.nbrs[k].password ? "Invalid" : "No"} MD5 digest from ${a.src}(179) to ${k}(${11000 + d.idx})`);
+          if (why === "rid") log(d.name, `%BGP-3-NOTIFICATION: sent to neighbor ${k} passive 2/3 (BGP identifier wrong) 4 bytes`);
+          if (why) rt.seen[k] = why; else delete rt.seen[k];
+          changed = true;
+        }
+      }
+      for (const k of Object.keys(rt.up)) {
+        if (!b || !b.nbrs[k]) { delete rt.up[k]; delete rt.seen[k]; if (b) say(`%BGP-5-ADJCHANGE: neighbor ${k} Down Neighbor deleted`); changed = true; }
+      }
+      for (const k of Object.keys(rt.seen)) if (!k.startsWith("_") && (!b || !b.nbrs[k])) { delete rt.seen[k]; changed = true; }
+      // debug ip bgp updates: report best paths that changed.
+      if (r && d.rt.debug && d.rt.debug.bgp) {
+        const sig = {};
+        for (const af of BGP_AFS) for (const [k, p] of Object.entries(r.best[af])) if (!p.local) sig[k] = p.nh + " " + asPathStr(p);
+        for (const [k, v] of Object.entries(sig)) {
+          if (rt.ribSig[k] === v) continue;
+          const p = r.best[isV6Key(k) ? "ipv6" : "ipv4"][k];
+          log(d.name, `BGP(${isV6Key(k) ? 1 : 0}): ${p.from} rcvd UPDATE w/ attr: nexthop ${p.nh}, origin ${p.origin}, ${p.med !== null && p.med !== undefined ? `metric ${p.med}, ` : ""}merged path ${asPathStr(p)}, AS_PATH`);
+          log(d.name, `BGP(${isV6Key(k) ? 1 : 0}): Revise route installing 1 of 1 routes for ${k} -> ${p.nh}(global) to main IP table`);
+        }
+        for (const k of Object.keys(rt.ribSig)) if (!sig[k]) log(d.name, `BGP(${isV6Key(k) ? 1 : 0}): no valid path for ${k}`);
+        rt.ribSig = sig;
+      } else if (rt.ribSig && Object.keys(rt.ribSig).length) rt.ribSig = {};
+    }
+    return changed;
+  },
+
+  bgpSnapshot(d, key) {
+    const n = d.cfg.bgp.nbrs[key], pol = {};
+    for (const af of BGP_AFS) pol[af] = { in: this.bgpPolNow(d, n.af[af], "in"), out: this.bgpPolNow(d, n.af[af], "out") };
+    return pol;
+  },
+
+  // `clear ip bgp`: a hard reset re-establishes the sessions; soft re-reads the policy.
+  bgpClear(dn, which, soft, dir) {
+    const d = this.devs[dn], rt = d.rt.bgp, b = d.cfg.bgp;
+    if (!b || !rt) return;
+    for (const k of Object.keys(b.nbrs)) {
+      if (which !== "*" && which !== k) continue;
+      if (!rt.up[k]) continue;
+      if (!soft) { (rt.reset = rt.reset || []).push(k); continue; }
+      const now = this.bgpSnapshot(d, k);
+      for (const af of BGP_AFS) {
+        if (dir !== "out") rt.up[k].pol[af].in = now[af].in;
+        if (dir !== "in") rt.up[k].pol[af].out = now[af].out;
+      }
+    }
+    // The peer re-reads its side too on a hard reset.
+    if (!soft) {
+      const r = this.bgp()[dn];
+      for (const k of rt.reset || []) {
+        const s = r && r.nbrs[k];
+        if (!s || !s.up) continue;
+        const pr = this.devs[s.peer].rt.bgp;
+        if (pr && pr.up[s.peerKey]) pr.up[s.peerKey] = { pol: this.bgpSnapshot(this.devs[s.peer], s.peerKey) };
+        this.note(s.peer, `%BGP-5-ADJCHANGE: neighbor ${s.peerKey} Down Peer closed the session`);
+        this.note(s.peer, `%BGP-5-ADJCHANGE: neighbor ${s.peerKey} Up `);
+      }
+    }
+    this.touch();
+  },
+
+  // Lab checks about BGP; undefined when the check isn't a BGP one.
+  bgpCheck(d, c) {
+    const r = this.bgp()[d.name];
+    switch (c.type) {
+      case "bgp-nbr": {
+        const s = r && r.nbrs[isV6Key(c.neighbor) ? fmt6(parse6(c.neighbor)) : c.neighbor];
+        return !!s && s.state === (c.state || "Established");
+      }
+      case "bgp-nbrs": return !!r && Object.values(r.nbrs).filter((s) => s.up).length >= c.count;
+      case "bgp-route": case "bgp-noroute": case "bgp-suppressed": {
+        const v6 = isV6Key(c.prefix), af = v6 ? "ipv6" : "ipv4";
+        const [a, l] = splitPfx(c.prefix), k = v6 ? pfx6(a, l) : pfx4(ip2n(a), l);
+        const list = r ? r.tables[af][k] || [] : [];
+        if (c.type === "bgp-noroute") return !list.some((p) => p.valid);
+        if (c.type === "bgp-suppressed") return list.some((p) => p.suppressed);
+        const pick = list.filter((p) => (c.best === false ? p.valid : p.best));
+        return pick.some((p) => (!c.via || (v6 ? fmt6(parse6(c.via)) === fmt6(parse6(p.nh)) : p.nh === c.via))
+          && (c.path === undefined || asPathStr(p) === c.path) && (c.lp === undefined || p.lp === c.lp)
+          && (c.weight === undefined || p.weight === c.weight) && (c.med === undefined || (p.med ?? 0) === c.med)
+          && (c.origin === undefined || p.origin === c.origin) && (c.from === undefined || p.from === c.from)
+          && (c.originator === undefined || (p.originator !== undefined && n2ip(p.originator) === c.originator))
+          && (c.cluster === undefined || (p.clusters || []).map(n2ip).join(" ") === c.cluster));
+      }
+      default: return undefined;
+    }
+  },
+});
+
+// ---- show commands ---------------------------------------------------------------------------
+const BGP_STATUS = `Status codes: s suppressed, d damped, h history, * valid, > best, i - internal,
+              r RIB-failure, S Stale, m multipath, b backup-path, f RT-Filter,
+              x best-external, a additional-path, c RIB-compressed,
+              t secondary path, L long-lived-stale,
+Origin codes: i - IGP, e - EGP, ? - incomplete
+RPKI validation codes: V valid, I invalid, N Not found`;
+
+function bgpInstalled(net, dn, af, k, p) {
+  const table = af === "ipv6" ? net.routes6(dn) : net.routes(dn);
+  const { net: n4, a, len } = pfxNet(k);
+  const r = table.find((x) => x.len === len && (af === "ipv6" ? x.net === a : x.net === n4));
+  return !!r && r.code === "B" && (p.local || r.paths.some((x) => x.bgp));
+}
+
+function bgpRows(net, dn, af, filter) {
+  const r = net.bgp()[dn], L = [];
+  const keys = Object.keys(r.tables[af]).sort((x, y) => {
+    const a = pfxNet(x), b = pfxNet(y);
+    const ax = af === "ipv6" ? a.a : a.net, bx = af === "ipv6" ? b.a : b.net;
+    return ax < bx ? -1 : ax > bx ? 1 : a.len - b.len;
+  });
+  for (const k of keys) {
+    const list = r.tables[af][k].filter((p) => !filter || filter(p));
+    list.forEach((p, i) => {
+      const st = (p.valid ? (p.suppressed ? "s" : "*") : " ") + (p.best ? (!p.local && !bgpInstalled(net, dn, af, k, p) ? "r" : ">") : p.multipath ? "m" : " ");
+      const lead = " " + st + (p.ibgp ? "i" : " ") + " ";
+      const nh = p.nh === null || p.nh === undefined ? "" : p.nh;
+      const metric = p.med === null || p.med === undefined ? "" : String(p.med);
+      const lp = p.ibgp || (p.lp !== undefined && p.lp !== net.devs[dn].cfg.bgp.defLp) ? String(p.lp) : "";
+      const path = asPathStr(p);
+      // IOS wraps a field onto the next line only when it overflows its column.
+      const label = i ? "" : k;
+      const head = lead + (label.length > 16 ? label + "\n" + " ".repeat(22) : pad(label, 17));
+      const hop = nh.length > 19 ? nh + "\n" + " ".repeat(42) : pad(nh, 20);
+      const text = (head + hop + lpad(metric, 6) + " " + lpad(lp, 6) + " " + lpad(p.weight, 6) + " " + (path ? path + " " : "") + p.origin).split("\n");
+      L.push(...text.map((t) => t.trimEnd()));
+    });
+  }
+  return L;
+}
+
+function showBgpTable(net, dn, af, filter) {
+  const r = net.bgp()[dn];
+  if (!r) return "% BGP not active";
+  const head = [`BGP table version is ${bgpVersion(r)}, local router ID is ${r.rid === null ? "0.0.0.0" : n2ip(r.rid)}`, BGP_STATUS, "",
+    "     Network          Next Hop            Metric LocPrf Weight Path"];
+  const rows = bgpRows(net, dn, af, filter);
+  return rows.length ? [...head, ...rows].join("\n") : "";
+}
+
+const bgpVersion = (r) => 1 + Object.values(r.tables.ipv4).length + Object.values(r.tables.ipv6).length;
+
+function bgpUpTime(s) { return s.up ? "00:04:12" : "never"; }
+
+function showBgpSummary(net, dn, af) {
+  const r = net.bgp()[dn], b = net.devs[dn].cfg.bgp;
+  if (!r) return "% BGP not active";
+  const keys = Object.keys(r.tables[af]), paths = keys.reduce((s, k) => s + r.tables[af][k].length, 0);
+  const L = [`BGP router identifier ${r.rid === null ? "0.0.0.0" : n2ip(r.rid)}, local AS number ${b.asn}`,
+    `BGP table version is ${bgpVersion(r)}, main routing table version ${bgpVersion(r)}`];
+  if (keys.length) {
+    L.push(`${keys.length} network entries using ${keys.length * 144} bytes of memory`, `${paths} path entries using ${paths * 84} bytes of memory`);
+    const attrs = new Set(keys.flatMap((k) => r.tables[af][k].map((p) => asPathStr(p) + p.nh)));
+    L.push(`${attrs.size}/${attrs.size} BGP path/bestpath attribute entries using ${attrs.size * 152} bytes of memory`,
+      `${new Set(keys.flatMap((k) => r.tables[af][k].map((p) => asPathStr(p)))).size} BGP AS-PATH entries using 48 bytes of memory`,
+      "0 BGP route-map cache entries using 0 bytes of memory", "0 BGP filter-list cache entries using 0 bytes of memory",
+      `BGP using ${keys.length * 144 + paths * 84} total bytes of memory`, `BGP activity ${keys.length}/0 prefixes, ${paths}/0 paths, scan interval 60 secs`);
+  }
+  L.push("", "Neighbor        V           AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd");
+  for (const [k, s] of Object.entries(r.nbrs).sort(([x], [y]) => cmpAddr(x, y))) {
+    if (!b.nbrs[k].af[af].active) continue;
+    const msgs = s.up ? 8 + s.rcvd[af] : 0;
+    const state = s.up ? String(s.adjIn[af].length) : s.state;
+    const row = pad(k, 16) + "4 " + lpad(s.remoteAs, 12) + lpad(msgs, 8) + lpad(s.up ? 8 + s.sent[af] : 0, 8)
+      + lpad(s.up ? bgpVersion(r) : 0, 9) + lpad(0, 5) + lpad(0, 5) + " " + pad(bgpUpTime(s), 9) + state;
+    if (k.length > 15) L.push(k, " ".repeat(16) + row.slice(16)); else L.push(row);
+  }
+  return L.join("\n");
+}
+
+function showBgpNeighbor(net, dn, k) {
+  const r = net.bgp()[dn], b = net.devs[dn].cfg.bgp, n = b.nbrs[k], s = r.nbrs[k];
+  const L = [`BGP neighbor is ${k},  remote AS ${n.remoteAs}, ${s.ebgp ? "external" : "internal"} link`];
+  if (n.desc) L.push(` Description: ${n.desc}`);
+  const peerRid = s.up ? n2ip(net.bgp()[s.peer].rid) : "0.0.0.0";
+  L.push(`  BGP version 4, remote router ID ${peerRid}`);
+  L.push(`  BGP state = ${s.state.replace(" (Admin)", "")}${s.up ? ", up for 00:04:12" : ""}`);
+  if (s.state === "Idle (Admin)") L.push("  Administratively shut down");
+  L.push(s.up ? "  Last read 00:00:12, last write 00:00:12, hold time is 180, keepalive interval is 60 seconds"
+    : "  Last read 00:00:00, last write 00:00:00, hold time is 180, keepalive interval is 60 seconds");
+  if (s.up) {
+    L.push("  Neighbor sessions:", "    1 active, is not multisession capable (disabled)", "  Neighbor capabilities:",
+      "    Route refresh: advertised and received(new)", "    Four-octets ASN Capability: advertised and received");
+    for (const af of s.afs) L.push(`    Address family ${af === "ipv4" ? "IPv4" : "IPv6"} Unicast: advertised and received`);
+    L.push("    Enhanced Refresh Capability: advertised and received", "    Multisession Capability: ",
+      "    Stateful switchover support enabled: NO for session 1");
+  }
+  for (const af of BGP_AFS) {
+    const a = n.af[af];
+    if (!a.active) continue;
+    L.push("", ` For address family: ${af === "ipv4" ? "IPv4" : "IPv6"} Unicast`, `  Session: ${k}`,
+      `  BGP table version ${bgpVersion(r)}, neighbor version ${s.up ? bgpVersion(r) : 1}/0`, "  Output queue size : 0",
+      "  Index 1, Advertise bit 0", "  1 update-group member");
+    if (a.rrc) L.push("  Route-Reflector Client");
+    if (a.nhs) L.push("  NEXT_HOP is always this router for eBGP paths");
+    if (a.sendComm) L.push("  Community attribute sent to this neighbor");
+    if (a.soft) L.push("  Inbound soft reconfiguration allowed");
+    if (a.plIn) L.push(`  Incoming update prefix filter list is ${a.plIn}`);
+    if (a.plOut) L.push(`  Outgoing update prefix filter list is ${a.plOut}`);
+    if (a.rmIn) L.push(`  Route map for incoming advertisements is ${a.rmIn}`);
+    if (a.rmOut) L.push(`  Route map for outgoing advertisements is ${a.rmOut}`);
+    if (a.defOrig) L.push("  Default information originate, default sent");
+    if (a.weight !== null) L.push(`  Default weight ${a.weight}`);
+    L.push("                                 Sent       Rcvd", "  Prefix activity:               ----       ----",
+      `    Prefixes Current:          ${lpad(s.up ? s.sent[af] : 0, 4)}       ${lpad(s.up ? s.adjIn[af].length : 0, 4)} (Consumes ${(s.up ? s.adjIn[af].length : 0) * 80} bytes)`,
+      `    Prefixes Total:            ${lpad(s.up ? s.sent[af] : 0, 4)}       ${lpad(s.up ? s.adjIn[af].length : 0, 4)}`);
+  }
+  L.push("");
+  if (s.ebgp && !(n.multihop > 1) && !n.noConnCheck) L.push(net.bgpConnected(dn, k) ? "  External BGP neighbor configured for connected checks (single-hop no-disable-connected-check)" : "  External BGP neighbor not directly connected.");
+  else if (s.ebgp && n.multihop > 1) L.push(`  External BGP neighbor may be up to ${n.multihop} hops away.`);
+  if (s.up) {
+    L.push(`  Connections established 1; dropped 0`, "  Last reset never",
+      `Local host: ${s.local}, Local port: 179`, `Foreign host: ${k}, Foreign port: ${11000 + net.devs[dn].idx}`,
+      "Connection tableid (VRF): 0", "Maximum output segment queue size: 50");
+  } else {
+    L.push("  Connections established 0; dropped 0", "  Last reset never");
+    const why = s.attempt && s.attempt.reason;
+    if (why === "noroute") L.push("  No active TCP connection");
+    else if (why === "wrongas") L.push("  Last notification sent 2/2 (peer in wrong AS)");
+    else L.push("  No active TCP connection");
+  }
+  return L.join("\n");
+}
+
+function showBgpDetail(net, dn, af, k) {
+  const r = net.bgp()[dn], list = r.tables[af][k];
+  if (!list || !list.length) return "% Network not in table";
+  const bi = list.findIndex((p) => p.best);
+  const L = [`BGP routing table entry for ${k}, version ${bgpVersion(r)}`,
+    `Paths: (${list.length} available, ${bi >= 0 ? "best #" + (bi + 1) : "no best path"}, table default${list.some((p) => p.suppressed) ? ", Advertisements suppressed by an aggregate." : ""})`];
+  const to = Object.values(r.nbrs).filter((s) => s.up && s.afs.includes(af)).length;
+  L.push(to ? "  Advertised to update-groups:" : "  Not advertised to any peer", ...(to ? ["     1         "] : []));
+  list.forEach((p) => {
+    L.push("  Refresh Epoch 1", "  " + (asPathStr(p) || "Local"));
+    const fromTxt = p.local ? `${p.nh} from 0.0.0.0 (${n2ip(r.rid)})` : `${p.nh}${p.valid ? "" : " (inaccessible)"} from ${p.from} (${n2ip(p.peerRid ?? 0)})`;
+    L.push("    " + fromTxt);
+    const bits = [`Origin ${ORIGIN_NAME[p.origin]}`];
+    if (p.med !== null && p.med !== undefined) bits.push(`metric ${p.med}`);
+    bits.push(`localpref ${p.lp}`);
+    if (p.weight) bits.push(`weight ${p.weight}`);
+    if (p.valid) bits.push("valid");
+    bits.push(p.local ? (p.how === "aggregate" ? "aggregated, local, atomic-aggregate" : "sourced, local") : p.ebgp ? "external" : "internal");
+    if (p.best) bits.push("best");
+    if (p.multipath && !p.best) bits.push("multipath");
+    L.push("      " + bits.join(", "));
+    if (p.comm && p.comm.length) L.push("      Community: " + p.comm.join(" "));
+    if (p.originator !== undefined && p.originator !== null) L.push(`      Originator: ${n2ip(p.originator)}, Cluster list: ${(p.clusters || []).map(n2ip).join(" ")}`);
+    L.push("      rx pathid: 0, tx pathid: " + (p.best ? "0x0" : "0"));
+  });
+  return L.join("\n");
+}
+
+function bgpProtocols(net, dn) {
+  const b = net.devs[dn].cfg.bgp, r = net.bgp()[dn];
+  if (!b) return [];
+  const L = [`Routing Protocol is "bgp ${b.asn}"`, "  Outgoing update filter list for all interfaces is not set",
+    "  Incoming update filter list for all interfaces is not set", "  IGP synchronization is " + (b.sync ? "enabled" : "disabled"),
+    "  Automatic route summarization is disabled"];
+  const redist = Object.keys(b.af.ipv4.redist);
+  if (redist.length) L.push("  Redistributing: " + redist.map((x) => (x === "ospf" || x === "eigrp" ? x + " " + b.af.ipv4.redist[x].id : x)).join(", "));
+  const nb = Object.entries(b.nbrs);
+  if (nb.length) {
+    L.push("  Neighbor(s):", "    Address          FiltIn FiltOut DistIn DistOut Weight RouteMap");
+    for (const [k, n] of nb) {
+      const a = n.af.ipv4;
+      L.push(("    " + pad(k, 17) + pad(a.plIn || "", 7) + pad(a.plOut || "", 8) + pad("", 7) + pad("", 8) + pad(a.weight ?? "", 7) + [a.rmIn, a.rmOut].filter(Boolean).join(",")).trimEnd());
+    }
+  }
+  L.push(`  Maximum path: ${b.maxPaths}`, "  Routing Information Sources:", "    Gateway         Distance      Last Update");
+  const seen = new Set();
+  for (const p of Object.values(r ? r.best.ipv4 : {})) if (!p.local && !seen.has(p.from)) { seen.add(p.from); L.push("    " + pad(p.from, 16) + pad(p.ebgp ? "20" : "200", 14) + "00:00:12"); }
+  L.push("  Distance: external 20 internal 200 local 200", "");
+  return L;
+}
+
+function showPrefixLists(c, only) {
+  const L = [];
+  for (const [name, pl] of Object.entries(c.prefixLists || {}).filter(([n]) => !only || n === only)) {
+    L.push(`ip prefix-list ${name}: ${pl.entries.length} entries`);
+    if (pl.desc) L.push("   Description: " + pl.desc);
+    for (const e of [...pl.entries].sort((a, b) => a.seq - b.seq)) L.push(`   seq ${e.seq} ${e.action} ${e.pfx}${e.ge !== null ? " ge " + e.ge : ""}${e.le !== null ? " le " + e.le : ""}`);
+  }
+  return L.join("\n");
+}
+
+function showRouteMaps(c, only, hits = {}) {
+  const L = [];
+  for (const [name, entries] of Object.entries(c.routeMaps || {}).filter(([n]) => !only || n === only)) {
+    for (const e of [...entries].sort((a, b) => a.seq - b.seq)) {
+      L.push(`route-map ${name}, ${e.action}, sequence ${e.seq}`, "  Match clauses:");
+      for (const m of e.match) L.push("    " + bgpMatchText(m));
+      L.push("  Set clauses:");
+      for (const s of e.set) L.push("    " + bgpSetText(s));
+      const h = hits[name + "|" + e.seq] || 0;
+      L.push(`  Policy routing matches: ${h} packets, ${h * 100} bytes`);
+    }
+  }
+  return L.join("\n");
+}
+
+const bgpMatchText = (m) => (m.kind === "prefix-list" ? "ip address prefix-lists: " + m.names.join(" ")
+  : m.kind === "acl" ? "ip address (access-lists): " + m.names.join(" ")
+    : m.kind === "as-path" ? "as-path (as-path filter): " + m.names.join(" ")
+      : m.kind === "community" ? "community (community-list filter): " + m.names.join(" ") : rmMatchText(m));
+const bgpSetText = (s) => (s.kind === "prepend" ? "as-path prepend " + s.value.join(" ")
+  : s.kind === "community" ? "community " + s.value.join(" ") + (s.additive ? " additive" : "")
+    : s.kind === "next-hop" ? "ip next-hop " + (s.list ? s.list.map(n2ip).join(" ") : s.value)
+      : s.kind === "origin" ? "origin " + ORIGIN_NAME[s.value].toLowerCase() : rmSetText(s));
+// The routing clauses (see "route-maps & prefix-lists: the routing clauses"), as show route-map and running-config word them.
+const rmMatchText = (m) => (m.kind === "ipv6-prefix-list" ? "ipv6 address prefix-lists: " + m.names.join(" ")
+  : m.kind === "next-hop-prefix-list" ? "ip next-hop prefix-lists: " + m.names.join(" ") : m.kind === "tag" ? "tag " + m.names.join(" ")
+    : m.kind === "interface" ? "interface " + m.names.join(" ") : m.kind === "metric" ? "metric " + m.value
+      : m.kind === "route-type" ? "route-type " + m.value.join(" ") : m.kind === "length" ? `length ${m.value[0]} ${m.value[1]}` : m.kind);
+const rmMatchConfig = (m) => (m.kind === "ipv6-prefix-list" ? "ipv6 address prefix-list " + m.names.join(" ")
+  : m.kind === "next-hop-prefix-list" ? "ip next-hop prefix-list " + m.names.join(" ") : rmMatchText(m));
+const rmSetText = (s) => (s.kind === "metric" ? "metric " + (Array.isArray(s.value) ? s.value.join(" ") : s.value)
+  : s.kind === "default-next-hop" ? "ip default next-hop " + s.list.map(n2ip).join(" ") : s.kind === "interface" ? "interface " + s.list.join(" ")
+    : s.kind + " " + s.value);
+
+// ---- running-config ------------------------------------------------------------------------------
+function bgpConfig(c) {
+  const b = c.bgp;
+  const pw = (p) => (c.pwEnc ? "7 " + type7(p) : p);
+  const L = ["router bgp " + b.asn];
+  if (b.rid !== null) L.push(" bgp router-id " + n2ip(b.rid));
+  if (b.alwaysMed) L.push(" bgp always-compare-med");
+  if (b.clusterId !== null) L.push(" bgp cluster-id " + n2ip(b.clusterId));
+  if (b.defLp !== 100) L.push(" bgp default local-preference " + b.defLp);
+  L.push(b.logChanges ? " bgp log-neighbor-changes" : " no bgp log-neighbor-changes");
+  if (!b.v4default) L.push(" no bgp default ipv4-unicast");
+  if (b.sync) L.push(" synchronization");
+  if (b.timers) L.push(` timers bgp ${b.timers[0]} ${b.timers[1]}`);
+  const nbrs = Object.entries(b.nbrs).sort(([x], [y]) => cmpAddr(x, y));
+  // Per-family lines: what is announced, then each neighbor's family settings.
+  const afHead = (af, ind) => {
+    const conf = b.af[af], out = [];
+    for (const nw of [...conf.networks].sort((x, y) => cmpAddr(splitPfx(x.pfx)[0], splitPfx(y.pfx)[0]) || splitPfx(x.pfx)[1] - splitPfx(y.pfx)[1])) {
+      const [a, len] = splitPfx(nw.pfx);
+      if (af === "ipv6") out.push(`${ind}network ${nw.pfx}${nw.rm ? " route-map " + nw.rm : ""}`);
+      else {
+        const classful = majorNet(ip2n(a)).len === len;
+        out.push(`${ind}network ${a}${classful ? "" : " mask " + n2ip(lenMask(len))}${nw.rm ? " route-map " + nw.rm : ""}`);
+      }
+    }
+    for (const ag of conf.aggs) {
+      const [a, len] = splitPfx(ag.pfx);
+      out.push(`${ind}aggregate-address ${af === "ipv6" ? ag.pfx : a + " " + n2ip(lenMask(len))}${ag.asSet ? " as-set" : ""}${ag.summaryOnly ? " summary-only" : ""}`);
+    }
+    for (const [src, rd] of Object.entries(conf.redist)) out.push(`${ind}redistribute ${src}${rd.id !== undefined ? " " + rd.id : ""}${rd.rm ? " route-map " + rd.rm : ""}`);
+    if (af === "ipv4" && b.maxPaths > 1) out.push(`${ind}maximum-paths ${b.maxPaths}`);
+    return out;
+  };
+  const afNbr = (af, ind, k, n, blocks) => {
+    const a = n.af[af], out = [];
+    if (blocks) {
+      if (a.active) out.push(`${ind}neighbor ${k} activate`);
+      else if (af === "ipv4" && b.v4default) out.push(`${ind}no neighbor ${k} activate`);
+    }
+    if (a.rrc) out.push(`${ind}neighbor ${k} route-reflector-client`);
+    if (a.nhs) out.push(`${ind}neighbor ${k} next-hop-self`);
+    if (a.sendComm) out.push(`${ind}neighbor ${k} send-community`);
+    if (a.defOrig) out.push(`${ind}neighbor ${k} default-originate`);
+    if (a.soft) out.push(`${ind}neighbor ${k} soft-reconfiguration inbound`);
+    if (a.weight !== null) out.push(`${ind}neighbor ${k} weight ${a.weight}`);
+    if (a.plIn) out.push(`${ind}neighbor ${k} prefix-list ${a.plIn} in`);
+    if (a.plOut) out.push(`${ind}neighbor ${k} prefix-list ${a.plOut} out`);
+    if (a.rmIn) out.push(`${ind}neighbor ${k} route-map ${a.rmIn} in`);
+    if (a.rmOut) out.push(`${ind}neighbor ${k} route-map ${a.rmOut} out`);
+    return out;
+  };
+  const blocks = !!b.af.ipv6 || !b.v4default;
+  if (!blocks) L.push(...afHead("ipv4", " "));
+  for (const [k, n] of nbrs) {
+    L.push(` neighbor ${k} remote-as ${n.remoteAs}`);
+    if (n.desc) L.push(` neighbor ${k} description ${n.desc}`);
+    if (n.password) L.push(` neighbor ${k} password ${pw(n.password)}`);
+    if (n.shutdown) L.push(` neighbor ${k} shutdown`);
+    if (n.multihop) L.push(` neighbor ${k} ebgp-multihop ${n.multihop}`);
+    if (n.noConnCheck) L.push(` neighbor ${k} disable-connected-check`);
+    if (n.updateSource) L.push(` neighbor ${k} update-source ${n.updateSource}`);
+    if (!blocks) L.push(...afNbr("ipv4", " ", k, n, false));
+  }
+  if (blocks) {
+    for (const af of BGP_AFS) {
+      if (!b.af[af]) continue;
+      L.push(" !", ` address-family ${af}`, ...afHead(af, "  "));
+      for (const [k, n] of nbrs) L.push(...afNbr(af, "  ", k, n, true));
+      L.push(" exit-address-family");
+    }
+  }
+  return L;
+}
+
+function bgpPolicyConfig(c) {
+  const L = [];
+  const asl = Object.entries(c.asPathLists || {});
+  for (const [n, list] of asl) for (const e of list) L.push(`ip as-path access-list ${n} ${e.action} ${e.re}`);
+  if (asl.length) L.push("!");
+  const pls = Object.entries(c.prefixLists || {});
+  for (const [n, pl] of pls) {
+    if (pl.desc) L.push(`ip prefix-list ${n} description ${pl.desc}`);
+    for (const e of [...pl.entries].sort((a, b) => a.seq - b.seq)) L.push(`ip prefix-list ${n} seq ${e.seq} ${e.action} ${e.pfx}${e.ge !== null ? " ge " + e.ge : ""}${e.le !== null ? " le " + e.le : ""}`);
+  }
+  if (pls.length) L.push("!");
+  for (const [n, entries] of Object.entries(c.routeMaps || {})) {
+    for (const e of [...entries].sort((a, b) => a.seq - b.seq)) {
+      L.push(`route-map ${n} ${e.action} ${e.seq}`);
+      if (e.desc) L.push(" description " + e.desc);
+      for (const m of e.match) {
+        L.push(" match " + (m.kind === "prefix-list" ? "ip address prefix-list " + m.names.join(" ") : m.kind === "acl" ? "ip address " + m.names.join(" ")
+          : m.kind === "as-path" ? "as-path " + m.names.join(" ") : m.kind === "community" ? "community " + m.names.join(" ") : rmMatchConfig(m)));
+      }
+      for (const s of e.set) {
+        L.push(" set " + (s.kind === "prepend" ? "as-path prepend " + s.value.join(" ") : s.kind === "community" ? "community " + s.value.join(" ") + (s.additive ? " additive" : "")
+          : s.kind === "next-hop" ? "ip next-hop " + (s.list ? s.list.map(n2ip).join(" ") : s.value) : s.kind === "origin" ? "origin " + (s.value === "i" ? "igp" : "incomplete") : rmSetText(s)));
+      }
+      L.push("!");
+    }
+  }
+  return L;
+}
+
+// ---- the grammar ------------------------------------------------------------------------------------
+PARAMS.pfx4 = { fmt: "A.B.C.D/nn", help: "IP prefix <network>/<length>, e.g., 35.0.0.0/8", match: (t, k) => {
+  const m = /^(\d+\.\d+\.\d+\.\d+)\/(\d{1,2})$/.exec(t[k].t);
+  return m && isIp(m[1]) && +m[2] <= 32 ? { used: 1, value: pfx4(and(ip2n(m[1]), lenMask(+m[2])), +m[2]) } : null;
+} };
+PARAMS.asn = { fmt: "<1-4294967295>", help: "AS number", match: (t, k) => {
+  const v = t[k].t, m = /^(\d+)(?:\.(\d+))?$/.exec(v);
+  if (!m) return null;
+  const n = m[2] !== undefined ? +m[1] * 65536 + +m[2] : +m[1];
+  return n >= 1 && n <= 4294967295 ? { used: 1, value: n } : null;
+} };
+PARAMS.community = { fmt: "<1-4294967295>", help: "community number", match: (t, k) => {
+  const v = t[k].t;
+  if (/^\d+:\d+$/.test(v)) { const [a, b] = v.split(":").map(Number); return a <= 65535 && b <= 65535 ? { used: 1, value: v } : null; }
+  if (/^\d+$/.test(v) && +v <= 4294967295) return { used: 1, value: `${Math.floor(+v / 65536)}:${+v % 65536}` };
+  return ["internet", "no-export", "no-advertise", "local-as"].includes(v.toLowerCase()) ? null : null;
+} };
+
+// Add help without overwriting text other commands already use.
+const helpAdd = (dict, entries) => { for (const [k, v] of Object.entries(entries)) if (!(k in dict)) dict[k] = v; };
+helpAdd(HELP, {
+  bgp: "Border Gateway Protocol (BGP)", "remote-as": "Specify a BGP neighbor", "update-source": "Source of routing updates",
+  "ebgp-multihop": "Allow EBGP neighbors not on directly connected networks. For single-hop ebgp peers, delete ebgp-multihop then use disable-connected-check.",
+  "next-hop-self": "Disable the next hop calculation for this neighbor", "route-reflector-client": "Configure a neighbor as Route Reflector client",
+  "send-community": "Send Community attribute to this neighbor", "default-originate": "Originate default route to this neighbor",
+  "soft-reconfiguration": "Per neighbor soft reconfiguration", inbound: "Allow inbound soft reconfiguration for this neighbor",
+  "disable-connected-check": "one-hop away EBGP peer using loopback address", activate: "Enable the Address Family for this Neighbor",
+  "aggregate-address": "Configure BGP aggregate entries", "summary-only": "Filter more specific routes from updates",
+  "as-set": "Generate AS set path information", "address-family": "Enter Address Family command mode",
+  "exit-address-family": "Exit from Address Family configuration mode", "always-compare-med": "Allow comparing MED from different neighbors",
+  "log-neighbor-changes": "Log neighbor up/down and reset reason", "cluster-id": "Configure Route-Reflector Cluster-id",
+  "local-preference": "BGP local preference attribute", synchronization: "Perform IGP synchronization",
+  "maximum-paths": "Forward packets over multiple paths", "route-map": "Route map tag", "prefix-list": "Build a prefix list",
+  "as-path": "BGP AS path list", prepend: "Prepend to the as-path", community: "BGP community attribute",
+  additive: "Add to the existing community", "no-export": "Do not export to next AS (well-known community)",
+  "no-advertise": "Do not advertise to any peer (well-known community)", internet: "Internet (well-known community)",
+  weight: "BGP weight for routing table", origin: "BGP origin code", igp: "local IGP", incomplete: "unknown heritage",
+  ge: "Minimum prefix length to be matched", le: "Maximum prefix length to be matched", seq: "sequence number of an entry",
+  summary: "Summary of BGP neighbor status", "advertised-routes": "Display the routes advertised to a BGP neighbor",
+  "received-routes": "Display the received routes from neighbor", routes: "Display routes learned from neighbor",
+  soft: "Soft reconfig", unicast: "Address Family modifier", "*": "Clear all peers",
+  description: "Neighbor specific description", password: "Set a password", ipv4: "Address family",
+});
+helpAdd(HELP_PATH, {
+  "router bgp": "Border Gateway Protocol (BGP)", "show ip bgp": "BGP information", "show bgp": "BGP information",
+  "clear ip bgp": "Clear BGP connections", "debug ip bgp": "BGP information", "undebug ip bgp": "BGP information",
+  "ip bgp": "BGP information", "show ip route bgp": "Border Gateway Protocol (BGP)", "show ipv6 route bgp": "Border Gateway Protocol (BGP)",
+  "neighbor activate": "Enable the Address Family for this Neighbor", "neighbor weight": "Set default weight for routes from this neighbor",
+  "neighbor route-map": "Apply route map to neighbor", "neighbor prefix-list": "Filter updates to/from this neighbor",
+  "neighbor description": "Neighbor specific description", "neighbor password": "Set a password",
+  "neighbor shutdown": "Administratively shut down this neighbor", "bgp router-id": "Override configured router identifier (peers will reset)",
+  "bgp default": "Configure BGP defaults", "default local-preference": "local preference (higher=more preferred)",
+  "default ipv4-unicast": "Activate ipv4-unicast for a peer by default", "bgp bestpath": "Change the default bestpath selection",
+  "match ip": "IP specific information", "match ip address": "Match address of route or match packet",
+  "address prefix-list": "Match entries of prefix-lists", "match as-path": "Match BGP AS path list", "match community": "Match BGP community list",
+  "set as-path": "Prepend string for a BGP AS-path attribute", "set ip": "IP specific information", "ip next-hop": "Next hop address",
+  "set community": "BGP community attribute", "set metric": "Metric value for destination routing protocol",
+  "set weight": "BGP weight for routing table", "set local-preference": "BGP local preference path attribute",
+  "set origin": "BGP origin code", "ip prefix-list": "Build a prefix list", "ip as-path": "BGP autonomous system path filter",
+  "as-path access-list": "Specify an access list name", "route-map in": "Apply map to incoming routes",
+  "route-map out": "Apply map to outbound routes", "prefix-list in": "Filter incoming updates", "prefix-list out": "Filter outgoing updates",
+  "soft in": "Send route-refresh", "soft out": "Resend all outbound updates", "bgp ipv6": "Address family", "bgp ipv4": "Address family",
+  "redistribute connected": "Connected", "redistribute ospf": "Open Shortest Path First (OSPF)",
+  "redistribute eigrp": "Enhanced Interior Gateway Routing Protocol (EIGRP)", "network mask": "Network mask",
+  "neighbor update-source": "Source of routing updates", "neighbor remote-as": "Specify a BGP neighbor",
+  "show route-map": "route-map information", "show ip prefix-list": "List IP prefix lists", "show ip as-path-access-list": "List AS path access lists",
+  "prefix-list description": "Prefix-list specific description", "route-map description": "Route-map comment",
+  "timers bgp": "BGP timers", "debug ip bgp updates": "BGP updates", "neighbors advertised-routes": "Display the routes advertised to a BGP neighbor",
+  "neighbors received-routes": "Display the received routes from neighbor", "neighbors routes": "Display routes learned from neighbor",
+  "unicast summary": "Summary of BGP neighbor status", "unicast neighbors": "Detailed information on TCP and BGP neighbor connections",
+  "send-community standard": "Send Standard Community attributes", "send-community both": "Send Standard and Extended Community attributes",
+  "undebug ip bgp updates": "BGP updates", "address-family ipv6": "Address family", "soft in": "Soft reconfig inbound update",
+  "soft out": "Soft reconfig outbound update", "route-map permit": "Route map permits set operations",
+  "route-map deny": "Route map denies set operations", "network route-map": "Route-map to modify the attributes",
+  "mask route-map": "Route-map to modify the attributes", "connected route-map": "Route map reference",
+  "static route-map": "Route map reference", "ospf route-map": "Route map reference", "eigrp route-map": "Route map reference",
+});
+HELP_MODE.bgp = { network: "Specify a network to announce via BGP", neighbor: "Specify a neighbor router", redistribute: "Redistribute information from another routing protocol",
+  timers: "Adjust routing timers", bgp: "BGP specific commands", "no bgp": "BGP specific commands" };
+HELP_MODE.bgpaf = { network: "Specify a network to announce via BGP", neighbor: "Specify a neighbor router", redistribute: "Redistribute information from another routing protocol" };
+HELP_MODE.rmap = { match: "Match values from routing table", set: "Set values in destination routing protocol", description: "Route-map comment" };
+HELP_MODE.priv = { ...(HELP_MODE.priv || {}), "show ip bgp neighbors": "Detailed information on TCP and BGP neighbor connections",
+  "show ip bgp summary": "Summary of BGP neighbor status" };
+HELP_MODE.user = { ...(HELP_MODE.user || {}), "show ip bgp neighbors": "Detailed information on TCP and BGP neighbor connections",
+  "show ip bgp summary": "Summary of BGP neighbor status" };
+
+const ASN = "<asn|AS number>";
+const bgpOf = (c) => c.cfg.bgp;
+const bgpAfOf = (c) => (c.mode === "bgpaf" ? c.target : "ipv4");
+const nbrKey = (v) => (typeof v === "string" && v.includes(":") ? fmt6(parse6(v)) : typeof v === "number" ? n2ip(v) : v);
+
+def("R", "config", `router bgp ${ASN}`, (c, [asn]) => {
+  const b = c.cfg.bgp;
+  if (b && b.asn !== asn) { c.print(`BGP is already running; AS is ${b.asn}`); return; }
+  if (!b) c.cfg.bgp = newBgp(asn);
+  c.s.enter("bgp", null);
+});
+def("R", "config", `no router bgp ${ASN}`, (c, [asn]) => {
+  if (!c.cfg.bgp || c.cfg.bgp.asn !== asn) { c.print("% No BGP process configured"); return; }
+  c.cfg.bgp = null;
+});
+
+// Session-level settings live under router bgp itself.
+const nbrNeedAs = (c, key, fn) => {
+  const n = bgpOf(c).nbrs[key];
+  if (!n) { c.print("% Specify remote-as or peer-group commands first"); return; }
+  fn(n);
+};
+for (const P of ["<ip|Neighbor address>", "<ip6|Neighbor IPv6 address>"]) {
+  def("R", "bgp", `neighbor ${P} remote-as ${ASN}`, (c, [a, asn]) => {
+    const b = bgpOf(c), k = nbrKey(a);
+    if (isV6Key(k) ? c.net.owns6(c.d.name, parse6(k)) : c.net.ownsIp(c.d.name, ip2n(k))) { c.print("% Cannot configure the local system as neighbor"); return; }
+    if (b.nbrs[k]) b.nbrs[k].remoteAs = asn;
+    else b.nbrs[k] = newBgpNbr(asn, b.v4default);
+  });
+  def("R", "bgp", `no neighbor ${P}`, (c, [a]) => { delete bgpOf(c).nbrs[nbrKey(a)]; });
+  def("R", "bgp", `no neighbor ${P} remote-as ${ASN}`, (c, [a]) => { delete bgpOf(c).nbrs[nbrKey(a)]; });
+  def("R", "bgp", `neighbor ${P} description <line|Up to 80 characters describing this neighbor>`, (c, [a, d]) => nbrNeedAs(c, nbrKey(a), (n) => { n.desc = d; }));
+  def("R", "bgp", `no neighbor ${P} description`, (c, [a]) => nbrNeedAs(c, nbrKey(a), (n) => { n.desc = null; }));
+  def("R", "bgp", `neighbor ${P} password <line|The password>`, (c, [a, p]) => nbrNeedAs(c, nbrKey(a), (n) => { n.password = p.replace(/^7\s+(\S+)$/, (m, e) => type7decode(e)); }));
+  def("R", "bgp", `no neighbor ${P} password`, (c, [a]) => nbrNeedAs(c, nbrKey(a), (n) => { n.password = null; }));
+  def("R", "bgp", `neighbor ${P} shutdown`, (c, [a]) => nbrNeedAs(c, nbrKey(a), (n) => { n.shutdown = true; }));
+  def("R", "bgp", `no neighbor ${P} shutdown`, (c, [a]) => nbrNeedAs(c, nbrKey(a), (n) => { n.shutdown = false; }));
+  def("R", "bgp", `neighbor ${P} ebgp-multihop`, (c, [a]) => nbrNeedAs(c, nbrKey(a), (n) => { n.multihop = 255; }));
+  def("R", "bgp", `neighbor ${P} ebgp-multihop <num:1-255|maximum hop count>`, (c, [a, h]) => nbrNeedAs(c, nbrKey(a), (n) => { n.multihop = h === 1 ? null : h; }));
+  def("R", "bgp", `no neighbor ${P} ebgp-multihop`, (c, [a]) => nbrNeedAs(c, nbrKey(a), (n) => { n.multihop = null; }));
+  def("R", "bgp", `neighbor ${P} disable-connected-check`, (c, [a]) => nbrNeedAs(c, nbrKey(a), (n) => { n.noConnCheck = true; }));
+  def("R", "bgp", `no neighbor ${P} disable-connected-check`, (c, [a]) => nbrNeedAs(c, nbrKey(a), (n) => { n.noConnCheck = false; }));
+  def("R", "bgp", `neighbor ${P} update-source <intf>`, (c, [a, i]) => c.s.withIf(i, 3, (ifn) => nbrNeedAs(c, nbrKey(a), (n) => { n.updateSource = ifn; })));
+  def("R", "bgp", `no neighbor ${P} update-source`, (c, [a]) => nbrNeedAs(c, nbrKey(a), (n) => { n.updateSource = null; }));
+  // Address-family settings: under router bgp they apply to IPv4 unicast.
+  for (const m of ["bgp", "bgpaf"]) {
+    const af = (c, a, fn) => nbrNeedAs(c, nbrKey(a), (n) => fn(n.af[bgpAfOf(c)]));
+    def("R", m, `neighbor ${P} activate`, (c, [a]) => af(c, a, (x) => { x.active = true; }));
+    def("R", m, `no neighbor ${P} activate`, (c, [a]) => af(c, a, (x) => { x.active = false; }));
+    for (const [word, key] of [["next-hop-self", "nhs"], ["route-reflector-client", "rrc"], ["send-community", "sendComm"], ["default-originate", "defOrig"]]) {
+      def("R", m, `neighbor ${P} ${word}`, (c, [a]) => af(c, a, (x) => { x[key] = true; }));
+      def("R", m, `no neighbor ${P} ${word}`, (c, [a]) => af(c, a, (x) => { x[key] = false; }));
+    }
+    def("R", m, `neighbor ${P} send-community {standard|both}`, (c, [a]) => af(c, a, (x) => { x.sendComm = true; }));
+    def("R", m, `neighbor ${P} soft-reconfiguration inbound`, (c, [a]) => af(c, a, (x) => { x.soft = true; }));
+    def("R", m, `no neighbor ${P} soft-reconfiguration inbound`, (c, [a]) => af(c, a, (x) => { x.soft = false; }));
+    def("R", m, `neighbor ${P} weight <num:0-65535|default weight>`, (c, [a, w]) => af(c, a, (x) => { x.weight = w; }));
+    def("R", m, `no neighbor ${P} weight`, (c, [a]) => af(c, a, (x) => { x.weight = null; }));
+    def("R", m, `neighbor ${P} route-map <word|Name of route map> {in|out}`, (c, [a, rm, dir]) => af(c, a, (x) => { x[dir === "in" ? "rmIn" : "rmOut"] = rm; }));
+    def("R", m, `no neighbor ${P} route-map <word|Name of route map> {in|out}`, (c, [a, , dir]) => af(c, a, (x) => { x[dir === "in" ? "rmIn" : "rmOut"] = null; }));
+    def("R", m, `neighbor ${P} prefix-list <word|Name of a prefix list> {in|out}`, (c, [a, pl, dir]) => af(c, a, (x) => { x[dir === "in" ? "plIn" : "plOut"] = pl; }));
+    def("R", m, `no neighbor ${P} prefix-list <word|Name of a prefix list> {in|out}`, (c, [a, , dir]) => af(c, a, (x) => { x[dir === "in" ? "plIn" : "plOut"] = null; }));
+  }
+}
+
+// What gets announced: network statements, aggregates and redistribution, per address family.
+const bgpAfConf = (c) => {
+  const b = bgpOf(c), af = bgpAfOf(c);
+  if (!b.af[af]) b.af[af] = newBgpAf();
+  return b.af[af];
+};
+const addNet = (c, pfx, rm) => {
+  const conf = bgpAfConf(c), nw = conf.networks.find((x) => x.pfx === pfx);
+  if (nw) nw.rm = rm; else conf.networks.push({ pfx, rm });
+};
+const delNet = (c, pfx) => { const conf = bgpAfConf(c); conf.networks = conf.networks.filter((x) => x.pfx !== pfx); };
+const v4Net = (c, a, m) => {
+  if (m === null) { const mj = majorNet(a); return pfx4(mj.net, mj.len); }
+  if (maskLen(m) < 0) { c.print("% Invalid mask"); return null; }
+  return pfx4(and(a, m), maskLen(m));
+};
+for (const m of ["bgp", "bgpaf"]) {
+  const v4 = (c) => bgpAfOf(c) === "ipv4";
+  const only4 = (c, fn) => (v4(c) ? fn() : c.print("% Invalid input detected for this address family"));
+  const only6 = (c, fn) => (!v4(c) ? fn() : c.print("% Invalid input detected for this address family"));
+  def("R", m, "network <ip|Network number>", (c, [a]) => only4(c, () => { const k = v4Net(c, a, null); if (k) addNet(c, k, null); }));
+  def("R", m, "network <ip|Network number> mask <ip|Network mask>", (c, [a, mk]) => only4(c, () => { const k = v4Net(c, a, mk); if (k) addNet(c, k, null); }));
+  def("R", m, "network <ip|Network number> mask <ip|Network mask> route-map <word|Route-map name>", (c, [a, mk, rm]) => only4(c, () => { const k = v4Net(c, a, mk); if (k) addNet(c, k, rm); }));
+  def("R", m, "network <ip|Network number> route-map <word|Route-map name>", (c, [a, rm]) => only4(c, () => { const k = v4Net(c, a, null); if (k) addNet(c, k, rm); }));
+  def("R", m, "no network <ip|Network number>", (c, [a]) => only4(c, () => { const k = v4Net(c, a, null); if (k) delNet(c, k); }));
+  def("R", m, "no network <ip|Network number> mask <ip|Network mask>", (c, [a, mk]) => only4(c, () => { const k = v4Net(c, a, mk); if (k) delNet(c, k); }));
+  def("R", m, "network <ip6pfx>", (c, [p]) => only6(c, () => addNet(c, pfx6(p.a, p.len), null)));
+  def("R", m, "network <ip6pfx> route-map <word|Route-map name>", (c, [p, rm]) => only6(c, () => addNet(c, pfx6(p.a, p.len), rm)));
+  def("R", m, "no network <ip6pfx>", (c, [p]) => only6(c, () => delNet(c, pfx6(p.a, p.len))));
+  const agg = (c, k, opts) => {
+    const conf = bgpAfConf(c);
+    conf.aggs = conf.aggs.filter((x) => x.pfx !== k);
+    conf.aggs.push({ pfx: k, summaryOnly: opts.includes("summary-only"), asSet: opts.includes("as-set") });
+  };
+  const AGG = ["", " summary-only", " as-set", " summary-only as-set", " as-set summary-only"];
+  for (const tail of AGG) {
+    def("R", m, `aggregate-address <ip|Aggregate address> <ip|Aggregate mask>${tail}`, (c, [a, mk]) => only4(c, () => agg(c, pfx4(and(a, mk), maskLen(mk)), tail)));
+    def("R", m, `aggregate-address <ip6pfx>${tail}`, (c, [p]) => only6(c, () => agg(c, pfx6(p.a, p.len), tail)));
+  }
+  def("R", m, "no aggregate-address <ip|Aggregate address> <ip|Aggregate mask>", (c, [a, mk]) => { const conf = bgpAfConf(c), k = pfx4(and(a, mk), maskLen(mk)); conf.aggs = conf.aggs.filter((x) => x.pfx !== k); });
+  def("R", m, "no aggregate-address <ip6pfx>", (c, [p]) => { const conf = bgpAfConf(c), k = pfx6(p.a, p.len); conf.aggs = conf.aggs.filter((x) => x.pfx !== k); });
+  for (const src of ["connected", "static"]) {
+    def("R", m, `redistribute ${src}`, (c) => { bgpAfConf(c).redist[src] = { rm: null }; });
+    def("R", m, `redistribute ${src} route-map <word|Pointer to route-map entries>`, (c, [rm]) => { bgpAfConf(c).redist[src] = { rm }; });
+    def("R", m, `no redistribute ${src}`, (c) => { delete bgpAfConf(c).redist[src]; });
+  }
+  def("R", m, "redistribute ospf <num:1-65535|Process ID>", (c, [id]) => { bgpAfConf(c).redist.ospf = { id, rm: null }; });
+  def("R", m, "redistribute ospf <num:1-65535|Process ID> route-map <word|Pointer to route-map entries>", (c, [id, rm]) => { bgpAfConf(c).redist.ospf = { id, rm }; });
+  def("R", m, "no redistribute ospf <num:1-65535|Process ID>", (c) => { delete bgpAfConf(c).redist.ospf; });
+  def("R", m, "redistribute eigrp <num:1-65535|Autonomous system number>", (c, [id]) => { bgpAfConf(c).redist.eigrp = { id, rm: null }; });
+  def("R", m, "redistribute eigrp <num:1-65535|Autonomous system number> route-map <word|Pointer to route-map entries>", (c, [id, rm]) => { bgpAfConf(c).redist.eigrp = { id, rm }; });
+  def("R", m, "no redistribute eigrp <num:1-65535|Autonomous system number>", (c) => { delete bgpAfConf(c).redist.eigrp; });
+  def("R", m, "maximum-paths <num:1-32|Number of paths>", (c, [n]) => { bgpOf(c).maxPaths = n; });
+  def("R", m, "no maximum-paths", (c) => { bgpOf(c).maxPaths = 1; });
+}
+
+def("R", "bgp", "bgp router-id <ip|Manually configured router identifier>", (c, [r]) => { bgpOf(c).rid = r; });
+def("R", "bgp", "no bgp router-id", (c) => { bgpOf(c).rid = null; });
+def("R", "bgp", "bgp log-neighbor-changes", (c) => { bgpOf(c).logChanges = true; });
+def("R", "bgp", "no bgp log-neighbor-changes", (c) => { bgpOf(c).logChanges = false; });
+def("R", "bgp", "bgp default ipv4-unicast", (c) => { bgpOf(c).v4default = true; });
+def("R", "bgp", "no bgp default ipv4-unicast", (c) => { bgpOf(c).v4default = false; });
+def("R", "bgp", "bgp default local-preference <num:0-4294967295|Configure default local preference value>", (c, [v]) => { bgpOf(c).defLp = v; });
+def("R", "bgp", "no bgp default local-preference", (c) => { bgpOf(c).defLp = 100; });
+def("R", "bgp", "bgp cluster-id <ip|Route-Reflector Cluster-id in IP address format>", (c, [v]) => { bgpOf(c).clusterId = v; });
+def("R", "bgp", "no bgp cluster-id", (c) => { bgpOf(c).clusterId = null; });
+def("R", "bgp", "bgp always-compare-med", (c) => { bgpOf(c).alwaysMed = true; });
+def("R", "bgp", "no bgp always-compare-med", (c) => { bgpOf(c).alwaysMed = false; });
+def("R", "bgp", "synchronization", (c) => { bgpOf(c).sync = true; });
+def("R", "bgp", "no synchronization", (c) => { bgpOf(c).sync = false; });
+def("R", "bgp", "timers bgp <num:0-65535|Keepalive interval> <num:0-65535|Holdtime>", (c, [k, h]) => {
+  if (h !== 0 && h < 3) { c.print("% Holdtime must be 0 or greater than or equal to 3 seconds"); return; }
+  bgpOf(c).timers = k === 60 && h === 180 ? null : [k, h];
+});
+def("R", "bgp", "no timers bgp", (c) => { bgpOf(c).timers = null; });
+def("R", "bgp", "address-family ipv4", (c) => c.s.enter("bgpaf", "ipv4"));
+def("R", "bgp", "address-family ipv4 unicast", (c) => c.s.enter("bgpaf", "ipv4"));
+def("R", "bgp", "address-family ipv6", (c) => { if (!bgpOf(c).af.ipv6) bgpOf(c).af.ipv6 = newBgpAf(); c.s.enter("bgpaf", "ipv6"); });
+def("R", "bgp", "address-family ipv6 unicast", (c) => { if (!bgpOf(c).af.ipv6) bgpOf(c).af.ipv6 = newBgpAf(); c.s.enter("bgpaf", "ipv6"); });
+def("R", "bgp", "no address-family ipv6", (c) => { const b = bgpOf(c); b.af.ipv6 = null; for (const n of Object.values(b.nbrs)) n.af.ipv6 = newNbrAf(false); });
+def("R", "bgpaf", "exit-address-family", (c) => c.s.enter("bgp", null));
+
+// ---- policy commands --------------------------------------------------------------------------
+const PL = "<word|Name of a prefix list>";
+const plAdd = (c, name, seq, action, pfx, ge, le) => {
+  const [, len] = splitPfx(pfx);
+  if ((ge !== null && ge <= len) || (le !== null && le < len) || (ge !== null && le !== null && le < ge)) {
+    c.print("% Invalid prefix range for " + pfx + ", make sure: len < ge-value <= le-value");
+    return;
+  }
+  const lists = bgpPolicyLists(c.cfg);
+  const pl = lists[name] = lists[name] || { desc: null, entries: [] };
+  if (seq === null) seq = (pl.entries.reduce((m, e) => Math.max(m, e.seq), 0) || 0) + 5;
+  pl.entries = pl.entries.filter((e) => e.seq !== seq && !(e.pfx === pfx && e.action === action && e.ge === ge && e.le === le));
+  pl.entries.push({ seq, action, pfx, ge, le });
+};
+for (const head of ["", " seq <num:1-4294967294|Sequence number>"]) {
+  for (const tail of ["", " ge <num:1-32|Minimum prefix length to be matched>", " le <num:1-32|Maximum prefix length to be matched>",
+    " ge <num:1-32|Minimum prefix length to be matched> le <num:1-32|Maximum prefix length to be matched>"]) {
+    def("R", "config", `ip prefix-list ${PL}${head} {permit|deny} <pfx4>${tail}`, (c, args) => {
+      const [name, ...rest] = args;
+      const seq = head ? rest.shift() : null, action = rest.shift(), pfx = rest.shift();
+      let ge = null, le = null;
+      if (tail.includes(" ge ")) ge = rest.shift();
+      if (tail.includes(" le ")) le = rest.shift();
+      plAdd(c, name, seq, action, pfx, ge, le);
+    });
+  }
+}
+def("R", "config", `ip prefix-list ${PL} description <line|Up to 80 characters describing this prefix-list>`, (c, [n, d]) => {
+  const lists = bgpPolicyLists(c.cfg);
+  (lists[n] = lists[n] || { desc: null, entries: [] }).desc = d;
+});
+def("R", "config", `no ip prefix-list ${PL}`, (c, [n]) => { delete bgpPolicyLists(c.cfg)[n]; });
+def("R", "config", `no ip prefix-list ${PL} seq <num:1-4294967294|Sequence number>`, (c, [n, s]) => {
+  const pl = bgpPolicyLists(c.cfg)[n];
+  if (pl) { pl.entries = pl.entries.filter((e) => e.seq !== s); if (!pl.entries.length && !pl.desc) delete bgpPolicyLists(c.cfg)[n]; }
+});
+def("R", "config", "ip as-path access-list <num:1-500|Regular expression access list number> {permit|deny} <line|A regular-expression to match BGP AS paths. Use \"ctrl-v ?\" to enter \"?\">", (c, [n, action, re]) => {
+  if (!bgpPolicyAsRegex(re)) { c.print("% Invalid regular expression"); return; }
+  const l = bgpPolicyAsLists(c.cfg);
+  (l[n] = l[n] || []).push({ action, re });
+});
+def("R", "config", "no ip as-path access-list <num:1-500|Regular expression access list number>", (c, [n]) => { delete bgpPolicyAsLists(c.cfg)[n]; });
+
+const RM = "<word|Route map tag>";
+const rmEnter = (c, name, action, seq) => {
+  const maps = bgpPolicyMaps(c.cfg), list = maps[name] = maps[name] || [];
+  let e = list.find((x) => x.seq === seq);
+  if (!e) { e = { seq, action, desc: null, match: [], set: [] }; list.push(e); }
+  else e.action = action;
+  c.s.enter("rmap", { name, seq });
+};
+def("R", "config", `route-map ${RM}`, (c, [n]) => rmEnter(c, n, "permit", 10));
+def("R", "config", `route-map ${RM} {permit|deny}`, (c, [n, a]) => rmEnter(c, n, a, 10));
+def("R", "config", `route-map ${RM} {permit|deny} <num:0-65535|Sequence to insert to/delete from existing route-map entry>`, (c, [n, a, s]) => rmEnter(c, n, a, s));
+def("R", "config", `no route-map ${RM}`, (c, [n]) => { delete bgpPolicyMaps(c.cfg)[n]; });
+def("R", "config", `no route-map ${RM} {permit|deny} <num:0-65535|Sequence to insert to/delete from existing route-map entry>`, (c, [n, , s]) => {
+  const maps = bgpPolicyMaps(c.cfg);
+  if (!maps[n]) return;
+  maps[n] = maps[n].filter((e) => e.seq !== s);
+  if (!maps[n].length) delete maps[n];
+});
+const rmEntry = (c) => bgpPolicyMaps(c.cfg)[c.target.name].find((e) => e.seq === c.target.seq);
+const rmMatch = (c, kind, names) => {
+  const e = rmEntry(c), m = e.match.find((x) => x.kind === kind);
+  if (m) m.names = [...new Set([...m.names, ...names])]; else e.match.push({ kind, names });
+};
+const rmNoMatch = (c, kind) => { const e = rmEntry(c); e.match = e.match.filter((x) => x.kind !== kind); };
+const rmSet = (c, kind, value, extra = {}) => {
+  const e = rmEntry(c);
+  e.set = e.set.filter((x) => x.kind !== kind);
+  e.set.push({ kind, value, ...extra });
+};
+const rmNoSet = (c, kind) => { const e = rmEntry(c); e.set = e.set.filter((x) => x.kind !== kind); };
+def("R", "rmap", "match ip address prefix-list <line|IP prefix-list name>", (c, [l]) => rmMatch(c, "prefix-list", l.split(/\s+/)));
+def("R", "rmap", "no match ip address prefix-list", (c) => rmNoMatch(c, "prefix-list"));
+def("R", "rmap", "match ip address <line|IP access-list number or name>", (c, [l]) => rmMatch(c, "acl", l.split(/\s+/)));
+def("R", "rmap", "no match ip address", (c) => rmNoMatch(c, "acl"));
+def("R", "rmap", "match as-path <line|AS path access-list>", (c, [l]) => rmMatch(c, "as-path", l.split(/\s+/)));
+def("R", "rmap", "no match as-path", (c) => rmNoMatch(c, "as-path"));
+def("R", "rmap", "match community <line|Community-list number or name>", (c, [l]) => rmMatch(c, "community", l.split(/\s+/)));
+def("R", "rmap", "no match community", (c) => rmNoMatch(c, "community"));
+def("R", "rmap", "set weight <num:0-65535|Weight value>", (c, [v]) => rmSet(c, "weight", v));
+def("R", "rmap", "no set weight", (c) => rmNoSet(c, "weight"));
+def("R", "rmap", "set local-preference <num:0-4294967295|Preference value>", (c, [v]) => rmSet(c, "local-preference", v));
+def("R", "rmap", "no set local-preference", (c) => rmNoSet(c, "local-preference"));
+def("R", "rmap", "set metric <num:0-4294967295|Metric value or Bandwidth in Kbits per second>", (c, [v]) => rmSet(c, "metric", v));
+def("R", "rmap", "no set metric", (c) => rmNoSet(c, "metric"));
+def("R", "rmap", "set origin {igp|incomplete}", (c, [v]) => rmSet(c, "origin", v === "igp" ? "i" : "?"));
+def("R", "rmap", "no set origin", (c) => rmNoSet(c, "origin"));
+def("R", "rmap", "set ip next-hop <ip|IP address of next hop>", (c, [v]) => rmSet(c, "next-hop", n2ip(v)));
+def("R", "rmap", "no set ip next-hop", (c) => rmNoSet(c, "next-hop"));
+def("R", "rmap", "set as-path prepend <line|AS number>", (c, [l]) => {
+  const v = l.split(/\s+/).map(Number);
+  if (v.some((x) => !Number.isInteger(x) || x < 1 || x > 4294967295)) { c.print("% Invalid AS number"); return; }
+  rmSet(c, "prepend", v);
+});
+def("R", "rmap", "no set as-path prepend", (c) => rmNoSet(c, "prepend"));
+def("R", "rmap", "set community <line|community number in aa:nn format, no-export, no-advertise, internet or additive>", (c, [l]) => {
+  const words = l.split(/\s+/), additive = words.includes("additive");
+  const vals = [];
+  for (const w of words.filter((x) => x !== "additive")) {
+    const wl = w.toLowerCase();
+    if (["no-export", "no-advertise", "internet", "local-as"].includes(wl)) { vals.push(wl); continue; }
+    const m = PARAMS.community.match([{ t: w }], 0);
+    if (!m) { c.print("% Invalid community value " + w); return; }
+    vals.push(m.value);
+  }
+  rmSet(c, "community", vals, { additive });
+});
+def("R", "rmap", "no set community", (c) => rmNoSet(c, "community"));
+def("R", "rmap", "description <line|Comment, up to 100 characters>", (c, [d]) => { rmEntry(c).desc = d; });
+def("R", "rmap", "no description", (c) => { rmEntry(c).desc = null; });
+
+// ---- exec: show, clear, debug ------------------------------------------------------------------
+const bgpShow = (c, fn) => {
+  if (!c.cfg.bgp) { c.print("% BGP not active"); return; }
+  c.print(fn());
+};
+const findKey = (c, v) => { const k = nbrKey(v); return c.cfg.bgp && c.cfg.bgp.nbrs[k] ? k : null; };
+for (const [pre, af] of [["show ip bgp", "ipv4"], ["show bgp ipv4 unicast", "ipv4"], ["show bgp ipv6 unicast", "ipv6"]]) {
+  def("R", both, pre, (c) => bgpShow(c, () => showBgpTable(c.net, c.d.name, af)));
+  def("R", both, pre + " summary", (c) => bgpShow(c, () => showBgpSummary(c.net, c.d.name, af)));
+  def("R", both, pre + " neighbors", (c) => bgpShow(c, () => Object.keys(c.cfg.bgp.nbrs).filter((k) => c.cfg.bgp.nbrs[k].af[af].active)
+    .map((k) => showBgpNeighbor(c.net, c.d.name, k)).join("\n\n")));
+  for (const P of ["<ip|Neighbor to display information about>", "<ip6|IPv6 neighbor to display information about>"]) {
+    def("R", both, `${pre} neighbors ${P}`, (c, [a]) => bgpShow(c, () => {
+      const k = findKey(c, a);
+      return k ? showBgpNeighbor(c.net, c.d.name, k) : "% No such neighbor or address family";
+    }));
+    def("R", both, `${pre} neighbors ${P} advertised-routes`, (c, [a]) => bgpShow(c, () => {
+      const k = findKey(c, a), r = c.net.bgp()[c.d.name];
+      if (!k) return "% No such neighbor or address family";
+      const s = r.nbrs[k];
+      if (!s.up) return "";
+      const peerSaw = c.net.bgp()[s.peer].nbrs[s.peerKey].raw[af];
+      const L = [`BGP table version is ${bgpVersion(r)}, local router ID is ${n2ip(r.rid)}`, BGP_STATUS, "",
+        "     Network          Next Hop            Metric LocPrf Weight Path"];
+      for (const p of peerSaw) {
+        const mine = (r.tables[af][p.pfx] || []).find((x) => x.best) || p;
+        L.push(...bgpRows(c.net, c.d.name, af, (x) => x === mine).filter(() => true).slice(0, 1));
+      }
+      L.push("", `Total number of prefixes ${peerSaw.length} `);
+      return peerSaw.length ? L.join("\n") : "";
+    }));
+    def("R", both, `${pre} neighbors ${P} {routes|received-routes}`, (c, [a, which]) => bgpShow(c, () => {
+      const k = findKey(c, a), r = c.net.bgp()[c.d.name];
+      if (!k) return "% No such neighbor or address family";
+      if (which === "received-routes" && !c.cfg.bgp.nbrs[k].af[af].soft) return `% Inbound soft reconfiguration not enabled on ${k}`;
+      const s = r.nbrs[k];
+      const keep = which === "routes" ? new Set(s.adjIn[af]) : null;
+      const L = [`BGP table version is ${bgpVersion(r)}, local router ID is ${n2ip(r.rid)}`, BGP_STATUS, "",
+        "     Network          Next Hop            Metric LocPrf Weight Path"];
+      if (which === "routes") L.push(...bgpRows(c.net, c.d.name, af, (p) => keep.has(p)));
+      else for (const p of s.raw[af]) L.push(` *   ${pad(p.pfx, 17)}${pad(p.nh, 20)}${lpad(p.med ?? "", 6)} ${lpad(s.ebgp ? "" : p.lp ?? "", 6)} ${lpad(0, 6)} ${asPathStr(p)} ${p.origin}`.trimEnd());
+      const n = which === "routes" ? s.adjIn[af].length : s.raw[af].length;
+      L.push("", `Total number of prefixes ${n} `);
+      return n ? L.join("\n") : "";
+    }));
+  }
+}
+def("R", both, "show ip bgp <ip|Network in the BGP routing table to display>", (c, [a]) => bgpShow(c, () => {
+  const r = c.net.bgp()[c.d.name];
+  const keys = Object.keys(r.tables.ipv4).filter((k) => { const { net, len } = pfxNet(k); return sameNet(a, net, lenMask(len)); });
+  if (!keys.length) return "% Network not in table";
+  const k = keys.sort((x, y) => pfxNet(y).len - pfxNet(x).len)[0];
+  return showBgpDetail(c.net, c.d.name, "ipv4", k);
+}));
+def("R", both, "show ip bgp <ip|Network in the BGP routing table to display> <ip|Network mask>", (c, [a, mk]) => bgpShow(c, () =>
+  showBgpDetail(c.net, c.d.name, "ipv4", pfx4(and(a, mk), maskLen(mk)))));
+def("R", both, "show ip bgp <pfx4>", (c, [k]) => bgpShow(c, () => showBgpDetail(c.net, c.d.name, "ipv4", k)));
+def("R", both, "show bgp ipv6 unicast <ip6pfx>", (c, [p]) => bgpShow(c, () => showBgpDetail(c.net, c.d.name, "ipv6", pfx6(p.a, p.len))));
+def("R", both, "show ip route bgp", (c) => c.print(showIpRoute(c.net, c.d.name, "B")));
+def("R", both, "show ipv6 route bgp", (c) => c.print(showIpv6Route(c.net, c.d.name, "B")));
+def("R", "priv", "show ip prefix-list", (c) => c.print(showPrefixLists(c.cfg)));
+def("R", "priv", `show ip prefix-list ${PL}`, (c, [n]) => c.print(showPrefixLists(c.cfg, n)));
+def("R", "priv", "show route-map", (c) => c.print(showRouteMaps(c.cfg, null, c.d.rt.rmHits)));
+def("R", "priv", `show route-map ${RM}`, (c, [n]) => c.print(showRouteMaps(c.cfg, n, c.d.rt.rmHits)));
+def("R", "priv", "show ip as-path-access-list", (c) => c.print(Object.entries(c.cfg.asPathLists || {})
+  .map(([n, l]) => `AS path access list ${n}\n` + l.map((e) => `    ${e.action} ${e.re}`).join("\n")).join("\n")));
+
+const bgpClearCmd = (c, which, soft, dir) => {
+  if (!c.cfg.bgp) { c.print("% BGP not active"); return; }
+  if (which !== "*" && !c.cfg.bgp.nbrs[which]) { c.print("% No such neighbor or address family"); return; }
+  c.net.bgpClear(c.d.name, which, soft, dir);
+};
+for (const pre of ["clear ip bgp", "clear bgp ipv4 unicast", "clear bgp ipv6 unicast"]) {
+  for (const [who, get] of [["*", () => "*"], ["<ip|BGP neighbor address to clear>", (a) => nbrKey(a)], ["<ip6|BGP IPv6 neighbor to clear>", (a) => nbrKey(a)]]) {
+    def("R", "priv", `${pre} ${who}`, (c, [a]) => bgpClearCmd(c, get(a), false));
+    def("R", "priv", `${pre} ${who} soft`, (c, [a]) => bgpClearCmd(c, get(a), true, "both"));
+    def("R", "priv", `${pre} ${who} soft {in|out}`, (c, args) => bgpClearCmd(c, get(who === "*" ? undefined : args[0]), true, args[args.length - 1]));
+  }
+}
+const bgpDebug = (c, on) => {
+  c.d.rt.debug = { ...(c.d.rt.debug || {}), bgp: on };
+  c.print(on ? "BGP updates debugging is on for address family: IPv4 Unicast" : "BGP updates debugging is off for address family: IPv4 Unicast");
+};
+def("R", "priv", "debug ip bgp", (c) => { c.d.rt.debug = { ...(c.d.rt.debug || {}), bgp: true }; c.print("BGP debugging is on for address family: IPv4 Unicast"); });
+def("R", "priv", "debug ip bgp updates", (c) => bgpDebug(c, true));
+def("R", "priv", "no debug ip bgp", (c) => bgpDebug(c, false));
+def("R", "priv", "no debug ip bgp updates", (c) => bgpDebug(c, false));
+def("R", "priv", "undebug ip bgp", (c) => bgpDebug(c, false));
+def("R", "priv", "undebug ip bgp updates", (c) => bgpDebug(c, false));
+// ======== end BGP ========
+
+// ======== route-maps & prefix-lists: the routing clauses ========
+// The BGP section defines route-map and prefix-list configuration; these add what redistribution,
+// distribute-lists and policy-based routing match on and set.
+const rmNames = (c, kind, list) => { if (list.length) rmMatch(c, kind, list); };
+const rmWords = (t) => tokenize(t).map((x) => x.t);
+def("R", "rmap", "match ipv6 address prefix-list <line|IPv6 prefix-list name>", (c, [t]) => rmNames(c, "ipv6-prefix-list", rmWords(t)));
+def("R", "rmap", "no match ipv6 address prefix-list", (c) => rmNoMatch(c, "ipv6-prefix-list"));
+def("R", "rmap", "match ip next-hop prefix-list <line|IP prefix-list name>", (c, [t]) => rmNames(c, "next-hop-prefix-list", rmWords(t)));
+def("R", "rmap", "no match ip next-hop prefix-list", (c) => rmNoMatch(c, "next-hop-prefix-list"));
+def("R", "rmap", "match tag <line|Tag value>", (c, [t]) => {
+  const v = rmWords(t);
+  if (!v.every((x) => /^\d+$/.test(x))) { c.invalid(2); return; }
+  rmNames(c, "tag", v.map(Number));
+});
+def("R", "rmap", "no match tag", (c) => rmNoMatch(c, "tag"));
+const rmValue = (c, kind, value) => { const e = rmEntry(c); e.match = e.match.filter((x) => x.kind !== kind); e.match.push({ kind, value }); };
+def("R", "rmap", "match metric <num:0-4294967295|Metric value>", (c, [m]) => rmValue(c, "metric", m));
+def("R", "rmap", "no match metric", (c) => rmNoMatch(c, "metric"));
+def("R", "rmap", "match interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => rmNames(c, "interface", [ifn])));
+def("R", "rmap", "no match interface", (c) => rmNoMatch(c, "interface"));
+def("R", "rmap", "match length <num:0-2147483647|Minimum packet length> <num:0-2147483647|Maximum packet length>", (c, [a, b]) => rmValue(c, "length", [a, b]));
+def("R", "rmap", "no match length", (c) => rmNoMatch(c, "length"));
+for (const t of ["internal", "local", "external", "nssa-external"]) {
+  def("R", "rmap", `match route-type ${t}`, (c) => rmValue(c, "route-type", [t]));
+  if (t === "external" || t === "nssa-external") def("R", "rmap", `match route-type ${t} {type-1|type-2}`, (c, [x]) => rmValue(c, "route-type", [t, x]));
+}
+def("R", "rmap", "no match route-type", (c) => rmNoMatch(c, "route-type"));
+def("R", "rmap", "set metric <num:1-4294967295|Bandwidth in Kbits per second> <num:0-4294967295|EIGRP delay metric, in 10 microsecond units> <num:0-255|EIGRP reliability metric where 255 is 100% reliable> <num:1-255|EIGRP Effective bandwidth metric (Loading) where 255 is 100% loaded> <num:1-65535|EIGRP MTU of the path>",
+  (c, v) => rmSet(c, "metric", v));
+def("R", "rmap", "set metric-type {type-1|type-2|internal|external}", (c, [t]) => rmSet(c, "metric-type", t));
+def("R", "rmap", "no set metric-type", (c) => rmNoSet(c, "metric-type"));
+def("R", "rmap", "set tag <num:0-4294967295|Tag value>", (c, [t]) => rmSet(c, "tag", t));
+def("R", "rmap", "no set tag", (c) => rmNoSet(c, "tag"));
+// Policy routing can list several next hops; the first reachable one is used.
+const nhList = (c, ips) => rmSet(c, "next-hop", n2ip(ips[0]), { list: ips });
+def("R", "rmap", "set ip next-hop <ip|IP address of next hop> <ip|IP address of next hop>", (c, ips) => nhList(c, ips));
+def("R", "rmap", "set ip next-hop <ip|IP address of next hop> <ip|IP address of next hop> <ip|IP address of next hop>", (c, ips) => nhList(c, ips));
+def("R", "rmap", "set ip default next-hop <ip|Default next hop IP address>", (c, ips) => rmSet(c, "default-next-hop", ips, { list: ips }));
+def("R", "rmap", "set ip default next-hop <ip|Default next hop IP address> <ip|Default next hop IP address>", (c, ips) => rmSet(c, "default-next-hop", ips, { list: ips }));
+def("R", "rmap", "no set ip default next-hop", (c) => rmNoSet(c, "default-next-hop"));
+const rmIf = (c, ifn) => {
+  const e = rmEntry(c), cur = e.set.find((x) => x.kind === "interface");
+  rmSet(c, "interface", ifn, { list: [...new Set([...(cur ? cur.list : []), ifn])] });
+};
+def("R", "rmap", "set interface <intf>", (c, [n]) => c.s.withIf(n, 2, (ifn) => rmIf(c, ifn)));
+def("R", "rmap", "set interface Null0", (c) => rmIf(c, "Null0"));
+def("R", "rmap", "no set interface", (c) => rmNoSet(c, "interface"));
+// IPv6 prefix lists (IPv4 ones are defined with BGP); same storage shape, their own namespace.
+const PL6 = "<word|Name of a prefix list>";
+const plAdd6 = (c, name, seq, action, p, ge, le) => {
+  const len = p.len;
+  if ((ge !== null && (ge <= len || ge > 128)) || (le !== null && (le < len || le > 128)) || (ge !== null && le !== null && le < ge)) {
+    c.print(`% Invalid prefix range for ${p.a}/${len}, make sure: len < ge-value <= le-value`);
+    return;
+  }
+  const lists = c.cfg.prefixLists6 || (c.cfg.prefixLists6 = {});
+  const pl = lists[name] = lists[name] || { desc: null, entries: [] };
+  if (seq === null) seq = (pl.entries.reduce((m, e) => Math.max(m, e.seq), 0) || 0) + 5;
+  const pfx = pfx6(parse6(p.a), len);
+  pl.entries = pl.entries.filter((e) => e.seq !== seq && !(e.pfx === pfx && e.action === action && e.ge === ge && e.le === le));
+  pl.entries.push({ seq, action, pfx, ge, le });
+};
+for (const head of ["", " seq <num:1-4294967294|Sequence number>"]) {
+  for (const tail of ["", " ge <num:1-128|Minimum prefix length to be matched>", " le <num:1-128|Maximum prefix length to be matched>",
+    " ge <num:1-128|Minimum prefix length to be matched> le <num:1-128|Maximum prefix length to be matched>"]) {
+    def("R", "config", `ipv6 prefix-list ${PL6}${head} {permit|deny} <ip6pfx>${tail}`, (c, args) => {
+      const [name, ...rest] = args;
+      const seq = head ? rest.shift() : null, action = rest.shift(), p = rest.shift();
+      let ge = null, le = null;
+      if (tail.includes(" ge ")) ge = rest.shift();
+      if (tail.includes(" le ")) le = rest.shift();
+      plAdd6(c, name, seq, action, p, ge, le);
+    });
+  }
+}
+def("R", "config", `no ipv6 prefix-list ${PL6}`, (c, [n]) => { delete (c.cfg.prefixLists6 || {})[n]; });
+def("R", both, "show ipv6 prefix-list", (c) => c.print(showPrefixLists({ prefixLists: c.cfg.prefixLists6 }).replace(/^ip prefix-list/gm, "ipv6 prefix-list")));
+def("R", "priv", "show ip prefix-list detail", (c) => c.print(showPrefixListDetail(c.net, c.d.name, null)));
+def("R", "priv", `show ip prefix-list detail ${PL6}`, (c, [n]) => c.print(showPrefixListDetail(c.net, c.d.name, n)));
+
+function showPrefixListDetail(net, dn, only) {
+  const d = net.devs[dn], hits = d.rt.plHits || {}, L = [];
+  for (const [n, pl] of Object.entries(d.cfg.prefixLists || {})) {
+    if (only && n !== only) continue;
+    const es = [...pl.entries].sort((a, b) => a.seq - b.seq);
+    L.push(`ip prefix-list ${n}:`, pl.desc ? "   Description: " + pl.desc : null,
+      `   count: ${es.length}, range entries: ${es.filter((e) => e.ge !== null || e.le !== null).length}, sequences: ${es.length ? es[0].seq : 0} - ${es.length ? es[es.length - 1].seq : 0}, refcount: 2`);
+    for (const e of es) L.push(`   seq ${e.seq} ${e.action} ${e.pfx}${e.ge !== null ? " ge " + e.ge : ""}${e.le !== null ? " le " + e.le : ""} (hit count: ${hits[n + "|" + e.seq] || 0}, refcount: 1)`);
+  }
+  return L.filter((x) => x !== null).join("\n");
+}
 
 // ---------------------------------------------------------------- output filters
 function applyFilter(text, f) {
