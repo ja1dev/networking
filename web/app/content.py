@@ -181,6 +181,25 @@ def _md(text, inline=False):
     return out
 
 
+# Within each exam, labs follow the blueprint's order; a lab's topic is matched against these
+# prefixes, and troubleshooting tickets always come last so they draw on everything before them.
+TOPIC_ORDER = {
+    "ENCOR": ["Spanning tree", "VTP", "EtherChannel", "Inter-VLAN", "First-hop", "Switch security", "Monitoring",
+              "GRE", "IPsec", "QoS", "NTP", "SNMP", "NetFlow", "AAA", "Embedded", "Multicast", "RESTCONF",
+              "NETCONF", "Automation"],
+    "ENARSI": ["EIGRP", "OSPF", "Redistribution", "Route control", "BGP", "MPLS", "VRF", "DMVPN", "VPN",
+               "IPv6"],
+}
+
+
+def _blueprint_rank(lab):
+    topic = lab["topic"].lower()
+    if "troubleshoot" in topic:
+        return 1000
+    order = TOPIC_ORDER.get(lab["exam"], [])
+    return next((i for i, t in enumerate(order) if topic.startswith(t.lower())), len(order))
+
+
 def load_terminal_labs(path):
     """The hand-written terminal labs, with their Markdown rendered for the page."""
     with open(path, encoding="utf-8") as f:
@@ -193,7 +212,10 @@ def load_terminal_labs(path):
         for t in lab["tasks"]:
             t["text_html"] = _md(t["text"], inline=True)
             t["hint_html"] = _md(t["hint"], inline=True)
-    return labs
+    # CCNA labs keep their file order (they build on each other); CCNP labs follow the blueprint.
+    ccnp = sorted((l for l in labs if l["track"] == "ccnp"), key=lambda l: (l["exam"], _blueprint_rank(l)))
+    rest = [l for l in labs if l["track"] != "ccnp"]
+    return [l for l in rest if l["track"] == "ccna"] + ccnp + [l for l in rest if l["track"] == "all"]
 
 
 _content = None

@@ -11660,7 +11660,7 @@
   "topic": "EIGRP",
   "minutes": 25,
   "track": "ccnp",
-  "exam": "ENCOR",
+  "exam": "ENARSI",
   "summary": "Run one named EIGRP instance with an IPv4 and an IPv6 address family, wide metrics and per-interface settings in af-interface.",
   "intro": "Named mode puts everything EIGRP does under one `router eigrp <name>`: an **address family** per protocol (`address-family ipv4 unicast autonomous-system 10`, `address-family ipv6 unicast autonomous-system 10`), interface settings in **`af-interface`**, and redistribution and variance in **`topology base`**. It also uses 64-bit **wide metrics**.\n\nThe IPv6 family needs no `network` statements: every IPv6-enabled interface joins unless you shut it in `af-interface`. Neighbours talk over link-local addresses, and the router ID still comes from IPv4 (each router has a loopback).\n\nThe PCs already have IPv4 addresses and take IPv6 addresses by SLAAC.",
   "height": 400,

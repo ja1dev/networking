@@ -28,8 +28,19 @@
         <button type="button" class="btn btn-sm" data-pick="none">Clear</button>
       </div>
     </div>
+    {% if sid == "ccnp" %}
+    {# CCNP chapters split by exam so both halves of the guide are in view. #}
+    {% set sections = [("ENCOR 350-401", parts.ENCOR), ("ENARSI 300-410", parts.ENARSI)] %}
+    {% set placed = parts.ENCOR + parts.ENARSI %}
+    {% set other = groups|rejectattr("id", "in", placed)|list %}
+    {% if other %}{% set sections = [("General", other|map(attribute="id")|list)] + sections %}{% endif %}
+    {% else %}
+    {% set sections = [("", groups|map(attribute="id")|list)] %}
+    {% endif %}
+    {% for heading, ids in sections %}
+    {% if heading %}<div class="check-group-head">{{ heading }}</div>{% endif %}
     <div class="check-group">
-      {% for g in groups %}
+      {% for g in groups if g.id in ids %}
       <label>
         <input type="checkbox" name="group" value="{{ g.id }}" data-total="{{ g.total }}" {{ 'checked' if preselect == g.id and sid == source }}>
         <span>{{ g.title }} <span class="muted tiny">({{ g.total }})</span></span>
@@ -37,6 +48,7 @@
       </label>
       {% endfor %}
     </div>
+    {% endfor %}
   </div>
   {% endfor %}
 

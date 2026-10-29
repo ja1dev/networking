@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Study{% endblock %}
+{% block title %}{% if deck %}{{ deck.name }}{% elif mode == "cram" %}Cram{% else %}Flashcard review{% endif %}{% endblock %}
 {% block content_class %}narrow{% endblock %}
 {% block content %}
 <div class="crumbs"><a href="/cards">Flashcards</a><span>/</span><span>{{ deck.name if deck else "All decks" }}{{ " · cram" if mode == "cram" }}</span></div>

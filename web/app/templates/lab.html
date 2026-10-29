@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ lab.title }}{% endblock %}
 {% block content %}
-<div class="crumbs"><a href="/labs">Labs</a><span>/</span></div>
+<div class="crumbs"><a href="/labs">Workbook labs</a><span>/</span><span>{{ KIT_TITLES[lab.kit] }} workbook</span></div>
 <article id="lab" data-lab="{{ lab.id }}">
   <div class="spread" style="align-items:flex-start">
     <h1>{{ "Lab %d: "|format(lab.number) if lab.number is not none }}{{ lab.title }}</h1>

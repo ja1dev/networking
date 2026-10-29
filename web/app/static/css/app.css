@@ -444,8 +444,9 @@ kbd { font-family: var(--mono); font-size: .75rem; border: 1px solid var(--borde
 .qnav button.flagged { box-shadow: inset 0 -3px 0 var(--warn); }
 .score-ring { width: 140px; height: 140px; }
 .result-head { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
-.check-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 14px;
-               max-height: 360px; overflow-y: auto; padding: 4px; }
+.check-group { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 14px; padding: 4px; }
+.check-group-head { font-size: .78rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+                    color: var(--muted); margin: 14px 4px 4px; }
 .check-group label { display: flex; gap: 8px; align-items: flex-start; font-size: .9rem; cursor: pointer;
                      padding: 4px; border-radius: 6px; }
 .check-group label:hover { background: var(--surface-2); }
@@ -545,6 +546,11 @@ kbd { font-family: var(--mono); font-size: .75rem; border: 1px solid var(--borde
 
 .topo-card { padding: 8px 8px 10px; }
 #topo { width: 100%; height: auto; display: block; font-family: var(--font); }
+/* On a phone the diagram keeps a readable size and scrolls sideways inside its card. */
+.topo-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 640px) { .topo-scroll #topo { min-width: 620px; } }
+/* Address tables in the scenario scroll inside the panel instead of being clipped. */
+.term-side .prose table { display: block; overflow-x: auto; max-width: 100%; }
 .topo-link { stroke: var(--bad); stroke-width: 3; stroke-dasharray: 7 6; }
 .topo-link.up { stroke: var(--good); stroke-dasharray: none; }
 .topo-link.trunk { stroke-width: 6; }
