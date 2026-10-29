@@ -5328,7 +5328,9 @@ Object.assign(Network.prototype, {
           if (was !== s && (s === "Active" || was === "Active")) log(m.dev, `%GLBP-6-FWDSTATECHANGE: ${m.ifn} Grp ${m.g} Fwd ${n} state ${was} -> ${s}`);
         }
         const vip = (avg && avg.gc.ip !== null ? avg.gc.ip : null) ?? (live.find((x) => x.gc.ip !== null) || { gc: {} }).gc.ip ?? null;
-        const nextRt = { state: next, vip, fwd, hosts, rr, num: nums.get(m) || null, off: !!off.get(m),
+        // The most forwarders this router has carried at once, so a lab can see a takeover that has since ended.
+        const peak = Math.max(prev.peak || 0, Object.values(fwd).filter((x) => x === "Active").length);
+        const nextRt = { state: next, vip, fwd, hosts, rr, num: nums.get(m) || null, off: !!off.get(m), peak,
           avg: avg ? avg.ip : null, standby: standby ? standby.ip : null,
           seen: prev.seen.includes(next) ? prev.seen : prev.seen.concat([next]) };
         if (JSON.stringify(nextRt) !== JSON.stringify(prev)) { this.devs[m.dev].rt.glbp[m.key] = nextRt; changed = true; }
@@ -5620,8 +5622,10 @@ Object.assign(Network.prototype, {
       }
       case "glbp-forwarding": {
         const st = ((d.rt.glbp || {})[intf + "|" + c.group] || {});
+        if (c.peak) return (st.peak || 0) >= c.count;
         return Object.values(st.fwd || {}).filter((s) => s === "Active").length >= c.count;
       }
+      case "rspan-vlan": return !!d.cfg.vlans[c.vlan] && !!((d.cfg.vlanx || {})[c.vlan] || {}).rspan;
       case "glbp-hosts": {
         const st = ((d.rt.glbp || {})[intf + "|" + c.group] || {});
         return new Set(Object.values(st.hosts || {})).size >= c.distinct;
@@ -5629,7 +5633,7 @@ Object.assign(Network.prototype, {
       case "span": {
         const s = (d.cfg.span || {})[c.session];
         return !!s && (!c.kind || s.kind === c.kind) && (!c.dest || (s.dst && s.dst.ifn === canonIf(d, c.dest)))
-          && (!c.source || (s.src || []).some((x) => x.ifn === canonIf(d, c.source) || (x.vlans || []).includes(+c.source)));
+          && (!c.source || (s.src || []).some((x) => x.ifn === canonIf(d, c.source))) && (!c.vlan || (s.src || []).some((x) => (x.vlans || []).includes(c.vlan)));
       }
       case "span-copies": return ((d.rt.span || {})[c.session] || { copies: 0 }).copies >= c.min;
       case "snoop-binding": {
@@ -6535,15 +6539,23 @@ def("S", "config", "vtp version {1|2|3}", (c, [w]) => {
   if (v.ver === ver) return;
   v.ver = ver;
   v.primary = false;
+  // A version change on a server is advertised like a VLAN change: it raises the revision.
+  if (v.mode === "server" && ver !== 3) v.rev++;
 });
 def("S", "config", "no vtp version", (c) => { vtpSet(c.cfg).ver = 1; });
 def("S", "config", "vtp pruning", (c) => {
   const v = vtpSet(c.cfg);
   if (v.mode === "client") { c.print("Pruning can only be configured on VTP server"); return; }
+  if (!v.pruning && v.mode === "server" && (v.ver !== 3 || v.primary)) v.rev++;
   v.pruning = true;
   c.print("Pruning switched on");
 });
-def("S", "config", "no vtp pruning", (c) => { vtpSet(c.cfg).pruning = false; c.print("Pruning switched off"); });
+def("S", "config", "no vtp pruning", (c) => {
+  const v = vtpSet(c.cfg);
+  if (v.pruning && v.mode === "server" && (v.ver !== 3 || v.primary)) v.rev++;
+  v.pruning = false;
+  c.print("Pruning switched off");
+});
 def("S", "priv", "vtp primary", (c) => {
   const v = vtpOf(c.cfg);
   if (v.ver !== 3 || v.mode !== "server") { c.print("% VTP primary can only be configured on a VTP version 3 server"); return; }
