@@ -17,7 +17,7 @@
     <div class="card topo-card">
       <svg id="topo" viewBox="0 0 800 {{ lab.height }}" role="img" aria-label="Network diagram: click a device to open its console"></svg>
       <div class="topo-legend tiny muted">
-        <span><i class="lg lg-up"></i>link up</span><span><i class="lg lg-down"></i>down</span><span><i class="lg lg-trunk"></i>trunk</span><span><i class="lg lg-partial"></i>STP-blocked for some VLANs</span><span><i class="lg lg-blocked"></i>blocked</span>
+        <span><i class="lg lg-up"></i>link up</span><span><i class="lg lg-down"></i>down</span><span><i class="lg lg-trunk"></i>trunk</span><span><i class="lg lg-partial"></i>STP-blocked for some VLANs</span><span><i class="lg lg-blocked"></i>blocked</span><span id="lg-tunnel" hidden><i class="lg lg-tunnel"></i>tunnel (lock = encrypted)</span>
         <span>Click a device to open its console. Pings animate along their path.</span>
       </div>
     </div>

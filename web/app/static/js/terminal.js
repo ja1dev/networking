@@ -176,6 +176,8 @@ function node(tag, attrs, parent) {
   return n;
 }
 
+// Tunnels (GRE, IPsec, DMVPN) are logical links, drawn as arcs over the cabling.
+const gTunnels = node("g", { class: "topo-tunnels" }, svg);
 const gLinks = node("g", { class: "topo-links" }, svg);
 const gPorts = node("g", { class: "topo-ports" }, svg);
 const gDevs = node("g", { class: "topo-devs" }, svg);
@@ -245,7 +247,46 @@ for (const d of spec.devices) {
   labels.set(d.name, { name, sub });
 }
 
+function drawTunnels() {
+  gTunnels.replaceChildren();
+  const seen = {};
+  const tunnels = net.tunnelInfo();
+  document.getElementById("lg-tunnel").hidden = !tunnels.length;
+  for (const t of tunnels) {
+    const p = pos[t.a], q = pos[t.b];
+    if (!p || !q) continue;
+    // Bow each arc away from the straight line; more tunnels between a pair bow further.
+    const key = [t.a, t.b].sort().join("|");
+    const n = seen[key] = (seen[key] || 0) + 1;
+    const [ca, cb] = [t.a, t.b].sort().map((d) => pos[d]);
+    const len = Math.hypot(cb.x - ca.x, cb.y - ca.y) || 1;
+    const bow = Math.min(90, 26 + len * 0.12) * (n % 2 ? 1 : -1) * Math.ceil(n / 2);
+    const mx = (p.x + q.x) / 2 - (cb.y - ca.y) / len * bow, my = (p.y + q.y) / 2 + (cb.x - ca.x) / len * bow;
+    // A crypto map has no tunnel interface: until traffic triggers IKE there is simply no SA yet.
+    const cryptoMap = !/^Tunnel/.test(t.aIf);
+    const idle = cryptoMap && !t.up;
+    const path = node("path", {
+      d: `M${p.x} ${p.y} Q${mx} ${my} ${q.x} ${q.y}`,
+      class: `topo-tunnel ${t.kind}${t.up ? " up" : ""}${idle ? " idle" : ""}${t.dynamic ? " dynamic" : ""}`,
+    }, gTunnels);
+    const what = cryptoMap ? "IPsec (crypto map) peering"
+      : `${t.kind === "dmvpn" ? "DMVPN" : t.kind === "ipsec" ? "GRE over IPsec" : "GRE"} tunnel`;
+    node("title", {}, path).textContent = `${t.a} ${shortIf(t.aIf)} - ${t.b} ${shortIf(t.bIf)}: ${what}`
+      + `${t.dynamic ? " (dynamic spoke-to-spoke)" : ""}, `
+      + (idle ? "no SA yet: send matching traffic to bring it up" : t.up ? "up" : "down")
+      + (t.protected ? ", encrypted" : "");
+    if (t.protected) {
+      // The arc's midpoint (a quadratic's t = 0.5) carries a lock badge.
+      const bx = (p.x + 2 * mx + q.x) / 4, by = (p.y + 2 * my + q.y) / 4;
+      const g = node("g", { class: "topo-lock" + (t.up ? " up" : idle ? " idle" : ""), transform: `translate(${bx} ${by})` }, gTunnels);
+      node("circle", { r: 9 }, g);
+      node("path", { d: "M-3.5 -1v-2.5a3.5 3.5 0 0 1 7 0v2.5M-5 -1h10v6h-10z" }, g);
+    }
+  }
+}
+
 function refreshDiagram() {
+  drawTunnels();
   net.linkInfo().forEach((l, i) => {
     const el = linkEls[i];
     const partial = !l.blocked && l.blockedVlans.length > 0;

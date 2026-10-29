@@ -551,6 +551,15 @@ kbd { font-family: var(--mono); font-size: .75rem; border: 1px solid var(--borde
 .topo-link.up.blocked { stroke: var(--warn); stroke-dasharray: 3 6; }
 .topo-link.up.partial { stroke: var(--warn); stroke-dasharray: 14 5; }
 .topo-link.up.bundled { stroke-width: 7; }
+.topo-tunnel { fill: none; stroke: var(--bad); stroke-width: 2.5; stroke-dasharray: 2 6; stroke-linecap: round; opacity: .8; }
+.topo-tunnel.up { stroke: var(--accent); stroke-dasharray: 9 5; opacity: 1; }
+.topo-tunnel.up.dmvpn { stroke: #8b5cf6; }
+.topo-tunnel.up.dynamic { stroke-width: 1.5; stroke-dasharray: 4 4; }
+.topo-lock circle { fill: var(--surface); stroke: var(--bad); stroke-width: 1.5; }
+.topo-lock path { fill: none; stroke: var(--bad); stroke-width: 1.5; stroke-linejoin: round; }
+.topo-lock.up circle, .topo-lock.up path { stroke: var(--good); }
+.topo-tunnel.idle { stroke: var(--muted); stroke-dasharray: 2 6; opacity: .9; }
+.topo-lock.idle circle, .topo-lock.idle path { stroke: var(--muted); }
 .topo-port { font: 600 11px var(--mono); fill: var(--muted); text-anchor: middle;
   paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 .topo-port.shut { fill: var(--bad); }
@@ -580,6 +589,7 @@ kbd { font-family: var(--mono); font-size: .75rem; border: 1px solid var(--borde
 .lg-trunk { border-top-width: 6px; }
 .lg-blocked { border-top: 3px dotted var(--warn); }
 .lg-partial { border-top: 3px dashed var(--warn); }
+.lg-tunnel { border-top: 3px dashed var(--accent); }
 
 .console-card { padding: 0; overflow: hidden; }
 .console-tabs { display: flex; gap: 2px; padding: 6px 6px 0; background: var(--surface-2); border-bottom: 1px solid var(--border);
