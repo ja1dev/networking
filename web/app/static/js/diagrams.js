@@ -82,15 +82,19 @@ const ICONS = {
     svgEl("path", { d: "M-22 0l11-19h22l11 19-11 19h-22z", class: "dg-body" }, g);
     svgEl("circle", { r: 6, class: "dg-mark dg-thin" }, g);
   },
+  // A neutral box for things that aren't devices: a YANG node, a route-map clause, a process.
+  box: (g) => {
+    svgEl("rect", { x: -30, y: -14, width: 60, height: 28, rx: 7, class: "dg-body" }, g);
+  },
   phone: (g) => {
     svgEl("rect", { x: -13, y: -19, width: 26, height: 38, rx: 4, class: "dg-body" }, g);
     svgEl("path", { d: "M-6 -11h12M-6 -4h12M-6 3h12", class: "dg-mark dg-thin" }, g);
   },
 };
 // How far below its centre each kind's name sits, and the reach of its selection ring.
-const SIZE = { router: 22, switch: 16, l3switch: 18, firewall: 17, host: 17, server: 21, cloud: 15,
+const SIZE = { box: 14, router: 22, switch: 16, l3switch: 18, firewall: 17, host: 17, server: 21, cloud: 15,
   ap: 10, wlc: 14, controller: 19, phone: 19 };
-const WIDTH = { router: 22, switch: 28, l3switch: 28, firewall: 24, host: 19, server: 15, cloud: 26,
+const WIDTH = { box: 30, router: 22, switch: 28, l3switch: 28, firewall: 24, host: 19, server: 15, cloud: 26,
   ap: 18, wlc: 26, controller: 22, phone: 13 };
 
 // ---------------------------------------------------------------- topology drawing
@@ -131,7 +135,9 @@ function drawTopology(svg, spec, onPick) {
     const [ca, cb] = [l.a, l.b].sort().map((id) => pos[id]);
     const clen = Math.hypot(cb.x - ca.x, cb.y - ca.y) || 1;
     const nx = -(cb.y - ca.y) / clen, ny = (cb.x - ca.x) / clen;
-    const shift = (nth - (pairCount[key] - 1) / 2) * 14;
+    // Labelled parallel links sit further apart so their labels don't stack.
+    const labelled = pairCount[key] > 1 && spec.links.some((x) => pairKey(x.a, x.b) === key && (x.label || x.aLabel || x.bLabel));
+    const shift = (nth - (pairCount[key] - 1) / 2) * (labelled ? 30 : 14);
     const p = { x: pos[l.a].x + nx * shift, y: pos[l.a].y + ny * shift };
     const q = { x: pos[l.b].x + nx * shift, y: pos[l.b].y + ny * shift };
     const style = l.style || "solid";
@@ -257,7 +263,7 @@ function runPackets(topo, packets, token) {
     const place = (pt) => g.setAttribute("transform", `translate(${pt.x} ${pt.y})`);
     // At rest the packet waits on the last link, just short of the device, so it doesn't hide the icon.
     const last = topo.links[p.hops[p.hops.length - 1]];
-    const endAt = last.at(last.from === p.path[p.path.length - 2] ? 0.72 : 0.28);
+    const endAt = last.at(last.from === p.path[p.path.length - 2] ? 0.62 : 0.38);
     if (reduceMotion) { place(endAt); continue; }
     const per = 900;
     let t0 = null;
@@ -423,17 +429,49 @@ function mountSequence(fig, spec) {
   const { wrap, svg } = svgBox(spec, spec.title);
   const hasStates = spec.messages.some((m) => m.states);
   const top = SEQ_TOP + (hasStates ? 26 : 0);
-  // Columns are as wide as the longest message between neighbours needs, so labels never spill.
-  const need = Math.max(...spec.messages.map((m) => m.note ? 0
-    : Math.max(m.label.length * 7.8, (m.detail || "").length * 6.8) / Math.max(1, Math.abs(
-      spec.actors.findIndex((a) => a.id === m.to) - spec.actors.findIndex((a) => a.id === m.from)))), ...spec.actors.map((a) => (a.label ?? a.id).length * 8.4));
-  const SEQ_COL = Math.round(Math.min(340, Math.max(170, need + 34)));
-  const left = Math.max(100, SEQ_COL / 2);
-  const col = Object.fromEntries(spec.actors.map((a, i) => [a.id, left + i * SEQ_COL]));
-  // A self-message's label runs to the right of its actor, so the last column may need more room.
-  const selfReach = Math.max(0, ...spec.messages.filter((m) => !m.note && m.from === m.to).map((m) =>
-    spec.actors.findIndex((a) => a.id === m.from) * SEQ_COL + 54 + Math.max(m.label.length * 7.8, (m.detail || "").length * 6.8)));
-  const width = Math.max(2 * left + (spec.actors.length - 1) * SEQ_COL, left + selfReach + 16);
+  // Each gap between neighbouring actors is as wide as the messages crossing it need, so one long
+  // label widens only the gaps it spans, never the whole ladder.
+  const at = Object.fromEntries(spec.actors.map((a, i) => [a.id, i]));
+  const textW = (m) => Math.max(m.label.length * 7.8, (m.detail || "").length * 6.8);
+  const noteW = (m) => m.note.length * 7.2 + 28;
+  const nameW = (a) => (a.label ?? a.id).length * 8.4;
+  const gaps = spec.actors.slice(1).map((a, i) => Math.max(150, (nameW(spec.actors[i]) + nameW(a)) / 2 + 24));
+  const widen = (i0, i1, need) => {
+    const have = gaps.slice(i0, i1).reduce((x, y) => x + y, 0);
+    if (have < need) for (let k = i0; k < i1; k++) gaps[k] += (need - have) / (i1 - i0);
+  };
+  for (const m of spec.messages) {
+    if (m.note) {
+      const ix = m.over.map((id) => at[id]);
+      const lo = Math.min(...ix), hi = Math.max(...ix);
+      if (hi > lo) widen(lo, hi, noteW(m) - 40);
+    } else if (m.from !== m.to) {
+      const lo = Math.min(at[m.from], at[m.to]), hi = Math.max(at[m.from], at[m.to]);
+      widen(lo, hi, textW(m) + 34);
+    } else if (at[m.from] < gaps.length) {
+      widen(at[m.from], at[m.from] + 1, textW(m) + 70);
+    }
+  }
+  const col = {};
+  let x = 0;
+  spec.actors.forEach((a, i) => { col[a.id] = x; x += gaps[i] || 0; });
+  // Everything that can stick out past the outer lifelines: names, notes, self-messages.
+  let minX = Infinity, maxX = -Infinity;
+  const reach = (x0, x1) => { minX = Math.min(minX, x0); maxX = Math.max(maxX, x1); };
+  for (const a of spec.actors) reach(col[a.id] - Math.max(60, nameW(a) / 2 + 10), col[a.id] + Math.max(60, nameW(a) / 2 + 10));
+  const noteBox = (m) => {
+    const xs = m.over.map((id) => col[id]);
+    const mid = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const w = Math.max(Math.max(...xs) - Math.min(...xs) + 160, noteW(m));
+    return [mid - w / 2, mid + w / 2];
+  };
+  for (const m of spec.messages) {
+    if (m.note) reach(...noteBox(m));
+    else if (m.from === m.to) reach(col[m.from], col[m.from] + 54 + textW(m) + 8);
+  }
+  const shift = 16 - minX;
+  for (const id in col) col[id] += shift;
+  const width = maxX - minX + 32;
   const height = top + spec.messages.length * SEQ_ROW + 20;
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.dataset.width = width;
@@ -453,8 +491,7 @@ function mountSequence(fig, spec) {
     const y = top + i * SEQ_ROW + 22;
     const g = svgEl("g", { class: `dg-msg tone-${m.tone || "accent"}` }, svg);
     if (m.note) {
-      const xs = m.over.map((id) => col[id]);
-      const x0 = Math.min(...xs) - 80, x1 = Math.max(...xs) + 80;
+      const [x0, x1] = noteBox(m);
       svgEl("rect", { x: x0, y: y - 16, width: x1 - x0, height: 30, rx: 6, class: "dg-note" }, g);
       svgEl("text", { x: (x0 + x1) / 2, y: y + 4, class: "dg-note-text" }, g).textContent = m.note;
       return g;
@@ -813,8 +850,10 @@ function mountMatch(fig, spec) {
   const lines = spec.rules.map((r) => {
     let text;
     if (kind === "prefix-list") text = `ip prefix-list ${name} seq ${r.seq} ${r.action} ${r.prefix}${r.ge !== undefined ? " ge " + r.ge : ""}${r.le !== undefined ? " le " + r.le : ""}`;
-    else if (kind === "extended") text = `${r.action} ${r.proto} ${r.src} ${r.dst}${r.port ? " " + r.port : ""}`;
-    else text = `${r.action} ${r.source}`;
+    else if (kind === "extended") {
+      text = `${r.action} ${r.proto} ${r.src}${r.srcPort ? " " + r.srcPort : ""} ${r.dst}${r.port ? " " + r.port : ""}${r.established ? " established" : ""}`;
+    } else text = `${r.action} ${r.source}`;
+    if (kind !== "prefix-list" && r.seq !== undefined) text = `${r.seq} ${text}`;
     const why = h("span", { class: "dg-acl-why" });
     const li = h("li", {}, h("code", {}, text), why);
     list.append(li);
@@ -834,20 +873,35 @@ function mountMatch(fig, spec) {
   if (kind === "prefix-list") field("prefix", "Route", spec.input, 18);
   else if (kind === "extended") {
     const t = spec.input;
-    const proto = h("select", { "aria-label": "Protocol" }, ["tcp", "udp", "icmp"].map((p) => h("option", { value: p, selected: p === t.proto }, p)));
+    const all = [t, ...(spec.tries || [])];
+    const protos = ["tcp", "udp", "icmp", "ospf", "eigrp", "gre", "esp", "pim"]
+      .filter((p) => ["tcp", "udp", "icmp"].includes(p) || all.some((x) => x.proto === p) || spec.rules.some((r) => r.proto === p));
+    const proto = h("select", { "aria-label": "Protocol" }, protos.map((p) => h("option", { value: p, selected: p === t.proto }, p)));
     proto.addEventListener("change", update);
     inputs.proto = proto;
     form.append(h("label", {}, "Protocol ", proto));
     field("src", "Source", t.src, 14);
+    if (spec.rules.some((r) => r.srcPort) || all.some((x) => x.srcPort !== undefined)) field("srcPort", "Src. port", String(t.srcPort ?? ""), 5);
     field("dst", "Destination", t.dst, 14);
     field("port", "Dest. port", String(t.port ?? ""), 5);
+    if (spec.rules.some((r) => r.established) || all.some((x) => x.established !== undefined)) {
+      const est = h("input", { type: "checkbox", "aria-label": "ACK or RST set" });
+      est.checked = !!t.established;
+      est.addEventListener("change", update);
+      inputs.established = est;
+      form.append(h("label", {}, est, " ACK/RST set (a reply)"));
+    }
   } else field("src", "Source address", spec.input, 15);
   const tries = spec.tries?.length ? h("div", { class: "dg-tries" }, h("span", { class: "muted small" }, "Try: "),
     spec.tries.map((t) => {
-      const b = h("button", { type: "button", class: "btn btn-sm" }, typeof t === "string" ? t : `${t.proto} ${t.src} → ${t.dst}${t.port ? ":" + t.port : ""}`);
+      const b = h("button", { type: "button", class: "btn btn-sm" }, typeof t === "string" ? t
+        : `${t.proto} ${t.src}${t.srcPort !== undefined ? ":" + t.srcPort : ""} → ${t.dst}${t.port !== undefined ? ":" + t.port : ""}${t.established ? " (reply)" : ""}`);
       b.addEventListener("click", () => {
         if (typeof t === "string") (inputs.prefix || inputs.src).value = t;
-        else for (const k of ["proto", "src", "dst", "port"]) inputs[k].value = String(t[k] ?? "");
+        else {
+          for (const k of ["proto", "src", "srcPort", "dst", "port"]) if (inputs[k]) inputs[k].value = String(t[k] ?? "");
+          if (inputs.established) inputs.established.checked = !!t.established;
+        }
         update();
       });
       return b;
@@ -858,7 +912,10 @@ function mountMatch(fig, spec) {
     let r;
     if (kind === "prefix-list") r = evaluatePrefixList(spec.rules, inputs.prefix.value);
     else if (kind === "extended") {
-      r = evaluateAcl(kind, spec.rules, { proto: inputs.proto.value, src: inputs.src.value, dst: inputs.dst.value, port: inputs.port.value });
+      r = evaluateAcl(kind, spec.rules, {
+        proto: inputs.proto.value, src: inputs.src.value, dst: inputs.dst.value, port: inputs.port.value,
+        srcPort: inputs.srcPort?.value, established: inputs.established?.checked,
+      });
     } else r = evaluateAcl(kind, spec.rules, { src: inputs.src.value });
     for (const inp of Object.values(inputs)) inp.classList.remove("bad");
     lines.forEach(({ li, why }, i) => {

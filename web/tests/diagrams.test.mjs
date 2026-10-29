@@ -116,6 +116,18 @@ assert.equal(L.evaluateAcl("extended", ext, { proto: "udp", src: "192.0.2.1", ds
 assert.equal(L.evaluateAcl("extended", ext, { proto: "udp", src: "192.0.2.1", dst: "8.8.8.8", port: "53" }).hit, 3);
 assert.equal(L.evaluateAcl("extended", ext, { proto: "icmp", src: "192.0.2.1", dst: "203.0.113.10" }).hit, null);
 assert.deepEqual(L.parsePort("gt 1023"), { op: "gt", v: 1023 });
+const ret = [
+  { action: "permit", proto: "tcp", src: "any", dst: "10.0.0.0 0.255.255.255", established: true },
+  { action: "permit", proto: "tcp", src: "192.0.2.1", srcPort: "eq bgp", dst: "any" },
+  { action: "permit", proto: "ospf", src: "any", dst: "any" },
+];
+assert.equal(L.evaluateAcl("extended", ret, { proto: "tcp", src: "8.8.8.8", dst: "10.1.1.1", port: "51000", established: true }).hit, 0);
+a = L.evaluateAcl("extended", ret, { proto: "tcp", src: "8.8.8.8", dst: "10.1.1.1", port: "51000", established: false });
+assert.equal(a.hit, null);
+assert.match(a.lines[0].why.join(), /established/);
+assert.equal(L.evaluateAcl("extended", ret, { proto: "tcp", src: "192.0.2.1", dst: "10.1.1.1", port: "40000", srcPort: "179" }).hit, 1);
+assert.equal(L.evaluateAcl("extended", ret, { proto: "tcp", src: "192.0.2.1", dst: "172.16.0.1", port: "179", srcPort: "40000" }).hit, null);
+assert.equal(L.evaluateAcl("extended", ret, { proto: "ospf", src: "10.0.0.1", dst: "224.0.0.5" }).hit, 2);
 assert.equal(L.parsePort("range 9 3"), undefined);
 
 // ---- prefix lists

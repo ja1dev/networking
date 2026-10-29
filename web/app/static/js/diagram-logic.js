@@ -306,9 +306,17 @@ export function evaluateAcl(kind, rules, packet) {
       if (r.proto !== "ip" && r.proto !== packet.proto) why.push(`protocol is ${packet.proto}, not ${r.proto}`);
       if (!addressMatches(parseAddress(r.src), src)) why.push("source doesn't match");
       if (!addressMatches(parseAddress(r.dst), dst)) why.push("destination doesn't match");
-      if (r.port && (packet.proto === "tcp" || packet.proto === "udp") && r.proto === packet.proto) {
-        const port = Number(packet.port);
-        if (!portMatches(parsePort(r.port), port)) why.push(`port ${port} isn't ${r.port}`);
+      if ((packet.proto === "tcp" || packet.proto === "udp") && r.proto === packet.proto) {
+        if (r.srcPort) {
+          const port = Number(packet.srcPort);
+          if (!portMatches(parsePort(r.srcPort), port)) why.push(`source port ${packet.srcPort || "?"} isn't ${r.srcPort}`);
+        }
+        if (r.port) {
+          const port = Number(packet.port);
+          if (!portMatches(parsePort(r.port), port)) why.push(`port ${port} isn't ${r.port}`);
+        }
+        // "established" matches return traffic: TCP segments with ACK or RST set.
+        if (r.established && !packet.established) why.push("not part of an established session (no ACK/RST)");
       }
     } else if (!addressMatches(parseAddress(r.source), src)) {
       why.push("source doesn't match");

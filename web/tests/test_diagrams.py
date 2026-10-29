@@ -52,6 +52,10 @@ def test_prose_fields_become_html_and_plain_ones_stay_text():
       "rules": [{"seq": 5, "action": "permit", "prefix": "10.0.0.1/8"}]}, "no host bits"),
     ({"type": "match", "title": "M", "kind": "extended", "input": {"proto": "tcp", "src": "1.1.1.1", "dst": "2.2.2.2", "port": 80},
       "rules": [{"action": "permit", "proto": "icmp", "src": "any", "dst": "any", "port": "eq 80"}]}, "only tcp and udp"),
+    ({"type": "match", "title": "M", "kind": "extended", "input": {"proto": "tcp", "src": "1.1.1.1", "dst": "2.2.2.2", "port": 80},
+      "rules": [{"action": "permit", "proto": "udp", "src": "any", "dst": "any", "established": True}]}, "tcp lines only"),
+    ({"type": "match", "title": "M", "kind": "standard", "input": "10.0.0.1",
+      "rules": [{"seq": 20, "action": "permit", "source": "any"}, {"seq": 10, "action": "deny", "source": "any"}]}, "in order"),
     ({"type": "match", "title": "M", "kind": "standard", "input": "10.0.0.300",
       "rules": [{"action": "permit", "source": "any"}]}, "not an IPv4 address"),
 ])
@@ -75,6 +79,6 @@ def test_diagrams_reach_the_page_as_figures(content):
                 data = json.loads(m.group(2).replace("<\\/", "</"))
                 assert data["type"] == m.group(1)
                 # The spec is data for the script, not words on the page: search never sees it.
-                assert '"type"' not in page["text"]
+                assert '"messages":' not in page["text"] and '"nodes":' not in page["text"]
             assert "```diagram" not in page["html"]
     assert figures == content["stats"]["diagrams"] > 0

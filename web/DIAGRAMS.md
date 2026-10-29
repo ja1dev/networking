@@ -23,7 +23,8 @@ Unknown keys are errors.
 Use these choices everywhere they apply:
 
 * **Device kinds**: `router`, `switch`, `l3switch`, `firewall`, `host`, `server`, `cloud`,
-  `ap`, `wlc`, `controller`, `phone`.
+  `ap`, `wlc`, `controller`, `phone`, and `box` (a plain rounded box for things that aren't
+  devices: a YANG node, a route-map clause, a process step).
 * **Tones**: `accent`, `good`, `bad`, `warn`, `muted`, `purple`.
 
 ## Picking a type
@@ -183,10 +184,15 @@ Use these choices everywhere they apply:
 
 * `kind: "standard"`: each rule has a `source` of `any`, `host A.B.C.D`, `A.B.C.D W.W.W.W` or a
   bare address. Inputs and tries are addresses.
-* `kind: "extended"`: each rule has a `proto` (`ip`, `tcp`, `udp` or `icmp`), `src`, `dst` and
-  an optional `port`. The port is `eq` / `neq` / `lt` / `gt N` or `range N M`, written as a number
-  or as an IOS name such as `www`, `domain` or `ssh`. Inputs and tries are
-  `{"proto", "src", "dst", "port"}`, with no port for icmp.
+* `kind: "extended"`: each rule has a `proto` (`ip`, `tcp`, `udp`, `icmp`, `ospf`, `eigrp`, `gre`,
+  `esp` or `pim`; `ip` matches every protocol), `src`, `dst`, an optional destination `port` and
+  source `srcPort` (tcp and udp only), and `"established": true` (tcp only: matches replies, which
+  have ACK or RST set). A port is `eq` / `neq` / `lt` / `gt N` or `range N M`, written as a number
+  or as an IOS name such as `www`, `domain`, `ssh` or `bgp`. Inputs and tries are
+  `{"proto", "src", "dst", "port"}`, plus `srcPort` and `established` when the rules use them,
+  with no ports for protocols other than tcp and udp.
+* Standard and extended lines may each carry a `seq` (all or none, ascending), shown before the
+  line as IOS does.
 * `kind: "prefix-list"`: each rule has a `seq`, an `action`, a `prefix` (no host bits) and an
   optional `ge` and `le`, following IOS's rule that the length is less than `ge`, which is at most
   `le`, which is at most 32. Inputs and tries are prefixes such as `10.1.0.0/16`.

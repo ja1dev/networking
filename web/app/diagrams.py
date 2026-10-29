@@ -10,7 +10,7 @@ import json
 import re
 
 KINDS = ("router", "switch", "l3switch", "firewall", "host", "server", "cloud", "ap", "wlc",
-         "controller", "phone")
+         "controller", "phone", "box")
 TONES = ("accent", "good", "bad", "warn", "muted", "purple")
 LINK_STYLES = ("solid", "dashed", "tunnel", "wireless", "thick")
 LINK_STATES = ("active", "blocked", "down", "dim")
@@ -324,6 +324,8 @@ def _address(text, where):
         _ipv4(x, where)
 
 
+# Protocols an extended line can name; "ip" matches them all, so a packet can't be "ip".
+ACL_PROTOS = ("ip", "tcp", "udp", "icmp", "ospf", "eigrp", "gre", "esp", "pim")
 PORT = re.compile(r"^(eq|neq|lt|gt) (\d+|[a-z-]+)$|^range (\d+|[a-z-]+) (\d+|[a-z-]+)$")
 PORT_NAMES = {"ftp-data", "ftp", "ssh", "telnet", "smtp", "domain", "bootps", "bootpc", "tftp", "www", "pop3",
               "ntp", "snmp", "snmptrap", "bgp", "https", "syslog"}
@@ -345,16 +347,19 @@ def _match(spec):
     for k, r in enumerate(rules, 1):
         where = "rule %d" % k
         if kind == "standard":
-            _keys(r, where, ("action", "source"))
+            _keys(r, where, ("action", "source"), ("seq",))
             _address(r["source"], where)
         elif kind == "extended":
-            _keys(r, where, ("action", "proto", "src", "dst"), ("port",))
-            _need(r["proto"] in ("ip", "tcp", "udp", "icmp"), "%s proto must be ip, tcp, udp or icmp" % where)
+            _keys(r, where, ("action", "proto", "src", "dst"), ("port", "srcPort", "established", "seq"))
+            _need(r["proto"] in ACL_PROTOS, "%s proto must be one of %s" % (where, ", ".join(ACL_PROTOS)))
             _address(r["src"], where + " src")
             _address(r["dst"], where + " dst")
-            if "port" in r:
-                _need(r["proto"] in ("tcp", "udp"), "%s: only tcp and udp lines take a port" % where)
-                _port(r["port"], where)
+            for key in ("port", "srcPort"):
+                if key in r:
+                    _need(r["proto"] in ("tcp", "udp"), "%s: only tcp and udp lines take a %s" % (where, key))
+                    _port(r[key], where)
+            if "established" in r:
+                _need(r["established"] is True and r["proto"] == "tcp", "%s: established is true, on tcp lines only" % where)
         else:
             _keys(r, where, ("seq", "action", "prefix"), ("ge", "le"))
             _need(isinstance(r["seq"], int) and r["seq"] > 0, "%s seq must be a positive whole number" % where)
@@ -368,10 +373,13 @@ def _match(spec):
             if le is not None:
                 _need(isinstance(le, int) and net.prefixlen < le <= 32 and (ge is None or ge <= le),
                       "%s le must be longer than the prefix, >= ge and <= 32" % where)
+        if "seq" in r:
+            _need(isinstance(r["seq"], int) and r["seq"] > 0, "%s seq must be a positive whole number" % where)
         _need(r["action"] in ("permit", "deny"), "%s action must be permit or deny" % where)
-    if kind == "prefix-list":
+    if kind == "prefix-list" or any("seq" in r for r in rules):
+        _need(all("seq" in r for r in rules), "give every line a seq, or none")
         seqs = [r["seq"] for r in rules]
-        _need(seqs == sorted(seqs) and len(set(seqs)) == len(seqs), "prefix-list seqs must be unique and in order")
+        _need(seqs == sorted(seqs) and len(set(seqs)) == len(seqs), "seqs must be unique and in order")
     inputs = [spec["input"]] + list(spec.get("tries", []))
     for k, t in enumerate(inputs):
         where = "input" if k == 0 else "try %d" % k
@@ -381,14 +389,18 @@ def _match(spec):
         elif kind == "standard":
             _ipv4(t, where)
         else:
-            _keys(t, where, ("proto", "src", "dst"), ("port",))
-            _need(t["proto"] in ("tcp", "udp", "icmp"), "%s proto must be tcp, udp or icmp" % where)
+            _keys(t, where, ("proto", "src", "dst"), ("port", "srcPort", "established"))
+            _need(t["proto"] in ACL_PROTOS[1:], "%s proto must be one of %s" % (where, ", ".join(ACL_PROTOS[1:])))
             _ipv4(t["src"], where + " src")
             _ipv4(t["dst"], where + " dst")
             if t["proto"] in ("tcp", "udp"):
-                _need(isinstance(t.get("port"), int) and 0 <= t["port"] <= 65535, "%s needs a port 0-65535" % where)
+                for key in ("port", "srcPort"):
+                    if key == "port" or key in t:
+                        _need(isinstance(t.get(key), int) and 0 <= t[key] <= 65535, "%s needs a %s 0-65535" % (where, key))
             else:
-                _need("port" not in t, "%s: icmp has no port" % where)
+                _need("port" not in t and "srcPort" not in t, "%s: only tcp and udp have ports" % where)
+            if "established" in t:
+                _need(isinstance(t["established"], bool) and t["proto"] == "tcp", "%s: established is true/false, tcp only" % where)
 
 
 CHECK = {"topology": _topology, "sequence": _sequence, "compare": _compare, "path": _path,

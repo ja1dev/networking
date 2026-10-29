@@ -690,7 +690,7 @@ kbd { font-family: var(--mono); font-size: .75rem; border: 1px solid var(--borde
 .kind-l3switch .dg-l3dot { fill: var(--accent-soft); stroke: var(--accent); }
 .kind-firewall .dg-body { fill: var(--bad-soft); stroke: var(--bad); }
 .kind-host .dg-body, .kind-server .dg-body, .kind-phone .dg-body { fill: var(--surface-2); stroke: var(--muted); }
-.kind-cloud .dg-body { fill: var(--surface-2); stroke: var(--muted); }
+.kind-cloud .dg-body, .kind-box .dg-body { fill: var(--surface-2); stroke: var(--muted); }
 .kind-ap .dg-body, .kind-wlc .dg-body, .kind-controller .dg-body { fill: var(--purple-soft); stroke: var(--purple); }
 .dg-mark { fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .dg-thin { stroke-width: 1.5; }
