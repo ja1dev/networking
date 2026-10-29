@@ -1257,4 +1257,366 @@ test("BGP: prefix-lists, as-path lists, help text and a config that replays", ()
   assert.equal(runningConfig(fresh, "A"), text);
 });
 
+// ---------------------------------------------------------------- CCNP routing
+const ip4 = (n, ip, m = "255.255.255.0", ...extra) => ["interface " + n, " ip address " + ip + " " + m, ...extra.map((e) => " " + e), " no shutdown"];
+const lineOf = (_, ...devs) => new Network({ devices: devs.map((d) => R(d)), links: devs.slice(1).map((d, i) => [devs[i], G(i ? 1 : 0), d, G(0)]) });
+const fmtV6 = (n) => ios.fmt6(n);
+const route = (net, dn, pfx) => net.routes(dn).find((r) => r.net === ip2n(pfx.split("/")[0]) && r.len === +pfx.split("/")[1]);
+// R1 (area 1) - R2 (ABR) - R3 (area 0) - R4 (ABR) - R5 (area 2)
+function ospfFive() {
+  const net = new Network({ devices: ["R1", "R2", "R3", "R4", "R5"].map(R),
+    links: [["R1", G(0), "R2", G(0)], ["R2", G(1), "R3", G(0)], ["R3", G(1), "R4", G(0)], ["R4", G(1), "R5", G(0)]] });
+  applyConfig(net, "R1", [...ip4("g0/0", "10.0.12.1"), "interface loopback1", " ip address 172.16.1.1 255.255.255.0", " ip ospf network point-to-point",
+    "interface loopback2", " ip address 172.16.2.1 255.255.255.0", " ip ospf network point-to-point",
+    "router ospf 1", " router-id 1.1.1.1", " network 10.0.12.0 0.0.0.255 area 1", " network 172.16.0.0 0.0.255.255 area 1"]);
+  applyConfig(net, "R2", [...ip4("g0/0", "10.0.12.2"), ...ip4("g0/1", "10.0.23.2"), "router ospf 1", " router-id 2.2.2.2",
+    " network 10.0.12.0 0.0.0.255 area 1", " network 10.0.23.0 0.0.0.255 area 0"]);
+  applyConfig(net, "R3", [...ip4("g0/0", "10.0.23.3"), ...ip4("g0/1", "10.0.34.3"), "router ospf 1", " router-id 3.3.3.3", " network 10.0.0.0 0.255.255.255 area 0"]);
+  applyConfig(net, "R4", [...ip4("g0/0", "10.0.34.4"), ...ip4("g0/1", "10.0.45.4"), "router ospf 1", " router-id 4.4.4.4",
+    " network 10.0.34.0 0.0.0.255 area 0", " network 10.0.45.0 0.0.0.255 area 2"]);
+  applyConfig(net, "R5", [...ip4("g0/0", "10.0.45.5"), "ip route 192.168.50.0 255.255.255.0 Null0", "router ospf 1", " router-id 5.5.5.5",
+    " network 10.0.45.0 0.0.0.255 area 2", " redistribute static subnets"]);
+  return net;
+}
+
+test("OSPF areas: inter-area costs, type-4 ASBR summaries, E1 versus E2", () => {
+  const net = ospfFive();
+  // R1 -> R2 (1) -> R3 (1) -> R4 (1) -> 10.0.45.0/24 (1)
+  assert.equal(route(net, "R1", "10.0.45.0/24").code, "O IA");
+  assert.equal(route(net, "R1", "10.0.45.0/24").metric, 4);
+  assert.equal(route(net, "R1", "10.0.23.0/24").metric, 2);
+  const e2 = route(net, "R1", "192.168.50.0/24");
+  assert.equal(e2.code, "O E2");
+  assert.equal(e2.metric, 20, "E2 keeps the seed metric");
+  applyConfig(net, "R5", ["router ospf 1", " redistribute static subnets metric-type 1 tag 55"]);
+  const e1 = route(net, "R1", "192.168.50.0/24");
+  assert.equal(e1.code, "O E1");
+  assert.equal(e1.metric, 24, "E1 adds the path cost to the ASBR");
+  assert.equal(e1.tag, 55);
+  assert.match(console_(net, "R3", "en", "show ip ospf border-routers"), /I 5\.5\.5\.5 \[2\] via 10\.0\.34\.4/);
+  assert.ok(net.check({ type: "ospf-lsa", device: "R3", lsa: "asbr-summary", area: 0 }));
+  assert.ok(net.check({ type: "ospf-role", device: "R2", role: "abr" }));
+  assert.ok(net.check({ type: "ospf-role", device: "R5", role: "asbr" }));
+});
+
+test("OSPF areas: stub, totally stubby, NSSA and translation, area ranges", () => {
+  const net = ospfFive();
+  applyConfig(net, "R2", ["router ospf 1", " area 1 stub"]);
+  assert.ok(!net.check({ type: "ospf-nbr", device: "R2", neighbor: "1.1.1.1" }), "a stub flag mismatch drops the adjacency");
+  applyConfig(net, "R1", ["router ospf 1", " area 1 stub"]);
+  assert.equal(route(net, "R1", "0.0.0.0/0").code, "O*IA");
+  assert.ok(!route(net, "R1", "192.168.50.0/24"), "no externals in a stub area");
+  assert.ok(route(net, "R1", "10.0.45.0/24"), "a stub area still gets summaries");
+  applyConfig(net, "R2", ["router ospf 1", " area 1 stub no-summary"]);
+  assert.ok(!route(net, "R1", "10.0.45.0/24"), "totally stubby: no summaries either");
+  assert.ok(net.ping("R1", "10.0.45.5", { source: ip2n("172.16.1.1") }).ok, "the default still gets traffic out");
+  applyConfig(net, "R4", ["router ospf 1", " area 2 nssa"]);
+  applyConfig(net, "R5", ["router ospf 1", " area 2 nssa"]);
+  assert.equal(route(net, "R4", "192.168.50.0/24").code, "O N2");
+  assert.equal(route(net, "R3", "192.168.50.0/24").code, "O E2", "the NSSA ABR translates type 7 to type 5");
+  assert.match(console_(net, "R3", "en", "show ip ospf database external"), /Advertising Router: 4\.4\.4\.4/);
+  assert.ok(!route(net, "R5", "0.0.0.0/0"), "an NSSA gets no default by itself");
+  applyConfig(net, "R4", ["router ospf 1", " area 2 nssa default-information-originate"]);
+  assert.equal(route(net, "R5", "0.0.0.0/0").code, "O*N2");
+  // range on R2 (area 1 is totally stubby but its own routes still summarise into area 0)
+  applyConfig(net, "R2", ["router ospf 1", " area 1 range 172.16.0.0 255.255.252.0"]);
+  assert.equal(route(net, "R3", "172.16.0.0/22").code, "O IA");
+  assert.ok(!route(net, "R3", "172.16.1.0/24"));
+  assert.ok(route(net, "R2", "172.16.0.0/22").discard, "the ABR installs a discard route for the range");
+  assert.match(console_(net, "R2", "en", "show ip route ospf"), /O +172\.16\.0\.0\/22 is a summary, \S+, Null0/);
+});
+
+test("OSPF: virtual links, MTU mismatch, MD5 and network types", () => {
+  const net = new Network({ devices: ["R1", "R2", "R3", "R4"].map(R), links: [["R1", G(0), "R2", G(0)], ["R2", G(1), "R3", G(0)], ["R3", G(1), "R4", G(0)]] });
+  applyConfig(net, "R1", [...ip4("g0/0", "10.0.12.1"), "interface loopback0", " ip address 1.1.1.1 255.255.255.255", "router ospf 1", " network 0.0.0.0 255.255.255.255 area 0"]);
+  applyConfig(net, "R2", [...ip4("g0/0", "10.0.12.2", "255.255.255.0", "ip mtu 1400"), ...ip4("g0/1", "10.0.23.2"), "router ospf 1", " router-id 2.2.2.2",
+    " network 10.0.12.0 0.0.0.255 area 0", " network 10.0.23.0 0.0.0.255 area 1"]);
+  applyConfig(net, "R3", [...ip4("g0/0", "10.0.23.3"), ...ip4("g0/1", "10.0.34.3"), "router ospf 1", " router-id 3.3.3.3",
+    " network 10.0.23.0 0.0.0.255 area 1", " network 10.0.34.0 0.0.0.255 area 2"]);
+  applyConfig(net, "R4", [...ip4("g0/0", "10.0.34.4"), "interface loopback0", " ip address 4.4.4.4 255.255.255.255", "router ospf 1", " network 0.0.0.0 255.255.255.255 area 2"]);
+  assert.ok(net.check({ type: "ospf-nbr-state", device: "R1", neighbor: "2.2.2.2", state: "EXSTART" }), "MTU mismatch sticks in EXSTART");
+  applyConfig(net, "R1", ["interface g0/0", " ip ospf mtu-ignore"]);
+  assert.ok(net.check({ type: "ospf-nbr-state", device: "R1", neighbor: "2.2.2.2", state: "EXSTART" }), "only the smaller-MTU side's mtu-ignore helps");
+  applyConfig(net, "R2", ["interface g0/0", " ip ospf mtu-ignore"]);
+  assert.ok(net.check({ type: "ospf-nbr", device: "R1", neighbor: "2.2.2.2" }));
+  assert.ok(!net.ping("R4", "1.1.1.1").ok, "area 2 isn't attached to the backbone yet");
+  applyConfig(net, "R2", ["router ospf 1", " area 1 virtual-link 3.3.3.3"]);
+  applyConfig(net, "R3", ["router ospf 1", " area 1 virtual-link 2.2.2.2"]);
+  assert.ok(net.check({ type: "ospf-vlink", device: "R3", neighbor: "2.2.2.2" }));
+  assert.ok(net.ping("R4", "1.1.1.1").ok);
+  assert.match(console_(net, "R2", "en", "show ip ospf neighbor"), /3\.3\.3\.3 +0 +FULL\/  - .*OSPF_VL0/);
+  assert.match(console_(net, "R3", "en", "conf t", "router ospf 1", "area 1 stub"), /contains a virtual link/);
+  // MD5: one side only, then wrong key, then matching
+  applyConfig(net, "R1", ["interface g0/0", " ip ospf authentication message-digest", " ip ospf message-digest-key 1 md5 ONE"]);
+  assert.ok(!net.check({ type: "ospf-nbr", device: "R1", neighbor: "2.2.2.2" }));
+  const dbg = console_(net, "R2", "en", "debug ip ospf adj", "show clock");
+  assert.match(dbg, /Mismatched Authentication type\. Input packet specified type 2, we use type 0/);
+  applyConfig(net, "R2", ["interface g0/0", " ip ospf authentication message-digest", " ip ospf message-digest-key 1 md5 TWO"]);
+  assert.ok(!net.check({ type: "ospf-nbr", device: "R1", neighbor: "2.2.2.2" }));
+  applyConfig(net, "R2", ["interface g0/0", " ip ospf message-digest-key 1 md5 ONE"]);
+  assert.ok(net.check({ type: "ospf-nbr", device: "R1", neighbor: "2.2.2.2" }));
+  assert.match(console_(net, "R1", "en", "show ip ospf interface g0/0"), /Cryptographic authentication enabled\n    Youngest key id is 1/);
+  // point-to-multipoint on one side changes the hello timer, so the adjacency drops
+  applyConfig(net, "R3", ["interface g0/1", " ip ospf network point-to-multipoint"]);
+  assert.ok(!net.check({ type: "ospf-nbr", device: "R4", neighbor: "3.3.3.3" }));
+  applyConfig(net, "R4", ["interface g0/0", " ip ospf network point-to-multipoint"]);
+  assert.ok(net.check({ type: "ospf-nbr", device: "R4", neighbor: "3.3.3.3" }));
+  assert.equal(route(net, "R4", "10.0.34.3/32").code, "O", "point-to-multipoint advertises host routes");
+});
+
+test("OSPF: two processes, mutual redistribution, summary-address", () => {
+  const net = lineOf(null, "X", "Y", "Z");
+  applyConfig(net, "X", [...ip4("g0/0", "10.1.0.1"), "interface loopback1", " ip address 172.20.1.1 255.255.255.0", " ip ospf network point-to-point",
+    "router ospf 10", " network 0.0.0.0 255.255.255.255 area 0"]);
+  applyConfig(net, "Y", [...ip4("g0/0", "10.1.0.2"), ...ip4("g0/1", "10.2.0.2"), "router ospf 10", " network 10.1.0.0 0.0.0.255 area 0", " redistribute ospf 20 subnets",
+    "router ospf 20", " network 10.2.0.0 0.0.0.255 area 0", " redistribute ospf 10 subnets", " summary-address 172.20.0.0 255.255.0.0"]);
+  applyConfig(net, "Z", [...ip4("g0/0", "10.2.0.3"), "router ospf 1", " network 10.2.0.0 0.0.0.255 area 0"]);
+  assert.equal(route(net, "Z", "172.20.0.0/16").code, "O E2");
+  assert.ok(!route(net, "Z", "172.20.1.0/24"));
+  assert.equal(route(net, "X", "10.2.0.0/24").code, "O E2", "connected networks of the other process come across too");
+  assert.ok(net.ping("Z", "172.20.1.1").ok);
+  assert.equal(net.ospfInstsOf("Y").length, 2);
+  assert.match(console_(net, "Y", "en", "show running-config"), /router ospf 10\n redistribute ospf 20 subnets\n network 10\.1\.0\.0 0\.0\.0\.255 area 0\n!\nrouter ospf 20\n summary-address 172\.20\.0\.0 255\.255\.0\.0\n redistribute ospf 10 subnets/);
+});
+
+function eigrpHub() {
+  const net = new Network({ devices: ["HUB", "S1", "S2"].map(R), links: [["HUB", G(0), "S1", G(0)], ["HUB", G(1), "S2", G(0)], ["S1", G(1), "S2", G(1)]] });
+  applyConfig(net, "HUB", [...ip4("g0/0", "10.0.1.1"), ...ip4("g0/1", "10.0.2.1"), "router eigrp 100", " network 10.0.0.0"]);
+  applyConfig(net, "S1", [...ip4("g0/0", "10.0.1.2"), ...ip4("g0/1", "10.0.12.1", "255.255.255.0", "bandwidth 1544", "delay 2000"),
+    "interface loopback1", " ip address 172.16.1.1 255.255.255.0", "interface loopback2", " ip address 172.16.2.1 255.255.255.0",
+    "router eigrp 100", " network 10.0.0.0", " network 172.16.0.0"]);
+  applyConfig(net, "S2", [...ip4("g0/0", "10.0.2.2"), ...ip4("g0/1", "10.0.12.2", "255.255.255.0", "bandwidth 1544", "delay 2000"),
+    "interface loopback0", " ip address 192.168.2.1 255.255.255.0", "router eigrp 100", " network 10.0.0.0", " network 192.168.2.0"]);
+  return net;
+}
+
+test("EIGRP: interface summaries, stub routers, key-chain MD5", () => {
+  const net = eigrpHub();
+  applyConfig(net, "S1", ["interface g0/0", " ip summary-address eigrp 100 172.16.0.0 255.255.252.0"]);
+  assert.equal(route(net, "HUB", "172.16.0.0/22").code, "D");
+  // The summary is only sent out g0/0: the /24s still leak to the hub the long way, through S2.
+  assert.deepEqual(route(net, "HUB", "172.16.1.0/24").paths.map((p) => p.ip), [ip2n("10.0.2.2")]);
+  const sum = route(net, "S1", "172.16.0.0/22");
+  assert.ok(sum.discard && sum.ad === 5, "a summary installs a Null0 route with distance 5");
+  // S2's backup link means the hub may use S1 as transit for S2's LAN - until S1 is a stub
+  applyConfig(net, "HUB", ["interface g0/1", " shutdown"]);
+  assert.ok(route(net, "HUB", "192.168.2.0/24"), "transit through S1 while S1 isn't a stub");
+  applyConfig(net, "S1", ["router eigrp 100", " eigrp stub"]);
+  assert.ok(!route(net, "HUB", "192.168.2.0/24"), "a stub never advertises routes it learned");
+  assert.match(console_(net, "HUB", "en", "show ip eigrp neighbors detail"), /Stub Peer Advertising \(CONNECTED SUMMARY \) Routes/);
+  applyConfig(net, "HUB", ["interface g0/1", " no shutdown"]);
+  // MD5 with key chains
+  applyConfig(net, "HUB", ["key chain K", " key 1", "  key-string NetLab", "interface g0/0", " ip authentication mode eigrp 100 md5", " ip authentication key-chain eigrp 100 K"]);
+  assert.ok(!net.check({ type: "eigrp-nbr", device: "HUB", neighbor: "10.0.1.2" }));
+  applyConfig(net, "S1", ["key chain K", " key 1", "  key-string Wrong", "interface g0/0", " ip authentication mode eigrp 100 md5", " ip authentication key-chain eigrp 100 K"]);
+  assert.ok(!net.check({ type: "eigrp-nbr", device: "HUB", neighbor: "10.0.1.2" }));
+  applyConfig(net, "S1", ["key chain K", " key 1", "  key-string NetLab"]);
+  assert.ok(net.check({ type: "eigrp-nbr", device: "HUB", neighbor: "10.0.1.2" }));
+  assert.match(console_(net, "HUB", "en", "show key chain"), /key 1 -- text "NetLab"/);
+});
+
+test("EIGRP: K values, offset-lists, distribute-lists and distance", () => {
+  const net = eigrpHub();
+  const s = new Session(net, "S2");
+  for (const l of ["en", "conf t", "router eigrp 100"]) s.input(l);
+  const out = s.input("metric weights 0 1 1 1 0 0");
+  assert.match(out, /Neighbor 10\.0\.2\.1 \(GigabitEthernet0\/0\) is down: metric changed/);
+  assert.match(s.events.HUB.join("\n"), /Neighbor 10\.0\.2\.2 \(GigabitEthernet0\/1\) is down: K-value mismatch/);
+  s.input("no metric weights");
+  const base = route(net, "HUB", "172.16.1.0/24").metric;
+  applyConfig(net, "HUB", ["access-list 5 permit 172.16.0.0 0.0.255.255", "router eigrp 100", " offset-list 5 in 1000 g0/0"]);
+  assert.equal(route(net, "HUB", "172.16.1.0/24").metric, base + 1000);
+  applyConfig(net, "HUB", ["ip prefix-list NO1 seq 5 deny 172.16.1.0/24", "ip prefix-list NO1 seq 10 permit 0.0.0.0/0 le 32", "router eigrp 100", " distribute-list prefix NO1 in"]);
+  assert.ok(!route(net, "HUB", "172.16.1.0/24"));
+  assert.ok(route(net, "HUB", "172.16.2.0/24"));
+  assert.match(console_(net, "HUB", "en", "show ip prefix-list detail"), /seq 5 deny 172\.16\.1\.0\/24 \(hit count: [1-9]/);
+  applyConfig(net, "HUB", ["router eigrp 100", " distance eigrp 80 160"]);
+  assert.equal(route(net, "HUB", "172.16.2.0/24").ad, 80);
+});
+
+test("EIGRP for IPv6: classic and named mode", () => {
+  const two = () => new Network({ devices: [R("A"), R("B")], links: [["A", G(0), "B", G(0)]] });
+  const net = two();
+  for (const [r, n] of [["A", "1"], ["B", "2"]]) {
+    applyConfig(net, r, ["ipv6 unicast-routing", "interface loopback0", ` ip address ${n}.${n}.${n}.${n} 255.255.255.255`, ` ipv6 address 2001:db8:${n}::1/64`, ` ipv6 eigrp 7`,
+      "interface g0/0", " ipv6 enable", " ipv6 eigrp 7", " no shutdown", "ipv6 router eigrp 7"]);
+  }
+  const r6 = net.routes6("B").find((x) => x.code === "D");
+  assert.ok(r6 && fmtV6(r6.net) === "2001:DB8:1::");
+  assert.ok(net.ping("B", "2001:db8:1::1").ok, "a link-local-only exit sources from another global address");
+  const named = two();
+  for (const [r, n] of [["A", "1"], ["B", "2"]]) {
+    applyConfig(named, r, ["ipv6 unicast-routing", "interface loopback0", ` ip address ${n}.${n}.${n}.${n} 255.255.255.255`, ` ipv6 address 2001:db8:${n}::1/64`,
+      "interface g0/0", " ipv6 enable", " no shutdown", "router eigrp LAB", " address-family ipv6 unicast autonomous-system 10"]);
+  }
+  assert.ok(named.check({ type: "eigrp6-nbrs", device: "A", count: 1 }));
+  assert.match(console_(named, "A", "en", "show ipv6 eigrp neighbors"), /EIGRP-IPv6 VR\(LAB\) Address-Family Neighbors for AS\(10\)/);
+});
+
+test("RIP: versions, auto-summary, split horizon and redistribution seeds", () => {
+  const net = lineOf(null, "R1", "R2", "R3");
+  applyConfig(net, "R1", [...ip4("g0/0", "10.12.0.1"), "interface loopback1", " ip address 172.16.1.1 255.255.255.0", "router rip", " network 10.0.0.0", " network 172.16.0.0"]);
+  applyConfig(net, "R2", [...ip4("g0/0", "10.12.0.2"), ...ip4("g0/1", "10.23.0.2"), "router rip", " version 2", " no auto-summary", " network 10.0.0.0"]);
+  applyConfig(net, "R3", [...ip4("g0/0", "10.23.0.3"), "interface loopback0", " ip address 3.3.3.3 255.255.255.255", "router ospf 1", " network 0.0.0.0 255.255.255.255 area 0"]);
+  assert.ok(!net.routes("R2").some((r) => r.code === "R"), "a version-2-only router ignores version 1 updates");
+  applyConfig(net, "R1", ["router rip", " version 2"]);
+  assert.equal(route(net, "R2", "172.16.0.0/16").code, "R", "auto-summary at the major network boundary");
+  applyConfig(net, "R1", ["router rip", " no auto-summary"]);
+  assert.equal(route(net, "R2", "172.16.1.0/24").metric, 1);
+  applyConfig(net, "R2", ["router ospf 1", " network 10.23.0.0 0.0.0.255 area 0", " redistribute rip subnets", "router rip", " redistribute ospf 1"]);
+  assert.ok(!route(net, "R1", "3.3.3.3/32"), "into RIP without a metric gives nothing");
+  applyConfig(net, "R2", ["router rip", " redistribute ospf 1 metric 4"]);
+  assert.equal(route(net, "R1", "3.3.3.3/32").metric, 5);
+  assert.equal(route(net, "R3", "172.16.1.0/24").code, "O E2");
+  assert.ok(net.ping("R1", "3.3.3.3", { source: ip2n("172.16.1.1") }).ok);
+  applyConfig(net, "R1", ["router rip", " default-information originate"]);
+  assert.equal(route(net, "R2", "0.0.0.0/0").code, "R*");
+  assert.match(console_(net, "R2", "en", "show ip protocols"), /Routing Protocol is "rip"[\s\S]*Default version control: send version 2, receive version 2/);
+});
+
+test("RIPng with a default route", () => {
+  const net = new Network({ devices: [R("A"), R("B")], links: [["A", G(0), "B", G(0)]] });
+  applyConfig(net, "A", ["ipv6 unicast-routing", "interface g0/0", " ipv6 address 2001:db8:12::1/64", " ipv6 rip NG enable", " no shutdown",
+    "interface loopback0", " ipv6 address 2001:db8:1::1/64", " ipv6 rip NG enable"]);
+  applyConfig(net, "B", ["ipv6 unicast-routing", "interface g0/0", " ipv6 address 2001:db8:12::2/64", " ipv6 rip NG enable", " ipv6 rip NG default-information originate", " no shutdown"]);
+  const r = net.routes6("B").find((x) => x.code === "R");
+  assert.equal(r.metric, 2, "RIPng counts the receiving hop: connected 1 arrives as 2");
+  assert.ok(net.routes6("A").some((x) => x.code === "R" && x.len === 0));
+  assert.ok(net.check({ type: "ripng-route", device: "B", prefix: "2001:db8:1::/64" }));
+});
+
+test("route-maps and prefix-lists in redistribution: tags, metrics, deny clauses", () => {
+  const net = lineOf(null, "R1", "R2", "R3");
+  applyConfig(net, "R1", [...ip4("g0/0", "10.12.0.1"), "interface loopback1", " ip address 172.16.1.1 255.255.255.0", "interface loopback2", " ip address 172.16.2.1 255.255.255.0",
+    "router rip", " version 2", " no auto-summary", " network 10.0.0.0", " network 172.16.0.0"]);
+  applyConfig(net, "R2", [...ip4("g0/0", "10.12.0.2"), ...ip4("g0/1", "10.23.0.2"), "router rip", " version 2", " network 10.0.0.0",
+    "ip prefix-list LO2 seq 5 permit 172.16.2.0/24", "route-map R2O deny 10", " match ip address prefix-list LO2", "route-map R2O permit 20", " set tag 120", " set metric 50", " set metric-type type-1",
+    "router ospf 1", " network 10.23.0.0 0.0.0.255 area 0", " redistribute rip subnets route-map R2O"]);
+  applyConfig(net, "R3", [...ip4("g0/0", "10.23.0.3"), "router ospf 1", " network 10.23.0.0 0.0.0.255 area 0", "route-map T120 permit 10", " match tag 120", " set metric 9"]);
+  const r = route(net, "R3", "172.16.1.0/24");
+  assert.equal(r.code, "O E1");
+  assert.equal(r.metric, 51);
+  assert.equal(r.tag, 120);
+  assert.ok(!route(net, "R3", "172.16.2.0/24"), "the deny clause keeps 172.16.2.0 out");
+  // routeMapEval reads the shared store (BGP's commands)
+  assert.deepEqual(net.routeMapEval("R3", "T120", { net: ip2n("172.16.1.0"), len: 24, tag: 120 }).set, { metric: 9 });
+  assert.equal(net.routeMapEval("R3", "T120", { net: ip2n("172.16.1.0"), len: 24, tag: 7 }).permit, false);
+  assert.equal(net.routeMapEval("R3", "NOPE", { net: 0, len: 0 }), null);
+  assert.equal(net.prefixListMatch("R2", "LO2", ip2n("172.16.2.0"), 24, false), "permit");
+  assert.equal(net.prefixListMatch("R2", "LO2", ip2n("172.16.2.0"), 25, false), "deny");
+  assert.match(console_(net, "R3", "en", "show ip route 172.16.1.0"), /Tag 120, type extern 1/);
+  assert.match(console_(net, "R2", "en", "show route-map R2O"), /route-map R2O, permit, sequence 20\n  Match clauses:\n  Set clauses:\n    tag 120\n    metric 50\n    metric-type type-1/);
+});
+
+function edgeLab() {
+  const net = new Network({ devices: [R("E"), R("I1"), R("I2"), R("N"), P("PC")],
+    links: [["E", G(0), "I1", G(0)], ["E", G(1), "I2", G(0)], ["I1", G(1), "N", G(0)], ["I2", G(1), "N", G(1)], ["E", G(2), "PC", "eth0"]] });
+  applyConfig(net, "E", [...ip4("g0/0", "10.1.0.1"), ...ip4("g0/1", "10.2.0.1"), ...ip4("g0/2", "192.168.1.1")]);
+  applyConfig(net, "I1", [...ip4("g0/0", "10.1.0.2"), ...ip4("g0/1", "10.3.0.1"), "ip route 192.168.1.0 255.255.255.0 10.1.0.1", "ip route 0.0.0.0 0.0.0.0 10.3.0.2"]);
+  applyConfig(net, "I2", [...ip4("g0/0", "10.2.0.2"), ...ip4("g0/1", "10.4.0.1"), "ip route 192.168.1.0 255.255.255.0 10.2.0.1", "ip route 0.0.0.0 0.0.0.0 10.4.0.2"]);
+  applyConfig(net, "N", [...ip4("g0/0", "10.3.0.2"), ...ip4("g0/1", "10.4.0.2"), "interface loopback0", " ip address 8.8.8.8 255.255.255.255",
+    "ip route 192.168.1.0 255.255.255.0 10.3.0.1"]);
+  applyConfig(net, "PC", ["ip 192.168.1.10/24 192.168.1.1"]);
+  return net;
+}
+
+test("IP SLA tracking withdraws a static route; floating static takes over", () => {
+  const net = edgeLab();
+  const s = new Session(net, "E");
+  for (const l of ["en", "conf t", "ip sla 1", "icmp-echo 10.1.0.2 source-interface g0/0", "frequency 5", "exit", "ip sla schedule 1 life forever start-time now",
+    "track 1 ip sla 1 reachability", "exit", "ip route 0.0.0.0 0.0.0.0 10.1.0.2 track 1", "ip route 0.0.0.0 0.0.0.0 10.2.0.2 10", "end"]) s.input(l);
+  assert.ok(net.check({ type: "sla", device: "E", op: 1 }));
+  assert.equal(route(net, "E", "0.0.0.0/0").paths[0].ip, ip2n("10.1.0.2"));
+  const i1 = new Session(net, "I1");
+  for (const l of ["en", "conf t", "interface g0/0"]) i1.input(l);
+  i1.input("shutdown");
+  assert.match((i1.events.E || []).join("\n"), /%TRACK-6-STATE: 1 ip sla 1 reachability Up -> Down/);
+  assert.equal(route(net, "E", "0.0.0.0/0").paths[0].ip, ip2n("10.2.0.2"));
+  assert.ok(net.check({ type: "track", device: "E", object: 1, state: "down" }));
+  i1.input("no shutdown");
+  assert.equal(route(net, "E", "0.0.0.0/0").paths[0].ip, ip2n("10.1.0.2"));
+  assert.match(console_(net, "E", "en", "show track"), /Track 1\n  IP SLA 1 reachability\n  Reachability is Up/);
+  assert.match(console_(net, "E", "en", "show running-config"), /ip sla 1\n icmp-echo 10\.1\.0\.2 source-interface GigabitEthernet0\/0\n  frequency 5\nip sla schedule 1 life forever start-time now/);
+});
+
+test("policy-based routing overrides the table; uRPF strict versus loose", () => {
+  const net = edgeLab();
+  applyConfig(net, "E", ["ip route 0.0.0.0 0.0.0.0 10.1.0.2"]);
+  const hops = (from) => net.trace(from, "8.8.8.8").map((h) => h.ip);
+  assert.ok(hops("PC").includes(ip2n("10.1.0.2")));
+  applyConfig(net, "E", ["access-list 101 permit ip 192.168.1.0 0.0.0.255 any", "route-map PBR permit 10", " match ip address 101", " set ip next-hop 10.2.0.2",
+    "interface g0/2", " ip policy route-map PBR"]);
+  assert.ok(hops("PC").includes(ip2n("10.2.0.2")) && !hops("PC").includes(ip2n("10.1.0.2")));
+  assert.ok(net.ping("PC", "8.8.8.8").ok, "replies come back the other way (asymmetric is fine)");
+  assert.ok(!hops("E").includes(ip2n("10.2.0.2")), "the router's own traffic isn't policy-routed without ip local policy");
+  assert.match(console_(net, "PC", "ping 8.8.8.8 -c 1") && console_(net, "E", "en", "show route-map PBR"), /Policy routing matches: [1-9]\d* packets/);
+  // N's best route back to the LAN is via I1, so traffic arriving from I2 fails strict uRPF
+  applyConfig(net, "N", ["interface g0/1", " ip verify unicast source reachable-via rx"]);
+  assert.ok(!net.ping("PC", "8.8.8.8").ok);
+  applyConfig(net, "N", ["interface g0/1", " ip verify unicast source reachable-via any"]);
+  assert.ok(net.ping("PC", "8.8.8.8").ok);
+  assert.match(console_(net, "N", "en", "show ip interface g0/1"), /IP verify source reachable-via ANY/);
+});
+
+test("IPv6 ACLs: the implicit ND permits and an explicit deny ipv6 any any", () => {
+  const net = new Network({ devices: [R("A"), R("B"), R("C")], links: [["A", G(0), "B", G(0)], ["B", G(1), "C", G(0)]] });
+  applyConfig(net, "A", ["ipv6 unicast-routing", "interface g0/0", " ipv6 address 2001:db8:1::1/64", " no shutdown", "ipv6 route ::/0 2001:db8:1::2"]);
+  applyConfig(net, "B", ["ipv6 unicast-routing", "interface g0/0", " ipv6 address 2001:db8:1::2/64", " no shutdown", "interface g0/1", " ipv6 address 2001:db8:2::2/64", " no shutdown"]);
+  applyConfig(net, "C", ["ipv6 unicast-routing", "interface g0/0", " ipv6 address 2001:db8:2::3/64", " no shutdown", "ipv6 route ::/0 2001:db8:2::2"]);
+  applyConfig(net, "B", ["ipv6 access-list IN", " permit icmp any host 2001:db8:2::3 echo-request", "interface g0/0", " ipv6 traffic-filter IN in"]);
+  assert.ok(net.ping("A", "2001:db8:2::3").ok, "implicit nd-na/nd-ns permits keep neighbour discovery working");
+  assert.ok(!net.ping("A", "2001:db8:2::2").ok, "anything else is denied");
+  applyConfig(net, "B", ["ipv6 access-list IN", " deny ipv6 any any log"]);
+  assert.ok(!net.ping("A", "2001:db8:2::3").ok, "an explicit deny comes before the implicit ND permits");
+  applyConfig(net, "B", ["ipv6 access-list IN", " sequence 1 permit icmp any any nd-na", " sequence 2 permit icmp any any nd-ns"]);
+  assert.ok(net.ping("A", "2001:db8:2::3").ok);
+  console_(net, "A", "en", "ping 2001:db8:2::3");
+  assert.match(console_(net, "B", "en", "show ipv6 access-list"), /permit icmp any host 2001:DB8:2::3 echo-request \(\d+ match(es)?\) sequence 10/);
+});
+
+test("DHCPv6 through a relay; a host-mode router takes its default from RAs", () => {
+  const net = new Network({ devices: [R("CL"), R("RL"), R("SV")], links: [["CL", G(0), "RL", G(0)], ["RL", G(1), "SV", G(0)]] });
+  applyConfig(net, "SV", ["ipv6 unicast-routing", "ipv6 dhcp pool LAN", " address prefix 2001:db8:10::/64", " dns-server 2001:db8::53",
+    "interface g0/0", " ipv6 address 2001:db8:23::3/64", " ipv6 dhcp server LAN", " no shutdown", "ipv6 route 2001:db8:10::/64 2001:db8:23::2"]);
+  applyConfig(net, "RL", ["ipv6 unicast-routing", "interface g0/0", " ipv6 address 2001:db8:10::1/64", " no shutdown", "interface g0/1", " ipv6 address 2001:db8:23::2/64", " no shutdown"]);
+  applyConfig(net, "CL", ["interface g0/0", " ipv6 enable", " ipv6 address dhcp", " no shutdown"]);
+  assert.ok(!net.check({ type: "dhcp6-lease", device: "CL", intf: "g0/0" }), "no server on the segment and no relay yet");
+  applyConfig(net, "RL", ["interface g0/0", " ipv6 nd managed-config-flag", " ipv6 dhcp relay destination 2001:db8:23::3"]);
+  assert.ok(net.check({ type: "dhcp6-lease", device: "CL", intf: "g0/0", prefix: "2001:db8:10::/64" }));
+  assert.ok(net.routes6("CL").some((r) => r.code === "ND" && r.len === 0));
+  assert.ok(net.ping("CL", "2001:db8:23::3").ok);
+  assert.match(console_(net, "SV", "en", "show ipv6 dhcp binding"), /Address: 2001:DB8:10::/);
+  const saved = JSON.parse(JSON.stringify(net.toJSON()));
+  assert.ok(new Network(net.spec, saved).check({ type: "dhcp6-lease", device: "CL", intf: "g0/0" }), "leases survive a save");
+});
+
+test("debug ip routing, Null0 statics and ip route ... Null0 forms", () => {
+  const net = new Network({ devices: [R("A"), R("B")], links: [["A", G(0), "B", G(0)]] });
+  applyConfig(net, "A", [...ip4("g0/0", "10.0.0.1"), "router ospf 1", " network 10.0.0.0 0.0.0.255 area 0"]);
+  applyConfig(net, "B", [...ip4("g0/0", "10.0.0.2"), "router ospf 1", " network 10.0.0.0 0.0.0.255 area 0"]);
+  console_(net, "A", "en", "debug ip routing");
+  const b = new Session(net, "B");
+  for (const l of ["en", "conf t", "interface loopback5", "ip address 5.5.5.5 255.255.255.255", "router ospf 1"]) b.input(l);
+  b.input("network 5.5.5.5 0.0.0.0 area 0");
+  assert.match(b.events.A.join("\n"), /RT: add 5\.5\.5\.5\/32 via 10\.0\.0\.2, ospf metric \[110\/2\]/);
+  applyConfig(net, "A", ["ip route 172.16.0.0 255.255.0.0 Null0", "ip route 172.17.0.0 255.255.0.0 null 0 250"]);
+  assert.match(console_(net, "A", "en", "show ip route static"), /S +172\.16\.0\.0\/16 is directly connected, Null0/);
+  assert.equal(route(net, "A", "172.17.0.0/16").ad, 250);
+  assert.match(console_(net, "A", "en", "ping 172.16.1.1"), /\.\.\.\.\.\nSuccess rate is 0 percent/);
+  assert.match(console_(net, "A", "en", "show running-config"), /ip route 172\.16\.0\.0 255\.255\.0\.0 Null0\nip route 172\.17\.0\.0 255\.255\.0\.0 Null0 250/);
+});
+
+test("CCNP help text fits its context", () => {
+  const net = new Network({ devices: [R("R1")], links: [] });
+  const s = new Session(net, "R1");
+  for (const l of ["en", "conf t", "router ospf 1"]) s.input(l);
+  assert.match(s.help("area 1 "), /nssa +Specify a NSSA area[\s\S]*stub +Specify a stub area[\s\S]*virtual-link +Define a virtual link/);
+  assert.match(s.help("redistribute static "), /metric +Metric for redistributed routes[\s\S]*metric-type +OSPF\/IS-IS exterior metric type[\s\S]*subnets +Consider subnets/);
+  assert.match(s.help("redistribute static subnets "), /metric +Metric for redistributed routes/);
+  s.input("router eigrp 1");
+  assert.match(s.help("eigrp stub "), /connected +Do advertise connected routes[\s\S]*receive-only +Set receive only neighbor[\s\S]*summary +Do advertise summary routes/);
+  s.input("exit");
+  assert.match(s.help("ip route 10.0.0.0 255.0.0.0 10.1.1.1 "), /track +Install route depending on tracked item/);
+});
+
 console.log(`ios: ${passed} tests passed`);

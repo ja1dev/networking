@@ -5561,6 +5561,2289 @@
   }
  },
  {
+  "id": "ospf-multiarea",
+  "title": "Multi-area OSPF: ABRs and area summaries",
+  "topic": "OSPF areas",
+  "minutes": 30,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Split the network into areas 0, 1 and 2, watch ABRs turn intra-area routes into summary LSAs, and summarise area 1 at its border.",
+  "intro": "A single OSPF area floods every router LSA to every router and reruns SPF everywhere when anything changes. **Areas** contain that: routers only hold the full topology of their own area, and **area border routers (ABRs)** describe everything else with **type-3 summary LSAs**, which show up as `O IA` routes.\n\nR1 already runs area 1 and R3 the backbone. Finish the design on R2 and R4, then summarise area 1 so the backbone carries one route for R1's three LANs instead of three.\n\n| Link | Network | Area |\n|---|---|---|\n| R1 - R2 | 10.0.12.0/24 | 1 |\n| R2 - R3 | 10.0.23.0/24 | 0 |\n| R3 - R4 | 10.0.34.0/24 | 0 |\n| R1 LAN + loopbacks | 172.16.0.0/24, 172.16.1.0/24, 172.16.2.0/24 | 1 |\n| R4 LAN | 192.168.4.0/24 | 2 |\n\nUseful: `show ip ospf`, `show ip ospf database`, `show ip ospf border-routers`, `show ip route ospf`.",
+  "height": 430,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 120,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 300,
+    "y": 150
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 480,
+    "y": 150
+   },
+   {
+    "name": "R4",
+    "type": "router",
+    "x": 660,
+    "y": 150
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 120,
+    "y": 330
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 660,
+    "y": 330
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "R4",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R4",
+    "GigabitEthernet0/2",
+    "PC4",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 10.0.12.1 255.255.255.0",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 172.16.0.1 255.255.255.0",
+    " no shutdown",
+    "interface loopback1",
+    " ip address 172.16.1.1 255.255.255.0",
+    " ip ospf network point-to-point",
+    "interface loopback2",
+    " ip address 172.16.2.1 255.255.255.0",
+    " ip ospf network point-to-point",
+    "router ospf 1",
+    " router-id 1.1.1.1",
+    " passive-interface g0/2",
+    " network 10.0.12.0 0.0.0.255 area 1",
+    " network 172.16.0.0 0.0.255.255 area 1"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.0.12.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.23.2 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 2.2.2.2"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    " ip address 10.0.23.3 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.34.3 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 3.3.3.3",
+    " network 10.0.0.0 0.255.255.255 area 0"
+   ],
+   "R4": [
+    "hostname R4",
+    "interface g0/0",
+    " ip address 10.0.34.4 255.255.255.0",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 192.168.4.1 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 4.4.4.4"
+   ],
+   "PC1": [
+    "ip 172.16.0.10/24 172.16.0.1"
+   ],
+   "PC4": [
+    "ip 192.168.4.10/24 192.168.4.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Make R2 the area 1 ABR",
+    "text": "Put R2's link to R1 in **area 1** and its link to R3 in **area 0**. `show ip ospf` on R2 should say *It is an area border router*.",
+    "hint": "`router ospf 1`, then `network 10.0.12.0 0.0.0.255 area 1` and `network 10.0.23.0 0.0.0.255 area 0`.",
+    "checks": [
+     {
+      "type": "ospf-nbr",
+      "device": "R2",
+      "neighbor": "1.1.1.1"
+     },
+     {
+      "type": "ospf-nbr",
+      "device": "R2",
+      "neighbor": "3.3.3.3"
+     },
+     {
+      "type": "ospf-role",
+      "device": "R2",
+      "role": "abr"
+     },
+     {
+      "type": "route",
+      "device": "R3",
+      "prefix": "10.0.12.0/24",
+      "code": "O IA"
+     }
+    ]
+   },
+   {
+    "title": "Add area 2 at R4",
+    "text": "R4's uplink is in the backbone and its LAN (`192.168.4.0/24`) is **area 2**. Keep hellos off the LAN.",
+    "hint": "`network 10.0.34.0 0.0.0.255 area 0`, `network 192.168.4.0 0.0.0.255 area 2` and `passive-interface g0/2`.",
+    "checks": [
+     {
+      "type": "ospf-role",
+      "device": "R4",
+      "role": "abr"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.4.0/24",
+      "code": "O IA"
+     },
+     {
+      "type": "passive",
+      "device": "R4",
+      "intf": "g0/2"
+     }
+    ]
+   },
+   {
+    "title": "Summarise area 1",
+    "text": "On the ABR, advertise R1's three `172.16.x.0/24` networks into the backbone as one **172.16.0.0/22**. R2 installs a discard route for the range.",
+    "hint": "`area 1 range 172.16.0.0 255.255.252.0` under `router ospf 1` on R2. Then `show ip route 172.16.0.0` on R2 shows the Null0 route.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R4",
+      "prefix": "172.16.0.0/22",
+      "code": "O IA"
+     },
+     {
+      "type": "noroute",
+      "device": "R4",
+      "prefix": "172.16.1.0/24"
+     },
+     {
+      "type": "route-attr",
+      "device": "R2",
+      "prefix": "172.16.0.0/22",
+      "discard": true
+     },
+     {
+      "type": "ospf-lsa",
+      "device": "R3",
+      "lsa": "summary",
+      "area": 0,
+      "prefix": "172.16.0.0/22"
+     }
+    ]
+   },
+   {
+    "title": "End to end",
+    "text": "PC1 should reach PC4 across all three areas.",
+    "hint": "If it fails, check `show ip route` on each router for the other side's LAN.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.4.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "router ospf 1",
+    "network 10.0.12.0 0.0.0.255 area 1",
+    "network 10.0.23.0 0.0.0.255 area 0",
+    "area 1 range 172.16.0.0 255.255.252.0",
+    "end"
+   ],
+   "R4": [
+    "router ospf 1",
+    "network 10.0.34.0 0.0.0.255 area 0",
+    "network 192.168.4.0 0.0.0.255 area 2",
+    "passive-interface g0/2",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ospf-stub-nssa",
+  "title": "OSPF stub, totally stubby and NSSA areas",
+  "topic": "OSPF areas",
+  "minutes": 30,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Shrink a branch's routing table with stub and totally stubby areas, then let another branch import partner routes as an NSSA.",
+  "intro": "Branch routers rarely need every route. A **stub** area keeps out external (type-5) LSAs and gets a default route from its ABR instead; **totally stubby** (`no-summary` on the ABR) also drops the inter-area summaries. Neither may contain an ASBR.\n\nA **not-so-stubby area (NSSA)** is the exception: it blocks type-5 LSAs but may hold its own ASBR, whose routes travel as **type-7** LSAs (`O N2`) and are translated to type 5 (`O E2`) by the ABR.\n\nHere R1 originates a default (`O*E2`), R3 is a branch in area 1, and R5 in area 2 imports two partner networks with `redistribute static` - which only works while area 2 allows externals.\n\nEvery router in an area must agree on the area type, or the adjacency drops (*Mismatched Stub/Transit area option bit*).",
+  "height": 430,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 400,
+    "y": 90
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 230,
+    "y": 200
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 80,
+    "y": 320
+   },
+   {
+    "name": "R4",
+    "type": "router",
+    "x": 570,
+    "y": 200
+   },
+   {
+    "name": "R5",
+    "type": "router",
+    "x": 720,
+    "y": 320
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 80,
+    "y": 420
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R4",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R4",
+    "GigabitEthernet0/1",
+    "R5",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/2",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 10.0.12.1 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.14.1 255.255.255.0",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 1.1.1.1 255.255.255.255",
+    "ip route 0.0.0.0 0.0.0.0 Null0",
+    "router ospf 1",
+    " router-id 1.1.1.1",
+    " network 10.0.0.0 0.255.255.255 area 0",
+    " network 1.1.1.1 0.0.0.0 area 0",
+    " default-information originate"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.0.12.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.23.2 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 2.2.2.2",
+    " network 10.0.12.0 0.0.0.255 area 0",
+    " network 10.0.23.0 0.0.0.255 area 1"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    " ip address 10.0.23.3 255.255.255.0",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 192.168.3.1 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 3.3.3.3",
+    " passive-interface g0/2",
+    " network 10.0.23.0 0.0.0.255 area 1",
+    " network 192.168.3.0 0.0.0.255 area 1"
+   ],
+   "R4": [
+    "hostname R4",
+    "interface g0/0",
+    " ip address 10.0.14.4 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.45.4 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 4.4.4.4",
+    " network 10.0.14.0 0.0.0.255 area 0",
+    " network 10.0.45.0 0.0.0.255 area 2"
+   ],
+   "R5": [
+    "hostname R5",
+    "interface g0/0",
+    " ip address 10.0.45.5 255.255.255.0",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 5.5.5.5 255.255.255.255",
+    "ip route 192.168.50.0 255.255.255.0 Null0",
+    "ip route 192.168.51.0 255.255.255.0 Null0",
+    "router ospf 1",
+    " router-id 5.5.5.5",
+    " network 10.0.45.0 0.0.0.255 area 2",
+    " network 5.5.5.5 0.0.0.0 area 2"
+   ],
+   "PC3": [
+    "ip 192.168.3.10/24 192.168.3.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Make area 1 a stub",
+    "text": "Configure area 1 as a **stub** on both R2 and R3. R3 then gets `O*IA` default from R2 and loses R1's `O*E2` default.",
+    "hint": "`area 1 stub` under `router ospf 1` on both routers. Configure one side and watch the adjacency drop until the other matches.",
+    "checks": [
+     {
+      "type": "ospf-area-type",
+      "device": "R3",
+      "area": 1,
+      "areaType": "stub"
+     },
+     {
+      "type": "ospf-nbr",
+      "device": "R3",
+      "neighbor": "2.2.2.2"
+     },
+     {
+      "type": "route",
+      "device": "R3",
+      "prefix": "0.0.0.0/0",
+      "code": "O*IA"
+     }
+    ]
+   },
+   {
+    "title": "Make it totally stubby",
+    "text": "Keep the inter-area routes out too, so R3's table has its own routes and one default.",
+    "hint": "Only the ABR needs it: `area 1 stub no-summary` on R2.",
+    "checks": [
+     {
+      "type": "ospf-area-type",
+      "device": "R2",
+      "area": 1,
+      "areaType": "stub",
+      "noSummary": true
+     },
+     {
+      "type": "noroute",
+      "device": "R3",
+      "prefix": "10.0.45.0/24"
+     },
+     {
+      "type": "ping",
+      "from": "PC3",
+      "to": "5.5.5.5"
+     }
+    ]
+   },
+   {
+    "title": "Bring in the partner routes",
+    "text": "R5 must redistribute its two static routes (`192.168.50.0/24` and `.51.0/24`) into OSPF. Make **area 2 an NSSA** so it may, then redistribute.",
+    "hint": "`area 2 nssa` on R4 and R5, then on R5 `redistribute static subnets`. R4 sees `O N2`, R1 sees `O E2` (R4 translated them).",
+    "checks": [
+     {
+      "type": "ospf-area-type",
+      "device": "R5",
+      "area": 2,
+      "areaType": "nssa"
+     },
+     {
+      "type": "route",
+      "device": "R4",
+      "prefix": "192.168.50.0/24",
+      "code": "O N2"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.51.0/24",
+      "code": "O E2"
+     }
+    ]
+   },
+   {
+    "title": "Give the NSSA a default",
+    "text": "An NSSA gets no default route automatically. Have R4 inject one into area 2.",
+    "hint": "`area 2 nssa default-information-originate` on R4. R5 then shows `O*N2 0.0.0.0/0`.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R5",
+      "prefix": "0.0.0.0/0",
+      "code": "O*N2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "router ospf 1",
+    "area 1 stub no-summary",
+    "end"
+   ],
+   "R3": [
+    "router ospf 1",
+    "area 1 stub",
+    "end"
+   ],
+   "R4": [
+    "router ospf 1",
+    "area 2 nssa default-information-originate",
+    "end"
+   ],
+   "R5": [
+    "router ospf 1",
+    "area 2 nssa",
+    "redistribute static subnets",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ospf-vlink-auth",
+  "title": "OSPF virtual links and MD5 authentication",
+  "topic": "OSPF areas",
+  "minutes": 30,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Unstick an adjacency stuck in EXSTART, join a discontiguous area to the backbone with a virtual link, and secure the backbone with MD5.",
+  "intro": "Every area must touch area 0. Area 2 here hangs off area 1 instead, so R3 can't summarise it into the backbone and R4 can't reach anything. A **virtual link** through transit area 1 gives R3 a logical backbone connection: both ends name each other's router ID (`area 1 virtual-link <rid>`).\n\nFirst, though, R1 and R2 never get past **EXSTART**: their interface MTUs differ, so the router with the smaller MTU rejects the other's database descriptions. Fix the MTU (or tell OSPF to ignore it).\n\nFinally, protect the R1-R2 link with **MD5** (`ip ospf authentication message-digest` plus a matching `ip ospf message-digest-key`). `debug ip ospf adj` shows exactly why a mismatched key fails.",
+  "height": 400,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 110,
+    "y": 160
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 300,
+    "y": 160
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 490,
+    "y": 160
+   },
+   {
+    "name": "R4",
+    "type": "router",
+    "x": 680,
+    "y": 160
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 680,
+    "y": 320
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "R4",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R4",
+    "GigabitEthernet0/2",
+    "PC4",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 10.0.12.1 255.255.255.0",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 1.1.1.1 255.255.255.255",
+    "router ospf 1",
+    " router-id 1.1.1.1",
+    " network 10.0.12.0 0.0.0.255 area 0",
+    " network 1.1.1.1 0.0.0.0 area 0"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.0.12.2 255.255.255.0",
+    " ip mtu 1400",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.23.2 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 2.2.2.2",
+    " network 10.0.12.0 0.0.0.255 area 0",
+    " network 10.0.23.0 0.0.0.255 area 1"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    " ip address 10.0.23.3 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.34.3 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 3.3.3.3",
+    " network 10.0.23.0 0.0.0.255 area 1",
+    " network 10.0.34.0 0.0.0.255 area 2"
+   ],
+   "R4": [
+    "hostname R4",
+    "interface g0/0",
+    " ip address 10.0.34.4 255.255.255.0",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 192.168.4.1 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 4.4.4.4",
+    " passive-interface g0/2",
+    " network 0.0.0.0 255.255.255.255 area 2"
+   ],
+   "PC4": [
+    "ip 192.168.4.10/24 192.168.4.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Fix the stuck adjacency",
+    "text": "R1 and R2 sit in EXSTART. Find out why and bring them to FULL.",
+    "hint": "`show ip ospf neighbor` shows EXSTART; compare `show ip interface g0/0` on both. Remove `ip mtu 1400` on R2 (or add `ip ospf mtu-ignore` on R2, the side with the smaller MTU).",
+    "checks": [
+     {
+      "type": "ospf-nbr-state",
+      "device": "R1",
+      "neighbor": "2.2.2.2",
+      "state": "FULL"
+     }
+    ]
+   },
+   {
+    "title": "Join area 2 to the backbone",
+    "text": "Build a virtual link between R2 (2.2.2.2) and R3 (3.3.3.3) through area 1.",
+    "hint": "`area 1 virtual-link 3.3.3.3` on R2 and `area 1 virtual-link 2.2.2.2` on R3. `show ip ospf virtual-links` says *up*.",
+    "checks": [
+     {
+      "type": "ospf-vlink",
+      "device": "R2",
+      "neighbor": "3.3.3.3"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.4.0/24",
+      "code": "O IA"
+     },
+     {
+      "type": "ping",
+      "from": "PC4",
+      "to": "1.1.1.1"
+     }
+    ]
+   },
+   {
+    "title": "Authenticate the R1-R2 link",
+    "text": "Use MD5 with key ID 1 and the key `NetLab1` on both ends. The adjacency must come back to FULL.",
+    "hint": "On each g0/0: `ip ospf authentication message-digest` and `ip ospf message-digest-key 1 md5 NetLab1`.",
+    "checks": [
+     {
+      "type": "ospf-auth",
+      "device": "R1",
+      "intf": "g0/0",
+      "auth": "md5"
+     },
+     {
+      "type": "ospf-auth",
+      "device": "R2",
+      "intf": "g0/0",
+      "auth": "md5"
+     },
+     {
+      "type": "ospf-nbr",
+      "device": "R1",
+      "neighbor": "2.2.2.2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "interface g0/0",
+    "no ip mtu",
+    "ip ospf authentication message-digest",
+    "ip ospf message-digest-key 1 md5 NetLab1",
+    "router ospf 1",
+    "area 1 virtual-link 3.3.3.3",
+    "end"
+   ],
+   "R1": [
+    "interface g0/0",
+    "ip ospf authentication message-digest",
+    "ip ospf message-digest-key 1 md5 NetLab1",
+    "end"
+   ],
+   "R3": [
+    "router ospf 1",
+    "area 1 virtual-link 2.2.2.2",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "eigrp-stub-summary",
+  "title": "EIGRP stub routing, summarisation and authentication",
+  "topic": "EIGRP",
+  "minutes": 30,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Summarise a branch's networks, stop branches acting as transit with eigrp stub, and secure the WAN links with key-chain MD5.",
+  "intro": "The hub reaches two branches, and the branches also have a slow backup link to each other. Three problems:\n\n1. S1's three LANs reach the hub as three routes. An **interface summary** (`ip summary-address eigrp`) on S1's uplink sends one `172.16.0.0/22` instead and installs a **Null0** discard route on S1.\n2. Without help, the hub can reach S2 *through* S1 over the slow link. **`eigrp stub`** makes a branch advertise only its own routes, so it is never used as transit (and is never queried).\n3. The WAN needs **MD5** authentication: a `key chain` plus `ip authentication mode eigrp 100 md5` and `ip authentication key-chain eigrp 100 <chain>` on each end.\n\n`show ip eigrp neighbors detail` shows stub peers; `show ip eigrp topology` shows the summary.",
+  "height": 430,
+  "devices": [
+   {
+    "name": "HUB",
+    "type": "router",
+    "x": 400,
+    "y": 90
+   },
+   {
+    "name": "S1",
+    "type": "router",
+    "x": 200,
+    "y": 260
+   },
+   {
+    "name": "S2",
+    "type": "router",
+    "x": 600,
+    "y": 260
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 600,
+    "y": 400
+   }
+  ],
+  "links": [
+   [
+    "HUB",
+    "GigabitEthernet0/0",
+    "S1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "HUB",
+    "GigabitEthernet0/1",
+    "S2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "S1",
+    "GigabitEthernet0/1",
+    "S2",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "S2",
+    "GigabitEthernet0/2",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "HUB": [
+    "hostname HUB",
+    "interface g0/0",
+    " ip address 10.0.1.1 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.2.1 255.255.255.0",
+    " no shutdown",
+    "router eigrp 100",
+    " network 10.0.0.0"
+   ],
+   "S1": [
+    "hostname S1",
+    "interface g0/0",
+    " ip address 10.0.1.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.12.1 255.255.255.0",
+    " bandwidth 1544",
+    " delay 2000",
+    " no shutdown",
+    "interface loopback1",
+    " ip address 172.16.1.1 255.255.255.0",
+    "interface loopback2",
+    " ip address 172.16.2.1 255.255.255.0",
+    "interface loopback3",
+    " ip address 172.16.3.1 255.255.255.0",
+    "router eigrp 100",
+    " network 10.0.0.0",
+    " network 172.16.0.0"
+   ],
+   "S2": [
+    "hostname S2",
+    "interface g0/0",
+    " ip address 10.0.2.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.12.2 255.255.255.0",
+    " bandwidth 1544",
+    " delay 2000",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 192.168.2.1 255.255.255.0",
+    " no shutdown",
+    "router eigrp 100",
+    " network 10.0.0.0",
+    " network 192.168.2.0",
+    " passive-interface g0/2"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Summarise S1's LANs",
+    "text": "Send the hub a single **172.16.0.0/22** for S1's three networks.",
+    "hint": "On S1: `interface g0/0` then `ip summary-address eigrp 100 172.16.0.0 255.255.252.0`.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "HUB",
+      "prefix": "172.16.0.0/22",
+      "code": "D"
+     },
+     {
+      "type": "noroute",
+      "device": "HUB",
+      "prefix": "172.16.1.0/24"
+     },
+     {
+      "type": "eigrp-summary",
+      "device": "S1",
+      "prefix": "172.16.0.0/22"
+     }
+    ]
+   },
+   {
+    "title": "Make the branches stubs",
+    "text": "Configure both spokes as EIGRP stubs (the default: connected and summary routes).",
+    "hint": "`router eigrp 100` then `eigrp stub` on S1 and S2. The hub's `show ip eigrp neighbors detail` lists *Stub Peer Advertising ( CONNECTED SUMMARY ) Routes*.",
+    "checks": [
+     {
+      "type": "eigrp-stub",
+      "device": "S1"
+     },
+     {
+      "type": "eigrp-stub",
+      "device": "S2"
+     },
+     {
+      "type": "route-attr",
+      "device": "HUB",
+      "prefix": "192.168.2.0/24",
+      "via": "10.0.2.2",
+      "paths": 1
+     }
+    ]
+   },
+   {
+    "title": "Authenticate the WAN",
+    "text": "Create key chain **WAN** with key 1 and key-string **NetLab1** on all three routers, and use MD5 on the hub-spoke links (`g0/0` and `g0/1` on the hub, `g0/0` on each spoke).",
+    "hint": "`key chain WAN` / `key 1` / `key-string NetLab1`, then on each interface `ip authentication mode eigrp 100 md5` and `ip authentication key-chain eigrp 100 WAN`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "HUB",
+      "match": "^ ip authentication key-chain eigrp 100 WAN$"
+     },
+     {
+      "type": "eigrp-nbr",
+      "device": "HUB",
+      "neighbor": "10.0.1.2"
+     },
+     {
+      "type": "eigrp-nbr",
+      "device": "HUB",
+      "neighbor": "10.0.2.2"
+     },
+     {
+      "type": "config",
+      "device": "S1",
+      "match": "^ ip authentication mode eigrp 100 md5$"
+     }
+    ]
+   },
+   {
+    "title": "End to end",
+    "text": "PC2 should reach S1's LAN 172.16.2.1, and S2 should hold the hub's summary for it.",
+    "hint": "Check `show ip route eigrp` on S2: the /22 comes from the hub; the /24s still arrive over the backup link, and the longer match wins.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "172.16.2.1"
+     },
+     {
+      "type": "route",
+      "device": "S2",
+      "prefix": "172.16.0.0/22",
+      "code": "D",
+      "via": "10.0.2.1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "HUB": [
+    "key chain WAN",
+    "key 1",
+    "key-string NetLab1",
+    "interface g0/0",
+    "ip authentication mode eigrp 100 md5",
+    "ip authentication key-chain eigrp 100 WAN",
+    "interface g0/1",
+    "ip authentication mode eigrp 100 md5",
+    "ip authentication key-chain eigrp 100 WAN",
+    "end"
+   ],
+   "S1": [
+    "key chain WAN",
+    "key 1",
+    "key-string NetLab1",
+    "interface g0/0",
+    "ip summary-address eigrp 100 172.16.0.0 255.255.252.0",
+    "ip authentication mode eigrp 100 md5",
+    "ip authentication key-chain eigrp 100 WAN",
+    "router eigrp 100",
+    "eigrp stub",
+    "end"
+   ],
+   "S2": [
+    "key chain WAN",
+    "key 1",
+    "key-string NetLab1",
+    "interface g0/0",
+    "ip authentication mode eigrp 100 md5",
+    "ip authentication key-chain eigrp 100 WAN",
+    "router eigrp 100",
+    "eigrp stub",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "eigrp-named-dualstack",
+  "title": "Named-mode EIGRP for IPv4 and IPv6",
+  "topic": "EIGRP",
+  "minutes": 25,
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "summary": "Run one named EIGRP instance with an IPv4 and an IPv6 address family, wide metrics and per-interface settings in af-interface.",
+  "intro": "Named mode puts everything EIGRP does under one `router eigrp <name>`: an **address family** per protocol (`address-family ipv4 unicast autonomous-system 10`, `address-family ipv6 unicast autonomous-system 10`), interface settings in **`af-interface`**, and redistribution and variance in **`topology base`**. It also uses 64-bit **wide metrics**.\n\nThe IPv6 family needs no `network` statements: every IPv6-enabled interface joins unless you shut it in `af-interface`. Neighbours talk over link-local addresses, and the router ID still comes from IPv4 (each router has a loopback).\n\nThe PCs already have IPv4 addresses and take IPv6 addresses by SLAAC.",
+  "height": 400,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 150,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 400,
+    "y": 150
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 650,
+    "y": 150
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 150,
+    "y": 320
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 650,
+    "y": 320
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/2",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    " ip address 10.0.12.1 255.255.255.0",
+    " ipv6 address 2001:db8:12::1/64",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 192.168.1.1 255.255.255.0",
+    " ipv6 address 2001:db8:1::1/64",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 1.1.1.1 255.255.255.255"
+   ],
+   "R2": [
+    "hostname R2",
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    " ip address 10.0.12.2 255.255.255.0",
+    " ipv6 address 2001:db8:12::2/64",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.23.2 255.255.255.0",
+    " ipv6 address 2001:db8:23::2/64",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 2.2.2.2 255.255.255.255"
+   ],
+   "R3": [
+    "hostname R3",
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    " ip address 10.0.23.3 255.255.255.0",
+    " ipv6 address 2001:db8:23::3/64",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 192.168.3.1 255.255.255.0",
+    " ipv6 address 2001:db8:3::1/64",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 3.3.3.3 255.255.255.255"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1",
+    "ip auto"
+   ],
+   "PC3": [
+    "ip 192.168.3.10/24 192.168.3.1",
+    "ip auto"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "IPv4 address family",
+    "text": "On all three routers, start `router eigrp NETLAB` with the IPv4 family in AS **10**, covering `10.0.0.0/8` and each LAN.",
+    "hint": "`router eigrp NETLAB`, `address-family ipv4 unicast autonomous-system 10`, `network 10.0.0.0`, `network 192.168.1.0` (R1) / `192.168.3.0` (R3).",
+    "checks": [
+     {
+      "type": "eigrp-nbr",
+      "device": "R2",
+      "neighbor": "10.0.12.1"
+     },
+     {
+      "type": "eigrp-nbr",
+      "device": "R2",
+      "neighbor": "10.0.23.3"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.3.0/24",
+      "code": "D"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^router eigrp NETLAB$"
+     }
+    ]
+   },
+   {
+    "title": "IPv6 address family",
+    "text": "Add the IPv6 family (also AS 10) to the same named instance on all three routers.",
+    "hint": "Under `router eigrp NETLAB`: `address-family ipv6 unicast autonomous-system 10`. Check `show ipv6 eigrp neighbors`.",
+    "checks": [
+     {
+      "type": "eigrp6-nbrs",
+      "device": "R2",
+      "count": 2
+     },
+     {
+      "type": "route6",
+      "device": "R1",
+      "prefix": "2001:db8:3::/64",
+      "code": "D"
+     }
+    ]
+   },
+   {
+    "title": "Quiet the LANs",
+    "text": "Make the PC-facing interfaces passive in both families on R1 and R3.",
+    "hint": "In each family: `af-interface g0/2` then `passive-interface`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^  af-interface GigabitEthernet0/2\\n   passive-interface$"
+     },
+     {
+      "type": "config",
+      "device": "R3",
+      "match": "^  af-interface GigabitEthernet0/2\\n   passive-interface$"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.3.10"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "2001:db8:3:0:250:79ff:fe66:6804"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "router eigrp NETLAB",
+    "address-family ipv4 unicast autonomous-system 10",
+    "network 10.0.0.0",
+    "network 192.168.1.0",
+    "af-interface g0/2",
+    "passive-interface",
+    "exit-af-interface",
+    "exit-address-family",
+    "address-family ipv6 unicast autonomous-system 10",
+    "af-interface g0/2",
+    "passive-interface",
+    "end"
+   ],
+   "R2": [
+    "router eigrp NETLAB",
+    "address-family ipv4 unicast autonomous-system 10",
+    "network 10.0.0.0",
+    "exit-address-family",
+    "address-family ipv6 unicast autonomous-system 10",
+    "end"
+   ],
+   "R3": [
+    "router eigrp NETLAB",
+    "address-family ipv4 unicast autonomous-system 10",
+    "network 10.0.0.0",
+    "network 192.168.3.0",
+    "af-interface g0/2",
+    "passive-interface",
+    "exit-af-interface",
+    "exit-address-family",
+    "address-family ipv6 unicast autonomous-system 10",
+    "af-interface g0/2",
+    "passive-interface",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "redistribution-rip-ospf",
+  "title": "Mutual redistribution between RIP and OSPF",
+  "topic": "Redistribution",
+  "minutes": 35,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Redistribute in both directions at two points, then fix the suboptimal path it causes and tag routes so they never loop back.",
+  "intro": "R1 runs RIP; R4 runs OSPF; R2 and R3 sit on the boundary and run both. Redistribution needs a **seed metric** into RIP (otherwise the routes are unreachable, metric 16), and `subnets` into OSPF.\n\nWith two redistribution points a classic problem appears: R3 learns R1's networks by RIP (AD **120**) and also as `O E2` from R2 (AD **110**). OSPF wins, so R3 sends traffic for R1 the long way round. Raising OSPF's external distance above 120 on the boundary routers fixes it.\n\n**Route tags** are the standard loop guard: tag RIP routes as they enter OSPF, and refuse tagged routes on the way back into RIP.",
+  "height": 430,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 120,
+    "y": 210
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 340,
+    "y": 90
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 340,
+    "y": 330
+   },
+   {
+    "name": "R4",
+    "type": "router",
+    "x": 600,
+    "y": 210
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 760,
+    "y": 330
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R4",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "R4",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R4",
+    "GigabitEthernet0/2",
+    "PC4",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 10.1.12.1 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.1.13.1 255.255.255.0",
+    " no shutdown",
+    "interface loopback1",
+    " ip address 172.16.1.1 255.255.255.0",
+    "interface loopback2",
+    " ip address 172.16.2.1 255.255.255.0",
+    "router rip",
+    " version 2",
+    " no auto-summary",
+    " network 10.0.0.0",
+    " network 172.16.0.0"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.1.12.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.2.24.2 255.255.255.0",
+    " no shutdown",
+    "router rip",
+    " version 2",
+    " no auto-summary",
+    " network 10.0.0.0",
+    " passive-interface g0/1",
+    "router ospf 1",
+    " router-id 2.2.2.2",
+    " network 10.2.24.0 0.0.0.255 area 0"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    " ip address 10.1.13.3 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.2.34.3 255.255.255.0",
+    " no shutdown",
+    "router rip",
+    " version 2",
+    " no auto-summary",
+    " network 10.0.0.0",
+    " passive-interface g0/1",
+    "router ospf 1",
+    " router-id 3.3.3.3",
+    " network 10.2.34.0 0.0.0.255 area 0"
+   ],
+   "R4": [
+    "hostname R4",
+    "interface g0/0",
+    " ip address 10.2.24.4 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.2.34.4 255.255.255.0",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 192.168.4.1 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 4.4.4.4",
+    " passive-interface g0/2",
+    " network 10.2.0.0 0.0.255.255 area 0",
+    " network 192.168.4.0 0.0.0.255 area 0"
+   ],
+   "PC4": [
+    "ip 192.168.4.10/24 192.168.4.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "RIP into OSPF",
+    "text": "On **both** R2 and R3, redistribute RIP into OSPF, tagging the routes **120** with a route-map called `RIP-TO-OSPF`.",
+    "hint": "`route-map RIP-TO-OSPF permit 10` / `set tag 120`, then under `router ospf 1`: `redistribute rip subnets route-map RIP-TO-OSPF`.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R4",
+      "prefix": "172.16.1.0/24",
+      "code": "O E2"
+     },
+     {
+      "type": "route-attr",
+      "device": "R4",
+      "prefix": "172.16.2.0/24",
+      "tag": 120
+     },
+     {
+      "type": "config",
+      "device": "R3",
+      "match": "redistribute rip subnets route-map RIP-TO-OSPF"
+     }
+    ]
+   },
+   {
+    "title": "OSPF into RIP, without the loop",
+    "text": "Redistribute OSPF into RIP on both boundary routers with a seed metric of **3**, through a route-map `OSPF-TO-RIP` that **denies tag 120** and permits the rest.",
+    "hint": "`route-map OSPF-TO-RIP deny 10` / `match tag 120`, `route-map OSPF-TO-RIP permit 20`, then `redistribute ospf 1 metric 3 route-map OSPF-TO-RIP` under `router rip`.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.4.0/24",
+      "code": "R"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "match tag 120"
+     },
+     {
+      "type": "ping",
+      "from": "PC4",
+      "to": "172.16.1.1"
+     }
+    ]
+   },
+   {
+    "title": "Fix the long way round",
+    "text": "R3 now reaches R1's networks through OSPF via R4 and R2. Make the boundary routers prefer RIP for them by raising OSPF's **external** distance to **125** on R2 and R3.",
+    "hint": "`distance ospf external 125` under `router ospf 1`. Then `show ip route 172.16.1.0` on R3 is a RIP route via 10.1.13.1.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ distance ospf external 125$"
+     },
+     {
+      "type": "config",
+      "device": "R3",
+      "match": "^ distance ospf external 125$"
+     },
+     {
+      "type": "route",
+      "device": "R3",
+      "prefix": "172.16.1.0/24",
+      "code": "R",
+      "via": "10.1.13.1"
+     },
+     {
+      "type": "route",
+      "device": "R2",
+      "prefix": "172.16.2.0/24",
+      "code": "R",
+      "via": "10.1.12.1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "route-map RIP-TO-OSPF permit 10",
+    "set tag 120",
+    "route-map OSPF-TO-RIP deny 10",
+    "match tag 120",
+    "route-map OSPF-TO-RIP permit 20",
+    "router ospf 1",
+    "redistribute rip subnets route-map RIP-TO-OSPF",
+    "distance ospf external 125",
+    "router rip",
+    "redistribute ospf 1 metric 3 route-map OSPF-TO-RIP",
+    "end"
+   ],
+   "R3": [
+    "route-map RIP-TO-OSPF permit 10",
+    "set tag 120",
+    "route-map OSPF-TO-RIP deny 10",
+    "match tag 120",
+    "route-map OSPF-TO-RIP permit 20",
+    "router ospf 1",
+    "redistribute rip subnets route-map RIP-TO-OSPF",
+    "distance ospf external 125",
+    "router rip",
+    "redistribute ospf 1 metric 3 route-map OSPF-TO-RIP",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "route-filtering",
+  "title": "Route filtering with prefix-lists, distribute-lists and offset-lists",
+  "topic": "Route control",
+  "minutes": 25,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Keep a lab network out of the core with a prefix-list and distribute-list, then steer traffic onto the better path with an offset-list.",
+  "intro": "The branch BR advertises its user LAN, a server LAN and a lab network that must never reach the core. It has two equal uplinks, through A and through B.\n\n**Prefix-lists** match prefixes *and* lengths (`ge`/`le`), and a list ends with an implicit deny. A **distribute-list** applies one to the routes a protocol accepts (`in`) or sends (`out`). An **offset-list** adds to the metric of matching routes, which is the gentle way to prefer one of two equal EIGRP paths.\n\n`show ip prefix-list detail` shows hit counts as routes are checked.",
+  "height": 430,
+  "devices": [
+   {
+    "name": "CORE",
+    "type": "router",
+    "x": 130,
+    "y": 210
+   },
+   {
+    "name": "A",
+    "type": "router",
+    "x": 380,
+    "y": 100
+   },
+   {
+    "name": "B",
+    "type": "router",
+    "x": 380,
+    "y": 320
+   },
+   {
+    "name": "BR",
+    "type": "router",
+    "x": 640,
+    "y": 210
+   }
+  ],
+  "links": [
+   [
+    "CORE",
+    "GigabitEthernet0/0",
+    "A",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "CORE",
+    "GigabitEthernet0/1",
+    "B",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "A",
+    "GigabitEthernet0/1",
+    "BR",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "B",
+    "GigabitEthernet0/1",
+    "BR",
+    "GigabitEthernet0/1"
+   ]
+  ],
+  "initial": {
+   "CORE": [
+    "hostname CORE",
+    "interface g0/0",
+    " ip address 10.0.1.1 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.2.1 255.255.255.0",
+    " no shutdown",
+    "router eigrp 1",
+    " network 10.0.0.0"
+   ],
+   "A": [
+    "hostname A",
+    "interface g0/0",
+    " ip address 10.0.1.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.3.1 255.255.255.0",
+    " no shutdown",
+    "router eigrp 1",
+    " network 10.0.0.0"
+   ],
+   "B": [
+    "hostname B",
+    "interface g0/0",
+    " ip address 10.0.2.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.4.1 255.255.255.0",
+    " no shutdown",
+    "router eigrp 1",
+    " network 10.0.0.0"
+   ],
+   "BR": [
+    "hostname BR",
+    "interface g0/0",
+    " ip address 10.0.3.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.4.2 255.255.255.0",
+    " no shutdown",
+    "interface loopback10",
+    " ip address 192.168.10.1 255.255.255.0",
+    "interface loopback20",
+    " ip address 192.168.20.1 255.255.255.0",
+    "interface loopback99",
+    " ip address 192.168.99.1 255.255.255.0",
+    "router eigrp 1",
+    " network 10.0.0.0",
+    " network 192.168.10.0",
+    " network 192.168.20.0",
+    " network 192.168.99.0"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Keep the lab network out",
+    "text": "On CORE, build prefix-list **NO-LAB** that denies exactly `192.168.99.0/24` and permits everything else, and apply it to the routes EIGRP accepts.",
+    "hint": "`ip prefix-list NO-LAB seq 5 deny 192.168.99.0/24`, `ip prefix-list NO-LAB seq 10 permit 0.0.0.0/0 le 32`, then `distribute-list prefix NO-LAB in` under `router eigrp 1`.",
+    "checks": [
+     {
+      "type": "noroute",
+      "device": "CORE",
+      "prefix": "192.168.99.0/24"
+     },
+     {
+      "type": "route",
+      "device": "CORE",
+      "prefix": "192.168.10.0/24",
+      "code": "D"
+     },
+     {
+      "type": "prefix-list",
+      "device": "CORE",
+      "name": "NO-LAB",
+      "count": 2
+     }
+    ]
+   },
+   {
+    "title": "Prefer path A for users",
+    "text": "CORE load-shares to 192.168.10.0/24 over A and B. Make it use **only A** for that network by adding 1000 to its metric on routes learned from B.",
+    "hint": "`access-list 10 permit 192.168.10.0 0.0.0.255`, then under `router eigrp 1`: `offset-list 10 in 1000 g0/1`.",
+    "checks": [
+     {
+      "type": "route-attr",
+      "device": "CORE",
+      "prefix": "192.168.10.0/24",
+      "via": "10.0.1.2",
+      "paths": 1
+     },
+     {
+      "type": "route-attr",
+      "device": "CORE",
+      "prefix": "192.168.20.0/24",
+      "paths": 2
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "CORE": [
+    "ip prefix-list NO-LAB seq 5 deny 192.168.99.0/24",
+    "ip prefix-list NO-LAB seq 10 permit 0.0.0.0/0 le 32",
+    "access-list 10 permit 192.168.10.0 0.0.0.255",
+    "router eigrp 1",
+    "distribute-list prefix NO-LAB in",
+    "offset-list 10 in 1000 g0/1",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "pbr-ip-sla",
+  "title": "IP SLA tracking and policy-based routing",
+  "topic": "Route control",
+  "minutes": 30,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Make the default route follow a live probe of ISP1, fall back to ISP2, and send guest traffic out ISP2 with PBR.",
+  "intro": "EDGE has two ISPs. A static default to ISP1 stays installed even when ISP1's router dies, because the link to it can stay up. **IP SLA** fixes that: an `icmp-echo` probe runs every few seconds, a **track** object follows its reachability, and `ip route ... track 1` withdraws the route the moment the probe fails. A **floating static** (higher distance) via ISP2 takes over.\n\n**Policy-based routing** overrides the routing table per packet: a route-map matched against an ACL sets the next hop, and `ip policy route-map` on the *incoming* interface applies it. Here the guest LAN should always leave by ISP2.\n\n`show ip sla statistics`, `show track` and `show route-map` (policy match counts) show it working; `debug ip policy` prints each decision.",
+  "height": 430,
+  "devices": [
+   {
+    "name": "EDGE",
+    "type": "router",
+    "x": 300,
+    "y": 210
+   },
+   {
+    "name": "ISP1",
+    "type": "router",
+    "x": 520,
+    "y": 100
+   },
+   {
+    "name": "ISP2",
+    "type": "router",
+    "x": 520,
+    "y": 320
+   },
+   {
+    "name": "NET",
+    "type": "router",
+    "x": 720,
+    "y": 210
+   },
+   {
+    "name": "STAFF",
+    "type": "pc",
+    "x": 110,
+    "y": 120
+   },
+   {
+    "name": "GUEST",
+    "type": "pc",
+    "x": 110,
+    "y": 300
+   }
+  ],
+  "links": [
+   [
+    "EDGE",
+    "GigabitEthernet0/0",
+    "ISP1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "EDGE",
+    "GigabitEthernet0/1",
+    "ISP2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "ISP1",
+    "GigabitEthernet0/1",
+    "NET",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "ISP2",
+    "GigabitEthernet0/1",
+    "NET",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "EDGE",
+    "GigabitEthernet0/2",
+    "STAFF",
+    "eth0"
+   ],
+   [
+    "EDGE",
+    "GigabitEthernet0/3",
+    "GUEST",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "EDGE": [
+    "hostname EDGE",
+    "interface g0/0",
+    " ip address 10.1.0.1 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.2.0.1 255.255.255.0",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 192.168.10.1 255.255.255.0",
+    " no shutdown",
+    "interface g0/3",
+    " ip address 192.168.20.1 255.255.255.0",
+    " no shutdown"
+   ],
+   "ISP1": [
+    "hostname ISP1",
+    "interface g0/0",
+    " ip address 10.1.0.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.3.0.1 255.255.255.0",
+    " no shutdown",
+    "ip route 192.168.0.0 255.255.0.0 10.1.0.1",
+    "ip route 0.0.0.0 0.0.0.0 10.3.0.2"
+   ],
+   "ISP2": [
+    "hostname ISP2",
+    "interface g0/0",
+    " ip address 10.2.0.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.4.0.1 255.255.255.0",
+    " no shutdown",
+    "ip route 192.168.0.0 255.255.0.0 10.2.0.1",
+    "ip route 0.0.0.0 0.0.0.0 10.4.0.2"
+   ],
+   "NET": [
+    "hostname NET",
+    "interface g0/0",
+    " ip address 10.3.0.2 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.4.0.2 255.255.255.0",
+    " no shutdown",
+    "interface loopback0",
+    " ip address 8.8.8.8 255.255.255.255",
+    "ip route 192.168.10.0 255.255.255.0 10.3.0.1",
+    "ip route 192.168.20.0 255.255.255.0 10.4.0.1"
+   ],
+   "STAFF": [
+    "ip 192.168.10.10/24 192.168.10.1"
+   ],
+   "GUEST": [
+    "ip 192.168.20.10/24 192.168.20.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Probe ISP1",
+    "text": "Create IP SLA **1**: an ICMP echo to ISP1 (`10.1.0.2`) sourced from g0/0 every 5 seconds, running forever. Track its reachability as object **1**.",
+    "hint": "`ip sla 1` / `icmp-echo 10.1.0.2 source-interface g0/0` / `frequency 5`, then `ip sla schedule 1 life forever start-time now` and `track 1 ip sla 1 reachability`.",
+    "checks": [
+     {
+      "type": "sla",
+      "device": "EDGE",
+      "op": 1
+     },
+     {
+      "type": "track",
+      "device": "EDGE",
+      "object": 1,
+      "state": "up"
+     }
+    ]
+   },
+   {
+    "title": "A tracked default with a backup",
+    "text": "Default to ISP1 tied to track 1, and a floating default to ISP2 with distance **10**.",
+    "hint": "`ip route 0.0.0.0 0.0.0.0 10.1.0.2 track 1` and `ip route 0.0.0.0 0.0.0.0 10.2.0.2 10`. Shut ISP1's g0/0 to watch the backup take over, then bring it back.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "EDGE",
+      "prefix": "0.0.0.0/0",
+      "code": "S*",
+      "via": "10.1.0.2"
+     },
+     {
+      "type": "config",
+      "device": "EDGE",
+      "match": "^ip route 0\\.0\\.0\\.0 0\\.0\\.0\\.0 10\\.1\\.0\\.2 track 1$"
+     },
+     {
+      "type": "config",
+      "device": "EDGE",
+      "match": "^ip route 0\\.0\\.0\\.0 0\\.0\\.0\\.0 10\\.2\\.0\\.2 10$"
+     },
+     {
+      "type": "trace-via",
+      "from": "STAFF",
+      "to": "8.8.8.8",
+      "via": "10.1.0.2"
+     }
+    ]
+   },
+   {
+    "title": "Send guests out ISP2",
+    "text": "Guest traffic (`192.168.20.0/24`) must always leave by ISP2, whatever the routing table says. Use ACL **120** and route-map **GUEST**.",
+    "hint": "`access-list 120 permit ip 192.168.20.0 0.0.0.255 any`, `route-map GUEST permit 10` / `match ip address 120` / `set ip next-hop 10.2.0.2`, then `ip policy route-map GUEST` on g0/3.",
+    "checks": [
+     {
+      "type": "pbr",
+      "device": "EDGE",
+      "intf": "g0/3",
+      "routeMap": "GUEST"
+     },
+     {
+      "type": "trace-via",
+      "from": "GUEST",
+      "to": "8.8.8.8",
+      "via": "10.2.0.2"
+     },
+     {
+      "type": "trace-via",
+      "from": "STAFF",
+      "to": "8.8.8.8",
+      "via": "10.2.0.2",
+      "present": false
+     },
+     {
+      "type": "ping",
+      "from": "GUEST",
+      "to": "8.8.8.8"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "EDGE": [
+    "ip sla 1",
+    "icmp-echo 10.1.0.2 source-interface g0/0",
+    "frequency 5",
+    "exit",
+    "ip sla schedule 1 life forever start-time now",
+    "track 1 ip sla 1 reachability",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.1.0.2 track 1",
+    "ip route 0.0.0.0 0.0.0.0 10.2.0.2 10",
+    "access-list 120 permit ip 192.168.20.0 0.0.0.255 any",
+    "route-map GUEST permit 10",
+    "match ip address 120",
+    "set ip next-hop 10.2.0.2",
+    "interface g0/3",
+    "ip policy route-map GUEST",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ipv6-services",
+  "title": "DHCPv6 relay and IPv6 ACLs",
+  "topic": "IPv6 services",
+  "minutes": 25,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "Hand out IPv6 addresses from a remote DHCPv6 server through a relay, then filter the client LAN without breaking neighbour discovery.",
+  "intro": "CL is a router acting as an IPv6 host (no `ipv6 unicast-routing`): it takes its address by **stateful DHCPv6** (`ipv6 address dhcp`) and its default route from router advertisements. The server SV is two hops away, so RL must **relay** (`ipv6 dhcp relay destination`) and set the **managed** flag in its RAs.\n\nIPv6 ACLs (`ipv6 access-list`, applied with `ipv6 traffic-filter`) end with three implicit lines: permit ND neighbour advertisements, permit ND neighbour solicitations, then deny everything. An *explicit* `deny ipv6 any any` at the end comes **before** those implicit permits, so neighbour discovery fails and nothing works - unless you permit `nd-na` and `nd-ns` first.",
+  "height": 380,
+  "devices": [
+   {
+    "name": "CL",
+    "type": "router",
+    "x": 140,
+    "y": 170
+   },
+   {
+    "name": "RL",
+    "type": "router",
+    "x": 400,
+    "y": 170
+   },
+   {
+    "name": "SV",
+    "type": "router",
+    "x": 660,
+    "y": 170
+   }
+  ],
+  "links": [
+   [
+    "CL",
+    "GigabitEthernet0/0",
+    "RL",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "RL",
+    "GigabitEthernet0/1",
+    "SV",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "CL": [
+    "hostname CL",
+    "interface g0/0",
+    " ipv6 enable",
+    " ipv6 address dhcp",
+    " no shutdown"
+   ],
+   "RL": [
+    "hostname RL",
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    " ipv6 address 2001:db8:10::1/64",
+    " no shutdown",
+    "interface g0/1",
+    " ipv6 address 2001:db8:23::2/64",
+    " no shutdown"
+   ],
+   "SV": [
+    "hostname SV",
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    " ipv6 address 2001:db8:23::3/64",
+    " no shutdown",
+    "ipv6 route 2001:db8:10::/64 2001:db8:23::2"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Serve addresses from SV",
+    "text": "On SV create DHCPv6 pool **LAN** handing out `2001:db8:10::/64` with DNS server `2001:db8::53`, and serve it on g0/0.",
+    "hint": "`ipv6 dhcp pool LAN` / `address prefix 2001:db8:10::/64` / `dns-server 2001:db8::53`, then `ipv6 dhcp server LAN` on SV's g0/0.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "SV",
+      "match": "^ address prefix 2001:DB8:10::/64$"
+     },
+     {
+      "type": "config",
+      "device": "SV",
+      "match": "^ ipv6 dhcp server LAN$"
+     }
+    ]
+   },
+   {
+    "title": "Relay for the client LAN",
+    "text": "On RL's g0/0, set the managed-config flag and relay DHCPv6 to SV (`2001:db8:23::3`). CL should get an address and reach SV.",
+    "hint": "`ipv6 nd managed-config-flag` and `ipv6 dhcp relay destination 2001:db8:23::3` on RL g0/0. `show ipv6 dhcp interface` on CL shows the lease.",
+    "checks": [
+     {
+      "type": "dhcp6-lease",
+      "device": "CL",
+      "intf": "g0/0",
+      "prefix": "2001:db8:10::/64"
+     },
+     {
+      "type": "ping",
+      "from": "CL",
+      "to": "2001:db8:23::3"
+     }
+    ]
+   },
+   {
+    "title": "Filter the client LAN",
+    "text": "Inbound on RL g0/0, allow only ICMP echo requests from `2001:db8:10::/64` to SV, and deny everything else **with a logged** `deny ipv6 any any log`. CL must still reach SV, and must not reach RL's `2001:db8:23::2`.",
+    "hint": "`ipv6 access-list CLIENT-IN` with `permit icmp any any nd-na`, `permit icmp any any nd-ns`, `permit icmp 2001:db8:10::/64 host 2001:db8:23::3 echo-request`, `deny ipv6 any any log`; then `ipv6 traffic-filter CLIENT-IN in` on g0/0.",
+    "checks": [
+     {
+      "type": "acl6-applied",
+      "device": "RL",
+      "intf": "g0/0",
+      "dir": "in"
+     },
+     {
+      "type": "config",
+      "device": "RL",
+      "match": "deny ipv6 any any log"
+     },
+     {
+      "type": "ping",
+      "from": "CL",
+      "to": "2001:db8:23::3"
+     },
+     {
+      "type": "noping",
+      "from": "CL",
+      "to": "2001:db8:23::2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SV": [
+    "ipv6 dhcp pool LAN",
+    "address prefix 2001:db8:10::/64",
+    "dns-server 2001:db8::53",
+    "interface g0/0",
+    "ipv6 dhcp server LAN",
+    "end"
+   ],
+   "RL": [
+    "ipv6 access-list CLIENT-IN",
+    "permit icmp any any nd-na",
+    "permit icmp any any nd-ns",
+    "permit icmp 2001:db8:10::/64 host 2001:db8:23::3 echo-request",
+    "deny ipv6 any any log",
+    "interface g0/0",
+    "ipv6 nd managed-config-flag",
+    "ipv6 dhcp relay destination 2001:db8:23::3",
+    "ipv6 traffic-filter CLIENT-IN in",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "enarsi-ticket",
+  "title": "ENARSI troubleshooting ticket: OSPF and EIGRP",
+  "topic": "Troubleshooting",
+  "minutes": 40,
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "summary": "A four-fault ticket: authentication, an MTU mismatch and two redistribution mistakes stand between PC1 and PC4.",
+  "intro": "**Ticket #4471:** *\"Users on PC1 (`192.168.1.0/24`) can't reach the server LAN behind R4 (`192.168.4.0/24`). Nothing was changed. Honestly.\"*\n\nR1, R2 and R3 run OSPF area 0; R3 and R4 run EIGRP 100, and R3 redistributes between them. Work like the exam: confirm the symptom, follow the path, and fix each fault where it is, without redesigning anything.\n\nGood tools: `show ip ospf neighbor`, `debug ip ospf adj`, `show ip ospf interface`, `show ip interface`, `show ip protocols`, `show ip route`, `show ip eigrp topology`, `show run | section router`.",
+  "height": 420,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 110,
+    "y": 160
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 300,
+    "y": 160
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 490,
+    "y": 160
+   },
+   {
+    "name": "R4",
+    "type": "router",
+    "x": 680,
+    "y": 160
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 110,
+    "y": 330
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 680,
+    "y": 330
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "R4",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R4",
+    "GigabitEthernet0/2",
+    "PC4",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    " ip address 10.0.12.1 255.255.255.0",
+    " ip ospf authentication message-digest",
+    " ip ospf message-digest-key 1 md5 Cisc0",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 192.168.1.1 255.255.255.0",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 1.1.1.1",
+    " passive-interface g0/2",
+    " network 10.0.12.0 0.0.0.255 area 0",
+    " network 192.168.1.0 0.0.0.255 area 0"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    " ip address 10.0.12.2 255.255.255.0",
+    " ip ospf authentication message-digest",
+    " ip ospf message-digest-key 1 md5 Cisco",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 10.0.23.2 255.255.255.0",
+    " ip mtu 1400",
+    " no shutdown",
+    "router ospf 1",
+    " router-id 2.2.2.2",
+    " network 10.0.0.0 0.255.255.255 area 0"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    " ip address 10.0.23.3 255.255.255.0",
+    " no shutdown",
+    "interface g0/1",
+    " ip address 172.20.34.3 255.255.255.0",
+    " no shutdown",
+    "router eigrp 100",
+    " network 172.20.0.0",
+    " redistribute ospf 1",
+    "router ospf 1",
+    " router-id 3.3.3.3",
+    " network 10.0.23.0 0.0.0.255 area 0",
+    " redistribute eigrp 100"
+   ],
+   "R4": [
+    "hostname R4",
+    "interface g0/0",
+    " ip address 172.20.34.4 255.255.255.0",
+    " no shutdown",
+    "interface g0/2",
+    " ip address 192.168.4.1 255.255.255.0",
+    " no shutdown",
+    "router eigrp 100",
+    " network 172.20.0.0",
+    " network 192.168.4.0",
+    " passive-interface g0/2"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC4": [
+    "ip 192.168.4.10/24 192.168.4.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Fault 1: R1 and R2",
+    "text": "R1 and R2 aren't OSPF neighbours. Fix it on R1.",
+    "hint": "`debug ip ospf adj` on R2 shows *Mismatched Authentication Key - Message Digest Key 1*. Look closely at R1's key (zero vs O).",
+    "checks": [
+     {
+      "type": "ospf-nbr",
+      "device": "R2",
+      "neighbor": "1.1.1.1"
+     }
+    ]
+   },
+   {
+    "title": "Fault 2: R2 and R3",
+    "text": "R2 and R3 are neighbours but stuck. Fix it without changing R3.",
+    "hint": "`show ip ospf neighbor` on R3 shows EXSTART. Compare MTUs with `show ip interface`; R2's g0/1 has `ip mtu 1400`.",
+    "checks": [
+     {
+      "type": "ospf-nbr-state",
+      "device": "R3",
+      "neighbor": "2.2.2.2",
+      "state": "FULL"
+     }
+    ]
+   },
+   {
+    "title": "Fault 3: OSPF into EIGRP",
+    "text": "R4 has no route to 192.168.1.0/24 even though R3 has it. Fix the redistribution on R3 with a seed metric of `10000 100 255 1 1500`.",
+    "hint": "Redistributing into EIGRP without a metric gives nothing. `redistribute ospf 1 metric 10000 100 255 1 1500` under `router eigrp 100`.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R4",
+      "prefix": "192.168.1.0/24",
+      "code": "D EX"
+     }
+    ]
+   },
+   {
+    "title": "Fault 4: EIGRP into OSPF",
+    "text": "R1 learns nothing from the EIGRP side. Fix the redistribution on R3 so every subnet is carried.",
+    "hint": "Without `subnets`, OSPF only takes classful networks. `redistribute eigrp 100 subnets`.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.4.0/24",
+      "code": "O E2"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "172.20.34.0/24",
+      "code": "O E2"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.4.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "interface g0/0",
+    "ip ospf message-digest-key 1 md5 Cisco",
+    "end"
+   ],
+   "R2": [
+    "interface g0/1",
+    "no ip mtu",
+    "end"
+   ],
+   "R3": [
+    "router eigrp 100",
+    "redistribute ospf 1 metric 10000 100 255 1 1500",
+    "router ospf 1",
+    "redistribute eigrp 100 subnets",
+    "end"
+   ]
+  }
+ },
+ {
   "id": "sandbox",
   "title": "Sandbox",
   "topic": "Free play",

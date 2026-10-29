@@ -746,6 +746,12 @@ export class Network {
       const d = this.devs[cur];
       // NAT outside-to-inside happens before routing.
       if (!originated && d.type === "router" && d.cfg.intfs[inIf].nat === "outside") this.natInbound(cur, pkt, opts);
+      // Unicast RPF checks every packet arriving on the interface, including ones for the router itself.
+      const u = !originated && d.type === "router" && d.cfg.intfs[inIf].urpf;
+      if (u && !this.urpfOk(cur, inIf, pkt.src, u)) {
+        if (opts.record) { const v = d.rt.urpf || (d.rt.urpf = {}); v[inIf] = (v[inIf] || 0) + 1; }
+        return { ...res, fail: "urpf", failAt: cur };
+      }
       if (this.ownsIp(cur, pkt.dst)) {
         res.ok = true;
         res.at = cur;
@@ -758,12 +764,6 @@ export class Network {
       if (!originated) {
         if (d.type !== "router") return { ...res, fail: "drop", failAt: cur };
         if (--ttl <= 0) return { ...res, fail: "ttl", failAt: cur };
-        // Unicast RPF drops packets whose source isn't reachable back through the arrival interface.
-        const u = d.cfg.intfs[inIf].urpf;
-        if (u && !this.urpfOk(cur, inIf, pkt.src, u)) {
-          if (opts.record) { const v = d.rt.urpf || (d.rt.urpf = {}); v[inIf] = (v[inIf] || 0) + 1; }
-          return { ...res, fail: "urpf", failAt: cur };
-        }
       }
       // Policy-based routing overrides the routing table for matching packets.
       const pol = d.type === "router" ? (originated ? d.cfg.localPolicy : d.cfg.intfs[inIf].policy) : null;
@@ -1263,6 +1263,9 @@ export class Network {
     const v = d.cfg.intfs[ifn] && d.cfg.intfs[ifn].ipv6;
     if (!v) return [];
     const out = v.addrs.map((x) => ({ a: x.eui ? net6(parse6(x.a), x.len) | eui64(this.mac(dn, ifn)) : parse6(x.a), len: x.len, how: x.eui ? "eui" : "manual" }));
+    // A stateful DHCPv6 lease (ipv6 address dhcp).
+    const lease = d.rt.dhcp6 && d.rt.dhcp6.client && d.rt.dhcp6.client[ifn];
+    if (lease && (d.cfg.intfs[ifn].dhcp6 || {}).client) out.push({ a: parse6(lease.a), len: 128, how: "dhcp" });
     if (v.auto && !noAuto && this.ifUp(dn, ifn)) {
       for (const ra of this.ras(dn, ifn)) {
         for (const p of ra.prefixes) {
@@ -1488,7 +1491,15 @@ export class Network {
     else { const eg = this.routerEgress6(dn, dst); if (eg.fail) return null; out = eg.ifn; }
     if (isLL(dst)) return this.v6on(dn, out) ? this.ll6(dn, out) : null;
     const g = this.addrs6(dn, out)[0];
-    return g ? g.a : null;
+    if (g) return g.a;
+    // An exit interface with only a link-local address: IOS sources from another interface's global address.
+    if (d.type !== "router") return null;
+    for (const n of this.v6Ifs(dn)) {
+      if (!this.ifUp(dn, n)) continue;
+      const a = this.addrs6(dn, n)[0];
+      if (a) return a.a;
+    }
+    return null;
   }
 
   ping6(dn, dst, opts = {}) {
@@ -2914,7 +2925,8 @@ Object.assign(Network.prototype, {
         const k = pk(net, len), metric = Math.min(16, en.metric + offsetFor(dn, "out", oi.ifn, en));
         if (!seen[k] || metric < seen[k].metric) seen[k] = { net, len, metric, tag: en.tag, ver };
       }
-      return Object.values(seen);
+      // The RIPng default from "default-information originate" goes out alongside everything else.
+      return [...out.filter((x) => !seen[pk(x.net, x.len)]), ...Object.values(seen)];
     };
     const fresh = (dn) => {
       const t = {};
@@ -2958,7 +2970,7 @@ Object.assign(Network.prototype, {
       me.table = tab[dn];
       const ad = (me.cfg.distance ?? 120);
       me.routes = Object.values(tab[dn]).filter((en) => !en.own).map((en) => ({
-        code: en.len === 0 ? "R*" : "R", net: en.net, len: en.len, ad, metric: en.metric, tag: en.tag,
+        code: en.len === 0 && !v6 ? "R*" : "R", net: en.net, len: en.len, ad, metric: en.metric, tag: en.tag,
         paths: en.via.map((v) => ({ ...v })), src: { proto: "rip", id: me.name || null }, otype: "local" }));
     }
     return per;
@@ -2986,6 +2998,14 @@ Object.assign(Network.prototype, {
 
   routes6Extra(dn) {
     const out = [];
+    // Without "ipv6 unicast-routing" a router is an IPv6 host: it takes a default route from router advertisements.
+    if (!this.devs[dn].cfg.ipv6Routing) {
+      for (const ifn of this.v6Ifs(dn)) {
+        if (!this.ifUp(dn, ifn)) continue;
+        const ra = this.ras(dn, ifn)[0];
+        if (ra) { out.push({ code: "ND", net: 0n, len: 0, ad: 2, metric: 0, paths: [{ ip: ra.ll, ifn }] }); break; }
+      }
+    }
     const e6 = this.eigrp6()[dn];
     if (e6) out.push(...e6.routes);
     const rn = this.ripng()[dn];
@@ -3169,14 +3189,14 @@ Object.assign(Network.prototype, {
       const t = this.devs[e.dev];
       if (t.type !== "router" || !this.ifUp(e.dev, e.ifn)) continue;
       const local = pickPool(e.dev, e.ifn);
-      if (local) return { a: net6(parse6(local.p.prefix.a), local.p.prefix.len) | (host + 0x1000n), len: 128, server: e.dev, pool: local.name };
+      if (local) return { a: fmt6(net6(parse6(local.p.prefix.a), local.p.prefix.len) | (host + 0x1000n)), len: 128, server: e.dev, pool: local.name };
       for (const r of (((t.cfg.intfs[e.ifn] || {}).dhcp6 || {}).relay || [])) {
         const dst = parse6(r.dst), owner = Object.keys(this.devs).find((x) => this.devs[x].type === "router" && this.owns6(x, dst));
         if (!owner) continue;
         const srvIf = this.v6Ifs(owner).find((n) => this.ifOwns6(owner, n, dst));
         const pool = Object.keys(this.devs[owner].cfg.intfs).map((n) => pickPool(owner, n)).find(Boolean) || (srvIf && pickPool(owner, srvIf));
         if (!pool || !this.ping6(e.dev, dst, {}).ok) continue;
-        return { a: net6(parse6(pool.p.prefix.a), pool.p.prefix.len) | (host + 0x1000n), len: 128, server: owner, pool: pool.name };
+        return { a: fmt6(net6(parse6(pool.p.prefix.a), pool.p.prefix.len) | (host + 0x1000n)), len: 128, server: owner, pool: pool.name };
       }
     }
     return null;
@@ -3324,7 +3344,7 @@ Object.assign(Network.prototype, {
       case "acl6-applied": { const f = d.cfg.intfs[intf] && d.cfg.intfs[intf].filter6; return !!f && !!f[c.dir] && !!(d.cfg.acls6 || {})[f[c.dir]]; }
       case "dhcp6-lease": {
         const l = ((d.rt.dhcp6 || {}).client || {})[intf];
-        return !!l && (!c.prefix || net6(l.a, +c.prefix.split("/")[1]) === parse6(c.prefix.split("/")[0]));
+        return !!l && (!c.prefix || net6(parse6(l.a), +c.prefix.split("/")[1]) === parse6(c.prefix.split("/")[0]));
       }
       case "prefix-list": {
         const pl = (d.cfg.prefixLists || {})[c.name];
@@ -5213,7 +5233,7 @@ function showDhcp6Binding(net, dn) {
   const d = net.devs[dn], L = [];
   for (const b of Object.values(((d.rt.dhcp6 || {}).bindings) || {})) {
     L.push(`Client: ${fmt6(net.ll6(b.client, b.ifn))}`, `  DUID: ${b.duid}`, `  Username : unassigned`, `  VRF : default`, `  Interface : ${Object.keys(d.cfg.intfs).find((n) => d.cfg.intfs[n].dhcp6 && d.cfg.intfs[n].dhcp6.server === b.pool) || "relay"}`,
-      `  IA NA: IA ID 0x00060001, T1 43200, T2 69120`, `    Address: ${fmt6(b.a)}`, `            preferred lifetime 86400, valid lifetime 172800`, `            expires at ${clock()} (172797 seconds)`);
+      `  IA NA: IA ID 0x00060001, T1 43200, T2 69120`, `    Address: ${b.a}`, `            preferred lifetime 86400, valid lifetime 172800`, `            expires at ${clock()} (172797 seconds)`);
   }
   return L.join("\n");
 }
@@ -5229,7 +5249,7 @@ function showDhcp6If(net, dn) {
       const l = ((d.rt.dhcp6 || {}).client || {})[n];
       L.push(`${n} is in client mode`, `  Prefix State is IDLE`, `  Address State is ${l ? "OPEN" : "SOLICIT"}`);
       if (l) L.push(`  Known servers:`, `    Reachable via address: ${fmt6(net.v6Ifs(l.server).map((x) => net.ll6(l.server, x))[0] || 0n)}`, `    DUID: 00030001${net.mac(l.server, net.devs[l.server].ports[0]).replace(/\./g, "").toUpperCase()}`,
-        `    Preference: 0`, `    Configuration parameters:`, `      IA NA: IA ID 0x00060001, T1 43200, T2 69120`, `        Address: ${fmt6(l.a)}/128`);
+        `    Preference: 0`, `    Configuration parameters:`, `      IA NA: IA ID 0x00060001, T1 43200, T2 69120`, `        Address: ${l.a}/128`);
     }
   }
   return L.join("\n");
@@ -7484,7 +7504,7 @@ const ace6Str = (e) => {
 };
 const acl6Add = (c, action, text, seq, at) => {
   const acl = c.cfg.acls6[c.target];
-  const r = parseAce6(words(text));
+  const r = parseAce6(tokenize(text).map((x) => x.t));
   if (!r.entry) { c.invalid(at + r.at); return; }
   const s = seq ?? (acl.entries.length ? Math.max(...acl.entries.map((e) => e.seq)) + 10 : 10);
   if (acl.entries.some((e) => e.seq === s)) { c.print("% Duplicate sequence number"); return; }
@@ -7506,7 +7526,7 @@ def("R", "acl6", "remark <line|Comment up to 100 characters>", (c, [t]) => {
 });
 def("R", "acl6", "no sequence <num:1-4294967295|Sequence number for this entry>", (c, [s]) => { const acl = c.cfg.acls6[c.target]; acl.entries = acl.entries.filter((e) => e.seq !== s); });
 def("R", "acl6", `no {permit|deny} ${ACE6}`, (c, [a, t]) => {
-  const acl = c.cfg.acls6[c.target], r = parseAce6(words(t));
+  const acl = c.cfg.acls6[c.target], r = parseAce6(tokenize(t).map((x) => x.t));
   if (!r.entry) { c.invalid(2 + r.at); return; }
   acl.entries = acl.entries.filter((e) => e.remark !== undefined || e.action !== a || ace6Str(e) !== ace6Str(r.entry));
 });
