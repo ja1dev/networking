@@ -742,7 +742,7 @@ test("a line ending in ? shows help and hands the text back", () => {
   s.input("en");
   s.input("conf t");
   const out = s.input("router ospf 1 ?");
-  assert.equal(out.trim(), "<cr>");
+  assert.match(out, /^ +vrf +VPN Routing\/Forwarding Instance\n +<cr>$/);
   assert.equal(s.retype, "router ospf 1 ");
   assert.equal(s.prompt(), "Router(config)#", "nothing ran");
   assert.match(s.input("?"), /^ +interface +Select an interface to configure$/m);
@@ -1022,6 +1022,225 @@ test("help text fits the command it appears in", () => {
   w.input("int f0/1");
   assert.match(w.help("switchport mode "), /access +Set trunking mode to ACCESS unconditionally[\s\S]*trunk +Set trunking mode to TRUNK unconditionally/);
   assert.match(w.help("switchport access "), /vlan +Set VLAN when interface is in access mode/);
+});
+
+
+// ---------------------------------------------------------------- VRF, tunnels, IPsec, DMVPN
+const dq = (n) => [24, 16, 8, 0].map((s) => (n >>> s) & 255).join(".");
+const wan = (extraR1 = [], extraR2 = []) => {
+  const net = new Network({ devices: [R("R1"), R("R2"), R("ISP"), P("PC1"), P("PC2")], links: [
+    ["R1", "GigabitEthernet0/1", "ISP", "GigabitEthernet0/0"], ["R2", "GigabitEthernet0/1", "ISP", "GigabitEthernet0/1"],
+    ["R1", "GigabitEthernet0/0", "PC1", "eth0"], ["R2", "GigabitEthernet0/0", "PC2", "eth0"]] });
+  applyConfig(net, "ISP", ["int g0/0", "ip add 203.0.113.2 255.255.255.252", "no shut", "int g0/1", "ip add 198.51.100.2 255.255.255.252", "no shut"]);
+  applyConfig(net, "R1", ["int g0/0", "ip add 192.168.1.1 255.255.255.0", "no shut", "int g0/1", "ip add 203.0.113.1 255.255.255.252", "no shut", "exit",
+    "ip route 0.0.0.0 0.0.0.0 203.0.113.2", ...extraR1]);
+  applyConfig(net, "R2", ["int g0/0", "ip add 192.168.2.1 255.255.255.0", "no shut", "int g0/1", "ip add 198.51.100.1 255.255.255.252", "no shut", "exit",
+    "ip route 0.0.0.0 0.0.0.0 198.51.100.2", ...extraR2]);
+  applyConfig(net, "PC1", ["ip 192.168.1.10/24 192.168.1.1"]);
+  applyConfig(net, "PC2", ["ip 192.168.2.10/24 192.168.2.1"]);
+  return net;
+};
+const tun = (ip, dst, more = []) => ["interface tunnel 0", `ip address ${ip} 255.255.255.252`, "tunnel source g0/1", `tunnel destination ${dst}`, ...more, "exit"];
+
+test("VRF-lite: overlapping addresses, per-VRF tables, OSPF per VRF, vrf ping and ARP", () => {
+  const net = new Network({ devices: [R("R1"), R("R2"), P("A1"), P("B1"), P("A2"), P("B2")], links: [
+    ["R1", "GigabitEthernet0/0", "A1", "eth0"], ["R1", "GigabitEthernet0/1", "B1", "eth0"], ["R1", "GigabitEthernet0/2", "R2", "GigabitEthernet0/2"],
+    ["R2", "GigabitEthernet0/0", "A2", "eth0"], ["R2", "GigabitEthernet0/1", "B2", "eth0"]] });
+  for (const [r, n] of [["R1", 1], ["R2", 2]]) {
+    applyConfig(net, r, ["vrf definition RED", "rd 65000:1", "address-family ipv4", "exit-address-family", "exit", "ip vrf BLUE", "rd 65000:2", "exit",
+      "int g0/0", "vrf forwarding RED", `ip add 10.${n}.${n}.1 255.255.255.0`, "no shut", "int g0/1", "ip vrf forwarding BLUE", `ip add 10.${n}.${n}.1 255.255.255.0`, "no shut",
+      "int g0/2", "no shut", "int g0/2.10", "encapsulation dot1q 10", "vrf forwarding RED", `ip add 10.0.12.${n} 255.255.255.252`,
+      "int g0/2.20", "encapsulation dot1q 20", "ip vrf forwarding BLUE", `ip add 10.0.12.${n} 255.255.255.252`,
+      "router ospf 10 vrf RED", "network 10.0.0.0 0.255.255.255 area 0", "exit",
+      n === 1 ? "ip route vrf BLUE 10.2.2.0 255.255.255.0 10.0.12.2" : "ip route vrf BLUE 10.1.1.0 255.255.255.0 10.0.12.1"]);
+  }
+  for (const [pc, ip, gw] of [["A1", "10.1.1.10", "10.1.1.1"], ["B1", "10.1.1.10", "10.1.1.1"], ["A2", "10.2.2.10", "10.2.2.1"], ["B2", "10.2.2.20", "10.2.2.1"]]) {
+    applyConfig(net, pc, [`ip ${ip}/24 ${gw}`]);
+  }
+  assert.ok(net.check({ type: "route", device: "R1", vrf: "RED", prefix: "10.2.2.0/24", code: "O" }));
+  assert.ok(net.check({ type: "route", device: "R1", vrf: "BLUE", prefix: "10.2.2.0/24", code: "S" }));
+  assert.equal(net.routes("R1").length, 0, "the global table is empty");
+  assert.ok(net.ping("A1", "10.2.2.10").ok && net.ping("B1", "10.2.2.20").ok);
+  assert.ok(!net.ping("A1", "10.2.2.20").ok && !net.ping("B1", "10.2.2.10").ok, "VRFs don't leak into each other");
+  const s = new Session(net, "R1");
+  s.input("en");
+  assert.match(s.input("ping vrf RED 10.2.2.10"), /Success rate is [1-9]/);
+  assert.match(s.input("ping 10.2.2.10"), /Success rate is 0 percent/);
+  assert.match(s.input("show ip route vrf RED"), /Routing Table: RED[\s\S]*O +10\.2\.2\.0\/24 \[110\/2\] via 10\.0\.12\.2/);
+  assert.match(s.input("show ip vrf"), /BLUE +65000:2 +Gi0\/1/);
+  assert.match(s.input("show vrf"), /RED +65000:1 +ipv4 +Gi0\/0/);
+  assert.match(s.input("show ip arp vrf RED"), /10\.0\.12\.2 .*GigabitEthernet0\/2\.10/);
+  assert.match(s.input("traceroute vrf BLUE 10.2.2.20"), / 1 10\.0\.12\.2 [\s\S]* 2 10\.2\.2\.20 /);
+  assert.match(s.input("show ip ospf neighbor"), /GigabitEthernet0\/2\.10/);
+  s.input("conf t");
+  s.input("int g0/0");
+  assert.match(s.input("vrf forwarding BLUE"), /% VRF BLUE not configured\./, "BLUE is an ip vrf: it takes ip vrf forwarding");
+  assert.match(s.input("ip vrf forwarding BLUE"), /% Interface GigabitEthernet0\/0 IPv4 disabled and address\(es\) removed due to enabling VRF BLUE/);
+  assert.equal(net.devs.R1.cfg.intfs["GigabitEthernet0/0"].ip, null);
+  assert.match(s.input("ip address 10.1.1.1 255.255.255.0"), /overlaps with GigabitEthernet0\/1/, "same VRF, same subnet");
+  s.input("end");
+  assert.match(runningConfig(net, "R1"), /^interface GigabitEthernet0\/2\.10\n encapsulation dot1Q 10\n vrf forwarding RED\n ip address 10\.0\.12\.1/m);
+  assert.match(runningConfig(net, "R1"), /^router ospf 10 vrf RED\n network 10\.0\.0\.0 0\.255\.255\.255 area 0$/m);
+  assert.match(runningConfig(net, "R1"), /^ip route vrf BLUE 10\.2\.2\.0 255\.255\.255\.0 10\.0\.12\.2$/m);
+});
+
+test("GRE: up when the destination is routable, OSPF over it, recursive routing pulls it down", () => {
+  const net = wan(tun("172.16.0.1", "198.51.100.1"), [...tun("172.16.0.2", "203.0.113.1"), "router ospf 1", "network 0.0.0.0 255.255.255.255 area 0"]);
+  assert.ok(net.ifUp("R1", "Tunnel0") && net.ifUp("R2", "Tunnel0"));
+  assert.ok(net.ping("R1", "172.16.0.2").ok);
+  assert.equal(net.bandwidth(net.devs.R1, "Tunnel0"), 100);
+  const s = new Session(net, "R1");
+  s.input("en");
+  s.input("conf t");
+  s.input("router ospf 1");
+  s.input("network 192.168.1.0 0.0.0.255 area 0");
+  const out = s.input("network 172.16.0.0 0.0.0.3 area 0");
+  assert.match(out, /%TUN-5-RECURDOWN: Tunnel0 temporarily disabled due to recursive routing/);
+  assert.equal(net.ifState("R1", "Tunnel0").proto, "down");
+  assert.match(s.input("do show interfaces tunnel 0"), /Tunnel linestate evaluation down - recursive routing/);
+  applyConfig(net, "R2", ["router ospf 1", "no network 0.0.0.0 255.255.255.255 area 0", "network 172.16.0.0 0.0.0.3 area 0", "network 192.168.2.0 0.0.0.255 area 0"]);
+  assert.ok(net.ifUp("R1", "Tunnel0"));
+  assert.ok(net.check({ type: "route", device: "R1", prefix: "192.168.2.0/24", code: "O", via: "172.16.0.2" }));
+  assert.match(s.input("do show ip ospf interface brief"), /Tu0 +1 +0 +172\.16\.0\.1\/30 +1000 +P2P/);
+  assert.deepEqual(net.trace("PC1", "192.168.2.10").map((h) => h.ip && dq(h.ip)), ["192.168.1.1", "172.16.0.2", "192.168.2.10"]);
+  // The underlay is still ordinary IP: an ACL that drops GRE breaks the adjacency, though the tunnel stays up/up.
+  applyConfig(net, "ISP", ["access-list 101 deny gre any any", "access-list 101 permit ip any any", "int g0/0", "ip access-group 101 in"]);
+  assert.ok(net.ifUp("R1", "Tunnel0") && !net.check({ type: "ospf-nbr", device: "R1", neighbor: "198.51.100.1" }));
+  assert.ok(!net.ping("PC1", "192.168.2.10").ok);
+  // A tunnel nobody terminates is up/up too, but carries nothing; with keepalives it goes down.
+  applyConfig(net, "ISP", ["int g0/0", "no ip access-group 101 in"]);
+  applyConfig(net, "R2", ["int tu0", "tunnel destination 203.0.113.9"]);
+  assert.ok(net.ifUp("R1", "Tunnel0") && !net.ping("R1", "172.16.0.2").ok);
+  applyConfig(net, "R1", ["int tu0", "keepalive 5 3"]);
+  assert.ok(!net.ifUp("R1", "Tunnel0"));
+});
+
+test("IPsec crypto map: encrypts interesting traffic, mismatches stop it, counters and shows", () => {
+  const side = (peer, l, r) => ["crypto isakmp policy 10", "encr aes 256", "hash sha256", "authentication pre-share", "group 14", "exit",
+    `crypto isakmp key K3y address ${peer}`, "crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac", "exit",
+    `access-list 110 permit ip ${l} 0.0.0.255 ${r} 0.0.0.255`, "crypto map VPN 10 ipsec-isakmp", `set peer ${peer}`, "set transform-set TS", "match address 110", "exit",
+    "int g0/1", "crypto map VPN"];
+  const net = wan(side("198.51.100.1", "192.168.1.0", "192.168.2.0"), side("203.0.113.1", "192.168.2.0", "192.168.1.0"));
+  assert.ok(net.check({ type: "ping", from: "PC1", to: "192.168.2.10", encrypted: true }));
+  assert.ok(net.check({ type: "ipsec-sa", device: "R1", peer: "198.51.100.1" }));
+  assert.ok(net.ping("R1", "198.51.100.1").ok && !net.ping("R1", "198.51.100.1").crypto, "traffic the ACL doesn't match leaves in the clear");
+  const pc = new Session(net, "PC1");
+  pc.input("ping 192.168.2.10 -c 3");
+  const s = new Session(net, "R1");
+  s.input("en");
+  assert.match(s.input("show crypto isakmp sa"), /198\.51\.100\.1 +203\.0\.113\.1 +QM_IDLE +\d+ ACTIVE/);
+  assert.match(s.input("show crypto ipsec sa"), /#pkts encaps: 3,[\s\S]*#pkts decaps: 3,/);
+  assert.match(s.input("show crypto map"), /Crypto Map IPv4 "VPN" 10 ipsec-isakmp\n\tPeer = 198\.51\.100\.1/);
+  assert.match(s.input("show crypto ipsec transform-set"), /Transform set TS: \{ esp-aes 256 esp-sha-hmac  \}/);
+  assert.match(runningConfig(net, "R1"), /^crypto isakmp policy 10\n encr aes 256\n hash sha256\n authentication pre-share\n group 14\ncrypto isakmp key K3y address 198\.51\.100\.1$/m);
+  // Wrong pre-shared key: phase 1 fails and traffic stops.
+  applyConfig(net, "R2", ["crypto isakmp key WRONG address 203.0.113.1"]);
+  assert.ok(!net.ping("PC1", "192.168.2.10").ok && !net.check({ type: "ipsec-sa", device: "R1", peer: "198.51.100.1" }));
+  s.input("clear crypto isakmp");
+  pc.input("ping 192.168.2.10 -c 1");
+  assert.match(s.input("show crypto isakmp sa"), /MM_NO_STATE/);
+  applyConfig(net, "R2", ["crypto isakmp key K3y address 203.0.113.1"]);
+  // Transform sets that don't match: phase 1 is fine, phase 2 fails.
+  applyConfig(net, "R2", ["crypto ipsec transform-set TS esp-3des esp-md5-hmac", "exit"]);
+  assert.ok(!net.ping("PC1", "192.168.2.10").ok);
+  applyConfig(net, "R2", ["crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac", "exit"]);
+  assert.ok(net.ping("PC1", "192.168.2.10").ok);
+  // ACLs that aren't mirror images.
+  applyConfig(net, "R2", ["no access-list 110", "access-list 110 permit ip 192.168.2.0 0.0.0.255 10.0.0.0 0.255.255.255"]);
+  assert.ok(!net.ping("PC1", "192.168.2.10").ok);
+  applyConfig(net, "R2", ["no access-list 110", "access-list 110 permit ip 192.168.2.0 0.0.0.255 192.168.1.0 0.0.0.255"]);
+  assert.ok(net.ping("PC1", "192.168.2.10").ok);
+  // IKE needs UDP 500 across the internet.
+  applyConfig(net, "ISP", ["access-list 120 deny udp any any eq isakmp", "access-list 120 permit ip any any", "int g0/1", "ip access-group 120 in"]);
+  assert.ok(!net.ping("PC1", "192.168.2.10").ok);
+  applyConfig(net, "ISP", ["int g0/1", "no ip access-group 120 in"]);
+  // Only one side encrypting: the other drops the cleartext it expected to arrive protected.
+  applyConfig(net, "R1", ["int g0/1", "no crypto map"]);
+  assert.ok(!net.ping("PC1", "192.168.2.10").ok);
+});
+
+test("GRE over IPsec and IPsec VTIs: protection must match on both ends", () => {
+  const side = (peer, ip, key, mode = []) => ["crypto isakmp policy 10", "encr aes", "authentication pre-share", "group 14", "exit",
+    `crypto isakmp key ${key} address ${peer}`, "crypto ipsec transform-set TS esp-aes esp-sha-hmac", "mode transport", "exit",
+    "crypto ipsec profile P", "set transform-set TS", "exit", ...tun(ip, peer, [...mode, "tunnel protection ipsec profile P"])];
+  let net = wan(side("198.51.100.1", "172.16.0.1", "k"), side("203.0.113.1", "172.16.0.2", "k"));
+  assert.ok(net.ping("R1", "172.16.0.2").ok && net.ping("R1", "172.16.0.2").crypto);
+  net = wan(side("198.51.100.1", "172.16.0.1", "k"), side("203.0.113.1", "172.16.0.2", "x"));
+  assert.ok(net.ifUp("R1", "Tunnel0") && !net.ping("R1", "172.16.0.2").ok, "GRE stays up/up, IPsec fails");
+  net = wan(side("198.51.100.1", "172.16.0.1", "k", ["tunnel mode ipsec ipv4"]), side("203.0.113.1", "172.16.0.2", "x", ["tunnel mode ipsec ipv4"]));
+  assert.ok(!net.ifUp("R1", "Tunnel0"), "a VTI is only up with an IPsec SA");
+  applyConfig(net, "R2", ["crypto isakmp key k address 203.0.113.1"]);
+  assert.ok(net.ifUp("R1", "Tunnel0") && net.ping("R1", "172.16.0.2").crypto);
+  net = wan(side("198.51.100.1", "172.16.0.1", "k"), tun("172.16.0.2", "203.0.113.1"));
+  assert.ok(!net.ping("R1", "172.16.0.2").ok, "protected on one end only");
+});
+
+test("DMVPN: registration, multicast, phase 2 next hops and resolution, phase 3 redirects and shortcuts", () => {
+  const build = (phase) => {
+    const net = new Network({ devices: [R("HUB"), R("S1"), R("S2"), R("INET"), P("PC1"), P("PC2")], links: [
+      ["HUB", "GigabitEthernet0/1", "INET", "GigabitEthernet0/0"], ["S1", "GigabitEthernet0/1", "INET", "GigabitEthernet0/1"],
+      ["S2", "GigabitEthernet0/1", "INET", "GigabitEthernet0/2"], ["S1", "GigabitEthernet0/0", "PC1", "eth0"], ["S2", "GigabitEthernet0/0", "PC2", "eth0"]] });
+    applyConfig(net, "INET", ["int g0/0", "ip add 100.64.0.254 255.255.255.0", "no shut", "int g0/1", "ip add 100.64.1.254 255.255.255.0", "no shut",
+      "int g0/2", "ip add 100.64.2.254 255.255.255.0", "no shut"]);
+    for (const [r, n] of [["HUB", 0], ["S1", 1], ["S2", 2]]) {
+      applyConfig(net, r, ["int g0/1", `ip add 100.64.${n}.1 255.255.255.0`, "no shut", "int g0/0", `ip add 10.${n}.${n}.1 255.255.255.0`, "no shut", "exit",
+        `ip route 0.0.0.0 0.0.0.0 100.64.${n}.254`, "interface tunnel 0", `ip address 172.16.0.${n + 1} 255.255.255.0`, "tunnel source g0/1",
+        "tunnel mode gre multipoint", "ip nhrp network-id 1",
+        ...(n === 0 ? ["ip nhrp map multicast dynamic", "no ip split-horizon eigrp 100", ...(phase === 2 ? ["no ip next-hop-self eigrp 100"] : ["ip nhrp redirect"])]
+          : ["ip nhrp nhs 172.16.0.1 nbma 100.64.0.1 multicast", ...(phase === 3 ? ["ip nhrp shortcut"] : [])]),
+        "router eigrp 100", "network 172.16.0.0 0.0.0.255", `network 10.${n}.${n}.0 0.0.0.255`]);
+    }
+    applyConfig(net, "PC1", ["ip 10.1.1.10/24 10.1.1.1"]);
+    applyConfig(net, "PC2", ["ip 10.2.2.10/24 10.2.2.1"]);
+    return net;
+  };
+  const hops = (net) => net.trace("PC1", "10.2.2.10").map((h) => h.ip && dq(h.ip));
+  let net = build(2);
+  assert.ok(net.check({ type: "nhrp-peer", device: "HUB", peer: "172.16.0.2", registered: true }));
+  assert.ok(net.check({ type: "eigrp-nbrs", device: "HUB", count: 2 }));
+  assert.ok(net.check({ type: "route", device: "S1", prefix: "10.2.2.0/24", code: "D", via: "172.16.0.3" }), "phase 2 keeps the spoke as next hop");
+  assert.deepEqual(hops(net), ["10.1.1.1", "172.16.0.1", "172.16.0.3", "10.2.2.10"], "unresolved: via the hub");
+  new Session(net, "PC1").input("ping 10.2.2.10 -c 2");
+  assert.deepEqual(hops(net), ["10.1.1.1", "172.16.0.3", "10.2.2.10"], "resolved: spoke to spoke");
+  const s = new Session(net, "S1");
+  s.input("en");
+  assert.match(s.input("show dmvpn"), /Type:Spoke, NHRP Peers:2,[\s\S]*100\.64\.2\.1 +172\.16\.0\.3 +UP .* D/);
+  assert.match(s.input("show ip nhrp"), /172\.16\.0\.3\/32 via 172\.16\.0\.3[\s\S]*NBMA address: 100\.64\.2\.1/);
+  s.input("clear ip nhrp");
+  assert.deepEqual(hops(net), ["10.1.1.1", "172.16.0.1", "172.16.0.3", "10.2.2.10"]);
+  net = build(3);
+  assert.ok(net.check({ type: "route", device: "S1", prefix: "10.2.2.0/24", code: "D", via: "172.16.0.1" }), "phase 3: the hub stays next hop");
+  new Session(net, "PC1").input("ping 10.2.2.10 -c 2");
+  assert.ok(net.check({ type: "nhrp-shortcut", device: "S1", prefix: "10.2.2.0/24" }));
+  assert.deepEqual(hops(net), ["10.1.1.1", "172.16.0.3", "10.2.2.10"]);
+  const t = new Session(net, "S1");
+  t.input("en");
+  assert.match(t.input("show ip route"), /D   % +10\.2\.2\.0\/24 \[90\/\d+\] via 172\.16\.0\.3, 00:00:12, Tunnel0/);
+  // NHRP authentication must match for a spoke to register.
+  applyConfig(net, "HUB", ["int tu0", "ip nhrp authentication HUBKEY"]);
+  assert.ok(!net.check({ type: "nhrp-peer", device: "HUB", peer: "172.16.0.2", registered: true }));
+  assert.ok(!net.check({ type: "eigrp-nbrs", device: "HUB", count: 1 }));
+});
+
+test("help for the VPN commands", () => {
+  const net = new Network({ devices: [R("R1")], links: [] });
+  const s = new Session(net, "R1");
+  for (const l of ["en", "conf t"]) s.input(l);
+  assert.match(s.help(""), /vrf +Configure a VRF/);
+  assert.match(s.help("crypto "), /isakmp +Configure ISAKMP policy[\s\S]*map +Enter a crypto map/);
+  assert.match(s.help("crypto ipsec transform-set T esp-aes "), /256 +256 bit keys\.[\s\S]*esp-sha-hmac +ESP transform using HMAC-SHA auth/);
+  s.input("crypto isakmp policy 10");
+  assert.match(s.help("group "), /14 +Diffie-Hellman group 14 \(2048 bit\)/);
+  assert.match(s.help("authentication "), /pre-share +Pre-Shared Key/);
+  s.input("exit");
+  s.input("int tunnel 1");
+  assert.equal(s.prompt(), "Router(config-if)#");
+  assert.match(s.help("tunnel mode "), /gre +generic route encapsulation protocol[\s\S]*ipsec +IPSec tunnel encapsulation/);
+  assert.match(s.help("ip nhrp "), /network-id +NBMA network identifier[\s\S]*nhs +Specify a next hop server/);
+  s.input("exit");
+  s.input("int g0/0");
+  assert.doesNotMatch(s.help(""), /tunnel /, "tunnel commands only exist on tunnel interfaces");
+  assert.match(s.help(""), /vrf +VPN Routing\/Forwarding parameters on the interface/);
 });
 
 // ---------------------------------------------------------------- BGP
