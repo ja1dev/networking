@@ -7001,7 +7001,7 @@ export function applyConfig(net, devName, lines) {
   if (net.devs[devName].type !== "pc") s.frames[0].mode = "config";
   for (const line of lines) {
     const out = s.input(line);
-    const notes = /^%\s?(Access VLAN does not exist|Login disabled|OSPF: Reference|OSPFv3: Reference|The key modulus|Generating|Warning: portfast|Warning: this command enables portfast|Portfast has been configured|Only classful|OSPFv3-4-NORTRID|This simulator doesn't summarise)/;
+    const notes = /^%\s?(Access VLAN does not exist|Login disabled|OSPF: Reference|OSPFv3: Reference|The key modulus|Generating|Warning: portfast|Warning: this command enables portfast|Portfast has been configured|Only classful|OSPFv3-4-NORTRID|This simulator doesn't summarise|AAA: Warning)/;
     if (out.split("\n").some((l) => (l.startsWith("%") && !notes.test(l)) || /^(Bad mask|Bad command|Invalid address|Command rejected)/.test(l))) {
       throw new Error(`${devName}: "${line}" -> ${out}`);
     }
@@ -7722,6 +7722,11 @@ Object.assign(Session.prototype, {
   svcAfter() {
     const net = this.net, depth = this.eemDepth || 0, fmt = {};
     for (const [dn, msgs] of Object.entries(this.events)) fmt[dn] = net.svcLog(dn, msgs);
+    if (this.eemExtra) {
+      for (const [xd, xs] of Object.entries(this.eemExtra.events)) this.events[xd] = [...(this.events[xd] || []), ...xs];
+      for (const [xd, xs] of Object.entries(this.eemExtra.fmt)) fmt[xd] = [...(fmt[xd] || []), ...xs];
+      this.eemExtra = null;
+    }
     if (depth < 3) {
       for (const [dn, msgs] of Object.entries({ ...this.events })) {
         const d = net.devs[dn];
@@ -7821,6 +7826,12 @@ Object.assign(Network.prototype, {
         add(fmt, dn, this.svcLog(dn, [m]));
       }
     }
+    // The applet's CLI session closes when it finishes; leaving configuration mode logs CONFIG_I.
+    if (CONFIG_MODES.includes(s.f.mode)) {
+      s.input("end");
+      for (const [k, xs] of Object.entries(s.events || {})) add(events, k, xs);
+      for (const [k, xs] of Object.entries(s.fmt || {})) add(fmt, k, xs);
+    }
     d.rt.svc.eem.push({ name, at: clock(), why });
     if (d.rt.svc.eem.length > 20) d.rt.svc.eem.shift();
     return { events, fmt };
@@ -7897,7 +7908,7 @@ def(R_S, ["user", "priv"], "enable <num:0-15|Enable level>", (c, [n]) => {
   }
   let tries = 0;
   const ask = () => s.ask("Password: ", { mask: true }, (ans) => {
-    if (ans === pw) { s.enterLevel(n); return; }
+    if (ans === pw || (n !== 15 && md5ish(ans) === pw)) { s.enterLevel(n); return; }
     if (++tries >= 3) { s.print("% Bad secrets", ""); return; }
     ask();
   });
@@ -7907,10 +7918,11 @@ def(R_S, ["user", "priv"], "enable <num:0-15|Enable level>", (c, [n]) => {
 def(R_S, "priv", "enable", (c) => { if (c.s.level() < 15) c.s.enable(); });
 def(R_S, ["user", "priv"], "show privilege",(c) => c.print("Current privilege level is " + c.s.level()));
 def(R_S, "config", "enable secret level <num:1-15|Level number> <word|The UNENCRYPTED (cleartext) 'enable' secret>", (c, [n, pw]) => {
-  if (minLenOk(c, pw)) svcOf(c.d).enableLevels[n] = pw;
+  // Kept as the hash IOS shows, so a pasted "enable secret level N 5 ..." line works the same way.
+  if (minLenOk(c, pw)) svcOf(c.d).enableLevels[n] = md5ish(pw);
 });
-def(R_S, "config", "enable secret level <num:1-15|Level number> 5 <word|The ENCRYPTED 'enable' secret string>", (c, [n]) => {
-  c.print("% Encrypted secrets can't be decoded by the simulator: set the level secret in clear text");
+def(R_S, "config", "enable secret level <num:1-15|Level number> 5 <word|The ENCRYPTED 'enable' secret string>", (c, [n, h]) => {
+  svcOf(c.d).enableLevels[n] = h;
 });
 def(R_S, "config", "no enable secret level <num:1-15|Level number>", (c, [n]) => { delete svcOf(c.d).enableLevels[n]; });
 def(R_S, "config", "privilege exec level <num:0-15|Privilege level> <line|Initial keywords of the command to modify>", (c, [n, text]) => {
@@ -8914,9 +8926,8 @@ def(R_S, "priv", "event manager run <word|Name of the Event Manager policy>", (c
   const ap = svcOf(c.d).eem[n];
   if (!ap) { c.print(`EEM policy ${n} not registered with event manager`); return; }
   if (!ap.event || ap.event.kind !== "none") { c.print(`EEM policy ${n} not registered with event none Event Detector`); return; }
-  const res = c.net.svcRunApplet(c.d.name, n, (c.s.eemDepth || 0) + 1, "none");
-  // Their messages go out with this command's own.
-  for (const [xd, xs] of Object.entries(res.events)) for (const m of xs) if (!/^%SYS-5-CONFIG_I/.test(m) || true) c.net.note(xd, m);
+  // Already logged by the applet's own session; this console just shows them with its command.
+  c.s.eemExtra = c.net.svcRunApplet(c.d.name, n, (c.s.eemDepth || 0) + 1, "none");
 });
 def(R_S, ["user", "priv"], "show event manager policy registered", (c) => {
   const e = svcOf(c.d).eem, L = ["No.  Class     Type    Event Type          Trap  Time Registered           Secu  Name"];
@@ -8962,7 +8973,7 @@ function svcConfig(d, where) {
       if (lg.monitor === null) L.push("no logging monitor");
       else if (lg.monitor !== 7) L.push("logging monitor " + levelName(lg.monitor));
       if (!lg.on) L.push("no logging on");
-      for (const [n, sec] of Object.entries(s.enableLevels)) L.push(`enable secret level ${n} ${sec}`);
+      for (const [n, sec] of Object.entries(s.enableLevels)) L.push(`enable secret level ${n} 5 ${sec}`);
       break;
     }
     case "aaa": {

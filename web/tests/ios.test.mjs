@@ -932,7 +932,7 @@ test("state survives a save and restore", () => {
 });
 
 // ---------------------------------------------------------------- the labs
-const replayable = (line) => !/^(Building configuration|Current configuration|!|version |end$|no aaa new-model|enable secret 5|username .* secret 5|banner motd)/.test(line)
+const replayable = (line) => !/^(Building configuration|Current configuration|!|version |end$|no aaa new-model|enable secret 5|username .* secret 5|banner (motd|login|exec))/.test(line)
   && line.trim() !== "";
 
 test("labs are well formed", () => {
@@ -1250,6 +1250,243 @@ test("BGP: prefix-lists, as-path lists, help text and a config that replays", ()
   const keep = (l) => !/^(Building configuration|Current configuration|!|version |end$|no aaa new-model)/.test(l) && l.trim();
   applyConfig(fresh, "A", text.split("\n").filter(keep).flatMap((l) => (l.startsWith("interface ") ? [l, " no shutdown"] : [l])));
   assert.equal(runningConfig(fresh, "A"), text);
+});
+
+// ---------------------------------------------------------------- QoS and management services
+// R1 g0/1 - PC1, R1 g0/0 - R2 g0/0, R2 g0/1 - PC2; static routes both ways, R2 has loopback 2.2.2.2.
+function svcNet() {
+  const net = new Network({ devices: [R("R1"), R("R2"), P("PC1"), P("PC2")],
+    links: [["R1", G(1), "PC1", "eth0"], ["R1", G(0), "R2", G(0)], ["R2", G(1), "PC2", "eth0"]] });
+  applyConfig(net, "R1", ["hostname R1", "interface g0/0", "ip address 10.12.0.1 255.255.255.0", "no shutdown", "interface g0/1",
+    "ip address 192.168.1.1 255.255.255.0", "no shutdown", "interface loopback0", "ip address 1.1.1.1 255.255.255.255", "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.12.0.2"]);
+  applyConfig(net, "R2", ["hostname R2", "interface g0/0", "ip address 10.12.0.2 255.255.255.0", "no shutdown", "interface g0/1",
+    "ip address 192.168.2.1 255.255.255.0", "no shutdown", "interface loopback0", "ip address 2.2.2.2 255.255.255.255", "exit",
+    "ip route 192.168.1.0 255.255.255.0 10.12.0.1", "ip route 1.1.1.1 255.255.255.255 10.12.0.1"]);
+  applyConfig(net, "PC1", ["ip 192.168.1.10/24 192.168.1.1"]);
+  applyConfig(net, "PC2", ["ip 192.168.2.100/24 192.168.2.1"]);
+  return net;
+}
+const svcCon = (net, dev, ...lines) => {
+  const s = new Session(net, dev);
+  s.greeting();
+  s.input("enable");
+  return lines.map((l) => s.input(l)).join("\n");
+};
+
+test("QoS: class-maps, marking seen downstream, policing by size, input queueing refused", () => {
+  const net = svcNet();
+  svcCon(net, "R1", "conf t", "class-map match-all ICMP", "match protocol icmp", "policy-map OUT", "class ICMP", "set dscp ef",
+    "police cir 8000 bc 1500", "conform-action transmit", "exceed-action drop", "class class-default", "interface g0/0", "service-policy output OUT", "end");
+  assert.equal(net.devs.R1.cfg.svc.qos.policies.OUT.classes.length, 2, "\"class class-default\" climbs out of the police and class modes");
+  svcCon(net, "R2", "conf t", "class-map match-any EF", "match dscp ef", "policy-map IN", "class EF", "interface g0/0", "service-policy input IN", "end");
+  console_(net, "PC1", "ping 192.168.2.100 -c 3");
+  assert.ok(net.check({ type: "qos-marked", device: "R1", intf: "Gi0/0", dir: "output", class: "ICMP", min: 2 }));
+  assert.ok(net.check({ type: "qos-class", device: "R2", intf: "Gi0/0", dir: "input", class: "EF", min: 2 }), "R2 sees the EF marking");
+  assert.ok(!net.check({ type: "qos-police", device: "R1", intf: "Gi0/0", dir: "output", class: "ICMP", exceeded: 1 }), "small pings conform");
+  const big = console_(net, "PC1", "ping 192.168.2.100 -c 4 -l 1000");
+  assert.match(big, /1028 bytes from 192\.168\.2\.100/);
+  assert.match(big, /timeout/, "big pings beyond the burst are dropped");
+  assert.ok(net.check({ type: "qos-police", device: "R1", intf: "Gi0/0", dir: "output", class: "ICMP", conformed: 1, exceeded: 1 }));
+  const show = svcCon(net, "R1", "show policy-map interface g0/0");
+  assert.match(show, /Service-policy output: OUT\n\n {4}Class-map: ICMP \(match-all\)/);
+  assert.match(show, /police:\n {10}cir 8000 bps, bc 1500 bytes\n {8}conformed \d+ packets/);
+  assert.match(show, /Class-map: class-default \(match-any\)/);
+  const run = runningConfig(net, "R1");
+  assert.match(run, /policy-map OUT\n class ICMP\n  set dscp ef\n  police cir 8000 bc 1500\n   conform-action transmit \n   exceed-action drop \n class class-default/);
+  const q = svcCon(net, "R2", "conf t", "policy-map Q", "class EF", "priority percent 30", "bandwidth 100", "interface g0/1", "service-policy input Q");
+  assert.match(q, /Cannot configure bandwidth and priority in the same class/);
+  assert.match(q, /only supported in the output direction/);
+  assert.match(svcCon(net, "R1", "ping 2.2.2.2 repeat 2 size 200 timeout 1 df-bit"), /Sending 2, 200-byte ICMP Echos/);
+  assert.match(svcCon(net, "R1", "conf t", "policy-map X", "class NOPE"), /class-map NOPE not configured/);
+});
+
+test("switch QoS: an untrusted port with mls qos rewrites DSCP to 0", () => {
+  const net = new Network({ devices: [R("R1"), R("R2"), S("SW1"), P("PC1")],
+    links: [["SW1", F(1), "PC1", "eth0"], ["SW1", G(1), "R1", G(1)], ["R1", G(0), "R2", G(0)]] });
+  applyConfig(net, "R1", ["interface g0/1", "ip address 192.168.1.1 255.255.255.0", "no shutdown", "interface g0/0", "ip address 10.12.0.1 255.255.255.0", "no shutdown"]);
+  applyConfig(net, "R2", ["interface g0/0", "ip address 10.12.0.2 255.255.255.0", "no shutdown", "ip route 192.168.1.0 255.255.255.0 10.12.0.1",
+    "class-map match-any EF", "match dscp ef", "policy-map IN", "class EF", "interface g0/0", "service-policy input IN"]);
+  applyConfig(net, "R1", ["class-map CS0", "match dscp default", "policy-map COUNT", "class CS0", "interface g0/1", "service-policy input COUNT"]);
+  applyConfig(net, "SW1", ["mls qos"]);
+  applyConfig(net, "PC1", ["ip 192.168.1.10/24 192.168.1.1"]);
+  const s = new Session(net, "R1");
+  s.input("enable");
+  // R1 sources EF pings itself; nothing rewrites them, so R2 counts them.
+  s.input("ping 10.12.0.2 repeat 3 tos 184");
+  assert.ok(net.check({ type: "qos-class", device: "R2", intf: "Gi0/0", dir: "input", class: "EF", min: 2 }));
+  console_(net, "PC1", "ping 10.12.0.2 -c 2");
+  assert.ok(net.check({ type: "qos-class", device: "R1", intf: "Gi0/1", dir: "input", class: "CS0", min: 1 }));
+  assert.match(console_(net, "SW1", "en", "show mls qos interface g0/1"), /trust state: not trusted/);
+  applyConfig(net, "SW1", ["interface f0/1", "auto qos voip trust"]);
+  assert.match(console_(net, "SW1", "en", "show mls qos interface f0/1"), /trust state: trust dscp/);
+  assert.match(runningConfig(net, "SW1"), /^mls qos$/m);
+});
+
+test("AAA: method lists, local fallback when RADIUS is down, exec authorization and the console", () => {
+  const net = svcNet();
+  applyConfig(net, "R2", ["username netadmin privilege 15 secret Cisc0Admin!", "aaa new-model", "radius server ISE", "address ipv4 10.12.0.100 auth-port 1812 acct-port 1813",
+    "key R4diusKey", "exit", "aaa group server radius ISE-GROUP", "server name ISE", "exit", "aaa authentication login VTY group ISE-GROUP local",
+    "line vty 0 4", "login authentication VTY", "transport input telnet ssh"]);
+  const s = new Session(net, "R1");
+  s.input("enable");
+  s.input("telnet 10.12.0.2");
+  assert.equal(s.prompt(), "Username: ");
+  s.input("netadmin");
+  s.input("Cisc0Admin!");
+  assert.equal(s.prompt(), "R2>", "without exec authorization a privilege 15 user starts at level 1");
+  s.input("exit");
+  applyConfig(net, "R2", ["aaa authorization exec default local"]);
+  s.input("telnet 10.12.0.2");
+  s.input("netadmin");
+  s.input("Cisc0Admin!");
+  assert.equal(s.prompt(), "R2#");
+  assert.match(s.input("show privilege"), /Current privilege level is 15/);
+  s.input("exit");
+  s.input("telnet 10.12.0.2");
+  s.input("netadmin");
+  assert.match(s.input("wrong"), /% Authentication failed/);
+  assert.ok(net.check({ type: "login", device: "R2", line: "vty", user: "netadmin", password: "Cisc0Admin!", level: 15 }));
+  assert.ok(net.check({ type: "login", device: "R2", line: "con", password: "" }), "no default list: the console needs no login");
+  // A list that doesn't exist locks the lines.
+  assert.match(console_(net, "R2", "en", "conf t", "line vty 0 4", "login authentication NOPE"), /AAA: Warning, authentication list "NOPE" is not defined/);
+  assert.ok(!net.check({ type: "login", device: "R2", line: "vty", user: "netadmin", password: "Cisc0Admin!" }));
+  const run = runningConfig(net, "R2");
+  assert.match(run, /^aaa new-model$/m);
+  assert.match(run, /^radius server ISE\n address ipv4 10\.12\.0\.100 auth-port 1812 acct-port 1813\n key R4diusKey$/m);
+  assert.match(run, /^line vty 0 4\n login authentication NOPE\n transport input telnet ssh$/m, "no plain login lines under AAA");
+  assert.match(console_(net, "R2", "en", "show aaa servers"), /State: current DEAD/);
+});
+
+test("privilege levels, password length and login block-for", () => {
+  const net = svcNet();
+  applyConfig(net, "R2", ["enable secret level 5 Level5pass", "privilege exec level 5 show running-config", "security passwords min-length 10"]);
+  assert.match(console_(net, "R2", "en", "conf t", "enable secret short"), /Password too short - must be at least 10 characters/);
+  const s = new Session(net, "R2");
+  s.input("enable 5");
+  s.input("Level5pass");
+  assert.equal(s.prompt(), "R2#");
+  assert.match(s.input("show privilege"), /level is 5/);
+  assert.match(s.input("show running-config"), /hostname R2/, "opened up at level 5");
+  assert.match(s.input("configure terminal"), /% Invalid input detected/, "still level 15 only");
+  assert.match(runningConfig(net, "R2"), /^enable secret level 5 5 \$1\$/m);
+  assert.match(runningConfig(net, "R2"), /^privilege exec level 5 show running-config$/m);
+  applyConfig(net, "R2", ["username admin secret LongEnough1", "login block-for 60 attempts 2 within 30", "line vty 0 4", "login local"]);
+  const t = new Session(net, "R1");
+  t.input("enable");
+  t.input("telnet 10.12.0.2");
+  t.input("admin");
+  t.input("bad1");
+  t.input("admin");
+  t.input("bad2");
+  assert.ok(net.check({ type: "quiet-mode", device: "R2" }));
+  t.interrupt();
+  assert.match(t.input("telnet 10.12.0.2"), /% Connection refused by remote host/);
+  assert.match(console_(net, "R2", "en", "show login"), /Router presently in Quiet-Mode/);
+});
+
+test("syslog: console level, buffer, sequence numbers, hosts and SNMP traps", () => {
+  const net = svcNet();
+  const out = svcCon(net, "R1", "conf t", "logging console warnings", "logging buffered 16384 informational", "service sequence-numbers",
+    "logging host 192.168.1.10", "snmp-server community N3tR3ad RO", "snmp-server enable traps snmp linkdown linkup", "snmp-server host 192.168.1.10 version 2c N3tR3ad",
+    "interface loopback0", "shutdown", "no shutdown", "end");
+  assert.match(out, /^\d{6}: \*\w+ +\d+ [\d:.]+: %LINK-3-UPDOWN: Interface Loopback0, changed state to up$/m, "severity 3 still reaches the console");
+  assert.doesNotMatch(out, /%LINEPROTO-5/, "severity 5 is above the console level");
+  const log = svcCon(net, "R1", "show logging");
+  assert.match(log, /Console logging: level warnings/);
+  assert.match(log, /Buffer logging: {2}level informational, \d+ messages logged/);
+  assert.match(log, /Logging to 192\.168\.1\.10 {2}\(udp port 514, audit disabled,\n {14}link up\)/);
+  assert.match(log, /Log Buffer \(16384 bytes\):\n\n[\s\S]*%LINEPROTO-5-UPDOWN: Line protocol on Interface Loopback0, changed state to up/);
+  assert.ok(net.check({ type: "log-host", device: "R1", host: "192.168.1.10", min: 2 }));
+  assert.ok(net.check({ type: "snmp-traps", device: "R1", host: "192.168.1.10", min: 2 }));
+  assert.match(svcCon(net, "R1", "show snmp"), /\d+ Trap PDUs/);
+  const run = runningConfig(net, "R1");
+  for (const l of ["service sequence-numbers", "logging buffered 16384 informational", "logging console warnings", "logging host 192.168.1.10",
+    "snmp-server enable traps snmp linkdown linkup", "snmp-server host 192.168.1.10 version 2c N3tR3ad"]) assert.ok(run.includes("\n" + l + "\n"), l);
+});
+
+test("SNMP: community ACLs and SNMPv3 users decide who may read and write", () => {
+  const net = svcNet();
+  applyConfig(net, "R1", ["access-list 10 permit 192.168.1.0 0.0.0.255", "snmp-server community N3tR3ad RO 10", "snmp-server view ALL iso included",
+    "snmp-server group OPS v3 priv read ALL", "snmp-server user nms OPS v3 auth sha Auth#Pass1 priv aes 128 Priv#Pass1"]);
+  assert.ok(net.check({ type: "snmp-access", device: "R1", from: "PC1", community: "N3tR3ad" }));
+  assert.ok(net.check({ type: "snmp-access", device: "R1", from: "PC2", community: "N3tR3ad", ok: false }), "ACL 10 refuses the other LAN");
+  assert.ok(net.check({ type: "snmp-access", device: "R1", from: "PC1", community: "N3tR3ad", write: true, ok: false }));
+  assert.ok(net.check({ type: "snmp-access", device: "R1", from: "PC2", user: "nms", auth: "Auth#Pass1", priv: "Priv#Pass1" }));
+  assert.ok(net.check({ type: "snmp-access", device: "R1", from: "PC2", user: "nms", auth: "Auth#Pass1", priv: "nope", ok: false }));
+  assert.match(svcCon(net, "R1", "show snmp user"), /User name: nms[\s\S]*Authentication Protocol: SHA\nPrivacy Protocol: AES128\nGroup-name: OPS/);
+  assert.doesNotMatch(runningConfig(net, "R1"), /snmp-server user/, "IOS never shows v3 users in the running-config");
+});
+
+test("NTP: master, authenticated client, a chain, and the clock losing its *", () => {
+  const net = svcNet();
+  assert.match(svcCon(net, "R1", "show ntp status"), /^Clock is unsynchronized, stratum 16, no reference clock/);
+  applyConfig(net, "R2", ["ntp master 3", "ntp authentication-key 1 md5 T1meKey"]);
+  applyConfig(net, "R1", ["ntp authentication-key 1 md5 T1meKey", "ntp authenticate", "ntp server 10.12.0.2 key 1"]);
+  assert.ok(!net.check({ type: "ntp-sync", device: "R1" }), "a key that isn't trusted is ignored");
+  applyConfig(net, "R1", ["ntp trusted-key 1"]);
+  assert.ok(net.check({ type: "ntp-sync", device: "R1", peer: "10.12.0.2", stratum: 4 }));
+  assert.match(svcCon(net, "R1", "show ntp associations"), /\*~10\.12\.0\.2 +127\.127\.1\.1 +3 /);
+  assert.match(svcCon(net, "R1", "show clock"), /^\w{3} +\d+ [\d:.]+ UTC$/, "synchronised: no leading *");
+  applyConfig(net, "R2", ["no ntp authentication-key 1", "ntp authentication-key 1 md5 Different"]);
+  assert.ok(!net.check({ type: "ntp-sync", device: "R1" }), "a different key value breaks the sync");
+  assert.match(svcCon(net, "R1", "show clock"), /^\*/);
+  assert.match(runningConfig(net, "R1"), /^ntp authentication-key 1 md5 \S+ 7\nntp authenticate\nntp trusted-key 1\nntp server 10\.12\.0\.2 key 1$/m);
+});
+
+test("Flexible NetFlow and traditional NetFlow fill their caches from real traffic", () => {
+  const net = svcNet();
+  applyConfig(net, "R1", ["flow record REC", "match ipv4 source address", "match ipv4 destination address", "match ipv4 protocol", "collect counter bytes long",
+    "collect counter packets long", "exit", "flow exporter EXP", "destination 192.168.2.100", "transport udp 2055", "exit", "flow monitor MON",
+    "record REC", "exporter EXP", "exit", "interface g0/1", "ip flow monitor MON input", "ip flow ingress"]);
+  console_(net, "PC1", "ping 192.168.2.100 -c 3");
+  assert.ok(net.check({ type: "flow", device: "R1", monitor: "MON", src: "192.168.1.10", dst: "192.168.2.100", min: 3 }));
+  assert.ok(net.check({ type: "flow", device: "R1", src: "192.168.1.10", dst: "192.168.2.100" }), "traditional cache too");
+  const cache = svcCon(net, "R1", "show flow monitor MON cache");
+  assert.match(cache, /IPV4 SOURCE ADDRESS +IPV4 DESTINATION ADDRESS +IP PROT +bytes long +pkts long/);
+  assert.match(cache, /192\.168\.1\.10 +192\.168\.2\.100 +1 +252 +3/);
+  assert.match(svcCon(net, "R1", "show flow exporter EXP"), /Export statistics: [1-9]\d* records sent/);
+  assert.match(svcCon(net, "R1", "show ip cache flow"), /Gi0\/1 +192\.168\.1\.10 +Gi0\/0 +192\.168\.2\.100 +01/);
+  assert.match(svcCon(net, "R1", "conf t", "flow monitor EMPTY", "exit", "interface g0/0", "ip flow monitor EMPTY input"), /does not have a flow record assigned/);
+});
+
+test("LLDP neighbours and EEM applets that react to syslog", () => {
+  const net = svcNet();
+  applyConfig(net, "R1", ["lldp run"]);
+  assert.ok(!net.check({ type: "lldp-nbr", device: "R1", neighbor: "R2" }));
+  applyConfig(net, "R2", ["lldp run"]);
+  assert.ok(net.check({ type: "lldp-nbr", device: "R1", intf: "Gi0/0", neighbor: "R2" }));
+  assert.match(svcCon(net, "R1", "show lldp neighbors"), /R2 +Gi0\/0 +120 +R +Gi0\/0\n\nTotal entries displayed: 1/);
+  applyConfig(net, "R2", ["interface g0/0", "no lldp transmit"]);
+  assert.ok(!net.check({ type: "lldp-nbr", device: "R1", neighbor: "R2" }));
+  applyConfig(net, "R1", ["logging buffered 8192 informational", "event manager applet KEEPUP",
+    'event syslog pattern "Interface GigabitEthernet0/0, changed state to administratively down"', 'action 1.0 cli command "enable"',
+    'action 2.0 cli command "configure terminal"', 'action 3.0 cli command "interface g0/0"', 'action 4.0 cli command "no shutdown"',
+    'action 5.0 syslog msg "re-enabled"']);
+  const out = svcCon(net, "R1", "conf t", "interface g0/0", "shutdown");
+  assert.match(out, /%HA_EM-6-LOG: KEEPUP: re-enabled/);
+  assert.ok(net.check({ type: "eem-ran", device: "R1", applet: "KEEPUP" }));
+  assert.ok(net.check({ type: "ifup", device: "R1", intf: "Gi0/0" }), "the applet brought it back");
+  assert.match(svcCon(net, "R1", "show logging"), /%SYS-5-CONFIG_I: Configured from console by  on vty0 \(EEM:KEEPUP\)/);
+  assert.match(svcCon(net, "R1", "show event manager policy registered"), /applet +user +syslog[\s\S]* pattern \{Interface GigabitEthernet0\/0/);
+});
+
+test("name resolution: ip host, ping by name and typing a host name telnets to it", () => {
+  const net = svcNet();
+  applyConfig(net, "R1", ["ip host CORE 10.12.0.2"]);
+  assert.match(svcCon(net, "R1", "ping CORE"), /Sending 5, 100-byte ICMP Echos to 10\.12\.0\.2/);
+  assert.match(svcCon(net, "R1", "CORE"), /Trying 10\.12\.0\.2 \.\.\. /);
+  assert.match(svcCon(net, "R1", "show hosts"), /CORE +None +\(perm, OK\) +0 +IP +10\.12\.0\.2/);
+  assert.match(svcCon(net, "R1", "show"), /% Type "show \?" for a list of subcommands/);
+});
+
+test("EEM: event none applets run on demand and log once", () => {
+  const net = svcNet();
+  applyConfig(net, "R1", ["logging buffered 8192", "event manager applet HELLO", "event none", 'action 1.0 syslog msg "manual run"']);
+  assert.match(svcCon(net, "R1", "event manager run HELLO"), /%HA_EM-6-LOG: HELLO: manual run/);
+  assert.equal(net.devs.R1.rt.svc.log.filter((l) => /manual run/.test(l)).length, 1);
+  assert.match(svcCon(net, "R1", "event manager run NOPE"), /EEM policy NOPE not registered with event manager/);
+  assert.match(runningConfig(net, "R1"), /^event manager applet HELLO\n event none\n action 1\.0 syslog msg "manual run"$/m);
 });
 
 console.log(`ios: ${passed} tests passed`);
