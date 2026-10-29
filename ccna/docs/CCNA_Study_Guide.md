@@ -64,6 +64,32 @@ listens. The **string** stretched between them carries the sound.
 
 A computer network is the same idea, just with way more cups, way more strings, and super fast messages.
 
+**📝 Exam-style questions — 1.1**
+
+**Q1.** Which statement best describes a computer network?
+
+- **A.** Two or more devices connected so they can share data and resources
+- **B.** Any single device that has been given an IP address
+- **C.** A group of computers that must all be connected to the internet
+- **D.** The cables and switches installed inside one building
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A network is simply two or more devices joined so they can share stuff: messages, files, printers, video. Two laptops on one cable already count. **Why not the others:** one device with an address (B) has nobody to talk to, so it isn't a network on its own. A network doesn't need the internet at all (C); a lab with no internet link is still a network. D describes some of the hardware of one kind of network (a LAN), but networks can be wireless and can span the planet, and cables with nothing sharing over them aren't the point.
+</details>
+
+**Q2.** In the paper-cups-and-string story, what does the **string** stand for in a real network?
+
+- **A.** The data being sent
+- **B.** The end devices that turn a message into signals
+- **C.** The transmission medium, such as a cable or a Wi‑Fi radio channel
+- **D.** The rules both sides agree on for taking turns
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The string carries the sound between the cups, which is exactly what a cable or a radio channel does for bits: it's the **medium**. **Why not the others:** your voice is the data (A), not the string. The cups are the devices (B) that turn the message into something the string can carry. Turn-taking rules (D) are what networking calls **protocols**; they're agreements between the talkers, not the thing the signal travels along.
+</details>
+
 ## 1.2 Why Do We Even Need Networks?
 
 Before networks, if you wanted a file from another computer, you had to copy it to a floppy disk and walk it over. People jokingly called this **"sneakernet"** (because you used your sneakers to walk!). Networks let us:
@@ -72,6 +98,33 @@ Before networks, if you wanted a file from another computer, you had to copy it 
 - **Share devices** (one printer for the whole office).
 - **Talk** (email, video calls, chat).
 - **Reach the internet** (the biggest network of all).
+
+**📝 Exam-style questions — 1.2**
+
+**Q1.** A small office has six PCs and one laser printer. Today, staff copy files to USB sticks and walk them to the PC that has the printer attached. Which two benefits would a network bring this office? (Choose two.)
+
+- **A.** Every PC could print to the one shared printer.
+- **B.** Files could move between PCs without anyone carrying storage around.
+- **C.** Each PC's processor would run faster.
+- **D.** The office would no longer need to back up its files.
+- **E.** The PCs would no longer need any security software.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Sharing devices (one printer for everyone) and sharing files are two of the core reasons networks exist. **Why not the others:** a network doesn't speed up a PC's own processor (C); it connects machines, it doesn't upgrade them. Backups (D) are still needed; a network just makes them easier to centralise. And connecting machines makes security *more* important (E), not less, because now other devices can reach them.
+</details>
+
+**Q2.** What does the term **sneakernet** describe?
+
+- **A.** Moving data by physically carrying storage media from one computer to another
+- **B.** A wireless network built for mobile devices
+- **C.** A peer-to-peer network with no central server
+- **D.** An early Ethernet standard that ran over coaxial cable
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Sneakernet is the joke name for "copy it to a disk and walk it over", because your sneakers are the transport. It's the problem networks solved. **Why not the others:** it has nothing to do with radio (B). Peer-to-peer (C) is a real network model where devices share directly over a network. Coaxial Ethernet (D) was a real wired standard, but it's a network, the very opposite of carrying disks around.
+</details>
 
 ## 1.3 Types of Networks (by Size)
 
@@ -101,9 +154,186 @@ Before networks, if you wanted a file from another computer, you had to copy it 
 
 Each one **contains** the smaller: your PAN sits inside a LAN, which reaches the world through a WAN.
 
+**📝 Exam-style questions — 1.3**
+
+**Q1.** A retailer links its head office in Chicago to a warehouse in Dallas using a connection it rents from a service provider. Which type of network is this link part of?
+
+- **A.** LAN
+- **B.** CAN
+- **C.** MAN
+- **D.** WAN
+
+<details><summary>Answer</summary>
+
+**Answer: D.** Chicago to Dallas crosses states, over land the company doesn't own, on a leased provider link. That's a **WAN**. **Why not the others:** a LAN (A) covers one building or site that you own. A CAN (B) joins a few buildings close together, such as a campus. A MAN (C) covers one city; two cities a thousand kilometres apart are well past that.
+</details>
+
+**Q2.** Which statement correctly describes a key difference between a LAN and a WAN?
+
+- **A.** A LAN is usually owned by the organization and gives high bandwidth at no monthly cost, while WAN links are usually leased from a provider and cost money every month.
+- **B.** A LAN always uses wireless, while a WAN always uses cables.
+- **C.** WAN links are usually faster than LAN links, because WANs use fiber.
+- **D.** A LAN connects several cities, while a WAN stays inside one building.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Ownership is the big divide: in a LAN you own the cables and switches, so bandwidth is cheap and plentiful (1–10 Gbps is normal). A WAN crosses land you don't own, so you rent it, pay monthly, and usually get less speed for more money. **Why not the others:** LANs are mostly wired (B), and WANs can use radio, satellite or cellular. WAN links are usually *slower* than the LAN (C), and LANs use fiber too. D swaps the two definitions.
+</details>
+
+**Q3.** A user's smartwatch syncs with her phone over Bluetooth, and the phone is connected to the office Wi‑Fi. Which two network types are in use? (Choose two.)
+
+- **A.** PAN
+- **B.** WLAN
+- **C.** MAN
+- **D.** CAN
+- **E.** WAN
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Watch to phone over a few centimetres is a **PAN** (personal area network). Phone to office Wi‑Fi is a **WLAN** (a wireless LAN). **Why not the others:** nothing here spans a city (C), a group of campus buildings (D) or a country (E). The office may well reach the internet over a WAN, but the two links described are the PAN and the WLAN.
+</details>
+
 ## 1.4 The Main Network Devices (Meet the Characters)
 
-![A small office network with every device in its role](images/office_lan.png)
+```diagram
+{
+  "type": "topology",
+  "title": "A small office network: every device in its role",
+  "caption": "Click any device or link to read what it does and **why** it's there.",
+  "nodes": [
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 5,
+      "y": 0,
+      "label": "Internet",
+      "info": "The **WAN**: networks you don't own, reached over a link you rent from an ISP. Everything beyond the router is someone else's network."
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 3.1,
+      "y": 0,
+      "label": "Router",
+      "sub": "R1",
+      "info": "The **router** joins two different networks: the office LAN and the ISP. It picks paths using **IP addresses** and does **not** forward broadcasts, so the office's broadcast chatter stays inside the office."
+    },
+    {
+      "id": "FW",
+      "kind": "firewall",
+      "x": 1.5,
+      "y": 0,
+      "label": "Firewall",
+      "info": "The **security guard at the door**. It allows or blocks traffic between the internet and the LAN according to rules, such as \"replies to our own requests may come in; nothing else may\"."
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 1.5,
+      "y": 1.4,
+      "label": "Switch",
+      "sub": "SW1",
+      "info": "The **switch** connects every wired device in the office. It learns which **MAC address** lives on which port and sends each frame only where it needs to go. It's the local mail sorter, so it moves traffic **within** the LAN."
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 0,
+      "y": 1.4,
+      "label": "Server",
+      "sub": "192.168.1.10",
+      "info": "A **server** waits for requests and provides a service: shared files, a printer queue, an internal website. The PCs are its **clients**."
+    },
+    {
+      "id": "AP",
+      "kind": "ap",
+      "x": 3.3,
+      "y": 1.4,
+      "label": "Access point",
+      "info": "The **access point** lets wireless devices join the wired LAN. It's powered over its one network cable (**PoE**, section 3.7), which is why it can hang on a ceiling with no power outlet nearby."
+    },
+    {
+      "id": "PCA",
+      "kind": "host",
+      "x": 0,
+      "y": 2.8,
+      "label": "PC-A",
+      "sub": "192.168.1.21",
+      "info": "A **client**: it asks for services (web pages, files) rather than providing them."
+    },
+    {
+      "id": "PCB",
+      "kind": "host",
+      "x": 1.1,
+      "y": 2.8,
+      "label": "PC-B",
+      "sub": "192.168.1.22",
+      "info": "Another client. PC-A and PC-B talk to each other through the switch only; the router never sees that traffic, because it stays inside one network."
+    },
+    {
+      "id": "PHONE",
+      "kind": "phone",
+      "x": 2.2,
+      "y": 2.8,
+      "label": "IP phone",
+      "info": "An **IP phone** is just another network device. Like the AP, it usually gets its power from the switch port."
+    },
+    {
+      "id": "LAP",
+      "kind": "host",
+      "x": 3.9,
+      "y": 2.8,
+      "label": "Laptop",
+      "sub": "Wi-Fi",
+      "info": "A wireless client. Its traffic reaches the AP over radio, and from there it travels on the wired LAN like everyone else's."
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "INET",
+      "label": "rented WAN link",
+      "info": "The line between **your** network and the provider's. This side is \"free and fast\"; that side is \"paid and slower\"."
+    },
+    {
+      "a": "FW",
+      "b": "R1"
+    },
+    {
+      "a": "FW",
+      "b": "SW1"
+    },
+    {
+      "a": "SW1",
+      "b": "SRV"
+    },
+    {
+      "a": "SW1",
+      "b": "PCA"
+    },
+    {
+      "a": "SW1",
+      "b": "PCB"
+    },
+    {
+      "a": "SW1",
+      "b": "PHONE",
+      "label": "PoE"
+    },
+    {
+      "a": "SW1",
+      "b": "AP",
+      "label": "PoE",
+      "info": "One cable carries both data and power to the access point."
+    },
+    {
+      "a": "AP",
+      "b": "LAP",
+      "style": "wireless"
+    }
+  ]
+}
+```
 
 You will meet these devices over and over. Let's introduce them like characters in a story.
 
@@ -140,6 +370,57 @@ device joining the two — every packet crossing from A to B passes through it.
 
 > **Coming up:** these devices don't get scattered randomly — section **1.7** shows the standard shapes networks are built in, and section **3.7** explains how many of them get their electricity from the network cable itself.
 
+**📝 Exam-style questions — 1.4**
+
+**Q1.** Which device forwards traffic inside a LAN by reading the destination **MAC address** and sending each frame only out the port where that device lives?
+
+- **A.** Hub
+- **B.** Switch
+- **C.** Router
+- **D.** Firewall
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A switch learns which MAC address sits behind which port and forwards each frame only where it needs to go. **Why not the others:** a hub (A) understands no addresses at all; it repeats every signal out every port. A router (C) forwards between networks using **IP** addresses, not MAC addresses. A firewall (D) permits or blocks traffic by security rules; its job is filtering, not local delivery.
+</details>
+
+**Q2.** Why can't the whole internet be built as one giant switched network with no routers?
+
+- **A.** Switches flood broadcasts to every port, so every broadcast from every device would reach every other device on Earth.
+- **B.** Switches can only learn the MAC addresses of devices on one port.
+- **C.** Switches cannot use fiber, so they cannot reach other countries.
+- **D.** Switches can forward frames between at most 48 ports.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A switch's job includes flooding broadcasts. In one world-sized switched network, billions of devices' broadcasts would hit every device, and the network would drown. Routers don't forward broadcasts, so they split the world into manageable networks. **Why not the others:** a switch learns MACs on all of its ports (B). Switches use fiber all the time (C). Port count (D) isn't the limit: you can connect switches to switches; the broadcasts are the problem.
+</details>
+
+**Q3.** Which two statements about routers are true? (Choose two.)
+
+- **A.** A router connects different networks and chooses paths using IP addresses.
+- **B.** A router does not forward broadcasts by default, so each of its interfaces is a separate broadcast domain.
+- **C.** A router floods a frame with an unknown destination out all of its ports.
+- **D.** A router repeats every electrical signal it receives out every other port.
+- **E.** A router's main job is to let wireless devices join the wired network.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Routers join networks together, decide the path with IP addresses, and act as the boundary that broadcasts don't cross. **Why not the others:** flooding unknown destinations (C) is what a *switch* does. Repeating every signal (D) is a *hub*. Letting wireless clients onto the wired network (E) is an *access point's* job (your home box may combine both, but they're separate roles).
+</details>
+
+**Q4.** An office wants a device between its network and the internet that inspects traffic and blocks anything its security policy doesn't allow. Which device is designed for this job?
+
+- **A.** Access point
+- **B.** Switch
+- **C.** Firewall
+- **D.** Server
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A firewall is the security guard at the door: it allows or blocks traffic according to rules. **Why not the others:** an access point (A) connects wireless clients. A switch (B) delivers frames inside the LAN. A server (D) *provides* services such as files and websites; it's one of the things a firewall protects, not the guard itself.
+</details>
+
 ## 1.5 Clients, Servers & Peers
 
 - **Client-Server model:** One computer (the **server**) waits and gives out services; other computers (**clients**) ask for them. Example: A web **server** holds YouTube's videos; your phone is the **client** asking to watch.
@@ -151,6 +432,44 @@ device joining the two — every packet crossing from A to B passes through it.
 - **Peer-to-Peer** needs **no central server**, so it's cheap and easy for small setups (two laptops sharing a folder) — *that's why* home file-sharing and some video-call apps use it. The downside is it's hard to secure and manage once you have many devices, because there's no single place in charge.
 
 *The lesson: "should this be client-server or P2P?" is really a question of control and reliability vs. simplicity and cost.*
+
+**📝 Exam-style questions — 1.5**
+
+**Q1.** A company keeps every shared document on one file server that is backed up each night. What is the main weakness of this client-server design?
+
+- **A.** The file server is a single point of failure: if it goes down, nobody can reach the files.
+- **B.** The documents are harder to back up than if they were spread across every laptop.
+- **C.** Every client must also act as a server for the others.
+- **D.** There is no single place to apply security to the files.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Putting everything in one place makes it easy to control, and that's also the risk: lose the server and everyone loses the service. **Why not the others:** client-server makes backups *easier* (B), because you back up one machine instead of hundreds. Every device acting as both client and server (C) describes peer-to-peer. And one central server is exactly the single place to apply security (D).
+</details>
+
+**Q2.** Which statement describes a peer-to-peer network?
+
+- **A.** One dedicated server answers requests and the other computers only ask.
+- **B.** Each computer can act as both a client and a server at the same time.
+- **C.** All traffic must pass through a router before reaching another computer.
+- **D.** A central server must approve every computer before it can share files.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** In peer-to-peer, every device is an equal: it can request things and serve them, such as two laptops sharing folders with each other. **Why not the others:** A and D describe the client-server model, which has a central machine in charge. C is about routing between networks; two peers on the same LAN talk directly through a switch with no router involved.
+</details>
+
+**Q3.** Two freelancers share a small studio with no IT staff and want to swap files between their two laptops as cheaply as possible. Which model fits, and why?
+
+- **A.** Client-server, because a dedicated server is the only way to share files
+- **B.** Peer-to-peer, because it needs no central server and is simple for a couple of devices
+- **C.** Client-server, because it is cheaper than peer-to-peer for two devices
+- **D.** Peer-to-peer, because it is the easiest model to secure and manage once there are hundreds of devices
+
+<details><summary>Answer</summary>
+
+**Answer: B.** For two laptops, peer-to-peer is cheap and simple: no server to buy, no one to run it. **Why not the others:** peers can share files directly, so a server isn't required (A). Buying and running a server is *more* expensive than sharing directly (C). D gets peer-to-peer's weakness backwards: with many devices and no central control, P2P becomes *hard* to secure and manage.
+</details>
 
 ## 1.6 How Data Moves: Packets
 
@@ -175,6 +494,223 @@ P1, P2, P3, P4 — and each one carries four things:
 | **DATA** | The actual slice of your file |
 
 They travel independently — possibly by different routes — and are rebuilt at the other end.
+
+Step through a file crossing a small network below, including a link failing halfway through:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Packet switching: pieces travel on their own",
+  "caption": "PC-A sends a file to the server as four numbered packets. Press **Next**.",
+  "nodes": [
+    {
+      "id": "PCA",
+      "kind": "host",
+      "x": 0,
+      "y": 1,
+      "label": "PC-A"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.3,
+      "y": 1
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.6,
+      "y": 0
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 2.6,
+      "y": 2
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 3.9,
+      "y": 1
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 5.1,
+      "y": 1,
+      "label": "Web server"
+    }
+  ],
+  "links": [
+    {
+      "a": "PCA",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "R2"
+    },
+    {
+      "a": "R1",
+      "b": "R3"
+    },
+    {
+      "a": "R2",
+      "b": "R4"
+    },
+    {
+      "a": "R3",
+      "b": "R4"
+    },
+    {
+      "a": "R4",
+      "b": "SRV"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The file is cut into numbered packets",
+      "text": "PC-A chops the file into **P1 to P4**. Each one carries the **TO** address (the server), the **FROM** address (PC-A), its **order number**, and a slice of the data. Because each packet is self-contained, each can be handled on its own.",
+      "focus": [
+        "PCA"
+      ],
+      "nodes": {
+        "PCA": {
+          "badge": "P1-P4 ready",
+          "tone": "accent"
+        }
+      }
+    },
+    {
+      "title": "2. P1 takes the best path, through R2",
+      "text": "No packet carries its whole route. Each router looks at the destination as the packet arrives and picks the next hop. Right now R1's best way to the server is through R2. Other computers' packets are sharing these same links, taking turns with ours: that's **packet switching**.",
+      "nodes": {
+        "PCA": null
+      },
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "R1",
+            "R2",
+            "R4",
+            "SRV"
+          ],
+          "label": "P1"
+        }
+      ]
+    },
+    {
+      "title": "3. The R2-R4 link fails with P2 on it",
+      "text": "P2 was heading the same way when the link between R2 and R4 died. P2 is lost. Only **one small packet** is lost, not the whole file.",
+      "links": {
+        "R2-R4": "down"
+      },
+      "nodes": {
+        "SRV": {
+          "badge": "has P1",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "R1",
+            "R2"
+          ],
+          "label": "P2 (lost)",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. The routers find another way",
+      "text": "The routers learn the link is down and R1 now sends toward the server through **R3**. P3 goes the new way. There's no single fragile path, which is why the internet keeps working when links fail.",
+      "nodes": {
+        "SRV": {
+          "badge": "P1, P3"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "R1",
+            "R3",
+            "R4",
+            "SRV"
+          ],
+          "label": "P3"
+        }
+      ]
+    },
+    {
+      "title": "5. Only P2 is resent, and the file is rebuilt",
+      "text": "The sender learns P2 never arrived (TCP's job, section 2.7) and resends just that piece, then sends P4. P3 arrived before P2, but the **order numbers** let the server put everything back in sequence. Cheap recovery, flexible paths, a shared road: the three wins of packets.",
+      "nodes": {
+        "SRV": {
+          "badge": "rebuilt",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "R1",
+            "R3",
+            "R4",
+            "SRV"
+          ],
+          "label": "P2 resent, then P4",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 1.6**
+
+**Q1.** What is the main reason that cutting data into packets lets many computers share one link efficiently?
+
+- **A.** Packets from different computers take turns on the link, so no single transfer hogs it.
+- **B.** Each packet gets its own dedicated circuit for the whole journey.
+- **C.** Packets are never lost, so no resending is ever needed.
+- **D.** Packets are bigger than the original file, so fewer of them are needed.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** That's **packet switching**: small pieces from many senders interleave on the same wire, so everyone makes progress at once. **Why not the others:** a dedicated circuit for the whole journey (B) is the old telephone model, the opposite of packet switching. Packets *can* be lost (C); the win is that you only resend the small lost piece. And packets are pieces of the file (D), so each is smaller than the whole.
+</details>
+
+**Q2.** A 4 GB file is being sent as packets, and one packet is corrupted on the way. With packet-based delivery, what has to be sent again?
+
+- **A.** The whole 4 GB file, from the beginning
+- **B.** Only the data that was in the damaged packet
+- **C.** Nothing: the receiver rebuilds the missing piece from the packets around it
+- **D.** Every packet that travelled the same route as the damaged one
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Only the piece that went wrong is resent. That's the cheap error recovery packets give you. **Why not the others:** resending the whole file (A) is exactly what chopping it up avoids. The receiver can't invent missing data from its neighbours (C); the bytes really are gone. And the route a packet took (D) has nothing to do with which data needs resending; other packets on that route arrived fine.
+</details>
+
+**Q3.** Packets can arrive at the destination by different routes and out of order. Which two pieces of information in each packet let the network deliver it and let the receiver rebuild the original data? (Choose two.)
+
+- **A.** The destination address
+- **B.** A list of every router the packet must pass through
+- **C.** An ordering (sequence) number
+- **D.** The total number of hops to the destination
+- **E.** A copy of the previous packet's data
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** The **destination address** tells every device along the way where the packet is going, and the **order number** lets the receiver put the pieces back in sequence no matter how they arrived. **Why not the others:** packets don't carry their whole route (B); each router decides the next hop as the packet arrives, which is why routes can change mid-transfer. The hop count to the destination (D) isn't known in advance. Copying the previous packet's data (E) would double the traffic for nothing.
+</details>
 
 ---
 
@@ -224,6 +760,281 @@ each other, and spines never connect to each other. Servers hang off the leaves.
 
 Spine-leaf makes every server **exactly the same distance from every other server**: leaf → spine → leaf. Always two hops. That's called **predictable latency**, and it's the whole point. Need more capacity? Add a spine — every leaf instantly gets more bandwidth. Need more servers? Add a leaf. *Same idea as the hierarchy above — one job per layer — but tuned for server-to-server traffic instead of user-to-internet traffic.*
 
+Step through some server-to-server traffic in a small fabric:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Spine-leaf: every server pair is leaf, spine, leaf",
+  "caption": "Two spines, four leaves, a server on each leaf. Click a switch to read its role, or press **Next**.",
+  "nodes": [
+    {
+      "id": "SP1",
+      "kind": "l3switch",
+      "x": 1.4,
+      "y": 0,
+      "label": "Spine1",
+      "info": "A **spine** connects to every leaf and to nothing else: no servers, no other spines. Its only job is to carry traffic between leaves, fast."
+    },
+    {
+      "id": "SP2",
+      "kind": "l3switch",
+      "x": 3.6,
+      "y": 0,
+      "label": "Spine2",
+      "info": "Adding a spine adds a new path between every pair of leaves at once, so it's how you add **capacity**."
+    },
+    {
+      "id": "L1",
+      "kind": "switch",
+      "x": 0,
+      "y": 1.6,
+      "label": "Leaf1",
+      "info": "A **leaf** is where servers plug in. It has an uplink to every spine and never links to another leaf. Adding a leaf is how you add **servers**."
+    },
+    {
+      "id": "L2",
+      "kind": "switch",
+      "x": 1.67,
+      "y": 1.6,
+      "label": "Leaf2"
+    },
+    {
+      "id": "L3",
+      "kind": "switch",
+      "x": 3.33,
+      "y": 1.6,
+      "label": "Leaf3"
+    },
+    {
+      "id": "L4",
+      "kind": "switch",
+      "x": 5,
+      "y": 1.6,
+      "label": "Leaf4"
+    },
+    {
+      "id": "SA",
+      "kind": "server",
+      "x": 0,
+      "y": 3,
+      "label": "Server A"
+    },
+    {
+      "id": "SB",
+      "kind": "server",
+      "x": 1.67,
+      "y": 3,
+      "label": "Server B"
+    },
+    {
+      "id": "SC",
+      "kind": "server",
+      "x": 3.33,
+      "y": 3,
+      "label": "Server C"
+    },
+    {
+      "id": "SD",
+      "kind": "server",
+      "x": 5,
+      "y": 3,
+      "label": "Server D"
+    }
+  ],
+  "links": [
+    {
+      "a": "L1",
+      "b": "SP1"
+    },
+    {
+      "a": "L1",
+      "b": "SP2"
+    },
+    {
+      "a": "L2",
+      "b": "SP1"
+    },
+    {
+      "a": "L2",
+      "b": "SP2"
+    },
+    {
+      "a": "L3",
+      "b": "SP1"
+    },
+    {
+      "a": "L3",
+      "b": "SP2"
+    },
+    {
+      "a": "L4",
+      "b": "SP1"
+    },
+    {
+      "a": "L4",
+      "b": "SP2"
+    },
+    {
+      "a": "L1",
+      "b": "SA"
+    },
+    {
+      "a": "L2",
+      "b": "SB"
+    },
+    {
+      "a": "L3",
+      "b": "SC"
+    },
+    {
+      "a": "L4",
+      "b": "SD"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Server A to Server D: leaf, spine, leaf",
+      "text": "Server A's traffic goes up to its leaf, across one spine, and down to Server D's leaf. That's east-west traffic, the bulk of a data center's work.",
+      "packets": [
+        {
+          "path": [
+            "SA",
+            "L1",
+            "SP1",
+            "L4",
+            "SD"
+          ],
+          "label": "A to D"
+        }
+      ]
+    },
+    {
+      "title": "2. Every pair is the same distance",
+      "text": "Server B to Server C is **also** leaf, spine, leaf. It doesn't matter which leaves the servers sit on: every pair is the same length apart. That's **predictable latency**, the point of the design.",
+      "packets": [
+        {
+          "path": [
+            "SB",
+            "L2",
+            "SP2",
+            "L3",
+            "SC"
+          ],
+          "label": "B to C"
+        }
+      ]
+    },
+    {
+      "title": "3. Both spines carry traffic at once",
+      "text": "Each leaf has an equal path through **every** spine, so the fabric spreads different flows across all of them (equal-cost multipath). Nothing sits idle the way a blocked backup link would.",
+      "packets": [
+        {
+          "path": [
+            "SA",
+            "L1",
+            "SP1",
+            "L4",
+            "SD"
+          ],
+          "label": "flow 1"
+        },
+        {
+          "path": [
+            "SA",
+            "L1",
+            "SP2",
+            "L4",
+            "SD"
+          ],
+          "label": "flow 2",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. A spine fails: less capacity, same path length",
+      "text": "Lose Spine1 and every leaf still reaches every other leaf through Spine2, still in three switches. You lose some capacity, not reachability. Need it back, or need more? Add a spine and every leaf gains bandwidth.",
+      "nodes": {
+        "SP1": {
+          "state": "down",
+          "badge": "failed",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "L1-SP1": "down",
+        "L2-SP1": "down",
+        "L3-SP1": "down",
+        "L4-SP1": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "SA",
+            "L1",
+            "SP2",
+            "L4",
+            "SD"
+          ],
+          "label": "A to D"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 1.7**
+
+**Q1.** In the three-tier campus design, which layer is where PCs, IP phones and access points plug in, and where features such as port security and PoE are applied?
+
+- **A.** Access
+- **B.** Distribution
+- **C.** Core
+- **D.** Spine
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The **access** layer is the edge where end devices connect, so per-port features (port security, VLAN assignment, PoE) live there. **Why not the others:** distribution (B) aggregates the access switches and applies routing and policy between VLANs. The core (C) moves traffic between distribution blocks as fast as possible and connects no end devices. Spine (D) belongs to the data-center spine-leaf design, not the three-tier campus.
+</details>
+
+**Q2.** A single-building company uses a **collapsed core** design. Which two layers of the three-tier model have been combined?
+
+- **A.** Access and distribution
+- **B.** Distribution and core
+- **C.** Access and core
+- **D.** Core and the WAN edge
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A collapsed core merges the **core and distribution** layers into one, leaving two tiers: access and core/distribution. A separate core only pays off when there are enough distribution blocks to connect. **Why not the others:** the access layer always stays separate (A, C), because that's where users plug in. The WAN edge (D) isn't one of the three campus tiers.
+</details>
+
+**Q3.** Which statement correctly describes how a spine-leaf fabric is cabled?
+
+- **A.** Every leaf connects to every spine, leaves never connect to each other, and servers connect to the leaves.
+- **B.** Every leaf connects to every other leaf in a full mesh, and servers connect to the spines.
+- **C.** Spines connect to each other in a ring, and each leaf connects to one spine.
+- **D.** Each leaf connects to one spine, and servers connect to both leaves and spines.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** That one rule is the whole design: every leaf to every spine, no leaf-to-leaf links, no spine-to-spine links, and servers hang off the leaves. **Why not the others:** leaves never link to each other (B), and servers never connect to spines (B, D). Spines never link to each other (C), and a leaf with only one spine (C, D) would lose the equal two-hop path through *every* spine that makes the design predictable.
+</details>
+
+**Q4.** Why do modern data centers prefer spine-leaf over the three-tier design?
+
+- **A.** Most traffic is now east-west (server to server), and spine-leaf gives every pair of servers on different leaves the same leaf-spine-leaf path, so latency is predictable.
+- **B.** Most traffic is north-south (users to the internet), which spine-leaf handles with fewer devices.
+- **C.** Spine-leaf needs no routing or switching configuration.
+- **D.** Spine-leaf uses fewer cables than any other design.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Servers talking to servers is the bulk of data-center traffic, and spine-leaf makes every such conversation the same length: leaf, spine, leaf. Need more capacity? Add a spine. **Why not the others:** north-south traffic (B) is what the three-tier campus was built for. Spine-leaf still needs configuration (C). And full leaf-to-spine meshing uses *more* cables (D), not fewer; that's the price of the equal paths.
+</details>
+
 ## 1.8 SOHO, On-Premises & Cloud
 
 Not every network is a campus. The exam expects you to recognize a few common **deployment styles**.
@@ -243,6 +1054,45 @@ Not every network is a campus. The exam expects you to recognize a few common **
 | **Control** | Total | Limited to what the provider exposes |
 
 Many companies run **hybrid** — some systems on-premises (sensitive data, legacy apps), some in the cloud (websites, backups). *Why hybrid? Because the trade-offs above land differently per application, so the sensible answer is rarely "all one way."*
+
+**📝 Exam-style questions — 1.8**
+
+**Q1.** A home user has one box from the ISP that provides Wi‑Fi, four LAN ports, a firewall, DHCP and NAT. Which deployment style is this?
+
+- **A.** SOHO
+- **B.** Three-tier campus
+- **C.** Public cloud
+- **D.** Spine-leaf
+
+<details><summary>Answer</summary>
+
+**Answer: A.** One all-in-one box doing router, switch, AP, firewall, DHCP and NAT jobs is the signature of a **SOHO** (small office/home office) network. **Why not the others:** a three-tier campus (B) splits those functions into many dedicated devices. Public cloud (C) means renting servers in a provider's data center. Spine-leaf (D) is a data-center switching design.
+</details>
+
+**Q2.** Which two statements describe cloud hosting compared with on-premises servers? (Choose two.)
+
+- **A.** You pay regularly for the capacity you use instead of buying hardware up front.
+- **B.** Extra capacity can be added in minutes.
+- **C.** You have total control over the physical hardware.
+- **D.** Your own team replaces failed disks and power supplies.
+- **E.** It requires a large purchase before anything can run.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Cloud turns servers into a monthly bill for what you use, and scaling is a few clicks. **Why not the others:** total hardware control (C), your own team doing hardware repairs (D) and a big up-front purchase (E) are all features of **on-premises**, where you buy and run the hardware yourself.
+</details>
+
+**Q3.** A clinic keeps its patient-records servers in its own building but runs its public website and offsite backups at a cloud provider. Which model is this?
+
+- **A.** SOHO
+- **B.** Hybrid
+- **C.** On-premises only
+- **D.** Cloud only
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Some systems on-premises (the sensitive records) and some in the cloud (the website and backups) is **hybrid**, and it's common because the trade-offs land differently for each application. **Why not the others:** SOHO (A) describes a small all-in-one network, not where servers are hosted. "On-premises only" (C) and "cloud only" (D) each ignore half of what the clinic runs.
+</details>
 
 ## 1.9 Virtualization: One Machine Pretending to Be Many
 
@@ -296,6 +1146,45 @@ With VRFs, each gets its own routing table that **cannot see the other**. They c
 
 *The neat way to remember it:* **VLANs separate at Layer 2, VRFs separate at Layer 3.** A VLAN splits one switch into many broadcast domains; a VRF splits one router into many routing tables. Same instinct — one physical box, several isolated logical ones.
 
+**📝 Exam-style questions — 1.9**
+
+**Q1.** What is the role of a hypervisor?
+
+- **A.** It creates and runs virtual machines, dividing one physical server's CPU, memory and network among them.
+- **B.** It shares one host operating system kernel among many isolated applications.
+- **C.** It gives a router several independent routing tables.
+- **D.** It splits one switch into several broadcast domains.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The hypervisor is the layer that carves real hardware into virtual machines, each running its own complete operating system. **Why not the others:** sharing one kernel among isolated apps (B) is what a **container engine** such as Docker does. Separate routing tables in one router (C) are **VRFs**. Splitting a switch into broadcast domains (D) is what **VLANs** do.
+</details>
+
+**Q2.** Which two statements correctly compare containers with virtual machines? (Choose two.)
+
+- **A.** Containers share the host's operating system kernel instead of each running a full OS.
+- **B.** Containers are typically megabytes in size and start in seconds.
+- **C.** Each container includes its own complete guest operating system.
+- **D.** Containers give stronger isolation than VMs.
+- **E.** Containers can only run on a physical server with no operating system installed.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Dropping the guest OS is the whole trick: with only the app and its dependencies inside, containers are small and quick to start. **Why not the others:** a full guest OS in each (C) describes a VM. Because containers all trust the same kernel, their isolation is *weaker* than a VM's (D). And containers need a host OS (E); they run on top of it through a container engine.
+</details>
+
+**Q3.** A service provider's router carries traffic for two customers who both use 10.1.1.0/24 internally. The provider must keep their routes completely apart on the same physical router. Which feature does this?
+
+- **A.** VLANs
+- **B.** VRFs
+- **C.** A trunk link
+- **D.** A hypervisor
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A **VRF** gives each customer its own routing table on the same router, so identical, overlapping prefixes live side by side without colliding or leaking. **Why not the others:** VLANs (A) separate traffic at Layer 2 but leave one shared routing table, where two 10.1.1.0/24 routes would clash. A trunk (C) just carries several VLANs over one link. A hypervisor (D) virtualizes servers, not a router's routing table.
+</details>
+
 ---
 
 <a name="chapter-2"></a>
@@ -323,6 +1212,32 @@ Each step is a "layer." The gift doesn't care how the truck works, and the truck
 *That's the magic of layers: each one hides its messy details from the others, so we can upgrade any piece independently.* Imagine if changing your Wi‑Fi meant rewriting every website — the internet could never evolve. Layering is what lets thousands of companies build networking pieces that all snap together.
 
 **And WHY does this help YOU troubleshoot?** Because when something breaks, you can check **one layer at a time** instead of panicking about everything at once. No cable/signal? That's Layer 1. Wrong VLAN? Layer 2. Bad IP or gateway? Layer 3. Can't reach the app but ping works? Layer 4+. The layers become a checklist. (We use exactly this in the Troubleshooting chapter.)
+
+**📝 Exam-style questions — 2.1**
+
+**Q1.** Offices replaced their Ethernet cables with Wi‑Fi, yet web browsers, TCP and IP needed no changes at all. Which property of layered models made that possible?
+
+- **A.** Each layer hides its details from the others, so one layer can change without the others changing.
+- **B.** Every layer encrypts the data, so the medium underneath doesn't matter.
+- **C.** Layered models remove headers, so less data crosses the radio link.
+- **D.** Layered models guarantee that every packet is delivered.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Each layer only talks to the layers just above and below it, so swapping Layer 1 (copper for radio) leaves Layers 3, 4 and 7 untouched. **Why not the others:** most layers don't encrypt anything (B). Layering *adds* headers rather than removing them (C). And layering itself guarantees nothing about delivery (D); reliability is one protocol's job (TCP), not a property of the model.
+</details>
+
+**Q2.** A user can ping the company web server by its IP address, but her browser shows "connection refused" when she opens the site. Using the layers as a troubleshooting checklist, where should you look first?
+
+- **A.** Layer 1: the cable or Wi‑Fi signal
+- **B.** Layer 2: the switch port's VLAN
+- **C.** Layer 3: the PC's IP address and default gateway
+- **D.** Layer 4 and above: whether the web service is running and listening on its port
+
+<details><summary>Answer</summary>
+
+**Answer: D.** A successful ping proves Layers 1 to 3 work end to end: signals, frames and IP routing are all fine. "Connection refused" means the server answered but nothing accepted the connection on that port, so the problem is at the transport or application layer. **Why not the others:** a broken cable or signal (A), a wrong VLAN (B) or a bad IP address or gateway (C) would each have made the ping fail too.
+</details>
 
 ## 2.2 The OSI Model — 7 Layers
 
@@ -378,6 +1293,57 @@ From Layer 1 up to 7:
 
 **Layer 7 — Application:** The layer **closest to you**, the human. It's the services apps use: web (HTTP/HTTPS), email (SMTP), file transfer (FTP). Note: this is NOT the app itself (like Chrome) — it's the networking rules the app uses.
 
+**📝 Exam-style questions — 2.2**
+
+**Q1.** Which OSI layer provides logical addressing and chooses the path between different networks?
+
+- **A.** Data Link
+- **B.** Network
+- **C.** Transport
+- **D.** Session
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Layer 3, the **Network** layer, is where IP addresses live and where routers pick the path between networks. **Why not the others:** the Data Link layer (A) delivers frames on one local link using MAC addresses. The Transport layer (C) handles ports and reliable delivery between applications. The Session layer (D) opens, maintains and closes conversations between applications.
+</details>
+
+**Q2.** Which OSI layer is responsible for translating data formats, compression and encryption, for example turning a picture into JPEG?
+
+- **A.** Application
+- **B.** Presentation
+- **C.** Session
+- **D.** Transport
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Layer 6, **Presentation**, makes sure both sides understand the format: translation, compression and encryption. **Why not the others:** the Application layer (A) is the network services apps use, such as HTTP and SMTP. The Session layer (C) manages the conversation itself. The Transport layer (D) handles ports, segmentation and reliability, not data formats.
+</details>
+
+**Q3.** Which two functions belong to the OSI Data Link layer? (Choose two.)
+
+- **A.** Addressing frames with MAC addresses for delivery on the local network
+- **B.** Detecting corrupted frames with a check value in the trailer
+- **C.** Using port numbers to hand data to the right application
+- **D.** Choosing the best path to a remote network
+- **E.** Opening and closing conversations between two applications
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Layer 2 packs data into **frames**, addresses them with **MAC addresses** for the local hop, and checks each frame for errors (Ethernet's FCS). **Why not the others:** port numbers (C) are Layer 4. Choosing paths between networks (D) is Layer 3. Opening and closing conversations (E) is Layer 5.
+</details>
+
+**Q4.** At which OSI layers do a traditional switch and a router make their forwarding decisions?
+
+- **A.** Switch: Layer 1. Router: Layer 2.
+- **B.** Switch: Layer 2. Router: Layer 3.
+- **C.** Switch: Layer 3. Router: Layer 4.
+- **D.** Switch: Layer 2. Router: Layer 4.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A switch forwards **frames** by MAC address (Layer 2), and a router forwards **packets** by IP address (Layer 3). **Why not the others:** Layer 1 (A) is the hub's world, repeating bits with no addresses. Routers don't forward by port numbers (C, D); Layer 4 identifies applications at the endpoints. (Multilayer switches that also route exist, and you'll meet them later, but the classic switch is a Layer 2 device.)
+</details>
+
 ## 2.3 The TCP/IP Model — The Real-World Version
 
 ![The OSI model beside the TCP/IP model with PDUs](images/osi_tcpip.png)
@@ -392,6 +1358,32 @@ The **TCP/IP model** is what the Internet actually uses. It has **4 layers** (so
 | **Network Access** | 2 Data Link + 1 Physical |
 
 TCP/IP simply **merges** layers OSI keeps separate — the top three become one, and the bottom two become one.
+
+**📝 Exam-style questions — 2.3**
+
+**Q1.** Which OSI layers does the TCP/IP model's **Application** layer cover?
+
+- **A.** Layer 7 only
+- **B.** Layers 6 and 7
+- **C.** Layers 5, 6 and 7
+- **D.** Layers 4, 5, 6 and 7
+
+<details><summary>Answer</summary>
+
+**Answer: C.** TCP/IP merges OSI's top three layers (Session, Presentation and Application) into its one Application layer. **Why not the others:** A and B leave Session (and Presentation) without a home in TCP/IP. D wrongly pulls in Layer 4, which TCP/IP keeps as its own Transport layer.
+</details>
+
+**Q2.** In the four-layer TCP/IP model, which layer matches OSI Layers 1 and 2?
+
+- **A.** Internet
+- **B.** Transport
+- **C.** Network Access (also called Link)
+- **D.** Physical
+
+<details><summary>Answer</summary>
+
+**Answer: C.** TCP/IP squeezes Physical and Data Link into a single **Network Access** layer. **Why not the others:** the Internet layer (A) matches OSI Layer 3 (IP). Transport (B) matches OSI Layer 4. "Physical" (D) only appears as a separate layer in the five-layer version of TCP/IP, and even there it covers just OSI Layer 1, not Layer 2 as well.
+</details>
 
 ## 2.4 Encapsulation — Wrapping Data in Layers
 
@@ -409,6 +1401,97 @@ As data goes **down** the layers (from your app to the wire), each layer **adds 
 
 *Each layer wraps what the one above handed it — and the receiving device unwraps them in reverse.*
 
+Step down the stack of a PC sending a web request, one wrapper at a time:
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Encapsulation: a web request going down the stack",
+  "actors": [
+    {
+      "id": "APP",
+      "label": "Application"
+    },
+    {
+      "id": "TR",
+      "label": "Transport"
+    },
+    {
+      "id": "NET",
+      "label": "Network"
+    },
+    {
+      "id": "DL",
+      "label": "Data Link"
+    },
+    {
+      "id": "PHY",
+      "label": "Physical"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Browser asks for a page",
+      "over": [
+        "APP"
+      ],
+      "states": {
+        "APP": "Data"
+      },
+      "text": "PC-A (192.168.1.10) asks web server 10.2.2.20 for `/index.html`. At Layers 7 to 5 this is just **data**: no addresses yet."
+    },
+    {
+      "from": "APP",
+      "to": "TR",
+      "label": "data",
+      "detail": "GET /index.html",
+      "text": "The application hands its data down to the transport layer. It neither knows nor cares how the bits will travel."
+    },
+    {
+      "from": "TR",
+      "to": "NET",
+      "label": "+ TCP header",
+      "detail": "ports 49152 to 80",
+      "states": {
+        "TR": "Segment"
+      },
+      "text": "TCP adds **port numbers**: destination 80 tells the server *which application* gets this (the web server), and source 49152 tells the reply which browser tab to come back to. It also adds sequence numbers for reliability."
+    },
+    {
+      "from": "NET",
+      "to": "DL",
+      "label": "+ IP header",
+      "detail": "to 10.2.2.20",
+      "states": {
+        "NET": "Packet"
+      },
+      "text": "IP adds the **final** source and destination. These two addresses stay the same for the whole trip."
+    },
+    {
+      "from": "DL",
+      "to": "PHY",
+      "label": "+ Eth header + FCS",
+      "detail": "to R1's MAC",
+      "states": {
+        "DL": "Frame"
+      },
+      "text": "Ethernet adds a header **and** a trailer (the FCS error check). Look at the destination MAC: it's the **default gateway's** (R1), not the server's. The server is on another network, so the next *local* hop is the router. MAC means \"next hop\"; IP means \"final destination\"."
+    },
+    {
+      "note": "Frame leaves as bits",
+      "over": [
+        "DL",
+        "PHY"
+      ],
+      "states": {
+        "PHY": "Bits"
+      },
+      "text": "Layer 1 turns the frame into electrical pulses, light or radio. At the far end, the server reverses everything (**de-encapsulation**): check and strip the frame, read the IP header, hand the segment to TCP, deliver the data to port 80."
+    }
+  ]
+}
+```
+
 At the other end, the receiving computer does the **opposite** — it peels off each wrapper. This is called **de-encapsulation**.
 
 **Why wrap data in all these layers? Why not just send the raw data?** Because each header carries the exact information *one specific device* needs to do *its* job — and nothing more:
@@ -420,6 +1503,130 @@ At the other end, the receiving computer does the **opposite** — it peels off 
 So each wrapper is like an **address label for a different worker** along the journey. The switch reads its label, the router reads its label, the destination reads its label. *That's why we add headers in order going down, and strip them in reverse going up* — each device unwraps only as far as it needs to, does its job, and passes it on. It's an assembly line where every station reads only its own instructions.
 
 **A key detail (exam favorite):** as a frame passes through switches and routers, the **MAC addresses (Layer 2) change at every hop**, but the **IP addresses (Layer 3) stay the same** from start to finish. *Why?* Because MAC = "the next local step" (changes each hop, like passing a note hand-to-hand across a room), while IP = "the final destination" (never changes, like the address written on the envelope). Hold onto this — it clicks fully once you reach routing in Chapter 14.
+
+Step through it hop by hop:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Hop by hop: the MACs change, the IPs don't",
+  "caption": "PC-A (192.168.1.10) sends to SRV (10.2.2.20) through router R1. Press **Next** and watch which addresses change.",
+  "nodes": [
+    {
+      "id": "PCA",
+      "kind": "host",
+      "x": 0,
+      "y": 1,
+      "label": "PC-A",
+      "sub": "192.168.1.10"
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 1.25,
+      "y": 1
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2.5,
+      "y": 1,
+      "info": "R1 has one MAC per interface: Gi0/0 is `0c1a.2b3c.0000` (192.168.1.1) and Gi0/1 is `0c1a.2b3c.0001` (10.2.2.1)."
+    },
+    {
+      "id": "SW2",
+      "kind": "switch",
+      "x": 3.75,
+      "y": 1
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 5,
+      "y": 1,
+      "label": "Web server",
+      "sub": "10.2.2.20"
+    }
+  ],
+  "links": [
+    {
+      "a": "PCA",
+      "b": "SW1"
+    },
+    {
+      "a": "SW1",
+      "b": "R1",
+      "bLabel": "Gi0/0"
+    },
+    {
+      "a": "R1",
+      "b": "SW2",
+      "aLabel": "Gi0/1"
+    },
+    {
+      "a": "SW2",
+      "b": "SRV"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. PC-A frames the packet for its gateway",
+      "text": "The server is on another network, so PC-A addresses the **frame** to its default gateway: source MAC `0050.7966.0001` (PC-A), destination MAC `0c1a.2b3c.0000` (R1 Gi0/0). Inside, the **packet** says 192.168.1.10 to 10.2.2.20. SW1 reads only the destination MAC to forward it.",
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "SW1",
+            "R1"
+          ],
+          "label": "frame 1"
+        }
+      ]
+    },
+    {
+      "title": "2. R1 unwraps to Layer 3 and decides",
+      "text": "The frame was addressed to R1, so R1 checks the FCS, **throws the frame away**, and reads the IP header. 10.2.2.20 is on its Gi0/1 network. The first frame's job is done: it only ever had to cross one link.",
+      "focus": [
+        "R1"
+      ],
+      "nodes": {
+        "R1": {
+          "badge": "reads IP",
+          "tone": "accent"
+        }
+      }
+    },
+    {
+      "title": "3. R1 builds a brand-new frame",
+      "text": "New frame for the new link: source MAC `0c1a.2b3c.0001` (R1 Gi0/1), destination MAC `0050.7966.0020` (SRV). The packet inside is the **same**: still 192.168.1.10 to 10.2.2.20 (only its TTL dropped by one). No NAT here, so no IP address changes.",
+      "nodes": {
+        "R1": null
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "SW2",
+            "SRV"
+          ],
+          "label": "frame 2",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. SRV unwraps all the way up",
+      "text": "SRV sees its own MAC, strips the frame, sees its own IP, strips the packet, and hands the segment to whatever listens on **TCP port 80**: the web server. Two frames, one packet: MAC = next local hop, IP = final destination.",
+      "nodes": {
+        "SRV": {
+          "badge": "port 80",
+          "tone": "good"
+        }
+      }
+    }
+  ]
+}
+```
 
 ### The Names of Data at Each Layer (PDUs)
 
@@ -433,6 +1640,65 @@ So each wrapper is like an **address label for a different worker** along the jo
 | Physical (1) | **Bits** |
 
 **Memory trick:** "**Some People Fear Birthdays**" → **S**egment, **P**acket, **F**rame, **B**its (from Layer 4 down to 1).
+
+**📝 Exam-style questions — 2.4**
+
+**Q1.** As data moves down the stack at the sender, which list gives the PDU names in the correct order from Layer 4 to Layer 1?
+
+- **A.** Segment, packet, frame, bits
+- **B.** Packet, segment, frame, bits
+- **C.** Frame, packet, segment, bits
+- **D.** Segment, frame, packet, bits
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Layer 4 makes a **segment**, Layer 3 wraps it in a **packet**, Layer 2 wraps that in a **frame**, and Layer 1 sends it as **bits** ("Some People Fear Birthdays"). **Why not the others:** B swaps Layers 3 and 4. C lists the frame first, which is the outermost wrapper, not the innermost. D swaps the packet and the frame; a frame carries a packet, not the other way round.
+</details>
+
+**Q2.** Refer to the exhibit. PC-A sends a web request to SRV. There is no NAT. Which addresses does the frame carry as it travels from R1 to SRV?
+
+```
+PC-A ---- SW1 ---- Gi0/0 [ R1 ] Gi0/1 ---- SW2 ---- SRV
+
+PC-A       IP 192.168.1.10   MAC 0050.7966.0001
+R1 Gi0/0   IP 192.168.1.1    MAC 0c1a.2b3c.0000
+R1 Gi0/1   IP 10.2.2.1       MAC 0c1a.2b3c.0001
+SRV        IP 10.2.2.20      MAC 0050.7966.0020
+```
+
+- **A.** Source MAC 0050.7966.0001, destination MAC 0050.7966.0020, source IP 192.168.1.10, destination IP 10.2.2.20
+- **B.** Source MAC 0c1a.2b3c.0001, destination MAC 0050.7966.0020, source IP 192.168.1.10, destination IP 10.2.2.20
+- **C.** Source MAC 0c1a.2b3c.0001, destination MAC 0050.7966.0020, source IP 10.2.2.1, destination IP 10.2.2.20
+- **D.** Source MAC 0050.7966.0001, destination MAC 0c1a.2b3c.0000, source IP 192.168.1.10, destination IP 10.2.2.20
+
+<details><summary>Answer</summary>
+
+**Answer: B.** R1 strips the frame PC-A built, reads the IP header, and builds a **new frame** for the next local hop: from its own Gi0/1 MAC to SRV's MAC. The IP addresses inside never change. **Why not the others:** A keeps PC-A's MAC as the source, but MACs only describe the current local hop, and PC-A's frame ended at R1. C changes the source IP to R1's, which only NAT would do, and there's no NAT here. D is the frame on the *first* hop, from PC-A to its gateway, not the one between R1 and SRV.
+</details>
+
+**Q3.** Which header does each device read to make its forwarding decision?
+
+- **A.** A switch reads the IP header; a router reads the Ethernet header.
+- **B.** A switch reads the destination MAC address; a router reads the destination IP address.
+- **C.** Both read the TCP port numbers.
+- **D.** A switch reads the destination IP address; a router reads the destination TCP port.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Each device unwraps only as far as it needs: the switch reads the Layer 2 header (destination MAC), the router reads the Layer 3 header (destination IP). **Why not the others:** A swaps the two jobs. Port numbers (C) are read by the receiving host to pick the application, not by switches and routers when forwarding. D gives both devices the wrong layer.
+</details>
+
+**Q4.** During encapsulation, which layer adds both a **header and a trailer**?
+
+- **A.** Transport
+- **B.** Network
+- **C.** Data Link
+- **D.** Physical
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The Data Link layer adds the MAC header at the front and the **FCS trailer** at the end, so the error check can cover everything before it. **Why not the others:** the Transport layer (A) adds only a TCP or UDP header, and the Network layer (B) adds only an IP header. The Physical layer (D) adds no header at all; it turns the frame into signals.
+</details>
 
 ## 2.5 TCP vs. UDP — The Two Delivery Styles
 
@@ -460,6 +1726,80 @@ Only after that third message does either side send real data.
 
 **Remember:** SYN → SYN-ACK → ACK. Like knocking, getting a "who is it?", then answering.
 
+Here it is with the sequence numbers and the TCP states each side passes through:
+
+```diagram
+{
+  "type": "sequence",
+  "title": "The TCP three-way handshake",
+  "actors": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "label": "Client"
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "label": "Web server"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Web server waits on port 80",
+      "over": [
+        "PC",
+        "SRV"
+      ],
+      "states": {
+        "PC": "CLOSED",
+        "SRV": "LISTEN"
+      },
+      "text": "The server's web application has opened port 80 and is **listening**. The client has no connection yet."
+    },
+    {
+      "from": "PC",
+      "to": "SRV",
+      "label": "SYN",
+      "detail": "seq=1000, MSS 1460",
+      "states": {
+        "PC": "SYN-SENT"
+      },
+      "text": "\"Hi, can we talk?\" The client picks a random **initial sequence number** (1000 here, to keep it readable) and offers its MSS, the biggest chunk of data it wants per segment (section 2.7)."
+    },
+    {
+      "from": "SRV",
+      "to": "PC",
+      "label": "SYN-ACK",
+      "detail": "seq=5000, ack=1001, MSS 1460",
+      "states": {
+        "SRV": "SYN-RECEIVED"
+      },
+      "text": "\"Sure, can you hear me?\" Two jobs in one segment: **ACK** the client's SYN (a SYN counts as one byte, so it asks for 1001 next) and send the server's own **SYN** with its own starting number."
+    },
+    {
+      "from": "PC",
+      "to": "SRV",
+      "label": "ACK",
+      "detail": "seq=1001, ack=5001",
+      "states": {
+        "PC": "ESTABLISHED",
+        "SRV": "ESTABLISHED"
+      },
+      "tone": "good",
+      "text": "\"Yes, let's go.\" Now **both** directions have been tested: each side has seen the other's SYN acknowledged. That's why it takes three messages, not two."
+    },
+    {
+      "from": "PC",
+      "to": "SRV",
+      "label": "data: GET /index.html",
+      "detail": "seq=1001",
+      "text": "Only now does real data flow. UDP skips all of this and just sends, which is why it's faster and why it can't promise anything."
+    }
+  ]
+}
+```
+
 ### UDP (User Datagram Protocol) — The Fast Delivery
 
 UDP is like **shouting a message** — fast, but you don't check if the person heard every word.
@@ -479,6 +1819,57 @@ UDP is like **shouting a message** — fast, but you don't check if the person h
 | Handshake? | Yes (SYN/SYN-ACK/ACK) | No |
 | Speed | Slower | Faster |
 | Good for | Web, email, files | Video, voice, games, DNS |
+
+**📝 Exam-style questions — 2.5**
+
+**Q1.** Which two statements describe UDP? (Choose two.)
+
+- **A.** It is connectionless and sends data without a handshake.
+- **B.** It does not acknowledge or resend lost data.
+- **C.** It uses a three-way handshake to open a connection.
+- **D.** It puts out-of-order data back in sequence.
+- **E.** It is used by HTTPS to download web pages.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** UDP just sends: no setup and no acknowledgements, so no resending. That's why it's fast. **Why not the others:** the three-way handshake (C) and sequencing (D) are TCP features. HTTPS (E) runs over TCP port 443, because every byte of a web page matters.
+</details>
+
+**Q2.** Which sequence of messages opens a TCP connection?
+
+- **A.** SYN, ACK, SYN-ACK
+- **B.** SYN, SYN-ACK, ACK
+- **C.** ACK, SYN, FIN
+- **D.** SYN, SYN-ACK, FIN
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The client sends **SYN**, the server replies **SYN-ACK** (agreeing and sending its own SYN), and the client sends **ACK**. Only then does data flow. **Why not the others:** A puts the ACK before the server has answered. C and D include **FIN**, which *closes* a connection rather than opening one.
+</details>
+
+**Q3.** Which application is best suited to UDP rather than TCP?
+
+- **A.** Voice over IP calls
+- **B.** Downloading a software update
+- **C.** Sending email with SMTP
+- **D.** Loading a banking web page over HTTPS
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Real-time voice needs low delay more than perfection: a lost slice of audio is a tiny glitch, but waiting for a resend would make the conversation lag. So voice rides on UDP. **Why not the others:** a software update (B), an email (C) and a banking page (D) are all useless if any byte is missing or out of order, so they use TCP's reliability.
+</details>
+
+**Q4.** Why does real-time voice traffic use UDP instead of TCP?
+
+- **A.** A resent voice packet would arrive too late to be played, so TCP's retransmissions only add delay.
+- **B.** UDP encrypts the audio, and TCP cannot.
+- **C.** UDP guarantees the packets arrive in order.
+- **D.** TCP cannot carry audio.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** By the time TCP noticed a loss and resent it, that bit of the conversation would already be in the past. Better to skip it and keep going. **Why not the others:** neither protocol encrypts anything (B); that's a job for TLS or SRTP. Ordering (C) is a TCP feature, not a UDP one. TCP can carry any bytes, audio included (D); it's just the wrong fit for real time.
+</details>
 
 ## 2.6 Port Numbers — Apartment Numbers for Apps
 
@@ -509,6 +1900,63 @@ Ports you MUST memorize for the exam:
 ---
 
 > **Ports also let the network treat traffic differently.** Recognizing "this is voice, that is a file download" is the first step of **QoS**, which decides who goes first when a link is full — see section **17.7**.
+
+**📝 Exam-style questions — 2.6**
+
+**Q1.** Which protocol and port does SSH use?
+
+- **A.** TCP 22
+- **B.** TCP 23
+- **C.** UDP 22
+- **D.** TCP 443
+
+<details><summary>Answer</summary>
+
+**Answer: A.** SSH, the secure remote login, uses **TCP port 22**. **Why not the others:** TCP 23 (B) is **Telnet**, the insecure neighbour. SSH needs TCP's reliable delivery, not UDP (C). TCP 443 (D) is **HTTPS**.
+</details>
+
+**Q2.** Which two protocols use UDP as their transport? (Choose two.)
+
+- **A.** DHCP
+- **B.** TFTP
+- **C.** SMTP
+- **D.** HTTPS
+- **E.** Telnet
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** **DHCP** uses UDP 67 and 68, and **TFTP** uses UDP 69. Both are simple request-and-reply protocols. **Why not the others:** SMTP (C, TCP 25), HTTPS (D, TCP 443) and Telnet (E, TCP 23) all need TCP's reliable byte stream.
+</details>
+
+**Q3.** Refer to the exhibit. A packet capture on a PC shows this packet. Which service is the PC asking for?
+
+```
+Internet Protocol, Src: 192.168.1.50, Dst: 192.168.1.1
+User Datagram Protocol, Src Port: 51344, Dst Port: 53
+```
+
+- **A.** DHCP
+- **B.** DNS
+- **C.** SNMP
+- **D.** TFTP
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Destination **UDP 53** is **DNS**: the PC is asking 192.168.1.1 (here, the home router acting as its DNS server) to turn a name into an address. The high source port, 51344, is just the PC's temporary port for this conversation. **Why not the others:** DHCP (A) uses UDP 67 and 68. SNMP (C) uses UDP 161 and 162. TFTP (D) uses UDP 69.
+</details>
+
+**Q4.** Which two ports are used to **retrieve** email from a mail server? (Choose two.)
+
+- **A.** TCP 110
+- **B.** TCP 143
+- **C.** TCP 25
+- **D.** UDP 161
+- **E.** UDP 69
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** **POP3** (TCP 110) and **IMAP** (TCP 143) are the two ways a mail client pulls email down from a server. **Why not the others:** TCP 25 (C) is **SMTP**, which *sends* mail. UDP 161 (D) is **SNMP** device management. UDP 69 (E) is **TFTP** file transfer.
+</details>
 
 ---
 
@@ -565,6 +2013,111 @@ same number three times, because that's the truth: it still needs byte 1001.
 
 The receiver keeps saying `Ack=1001` because that's the truth — it can't acknowledge past the hole. Three **duplicate ACKs** tell the sender "one specific segment is missing, but later ones are arriving, so the path is alive." The sender resends just that segment — **fast retransmit** — without waiting for a timeout. *That's why the ack is "next expected" rather than "last received": the repetition itself becomes the signal.*
 
+Step through the loss, the duplicate ACKs and the fast retransmit:
+
+```diagram
+{
+  "type": "sequence",
+  "title": "A lost segment, duplicate ACKs and fast retransmit",
+  "actors": [
+    {
+      "id": "S",
+      "kind": "server",
+      "label": "Sender"
+    },
+    {
+      "id": "R",
+      "kind": "host",
+      "label": "Receiver"
+    }
+  ],
+  "messages": [
+    {
+      "from": "S",
+      "to": "R",
+      "label": "Seq=1 (bytes 1-1000)",
+      "text": "The sender has 5000 bytes to send with an MSS of 1000, so five segments. The first one arrives fine."
+    },
+    {
+      "from": "R",
+      "to": "S",
+      "label": "Ack=1001",
+      "dashed": true,
+      "text": "\"I have everything below 1001; send byte 1001 next.\" The ack names the **next byte expected**."
+    },
+    {
+      "from": "S",
+      "to": "R",
+      "label": "Seq=1001 (bytes 1001-2000)",
+      "drop": true,
+      "tone": "bad",
+      "text": "This segment is lost somewhere in the network."
+    },
+    {
+      "from": "S",
+      "to": "R",
+      "label": "Seq=2001 (bytes 2001-3000)",
+      "text": "The sender doesn't wait for each ack (that's what the window allows), so the next segment is already on its way. It arrives, and the receiver keeps it, but there's a hole before it."
+    },
+    {
+      "from": "R",
+      "to": "S",
+      "label": "Ack=1001",
+      "detail": "duplicate ACK 1",
+      "dashed": true,
+      "tone": "warn",
+      "text": "The receiver can't acknowledge past the hole, so it repeats **Ack=1001**: that's the truth, it still needs byte 1001."
+    },
+    {
+      "from": "S",
+      "to": "R",
+      "label": "Seq=3001 (bytes 3001-4000)",
+      "text": "The next segment arrives too, and is kept in the receiver's buffer behind the hole."
+    },
+    {
+      "from": "R",
+      "to": "S",
+      "label": "Ack=1001",
+      "detail": "duplicate ACK 2",
+      "dashed": true,
+      "tone": "warn",
+      "text": "Again. Each repeat tells the sender two things: one specific segment is missing, and later ones *are* arriving, so the path is alive."
+    },
+    {
+      "from": "S",
+      "to": "R",
+      "label": "Seq=4001 (bytes 4001-5000)",
+      "text": "The last segment arrives. The receiver now holds bytes 1 to 1000 and 2001 to 5000, with a hole in between."
+    },
+    {
+      "from": "R",
+      "to": "S",
+      "label": "Ack=1001",
+      "detail": "duplicate ACK 3",
+      "dashed": true,
+      "tone": "warn",
+      "text": "The **third duplicate ACK** is the trigger."
+    },
+    {
+      "from": "S",
+      "to": "R",
+      "label": "Seq=1001 (resent)",
+      "tone": "good",
+      "text": "**Fast retransmit**: the sender resends just the missing segment straight away, without waiting for its retransmission timer to run out."
+    },
+    {
+      "from": "R",
+      "to": "S",
+      "label": "Ack=5001",
+      "detail": "everything up to byte 5000",
+      "dashed": true,
+      "tone": "good",
+      "text": "The hole is filled, and the receiver already held bytes 2001 to 5000, so **one** ack covers all of it. Counting bytes is what makes a single number able to say that."
+    }
+  ]
+}
+```
+
 ### Flow Control vs Congestion Control — Two Different Problems
 
 These get confused constantly, and the exam likes the distinction.
@@ -603,6 +2156,149 @@ Opening takes three messages; closing normally takes **four**, because each dire
 
 **Why can't both sides just hang up at once?** Because TCP is **full duplex** — two independent byte streams. One side finishing its upload doesn't mean the other finished its download, so a **half-close** is legitimate: the server can keep sending after the client says FIN. (A **RST** is the abrupt alternative — "this connection is invalid, stop now" — which is what you get connecting to a closed port.)
 
+Step through a normal close, including the half-close:
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Closing a TCP connection: four messages",
+  "actors": [
+    {
+      "id": "C",
+      "kind": "host",
+      "label": "Client"
+    },
+    {
+      "id": "S",
+      "kind": "server",
+      "label": "Server"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Connection open, data flowing",
+      "over": [
+        "C",
+        "S"
+      ],
+      "states": {
+        "C": "ESTABLISHED",
+        "S": "ESTABLISHED"
+      },
+      "text": "Two independent byte streams: client to server, and server to client."
+    },
+    {
+      "from": "C",
+      "to": "S",
+      "label": "FIN",
+      "detail": "I'm done sending",
+      "states": {
+        "C": "FIN-WAIT-1"
+      },
+      "text": "The client has nothing more to **send**. That closes only the client-to-server direction."
+    },
+    {
+      "from": "S",
+      "to": "C",
+      "label": "ACK",
+      "dashed": true,
+      "states": {
+        "S": "CLOSE-WAIT",
+        "C": "FIN-WAIT-2"
+      },
+      "text": "The server acknowledges the FIN, but it may still have data of its own to send, so it doesn't close yet."
+    },
+    {
+      "from": "S",
+      "to": "C",
+      "label": "data (rest of the download)",
+      "text": "The **half-close**: the server keeps sending, and the client keeps receiving (and acking). Legitimate, because the two directions are separate."
+    },
+    {
+      "from": "S",
+      "to": "C",
+      "label": "FIN",
+      "detail": "so am I",
+      "states": {
+        "S": "LAST-ACK"
+      },
+      "text": "Now the server is done too, and closes its direction."
+    },
+    {
+      "from": "C",
+      "to": "S",
+      "label": "ACK",
+      "dashed": true,
+      "states": {
+        "C": "TIME-WAIT",
+        "S": "CLOSED"
+      },
+      "tone": "good",
+      "text": "The server is finished. The client waits a little in **TIME-WAIT** in case that last ACK was lost and the server resends its FIN."
+    },
+    {
+      "from": "C",
+      "to": "C",
+      "label": "TIME-WAIT timer expires",
+      "states": {
+        "C": "CLOSED"
+      },
+      "text": "Both sides are closed. The abrupt alternative is a single **RST**, \"this connection is invalid, stop now\", which is what you get connecting to a closed port."
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 2.7**
+
+**Q1.** A sender transmits four 1000-byte segments: Seq=1, Seq=1001, Seq=2001 and Seq=3001. The segment with Seq=1001 is lost; the other three arrive. Which acknowledgment numbers does the receiver send back, in order?
+
+- **A.** Ack=1001, Ack=1001, Ack=1001
+- **B.** Ack=1001, Ack=3001, Ack=4001
+- **C.** Ack=1000, Ack=3000, Ack=4000
+- **D.** Ack=2001, Ack=3001, Ack=4001
+
+<details><summary>Answer</summary>
+
+**Answer: A.** An ack is the **next byte expected**, and the receiver can't acknowledge past the hole. After Seq=1 it asks for 1001. When 2001 and 3001 arrive, it still needs 1001, so it says Ack=1001 again: **duplicate ACKs**, which tell the sender exactly what's missing. **Why not the others:** B and D acknowledge bytes 1001–2000, which never arrived. C uses the *last byte received*, but TCP acks name the *next byte expected*.
+</details>
+
+**Q2.** A busy receiver advertises **Window=0** in its acknowledgments. What does the sender do?
+
+- **A.** It stops sending new data until the receiver advertises a window larger than zero.
+- **B.** It immediately resends everything it has sent so far.
+- **C.** It resets the connection with RST.
+- **D.** It halves its congestion window, because zero means the network is congested.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A zero window is **flow control**: the receiver is saying "my buffer is full, pause". The sender waits (sending a small probe now and then) until the receiver opens the window again. **Why not the others:** nothing was lost, so there's nothing to resend (B). The connection is healthy, just paused, so there's no reason to reset it (C). D mixes up the two mechanisms: the advertised window protects the *receiver*, while congestion control reacts to signs of a congested *network* such as loss.
+</details>
+
+**Q3.** A host on Ethernet (MTU 1500) opens an IPv4 TCP connection, with no IP or TCP options. What MSS does it advertise?
+
+- **A.** 1500
+- **B.** 1480
+- **C.** 1460
+- **D.** 1440
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The MSS is the TCP *data* that fits in one packet: 1500 − 20 (IPv4 header) − 20 (TCP header) = **1460**. **Why not the others:** 1500 (A) is the whole IP packet, headers included. 1480 (B) subtracts only the IP header and forgets TCP's. 1440 (D) is the answer for **IPv6**, whose header is 40 bytes.
+</details>
+
+**Q4.** A PC sends a TCP SYN to port 23 on a server where no Telnet service is running. What does the server send back?
+
+- **A.** A SYN-ACK, followed by a FIN once it notices nothing is listening
+- **B.** A TCP segment with the RST flag set
+- **C.** A FIN, to close the connection politely
+- **D.** An ICMP port unreachable message
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A connection request to a closed TCP port gets an **RST**: "this connection is invalid, stop now". The client reports "connection refused". **Why not the others:** a SYN-ACK (A) would mean something *is* listening. FIN (C) closes a connection that was actually open; this one never opened. ICMP port unreachable (D) is how a host answers a **UDP** datagram sent to a closed port, because UDP has no RST flag.
+</details>
+
 ---
 
 <a name="chapter-3"></a>
@@ -611,6 +2307,33 @@ Opening takes three messages; closing normally takes **four**, because each dire
 ## 3.1 Why Physical Matters
 
 Everything digital eventually rides on something physical: a **copper wire**, a **glass fiber**, or a **radio wave**. If the cable is broken, nothing else matters. This is **Layer 1**.
+
+**📝 Exam-style questions — 3.1**
+
+**Q1.** A user reports she has no network at all. The link light on her PC's network card is off, and so is the light on the switch port her cable runs to. Which OSI layer should you check first?
+
+- **A.** Physical
+- **B.** Data Link
+- **C.** Network
+- **D.** Application
+
+<details><summary>Answer</summary>
+
+**Answer: A.** No link light at either end means no signal is getting through, so start at **Layer 1**: the cable, the connectors, the port. If the cable is broken, nothing above it can work. **Why not the others:** a Layer 2 problem such as a wrong VLAN (B), a Layer 3 problem such as a bad IP address (C), or an application fault (D) would all leave the link light on.
+</details>
+
+**Q2.** Which two of these are Layer 1 transmission media? (Choose two.)
+
+- **A.** Twisted-pair copper cable
+- **B.** Fiber-optic cable
+- **C.** A MAC address
+- **D.** An IP packet
+- **E.** An Ethernet frame
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Layer 1 is the physical stuff that carries signals: copper carries electricity and fiber carries light (radio, for Wi‑Fi, is the third). **Why not the others:** a MAC address (C) and an Ethernet frame (E) belong to Layer 2. An IP packet (D) is Layer 3. They all *ride on* the medium, but none of them is the medium.
+</details>
 
 ## 3.2 Copper Cables (Ethernet / Twisted Pair)
 
@@ -676,14 +2399,13 @@ But when you connect **two of the same** device (two PCs, or two switches), they
   - PC ↔ Switch
   - Router ↔ Switch
   - Wireless Access Point ↔ Switch
-  - Switch ↔ Hub
 
 - **Crossover cable:** The transmit and receive pairs are **swapped** inside the cable (pin 1 → pin 3, pin 2 → pin 6). Used to connect **SIMILAR** kinds of devices, because they'd otherwise both talk on the same wires.
   - Switch ↔ Switch
   - PC ↔ PC
   - Router ↔ Router
   - PC ↔ Router (both are "smart" end-devices — routers and PCs are wired the same way, so they count as "similar")
-  - Switch ↔ Hub *(sometimes; both are "network" devices)*
+  - Switch ↔ Hub *(both are "network" devices; old hubs often had one pre-crossed "uplink" port that took a straight cable instead)*
 
 > **Wait — why is PC ↔ Router a crossover if they're different-looking devices?** Because what matters is how they're **wired**, not what they look like. Both PCs and routers are "end devices" that transmit on pins 1-2. Switches and hubs are "network devices" that transmit on pins 3-6. **Same category = crossover; different category = straight-through.**
 
@@ -695,13 +2417,116 @@ Sort every device into one of two teams by how it's wired:
 |------------------------|------------------------|
 | PC / Laptop | Switch |
 | Router | Hub |
-| Server | Wireless AP (acts like a switch port) |
+| Server | — |
 | Firewall | — |
+| Wireless AP (its uplink is wired like a PC's) | — |
 
 - **Same team** (A-A or B-B) → use a **CROSSOVER** cable.
 - **Different teams** (A-B) → use a **STRAIGHT-THROUGH** cable.
 
 **Quick check:** Switch ↔ Switch = both Team B = **crossover**. PC ↔ Switch = Team A + Team B = **straight-through**. Router ↔ PC = both Team A = **crossover**. Easy! ✅
+
+Click each cable below to see which pins meet which, and why that cable type is needed:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Which cable goes where?",
+  "caption": "Assume old gear with **no Auto-MDIX**. Click a link to see why it needs that cable; click a device to see its team.",
+  "nodes": [
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "info": "**Team A**: transmits on pins 1 and 2, listens on 3 and 6."
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 1.5,
+      "y": 1,
+      "info": "**Team B**: transmits on pins 3 and 6, listens on 1 and 2, the opposite of a PC."
+    },
+    {
+      "id": "SW2",
+      "kind": "switch",
+      "x": 4,
+      "y": 1,
+      "info": "**Team B**, just like SW1."
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 5.2,
+      "y": 0,
+      "info": "**Team A**: servers are wired like PCs."
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.5,
+      "y": 2.6,
+      "info": "**Team A**: routers transmit on 1 and 2, just like PCs. That surprises people, because a router *looks* like network gear."
+    },
+    {
+      "id": "PC2",
+      "kind": "host",
+      "x": 0,
+      "y": 2.6,
+      "info": "**Team A**."
+    },
+    {
+      "id": "LAP",
+      "kind": "host",
+      "x": 3.3,
+      "y": 2.6,
+      "label": "Admin laptop",
+      "info": "Connected to R1's **console** port, not to any network port, so the cable carries a serial console session, not Ethernet."
+    }
+  ],
+  "links": [
+    {
+      "a": "PC1",
+      "b": "SW1",
+      "label": "straight-through",
+      "info": "Team A to Team B. PC pins 1, 2 (transmit) already land on the switch's pins 1, 2 (listen), so every wire goes **straight**: 1 to 1, 2 to 2, 3 to 3, 6 to 6."
+    },
+    {
+      "a": "SW1",
+      "b": "SW2",
+      "label": "crossover",
+      "info": "Team B to Team B. Both transmit on 3, 6, so a straight cable would join mouth to mouth. A **crossover** swaps the pairs (1 to 3, 2 to 6) so transmit meets listen."
+    },
+    {
+      "a": "SW2",
+      "b": "SRV",
+      "label": "straight-through",
+      "info": "Team B to Team A: different teams, so straight-through."
+    },
+    {
+      "a": "SW1",
+      "b": "R1",
+      "label": "straight-through",
+      "info": "Team B to Team A: router to switch is the most common straight-through link in any network."
+    },
+    {
+      "a": "R1",
+      "b": "PC2",
+      "label": "crossover",
+      "info": "Team A to Team A. A PC and a router both transmit on 1, 2, so this needs a **crossover**, even though they look like very different devices."
+    },
+    {
+      "a": "R1",
+      "b": "LAP",
+      "label": "rollover",
+      "style": "dashed",
+      "aLabel": "Console",
+      "info": "A **rollover** (console) cable reverses every pin: 1 to 8, 2 to 7, 3 to 6, 4 to 5. It carries no Ethernet; it's how you configure a device that has no IP address yet."
+    }
+  ]
+}
+```
 
 #### The Actual Wire Pinout (T568B)
 
@@ -757,6 +2582,57 @@ On **Gigabit** Ethernet (1000 Mbps) and faster, all **4 pairs** are used, and ea
 
 > **Good news:** Most modern devices have **Auto-MDIX** (Automatic Medium-Dependent Interface Crossover), a feature that automatically detects whether it needs a crossover and **fixes it electronically** — so either cable type works. Because of this, you rarely need a real crossover cable today. **But the CCNA exam still tests the classic rules**, and Auto-MDIX only works when the port's speed/duplex is set to auto-negotiate, so know both the rules AND that Auto-MDIX exists.
 
+**📝 Exam-style questions — 3.2**
+
+**Q1.** Two older switches have no Auto-MDIX. Which cable must connect their Fast Ethernet ports?
+
+- **A.** Straight-through
+- **B.** Crossover
+- **C.** Rollover
+- **D.** Serial
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Two switches are on the **same team**: both transmit on pins 3 and 6. A straight cable would join transmit to transmit, so you need a **crossover** to swap the pairs. **Why not the others:** straight-through (A) is for *different* teams, such as PC to switch. A rollover (C) is a console cable that carries no Ethernet at all. A serial cable (D) is for old WAN interfaces, not RJ-45 Ethernet ports.
+</details>
+
+**Q2.** Which two connections need a **straight-through** cable when the devices don't support Auto-MDIX? (Choose two.)
+
+- **A.** PC to switch
+- **B.** Router to switch
+- **C.** Router to router
+- **D.** PC to router
+- **E.** Switch to switch
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** PCs and routers transmit on pins 1 and 2; switches transmit on 3 and 6. Different teams line up naturally, so a straight cable works for PC-switch and router-switch. **Why not the others:** router to router (C), PC to router (D) and switch to switch (E) each join two devices of the same team, so they need a crossover.
+</details>
+
+**Q3.** A technician needs to configure a brand-new router that has no IP address yet, from a laptop with a USB-to-serial adapter. Which cable connects the laptop to the router's console port?
+
+- **A.** Straight-through
+- **B.** Crossover
+- **C.** Rollover
+- **D.** Fiber patch cable
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The **rollover** (console) cable reverses every pin (1 to 8, 2 to 7 and so on) and carries the serial console session, not Ethernet. It's how you reach a device that has no network configuration yet. **Why not the others:** straight-through (A) and crossover (B) cables carry Ethernet between network ports, and the router has no IP address to reach over Ethernet anyway. A fiber patch cable (D) plugs into fiber optics, not the RJ-45 console port.
+</details>
+
+**Q4.** On 10BASE-T and 100BASE-TX, which pins does a **PC** transmit on?
+
+- **A.** Pins 1 and 2
+- **B.** Pins 3 and 6
+- **C.** Pins 4 and 5
+- **D.** Pins 7 and 8
+
+<details><summary>Answer</summary>
+
+**Answer: A.** PCs, routers, servers and firewalls transmit on **1 and 2** and listen on 3 and 6. **Why not the others:** 3 and 6 (B) are where a PC *listens*, and where a switch transmits. Pins 4, 5, 7 and 8 (C, D) carry nothing on 10/100 Ethernet; only Gigabit and faster use all four pairs.
+</details>
+
 ## 3.3 Fiber Optic Cables — Light Instead of Electricity
 
 Fiber uses **pulses of light** through thin glass strands instead of electricity through copper. Light is super fast and can travel very far without weakening.
@@ -777,9 +2653,74 @@ electrical interference — one reason it runs faster and very much further.
 - More secure (harder to tap).
 - Downsides: more expensive and more fragile than copper.
 
+**📝 Exam-style questions — 3.3**
+
+**Q1.** Two buildings are 20 km apart. Which cabling should join them?
+
+- **A.** Single-mode fiber
+- **B.** Multimode fiber
+- **C.** Cat 6a copper
+- **D.** Cat 8 copper
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Single-mode fiber's tiny core and precise laser keep the light clean over many kilometres, which is exactly what a 20 km run needs. **Why not the others:** multimode (B) reaches only a few hundred metres (around 550 m at best in this guide's table). Copper Ethernet (C, D) stops at 100 metres, and even less for Cat 8 at full speed.
+</details>
+
+**Q2.** Which two are advantages of fiber over copper? (Choose two.)
+
+- **A.** It is immune to electrical interference.
+- **B.** It carries signals much further.
+- **C.** It is cheaper to buy and install.
+- **D.** It is tougher and harder to damage.
+- **E.** It can deliver PoE power to an access point.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Light in glass ignores electrical noise from motors and power cables, and it travels far further before it weakens. **Why not the others:** fiber is usually *more* expensive (C) and *more* fragile (D) than copper; those are its downsides. Glass can't carry electricity, so it can't deliver PoE (E).
+</details>
+
+**Q3.** Which statement about multimode fiber is true?
+
+- **A.** It has a larger core and uses LEDs or low-cost lasers, so it suits shorter runs inside buildings.
+- **B.** It has a tiny core and a precise laser, so it suits runs between cities.
+- **C.** It reaches further than single-mode fiber.
+- **D.** It carries electrical pulses rather than light.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Multimode's wider core lets light bounce along many paths, which spreads the signal out over distance. That's fine inside a building and cheap to drive. **Why not the others:** B describes **single-mode**. Single-mode reaches much further, not less far (C). All fiber carries light (D); electrical pulses are copper's job.
+</details>
+
 ## 3.4 Wireless (Radio Waves)
 
 Wi‑Fi uses **radio waves** (invisible signals through the air) instead of cables. We cover this in depth in Chapter 20, but for now: no wire, more freedom, but more interference and usually a bit slower/less reliable than a good cable.
+
+**📝 Exam-style questions — 3.4**
+
+**Q1.** Compared with a good cable, which statement about Wi‑Fi is usually true?
+
+- **A.** It gives more freedom to move, but suffers more interference and is usually less reliable.
+- **B.** It is immune to interference because radio waves pass through walls.
+- **C.** It is always faster than a wired Gigabit connection.
+- **D.** Every device gets its own dedicated, interference-free channel.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** No wire means freedom, but radio is shared with everything else nearby (neighbours' Wi‑Fi, microwaves, walls in the way), so it's more exposed to interference and usually slower or less steady than a cable. **Why not the others:** radio is *more* exposed to interference, not immune (B). A good cable usually beats Wi‑Fi (C). And Wi‑Fi clients share the airtime on a channel (D); they don't each get a private one.
+</details>
+
+**Q2.** At which OSI layer are the radio waves that carry Wi‑Fi signals?
+
+- **A.** Physical
+- **B.** Data Link
+- **C.** Network
+- **D.** Transport
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Radio waves, like copper and fiber, are a **Layer 1** medium: they carry the bits. **Why not the others:** Wi‑Fi also has Layer 2 rules (its frames and MAC addresses), but those are rules about the data, not the waves themselves (B). IP (C) and TCP or UDP (D) run on top, exactly as they do over cable.
+</details>
 
 ## 3.5 Network Speeds & Duplex
 
@@ -795,12 +2736,242 @@ Wi‑Fi uses **radio waves** (invisible signals through the air) instead of cabl
 
 **Collision:** In half-duplex, if two devices talk at once, their signals crash — that's a **collision**. Full-duplex has no collisions.
 
+Step through the difference:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Half-duplex on a hub, full-duplex on a switch",
+  "caption": "Left: a hub, one shared wire. Right: a switch with full-duplex ports. Press **Next**.",
+  "nodes": [
+    {
+      "id": "HUB",
+      "kind": "switch",
+      "x": 1,
+      "y": 0,
+      "label": "HUB1",
+      "sub": "half-duplex"
+    },
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0,
+      "y": 1.6
+    },
+    {
+      "id": "PC2",
+      "kind": "host",
+      "x": 2,
+      "y": 1.6
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 4,
+      "y": 0,
+      "sub": "full-duplex"
+    },
+    {
+      "id": "PC3",
+      "kind": "host",
+      "x": 3.1,
+      "y": 1.6
+    },
+    {
+      "id": "PC4",
+      "kind": "host",
+      "x": 4.9,
+      "y": 1.6
+    }
+  ],
+  "links": [
+    {
+      "a": "HUB",
+      "b": "PC1"
+    },
+    {
+      "a": "HUB",
+      "b": "PC2"
+    },
+    {
+      "a": "SW1",
+      "b": "PC3"
+    },
+    {
+      "a": "SW1",
+      "b": "PC4"
+    }
+  ],
+  "zones": [
+    {
+      "label": "one shared wire",
+      "nodes": [
+        "HUB",
+        "PC1",
+        "PC2"
+      ],
+      "tone": "warn"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. On a hub, one talks and everyone listens",
+      "text": "PC1 sends; the hub repeats the signal to every other port. It works, but like a walkie-talkie: only one device may talk at a time. That's **half-duplex**.",
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "HUB",
+            "PC2"
+          ],
+          "label": "PC1 talking"
+        }
+      ]
+    },
+    {
+      "title": "2. Two talk at once: a collision",
+      "text": "PC1 and PC2 both start at the same moment. Their signals meet on the shared wire and garble each other: a **collision**. Both frames are ruined and must be sent again (CSMA/CD, section 5.5, handles the recovery).",
+      "nodes": {
+        "HUB": {
+          "badge": "collision!",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "HUB"
+          ],
+          "label": "frame",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "PC2",
+            "HUB"
+          ],
+          "label": "frame",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. On a switch, both talk at once with no crash",
+      "text": "Each switch port has its own pair of wires in each direction, so PC3 and PC4 send to each other **at the same time** and nothing collides. That's **full-duplex**, like a phone call, and it's the modern default.",
+      "nodes": {
+        "HUB": null,
+        "SW1": {
+          "badge": "no collisions",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC3",
+            "SW1",
+            "PC4"
+          ],
+          "label": "PC3 to PC4",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "PC4",
+            "SW1",
+            "PC3"
+          ],
+          "label": "PC4 to PC3",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 3.5**
+
+**Q1.** Which statement about full-duplex Ethernet is correct?
+
+- **A.** A port sends and receives at the same time, so collisions can't happen.
+- **B.** A port sends or receives, taking turns, and collisions are possible.
+- **C.** Full-duplex is required when a PC connects to a hub.
+- **D.** Full-duplex doubles the length a copper cable can run.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** With full-duplex, each direction has its own path, so the port talks and listens at once, like a phone call. Nobody shares the wire, so there's nothing to collide with. **Why not the others:** B describes **half-duplex**. A hub is a shared wire, so anything connected to it must run half-duplex (C). Duplex has no effect on cable length (D).
+</details>
+
+**Q2.** Refer to the exhibit. The PC attached to Fa0/5 supports full-duplex and is set to auto-negotiate. Which change lets the link run full-duplex with no collisions and no duplex mismatch?
+
+```
+SW1# show running-config interface fastethernet0/5
+interface FastEthernet0/5
+ speed 100
+ duplex half
+
+SW1# show interfaces fastethernet0/5 | include duplex|collisions
+  Half-duplex, 100Mb/s, media type is 10/100BaseTX
+     0 output errors, 1824 collisions, 0 interface resets
+```
+
+- **A.** Configure `duplex full` on Fa0/5 and leave the PC on auto-negotiation.
+- **B.** Remove the hard-coded settings so both ends auto-negotiate (or set full-duplex on both ends).
+- **C.** Replace the cable with a crossover cable.
+- **D.** Configure `speed 10` on Fa0/5.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The port is forced to half-duplex, so it takes turns and counts collisions. Letting both sides auto-negotiate (or hard-coding full-duplex on *both* ends) gives a full-duplex link. **Why not the others:** forcing only the switch (A) turns off negotiation on that side; the PC hears no negotiation, falls back to **half**-duplex, and now the two ends disagree, a duplex mismatch with late collisions and errors. The link is already up, so the cable type isn't the problem (C). Changing the speed (D) leaves the port in half-duplex and makes it slower too.
+</details>
+
+**Q3.** A PC is connected to an old hub. Which duplex must the PC's network card use?
+
+- **A.** Half-duplex
+- **B.** Full-duplex
+- **C.** Full-duplex, but only at 100 Mbps
+- **D.** Either, because the hub converts between them
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A hub is one shared wire: everyone hears everyone, so only one device can talk at a time. That's **half-duplex**, with CSMA/CD to handle collisions. **Why not the others:** full-duplex (B, C) assumes a private path in each direction, which a hub doesn't provide at any speed. A hub just repeats signals (D); it can't buffer or convert anything.
+</details>
+
 ## 3.6 Common Ports & Interfaces on Devices
 
 - **Ethernet ports (RJ-45):** For copper cables — the most common.
 - **SFP/SFP+ slots:** Small slots where you plug fiber or copper modules — flexible!
 - **Console port:** A special port used to **configure** a Cisco device directly with a laptop (usually rollover cable or USB). This is your first way to talk to a brand-new switch.
 - **USB ports:** For files, or console access on newer gear.
+
+**📝 Exam-style questions — 3.6**
+
+**Q1.** A brand-new switch is still in its box and has no IP address. Which port do you use for its first configuration?
+
+- **A.** The console port
+- **B.** Gi1/0/1, using SSH
+- **C.** An SFP slot
+- **D.** VLAN 1, using Telnet
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The **console** port gives you the command line directly over a cable, no IP address needed, so it's how you meet a brand-new device. **Why not the others:** SSH (B) and Telnet (D) both need an IP address on the switch, which it doesn't have yet. An SFP slot (C) takes a fiber or copper module for network traffic, not management.
+</details>
+
+**Q2.** Which kind of port lets one switch interface take either a fiber module or a copper module?
+
+- **A.** An SFP slot
+- **B.** An RJ-45 port
+- **C.** A console port
+- **D.** A USB port
+
+<details><summary>Answer</summary>
+
+**Answer: A.** An **SFP** (or SFP+) slot accepts a small plug-in module, and you choose the module (multimode fiber, single-mode fiber, or copper) to match the cable. **Why not the others:** an RJ-45 port (B) is fixed copper. The console port (C) is for management, and a USB port (D) is for files or console access; neither carries network traffic.
+</details>
 
 ---
 
@@ -830,12 +3001,151 @@ Note that the **device receives slightly less** than the port supplies — some 
 
 **Does PoE risk frying a device that isn't built for it?** No — and the reason is worth knowing. Before sending real power, the switch performs a **detection** step: it applies a small voltage and looks for a specific electrical signature that powered devices are built to present. No signature, no power — so your laptop plugged into a PoE port receives **only data**, exactly as normal. After detection, the switch **classifies** the device to learn how much power it actually wants, and grants only that. *Negotiate first, then deliver — the same "check before you commit" pattern you'll see all over networking.*
 
+Step through what the switch does with a laptop and with an access point:
+
+```diagram
+{
+  "type": "sequence",
+  "title": "PoE: detect, classify, then power",
+  "actors": [
+    {
+      "id": "LAP",
+      "kind": "host",
+      "label": "Laptop"
+    },
+    {
+      "id": "SW",
+      "kind": "switch",
+      "label": "SW1 (PSE)"
+    },
+    {
+      "id": "AP",
+      "kind": "ap",
+      "label": "AP (PD)"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SW",
+      "to": "LAP",
+      "label": "detect: test voltage",
+      "detail": "PD signature?",
+      "text": "Before any real power, the switch applies a small, harmless voltage and measures what it sees."
+    },
+    {
+      "from": "SW",
+      "to": "SW",
+      "label": "no PD: data only",
+      "states": {
+        "LAP": "data only"
+      },
+      "text": "A laptop doesn't present the powered-device signature, so the switch **never** turns power on for it. It just gets normal Ethernet."
+    },
+    {
+      "from": "SW",
+      "to": "AP",
+      "label": "detect: test voltage",
+      "text": "Same test on the port where the access point is plugged in."
+    },
+    {
+      "from": "AP",
+      "to": "SW",
+      "label": "valid PD signature",
+      "dashed": true,
+      "tone": "good",
+      "text": "The AP is built to present the signature, so the switch knows it's a real **PD** (powered device)."
+    },
+    {
+      "from": "SW",
+      "to": "AP",
+      "label": "classification",
+      "detail": "how much power?",
+      "text": "Next the switch **classifies** the device, so it grants only what's needed instead of the maximum."
+    },
+    {
+      "from": "AP",
+      "to": "SW",
+      "label": "Class 4 (30 W)",
+      "dashed": true,
+      "text": "This AP needs 802.3at (PoE+) power."
+    },
+    {
+      "from": "SW",
+      "to": "SW",
+      "label": "budget check",
+      "detail": "30 W of 370 W left",
+      "text": "The switch's PoE budget is shared by every port. Here there's exactly enough left. One more 30 W device and it would be **denied power**: link light on, device dark."
+    },
+    {
+      "from": "SW",
+      "to": "AP",
+      "label": "power on (~50 V DC)",
+      "tone": "good",
+      "states": {
+        "AP": "powered"
+      },
+      "text": "Only now does real power flow, over the same cable as the data. Negotiate first, then deliver."
+    }
+  ]
+}
+```
+
 **The gotcha to watch for:** a switch has a **total power budget** shared by all its ports. A switch advertising 370 W of PoE cannot run 48 ports at 30 W each (that would need 1,440 W). Fill a switch with hungry devices and later ports simply get **denied power** — they'll look dead while their link light works fine. Check with:
 
 ```
 SW# show power inline                 ! per-port draw + remaining budget
 SW# show power inline gi1/0/5         ! detail for one port
 ```
+
+**📝 Exam-style questions — 3.7**
+
+**Q1.** Which standard provides about 30 W per port at the switch?
+
+- **A.** 802.3af (PoE)
+- **B.** 802.3at (PoE+)
+- **C.** 802.3bt (PoE++)
+- **D.** 802.3ad
+
+<details><summary>Answer</summary>
+
+**Answer: B.** **802.3at**, known as PoE+, gives about **30 W** at the port, enough for modern access points and pan-tilt-zoom cameras. **Why not the others:** 802.3af (A) gives about 15.4 W. 802.3bt (C) gives about 60–100 W. 802.3ad (D) isn't PoE at all; it's the original standard for **LACP** link bundling, which you'll meet with EtherChannel.
+</details>
+
+**Q2.** A laptop with no PoE support is plugged into a PoE-enabled switch port. Why isn't it damaged?
+
+- **A.** The switch only sends power after it detects a powered device's electrical signature, and the laptop doesn't present one.
+- **B.** The switch always sends full power, but laptops ignore it.
+- **C.** The switch only powers ports configured as trunks.
+- **D.** The switch waits for the device to request an address from DHCP before sending power.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Before any real power flows, the switch runs **detection**: a small test voltage that looks for the signature powered devices are built to show. No signature, no power, so the laptop just gets data. **Why not the others:** the switch never sends full power blindly (B); that's exactly the risk detection prevents. Trunk mode (C) has nothing to do with PoE, and access ports power phones and APs all the time. DHCP (D) happens *after* the device is powered and booted, so it couldn't come first.
+</details>
+
+**Q3.** A switch has a 370 W PoE budget. Twelve access points are already drawing 30 W each. A thirteenth access point is plugged in; its link light comes on but the access point stays dark. What is the most likely cause?
+
+- **A.** The switch has run out of PoE budget, so it refuses to power the new port.
+- **B.** The cable is faulty.
+- **C.** The access point needs a crossover cable.
+- **D.** The port must be configured as a trunk before it can supply power.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 12 × 30 W = 360 W, leaving 10 W. The new AP needs 30 W, so the switch **denies power** to it; `show power inline` would show the budget nearly used up. **Why not the others:** a faulty cable (B) would usually stop the link light too. Cable type (C) doesn't affect power, and modern APs have Auto-MDIX anyway. Ports don't need to be trunks to deliver PoE (D).
+</details>
+
+**Q4.** In PoE terms, which statement names the two ends correctly?
+
+- **A.** The switch is the PSE and the IP phone is the PD.
+- **B.** The switch is the PD and the IP phone is the PSE.
+- **C.** Both are PSEs, because both carry power.
+- **D.** The switch is the PSE and the cable is the PD.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** **PSE** (Power Sourcing Equipment) supplies power: the switch or an injector. **PD** (Powered Device) draws it: the phone, AP or camera. **Why not the others:** B swaps the roles. Only one side supplies power (C). The cable (D) just carries it, and some power is lost as heat along the way, which is why a PD gets a little less than the port supplies.
+</details>
 
 ---
 
@@ -851,6 +3161,45 @@ Deep down, a computer is millions of tiny switches. Each switch is either **ON**
 A single 1 or 0 is called a **bit** (short for **b**inary dig**it**). It's the smallest piece of computer info.
 
 **"But WHY do I, a future network engineer, have to learn binary? Can't the computer do the math?"** Great question — here's the honest reason: **subnetting.** When you split networks into smaller pieces (Chapter 12, one of the most-tested CCNA skills), the split happens *in the middle of the binary numbers*, not on the neat decimal boundaries you see. An IP address like `192.168.1.130` looks like tidy decimal numbers, but the switch and router see it as **32 on/off switches**, and the network "line" can fall between switch #25 and #26 — a spot that's invisible in decimal but obvious in binary. **If you can't see the binary underneath, subnetting feels like random magic. Once you can, it becomes simple counting.** That's why we start here: binary is the secret decoder ring for the whole addressing half of the exam.
+
+Here is that exact address. With a /25 the line falls after bit 25, inside the last decimal number:
+
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "192.168.1.130",
+  "prefix": 25,
+  "title": "192.168.1.130: the line you can't see in decimal",
+  "prompt": "Each octet is 8 bits. The network/host line at /25 cuts the **last octet** in two: its top bit (128) is network, the other seven are host. Slide the prefix and watch the line move; click bits to flip them."
+}
+```
+
+**📝 Exam-style questions — 4.1**
+
+**Q1.** What is a **bit**?
+
+- **A.** A single binary digit, either 0 or 1
+- **B.** A group of eight binary digits
+- **C.** One hexadecimal digit
+- **D.** One decimal number from 0 to 255
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A bit (**b**inary dig**it**) is the smallest piece of information: one switch, on (1) or off (0). **Why not the others:** eight bits (B) make a **byte**. One hex digit (C) stands for four bits. A number from 0 to 255 (D) is what one *byte* can hold, which is why each part of an IPv4 address stops at 255.
+</details>
+
+**Q2.** Why does a network engineer need to read IP addresses in binary?
+
+- **A.** The line between the network part and the host part can fall in the middle of a decimal number, where only the binary shows it.
+- **B.** Cisco routers only accept addresses typed in binary.
+- **C.** Binary addresses travel faster on the wire than decimal ones.
+- **D.** Decimal can't represent numbers bigger than 255.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** In subnetting, the network/host split can land between, say, bit 25 and bit 26, inside the last decimal number of `192.168.1.130`. In decimal that line is invisible; in binary it's obvious. **Why not the others:** IOS takes addresses in dotted decimal (B). Everything on the wire is bits anyway (C); decimal is only how *we* write it. Decimal can show any size of number (D); 255 is just the limit of one byte.
+</details>
 
 ## 4.2 Bits and Bytes
 
@@ -873,6 +3222,54 @@ One **byte** is **8 bits**, and each position is worth double the one to its rig
 | 8th (rightmost) | 1 | 0 |
 
 Add up the positions holding a 1: 128 + 32 + 16 + 2 = **178**.
+
+```diagram
+{
+  "type": "bits",
+  "mode": "octet",
+  "value": 178,
+  "title": "One byte: eight place values",
+  "prompt": "This is the byte from the table: `10110010` = **178**. Click any bit to flip it and watch the decimal and hex change. Try turning them all on: 255."
+}
+```
+
+**📝 Exam-style questions — 4.2**
+
+**Q1.** How many bits are in an IPv4 address?
+
+- **A.** 8
+- **B.** 32
+- **C.** 48
+- **D.** 128
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An IPv4 address is **4 bytes**, and 4 × 8 = **32 bits**. **Why not the others:** 8 bits (A) is one byte, a single part of the address. 48 bits (C) is a MAC address. 128 bits (D) is an IPv6 address.
+</details>
+
+**Q2.** What is the decimal value of the binary byte `10110010`?
+
+- **A.** 146
+- **B.** 177
+- **C.** 178
+- **D.** 182
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Add the place values that hold a 1: 128 + 32 + 16 + 2 = **178**. **Why not the others:** 146 (A) is `10010010`, which loses the 32. 177 (B) is `10110001`, the last two bits swapped. 182 (D) is `10110110`, with an extra 4.
+</details>
+
+**Q3.** A MAC address is 48 bits long. How many **bytes** is that?
+
+- **A.** 4
+- **B.** 6
+- **C.** 8
+- **D.** 12
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 48 ÷ 8 = **6 bytes**. **Why not the others:** 4 bytes (A) is an IPv4 address. 8 bytes (C) would be 64 bits. 12 (D) is how many **hex digits** a MAC address has (each digit is 4 bits), not how many bytes.
+</details>
 
 ## 4.3 How Binary Counting Works (The Place Values)
 
@@ -944,7 +3341,67 @@ So 200 = **11001000** ✅
 
 So `200` = **11001000**.
 
+```diagram
+{
+  "type": "bits",
+  "mode": "octet",
+  "value": 200,
+  "title": "Check your conversions: 200 = 11001000",
+  "prompt": "Rebuild the examples: clear bits to make `11000000` (192), then `10101000` (168). Then try one of your own: 172 is 128 + 32 + 8 + 4."
+}
+```
+
 > **Try It ✏️:** Convert `11111111` to decimal. (Add all spots: 128+64+32+16+8+4+2+1 = **255**.) This is the biggest one byte can hold! That's why IP numbers only go up to 255.
+
+**📝 Exam-style questions — 4.3**
+
+**Q1.** What is decimal `200` in binary?
+
+- **A.** `11000100`
+- **B.** `11001000`
+- **C.** `11010000`
+- **D.** `10001100`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Work down from 128: 128 fits (72 left), 64 fits (8 left), 32 and 16 don't, 8 fits (0 left). That's `11001000`. **Why not the others:** `11000100` (A) is 196, with a 4 instead of the 8. `11010000` (C) is 208, with a 16 instead of the 8. `10001100` (D) is 140; it's the right bits written in the wrong places.
+</details>
+
+**Q2.** What is decimal `172` (the first octet of the 172.16.0.0 private range) in binary?
+
+- **A.** `10101100`
+- **B.** `10101010`
+- **C.** `10110100`
+- **D.** `10011100`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 172 = 128 + 32 + 8 + 4, so the 128, 32, 8 and 4 bits are on: `10101100`. **Why not the others:** `10101010` (B) is 170. `10110100` (C) is 180. `10011100` (D) is 156. Each one gets a single place value wrong, which is exactly the slip to watch for.
+</details>
+
+**Q3.** A subnet mask octet is `11111000`. What is it in decimal?
+
+- **A.** 224
+- **B.** 240
+- **C.** 248
+- **D.** 252
+
+<details><summary>Answer</summary>
+
+**Answer: C.** 128 + 64 + 32 + 16 + 8 = **248**. Five ones from the left. **Why not the others:** 224 (A) is three ones, `11100000`. 240 (B) is four, `11110000`. 252 (D) is six, `11111100`. Mask octets are always ones from the left, so counting the ones is a fast check.
+</details>
+
+**Q4.** What is the largest decimal value one byte can hold?
+
+- **A.** 128
+- **B.** 254
+- **C.** 255
+- **D.** 256
+
+<details><summary>Answer</summary>
+
+**Answer: C.** All eight bits on, `11111111`, is 128 + 64 + 32 + 16 + 8 + 4 + 2 + 1 = **255**. **Why not the others:** 128 (A) is only the top bit. 254 (B) is `11111110`, one short. 256 (D) is how many *different values* a byte can hold, counting zero (0 to 255), not the largest value.
+</details>
 
 ## 4.4 Hexadecimal (Hex) — Shortcut for Big Binary
 
@@ -979,6 +3436,16 @@ Split into two groups of 4: `1111` and `0000`.
 
 So `11110000` = **F0** in hex. Way shorter!
 
+```diagram
+{
+  "type": "bits",
+  "mode": "octet",
+  "value": 240,
+  "title": "One byte is exactly two hex digits",
+  "prompt": "The left four bits make the first hex digit and the right four make the second: `1111 0000` = **F0**. Flip bits in one half and only that hex digit changes. Try `1010 1111` (AF) and `1100 1000` (C8)."
+}
+```
+
 **Where you'll see hex:** MAC addresses (like `00:1A:2B:3C:4D:5E`) and IPv6 addresses are written in hex. Now you know why!
 
 **But WHY use hex instead of just showing the binary or decimal?** Because hex is the "Goldilocks" choice — *just right* for humans reading computer numbers:
@@ -986,6 +3453,56 @@ So `11110000` = **F0** in hex. Way shorter!
 - **Binary is too long and error-prone.** A MAC address in binary is 48 ones and zeros in a row: `000000000001101000101011...`. Miscount one digit and you're wrong. No human can read that reliably.
 - **Decimal doesn't line up with bits.** Decimal digits don't map cleanly to groups of bits, so converting is annoying and hides the pattern.
 - **Hex fits perfectly.** Because **4 bits = exactly 1 hex digit**, hex is a clean, lossless shorthand for binary. You can glance at a hex digit and instantly know its 4 bits, and vice-versa. It's short like decimal but *lines up with the bits* like binary. That's the whole reason MAC and IPv6 addresses (which are big piles of bits) are written in hex — it keeps them **short AND bit-accurate**.
+
+**📝 Exam-style questions — 4.4**
+
+**Q1.** What is hex `3C` in decimal?
+
+- **A.** 48
+- **B.** 60
+- **C.** 63
+- **D.** 312
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The left hex digit is worth 16s: 3 × 16 = 48, plus C (12) = **60**. **Why not the others:** 48 (A) forgets the C. 63 (C) would be `3F`. 312 (D) treats the digits like decimal ("3" then "12" stuck together), which is not how place values work.
+</details>
+
+**Q2.** What is the binary byte `10101111` in hex?
+
+- **A.** `AF`
+- **B.** `FA`
+- **C.** `A7`
+- **D.** `BF`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Split into nibbles: `1010` = 10 = **A**, and `1111` = 15 = **F**, so `AF`. **Why not the others:** `FA` (B) puts the nibbles in the wrong order. `A7` (C) would need `0111` on the right. `BF` (D) would need `1011` on the left.
+</details>
+
+**Q3.** How many bits does one hexadecimal digit represent?
+
+- **A.** 2
+- **B.** 4
+- **C.** 8
+- **D.** 16
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Hex has 16 symbols, and 4 bits make exactly 16 combinations, so **one hex digit is four bits**, and a byte is two hex digits. **Why not the others:** 2 bits (A) only make 4 combinations. 8 bits (C) is a whole byte, which takes *two* hex digits. 16 (D) is how many symbols hex has, not how many bits a digit stands for.
+</details>
+
+**Q4.** What is decimal `200` in hex?
+
+- **A.** `8C`
+- **B.** `B8`
+- **C.** `C2`
+- **D.** `C8`
+
+<details><summary>Answer</summary>
+
+**Answer: D.** 200 ÷ 16 = 12 remainder 8, so the digits are 12 (**C**) and **8**: `C8`. Check: in binary 200 is `1100 1000`, which is C and 8. **Why not the others:** `8C` (A) is 140, the digits reversed. `B8` (B) is 184. `C2` (C) is 194.
+</details>
 
 ---
 
@@ -1027,9 +3544,86 @@ MAC and IP work exactly the same way, and we need both for two different jobs:
 
 **So they're a team:** IP gets your data *to the right neighborhood* (across many networks, hop by hop), and MAC delivers it *to the exact house* (on the final local network). You'll see in Chapter 14 that as data travels, the **IP stays the same the whole trip** (the final destination), while the **MAC changes at every hop** (the next local handoff). Two addresses, two jobs, working together.
 
+**📝 Exam-style questions — 5.1**
+
+**Q1.** How long is a MAC address?
+
+- **A.** 32 bits, written as four decimal numbers
+- **B.** 48 bits, written as 12 hex digits
+- **C.** 64 bits, written as 16 hex digits
+- **D.** 128 bits, written as 32 hex digits
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A MAC address is **48 bits**, and since each hex digit is 4 bits, that's **12 hex digits** (for example `001a.2b3c.4d5e`). **Why not the others:** 32 bits in dotted decimal (A) is an IPv4 address. 128 bits in 32 hex digits (D) is an IPv6 address. 64 bits (C) is the size of an IPv6 interface ID, not a MAC address.
+</details>
+
+**Q2.** A NIC has the MAC address `00:50:56:C0:00:08`. Which part is the OUI?
+
+- **A.** `00:50:56`
+- **B.** `C0:00:08`
+- **C.** `00:50`
+- **D.** `00:50:56:C0`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The **OUI** is the first 24 bits, which is the first **three bytes**: `00:50:56`. It identifies the manufacturer. **Why not the others:** `C0:00:08` (B) is the last 24 bits, the serial the maker assigns to this one card. `00:50` (C) is only 16 bits and `00:50:56:C0` (D) is 32; the OUI is exactly 24.
+</details>
+
+**Q3.** Why can't routers forward traffic across the internet using MAC addresses alone?
+
+- **A.** MAC addresses are flat factory serials with no location structure, so a router would need an entry for every device on Earth.
+- **B.** MAC addresses change at every router hop, so they can't be stored.
+- **C.** MAC addresses are too short to be unique.
+- **D.** Routers can't read Layer 2 headers.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A MAC says *who* a device is, not *where* it is, so there's no "neighbourhood" to route toward. IP addresses are structured by location, so a router can keep one entry for a whole network. **Why not the others:** a device's own MAC address doesn't change (B); what changes per hop is which MACs go in the *frame*. 48 bits is plenty for uniqueness (C). Routers do read Layer 2 headers (D); every frame they receive has one, and they strip it before routing.
+</details>
+
+**Q4.** Which two statements correctly compare MAC and IP addresses? (Choose two.)
+
+- **A.** A MAC address identifies a device on the local network and is used at Layer 2.
+- **B.** An IP address is a logical Layer 3 address that can change when a device joins a different network.
+- **C.** An IP address is burned into the network card by the manufacturer.
+- **D.** Routers use MAC addresses to choose the path to a distant network.
+- **E.** A laptop keeps the same IP address on every Wi‑Fi network it joins.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** The MAC is the device's "name" for local delivery; the IP is its "home address", which describes where it is and changes when it moves. **Why not the others:** it's the MAC that's burned in, not the IP (C). Routers choose paths by IP (D). A laptop usually gets a new IP address on each network it joins (E), which is exactly why IP is the location and MAC is the identity.
+</details>
+
 ## 5.2 What Is Ethernet?
 
 **Ethernet** is the most common set of rules (a **protocol**) for wired LANs. It defines how devices format data into **frames** and share the wire. Almost every wired network you touch uses Ethernet.
+
+**📝 Exam-style questions — 5.2**
+
+**Q1.** Which IEEE standard family defines wired Ethernet?
+
+- **A.** 802.3
+- **B.** 802.11
+- **C.** 802.1Q
+- **D.** 802.15
+
+<details><summary>Answer</summary>
+
+**Answer: A.** **IEEE 802.3** is Ethernet: its frame format, its MAC addressing and its cabling and signalling standards (100BASE-TX, 1000BASE-T and the rest). **Why not the others:** 802.11 (B) is Wi‑Fi. 802.1Q (C) is VLAN tagging on trunks, which you'll meet in Chapter 8. 802.15 (D) covers personal-area networks such as Bluetooth.
+</details>
+
+**Q2.** At which OSI layers does Ethernet operate?
+
+- **A.** Layer 1 only
+- **B.** Layers 1 and 2
+- **C.** Layers 2 and 3
+- **D.** Layer 3 only
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Ethernet defines the cables and signals (**Layer 1**) *and* the frames and MAC addresses (**Layer 2**). That's why "Ethernet" can mean a cable or a frame. **Why not the others:** it's more than just cabling (A), since it defines the frame too. It does no IP addressing or routing (C, D); IP rides *inside* Ethernet frames.
+</details>
 
 ## 5.3 The Ethernet Frame (What a Frame Looks Like)
 
@@ -1051,6 +3645,165 @@ When data travels on a LAN, it's wrapped in an **Ethernet frame**. Here's the la
 - **Data:** The actual payload (an IP packet lives here).
 - **FCS (Frame Check Sequence):** An error-check. If the math doesn't add up, the frame is damaged and gets thrown away.
 
+Step through what happens to a frame that gets damaged on the way:
+
+```diagram
+{
+  "type": "topology",
+  "title": "The FCS catches a damaged frame",
+  "caption": "PC-A sends a frame to PC-B through SW1. Press **Next**.",
+  "nodes": [
+    {
+      "id": "PCA",
+      "kind": "host",
+      "x": 0,
+      "y": 0.6,
+      "label": "PC-A",
+      "sub": "0050.7966.0001"
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 2.5,
+      "y": 0.6
+    },
+    {
+      "id": "PCB",
+      "kind": "host",
+      "x": 5,
+      "y": 0.6,
+      "label": "PC-B",
+      "sub": "0050.7966.0002"
+    }
+  ],
+  "links": [
+    {
+      "a": "PCA",
+      "b": "SW1",
+      "bLabel": "Fa0/1"
+    },
+    {
+      "a": "SW1",
+      "b": "PCB"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. PC-A builds the frame and its FCS",
+      "text": "PC-A runs a calculation (a CRC) over the destination MAC, source MAC, type and data, and puts the result in the **FCS** at the very end of the frame. Being last lets it cover everything before it.",
+      "focus": [
+        "PCA"
+      ],
+      "nodes": {
+        "PCA": {
+          "badge": "FCS 5A3C91E2",
+          "tone": "accent"
+        }
+      }
+    },
+    {
+      "title": "2. Noise flips a bit on the way",
+      "text": "The cable runs past a noisy motor, and one bit of the frame flips. Nothing on the wire knows yet.",
+      "nodes": {
+        "PCA": null
+      },
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "SW1"
+          ],
+          "label": "frame, 1 bit flipped",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. SW1's check fails, so the frame is dropped",
+      "text": "SW1 runs the same calculation on what it received. The answer doesn't match the FCS, so the frame is damaged and is **thrown away**. `show interfaces fa0/1` counts it as an input error and a **CRC** error.",
+      "nodes": {
+        "SW1": {
+          "badge": "CRC error",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "4. Ethernet doesn't resend; TCP does",
+      "text": "Nobody tells PC-A. Ethernet only **detects** errors; it never asks for a resend. If the data was part of a TCP connection, PC-A's TCP notices the missing acknowledgment and resends the data (section 2.7).",
+      "nodes": {
+        "SW1": null,
+        "PCB": {
+          "badge": "got it",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "SW1",
+            "PCB"
+          ],
+          "label": "TCP resends the data",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 5.3**
+
+**Q1.** Which field of an Ethernet frame does a switch use to **learn** where devices are?
+
+- **A.** Destination MAC address
+- **B.** Source MAC address
+- **C.** Type
+- **D.** FCS
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A frame that arrives on a port carrying a source MAC proves that device is reachable through that port, so the switch records the **source** MAC against the port. **Why not the others:** the destination MAC (A) is what the switch uses to *forward*, not to learn. The Type field (C) says what's inside (IPv4, IPv6, ARP). The FCS (D) is the error check.
+</details>
+
+**Q2.** A switch receives a frame whose FCS doesn't match the value it calculates. What happens?
+
+- **A.** The switch discards the frame, and Ethernet does not ask the sender to resend it.
+- **B.** The switch asks the sender to retransmit the frame.
+- **C.** The switch repairs the damaged bits using the FCS and forwards the frame.
+- **D.** The switch forwards the frame and lets the destination decide.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A failed FCS means the frame was damaged, so it's thrown away (and counted as a CRC error on the interface). Ethernet has no resend mechanism; if the data mattered, a higher layer such as TCP notices it's missing and resends. **Why not the others:** Ethernet never requests retransmission (B). The FCS detects errors but can't fix them (C). A store-and-forward switch checks the FCS before forwarding, precisely so it doesn't pass damaged frames on (D).
+</details>
+
+**Q3.** An Ethernet frame's Type field contains `0x86DD`. What is the frame carrying?
+
+- **A.** An IPv4 packet
+- **B.** An IPv6 packet
+- **C.** An ARP message
+- **D.** An 802.1Q VLAN tag
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `0x86DD` is the EtherType for **IPv6**. **Why not the others:** IPv4 (A) is `0x0800`. ARP (C) is `0x0806`. `0x8100` (D) marks an 802.1Q tag, which you'll meet with trunks in Chapter 8.
+</details>
+
+**Q4.** What is the allowed size of the Data field in a standard Ethernet frame?
+
+- **A.** 46 to 1500 bytes
+- **B.** 64 to 1518 bytes
+- **C.** 0 to 1500 bytes
+- **D.** 46 to 9000 bytes
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The payload runs from **46 to 1500 bytes**. The 1500 is the Ethernet MTU you met in section 2.7. **Why not the others:** 64 to 1518 bytes (B) is the size of the **whole frame**: the 46–1500 data plus 14 bytes of header and 4 of FCS. The data can't be empty (C); a short payload is padded up to 46 bytes. 9000 bytes (D) is a typical *jumbo* frame, which is not standard Ethernet.
+</details>
+
 ## 5.4 Three Ways to Address a Frame: Unicast, Broadcast, Multicast
 
 | Type | Meaning | Real Life |
@@ -1067,6 +3820,190 @@ When data travels on a LAN, it's wrapped in an **Ethernet frame**. Here's the la
 | **Broadcast** | Every device on the segment | B, C and D all receive it |
 | **Multicast** | Only devices that joined the group | B and D receive it; C does not |
 
+Step through the example:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Unicast, broadcast and multicast",
+  "caption": "A sends three frames through SW1. Press **Next**.",
+  "nodes": [
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 2,
+      "y": 0
+    },
+    {
+      "id": "B",
+      "kind": "host",
+      "x": 0.5,
+      "y": 1.6
+    },
+    {
+      "id": "C",
+      "kind": "host",
+      "x": 1.5,
+      "y": 1.6
+    },
+    {
+      "id": "D",
+      "kind": "host",
+      "x": 2.5,
+      "y": 1.6
+    },
+    {
+      "id": "A",
+      "kind": "host",
+      "x": 3.5,
+      "y": 1.6
+    }
+  ],
+  "links": [
+    {
+      "a": "SW1",
+      "b": "A"
+    },
+    {
+      "a": "SW1",
+      "b": "B"
+    },
+    {
+      "a": "SW1",
+      "b": "C"
+    },
+    {
+      "a": "SW1",
+      "b": "D"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Unicast: one to one",
+      "text": "The destination MAC is **B's** own address. SW1 knows which port B is on, so only B receives it.",
+      "packets": [
+        {
+          "path": [
+            "A",
+            "SW1",
+            "B"
+          ],
+          "label": "to B's MAC"
+        }
+      ]
+    },
+    {
+      "title": "2. Broadcast: one to everyone",
+      "text": "Destination `FFFF.FFFF.FFFF`: every device on the segment must receive and process it. ARP's \"who has this IP address?\" works this way. SW1 floods it out every port except the one it came in on.",
+      "packets": [
+        {
+          "path": [
+            "A",
+            "SW1",
+            "B"
+          ],
+          "label": "FFFF.FFFF.FFFF",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "A",
+            "SW1",
+            "C"
+          ],
+          "label": "FFFF.FFFF.FFFF",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "A",
+            "SW1",
+            "D"
+          ],
+          "label": "FFFF.FFFF.FFFF",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. Multicast: only the group",
+      "text": "B and D joined a video stream (group 239.1.1.1, MAC `0100.5e01.0101`); C didn't. With **IGMP snooping** (on by default on Catalyst switches) SW1 knows who joined and sends the stream only to them. Without snooping, a switch floods multicast like a broadcast.",
+      "nodes": {
+        "B": {
+          "badge": "joined",
+          "tone": "good"
+        },
+        "D": {
+          "badge": "joined",
+          "tone": "good"
+        },
+        "C": {
+          "state": "dim"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "A",
+            "SW1",
+            "B"
+          ],
+          "label": "group stream",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "A",
+            "SW1",
+            "D"
+          ],
+          "label": "group stream",
+          "tone": "purple"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 5.4**
+
+**Q1.** What is the Ethernet broadcast MAC address?
+
+- **A.** `0000.0000.0000`
+- **B.** `FFFF.FFFF.FFFF`
+- **C.** `0100.5E00.0001`
+- **D.** `FFFF.FF00.0000`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** All 48 bits set to 1, all F's, means "every device on this segment". **Why not the others:** all zeros (A) isn't a usable destination. `0100.5E00.0001` (C) is an IPv4 **multicast** MAC (it maps to 224.0.0.1). D sets only half the bits, which makes it an ordinary address, not a broadcast.
+</details>
+
+**Q2.** A video stream is sent once and received only by the hosts that joined that stream. What kind of addressing is this?
+
+- **A.** Unicast
+- **B.** Broadcast
+- **C.** Multicast
+- **D.** Anycast
+
+<details><summary>Answer</summary>
+
+**Answer: C.** One-to-a-group, delivered only to the members who joined, is **multicast**. **Why not the others:** unicast (A) is one-to-one, so the sender would need a separate copy for every viewer. Broadcast (B) would hit every device, including those that don't want the stream. Anycast (D) delivers to the *nearest one* of several devices sharing an address, which you'll meet with IPv6.
+</details>
+
+**Q3.** A switch has 24 access ports, all in VLAN 1 and all connected. A broadcast frame arrives on Fa0/1. Where does the switch send it?
+
+- **A.** Out every port except Fa0/1
+- **B.** Out every port, including Fa0/1
+- **C.** Only out the uplink port
+- **D.** Nowhere, because switches block broadcasts
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A broadcast is for everyone in the broadcast domain, so the switch **floods** it out every port in the VLAN, except the one it arrived on. **Why not the others:** sending it back out Fa0/1 (B) would echo it to the sender's own segment for nothing. The switch has no special "send broadcasts up only" rule (C). Switches forward broadcasts (D); *routers* are what stop them.
+</details>
+
 ## 5.5 How Devices Learn About Collisions (CSMA/CD)
 
 Old networks (with hubs) shared one wire, so two devices could talk at once and **collide**. Ethernet used a polite system called **CSMA/CD**:
@@ -1079,9 +4016,180 @@ Old networks (with hubs) shared one wire, so two devices could talk at once and 
 
 **Why the RANDOM wait — why not a fixed wait?** This is a clever detail. If both kids waited the *same* fixed amount (say exactly 1 second), they'd both start talking again at the *same moment* — and collide again, forever! By each waiting a **random** amount, they almost certainly pick different times, so one goes first and the other hears them and holds off. *Randomness is what breaks the tie.* (The real rule, called "backoff," even makes the random wait get bigger after repeated collisions, to calm things down when the wire is busy.)
 
+Step through one collision and its recovery:
+
+```diagram
+{
+  "type": "sequence",
+  "title": "CSMA/CD: listen, collide, back off, retry",
+  "actors": [
+    {
+      "id": "A",
+      "kind": "host",
+      "label": "PC-A"
+    },
+    {
+      "id": "W",
+      "kind": "switch",
+      "label": "Hub (shared wire)"
+    },
+    {
+      "id": "B",
+      "kind": "host",
+      "label": "PC-B"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Both listen: the wire is quiet",
+      "over": [
+        "A",
+        "W",
+        "B"
+      ],
+      "states": {
+        "A": "listening",
+        "B": "listening"
+      },
+      "text": "**Carrier sense**: before talking, each station listens. Nobody is sending, so both are allowed to start."
+    },
+    {
+      "from": "A",
+      "to": "W",
+      "label": "A starts",
+      "states": {
+        "A": "sending"
+      },
+      "text": "PC-A begins its frame."
+    },
+    {
+      "from": "B",
+      "to": "W",
+      "label": "B starts too",
+      "states": {
+        "B": "sending"
+      },
+      "text": "Signals take time to travel. PC-B listened, heard silence, and started too. This is why listening first can't prevent every collision."
+    },
+    {
+      "note": "Collision!",
+      "over": [
+        "W"
+      ],
+      "text": "The two signals overlap on the shared wire and garble each other. Both stations notice (**collision detection**)."
+    },
+    {
+      "from": "A",
+      "to": "W",
+      "label": "jam signal",
+      "tone": "bad",
+      "text": "Each station stops its frame and sends a short **jam signal**, so every station on the wire knows the frame was ruined."
+    },
+    {
+      "from": "B",
+      "to": "W",
+      "label": "jam signal",
+      "tone": "bad",
+      "text": "PC-B does the same. Both frames are lost and both stations must try again."
+    },
+    {
+      "from": "A",
+      "to": "A",
+      "label": "backoff: 0 slots",
+      "detail": "random: 0 or 1",
+      "states": {
+        "A": "backoff"
+      },
+      "text": "Each station picks a **random** number of slot times to wait. After a first collision the choice is 0 or 1; after each further collision the range doubles."
+    },
+    {
+      "note": "B backs off 1 slot",
+      "over": [
+        "W",
+        "B"
+      ],
+      "states": {
+        "B": "backoff"
+      },
+      "text": "PC-B happened to pick a different number. That's the whole point of randomness: it breaks the tie."
+    },
+    {
+      "from": "A",
+      "to": "W",
+      "label": "A resends",
+      "tone": "good",
+      "states": {
+        "A": "sending"
+      },
+      "text": "PC-A's wait ended first, the wire is quiet, so it sends again."
+    },
+    {
+      "note": "B hears A: defers",
+      "over": [
+        "W",
+        "B"
+      ],
+      "states": {
+        "B": "deferring"
+      },
+      "text": "When PC-B's wait ends it listens first, hears PC-A, and **defers** instead of colliding again."
+    },
+    {
+      "from": "B",
+      "to": "W",
+      "label": "B sends",
+      "tone": "good",
+      "states": {
+        "A": "listening",
+        "B": "sending"
+      },
+      "text": "Both frames get through. On a full-duplex switch port none of this happens, because there's no shared wire to collide on."
+    }
+  ]
+}
+```
+
 **Why does this whole system exist — and why is it mostly gone now?** CSMA/CD only mattered because old **hubs** forced everyone to *share one wire* (one collision domain), so collisions were unavoidable and you needed rules to recover from them. Modern **switches** give every device its **own dedicated wire** and run **full-duplex** (send and receive at once), so two devices are never fighting for the same wire — **collisions literally can't happen**. That's *why* CSMA/CD is now basically history: we fixed the root cause (the shared wire) instead of just managing the symptom (collisions). The exam still asks about it because it explains *why switches were such a huge upgrade over hubs.*
 
 > **Modern note:** Today's **switches** use **full-duplex**, so collisions basically don't happen anymore. CSMA/CD is mostly history, but the exam still mentions it.
+
+**📝 Exam-style questions — 5.5**
+
+**Q1.** Under CSMA/CD, what does a station do when it detects a collision?
+
+- **A.** It stops sending, sends a jam signal, waits a random backoff time and then tries again.
+- **B.** It keeps sending, because the receiver will sort out the damaged bits.
+- **C.** It waits exactly one second and resends.
+- **D.** It switches the port to full-duplex.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Stop, make sure everyone knows there was a collision (the jam signal), wait a random time, listen, and try again. **Why not the others:** a collided frame is garbage (B), so continuing wastes the wire. A fixed wait (C) would make both stations retry at the same moment and collide again. Duplex isn't something a station changes on the fly (D); it's set when the link comes up.
+</details>
+
+**Q2.** Why is the CSMA/CD backoff timer random instead of fixed?
+
+- **A.** So the colliding stations are unlikely to retry at exactly the same moment
+- **B.** So the station with the highest MAC address always goes first
+- **C.** So the frame can be resent at a lower speed
+- **D.** So the switch can learn the sender's MAC address
+
+<details><summary>Answer</summary>
+
+**Answer: A.** If both waited the same time, they'd collide again forever. Random waits almost always differ, so one station goes first and the other hears it and holds off. The range even grows after repeated collisions. **Why not the others:** there's no MAC-based priority in CSMA/CD (B). Backoff doesn't change the speed (C). MAC learning (D) happens from any received frame's source address; it has nothing to do with collisions.
+</details>
+
+**Q3.** On a modern switch, when does a port actually use CSMA/CD?
+
+- **A.** Only when the port runs half-duplex
+- **B.** Always, on every Ethernet port
+- **C.** Only when the port runs full-duplex
+- **D.** Only on trunk ports
+
+<details><summary>Answer</summary>
+
+**Answer: A.** CSMA/CD exists for shared, half-duplex wires, so a port only uses it in **half-duplex**, for example when a hub or an old device is attached. **Why not the others:** full-duplex ports (B, C) can't have collisions, so CSMA/CD is switched off. Trunking (D) is about carrying VLANs and has nothing to do with collision handling.
+</details>
 
 ---
 
@@ -1102,9 +4210,58 @@ A switch's MAC address table is simply a list of *which address lives on which p
 | `00:22:…:BB` | Fa0/2 |
 | `00:33:…:CC` | Fa0/3 |
 
-## 6.2 How a Switch Learns (Step by Step)
+**📝 Exam-style questions — 6.1**
 
-![A switch learning MACs from received frames](images/mac_learning.png)
+**Q1.** What does a switch's MAC address table map?
+
+- **A.** Each MAC address to the switch port (and VLAN) where it was learned
+- **B.** Each IP address to its MAC address
+- **C.** Each destination network to an outgoing interface
+- **D.** Each port to its speed and duplex
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The MAC address table answers one question: "which port do I send this MAC address out of?" **Why not the others:** IP-to-MAC (B) is the **ARP table**, kept by hosts and routers. Network-to-interface (C) is a **routing table**. Speed and duplex (D) are interface settings, shown by `show interfaces status`.
+</details>
+
+**Q2.** What is another common name for the MAC address table?
+
+- **A.** CAM table
+- **B.** ARP cache
+- **C.** Routing table
+- **D.** NAT table
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The MAC table is often called the **CAM table**, after the content-addressable memory that lets the switch look up a MAC address in one step. **Why not the others:** the ARP cache (B) maps IP addresses to MACs. A routing table (C) maps networks to next hops. A NAT table (D) maps inside addresses to outside ones.
+</details>
+
+**Q3.** Refer to the exhibit. A frame arrives on Fa0/1 with destination MAC `0011.2233.44cc`. What does SW1 do with it?
+
+```
+SW1# show mac address-table
+          Mac Address Table
+-------------------------------------------
+
+Vlan    Mac Address       Type        Ports
+----    -----------       --------    -----
+   1    0011.2233.44aa    DYNAMIC     Fa0/1
+   1    0011.2233.44bb    DYNAMIC     Fa0/2
+   1    0011.2233.44cc    DYNAMIC     Fa0/3
+Total Mac Addresses for this criterion: 3
+```
+
+- **A.** It forwards the frame out Fa0/3 only.
+- **B.** It floods the frame out every port except Fa0/1.
+- **C.** It forwards the frame out Fa0/2 and Fa0/3.
+- **D.** It drops the frame, because the destination was learned dynamically.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The destination is in the table against **Fa0/3**, so the switch sends the frame there and nowhere else. That's the switch's whole superpower. **Why not the others:** flooding (B) is only for destinations the switch *doesn't* know. Nothing in the table points this MAC at Fa0/2 (C). "DYNAMIC" (D) just means the entry was learned from traffic rather than typed in; dynamic entries are used for forwarding like any other.
+</details>
+
+## 6.2 How a Switch Learns (Step by Step)
 
 **Story Time 📖:** A new switch is like a new mail sorter who doesn't know anyone yet. It learns by watching return addresses.
 
@@ -1125,6 +4282,211 @@ port 3.
 The table now holds both. From here on, traffic between them goes straight to the
 right port with no flooding. 🎯
 
+Step through a switch learning from scratch, with four PCs:
+
+```diagram
+{
+  "type": "topology",
+  "title": "How a switch learns: the source teaches, the destination decides",
+  "caption": "SW1 starts with an empty MAC table. Press **Next** and watch it learn.",
+  "nodes": [
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 2,
+      "y": 0
+    },
+    {
+      "id": "PCA",
+      "kind": "host",
+      "x": 0,
+      "y": 1.7,
+      "label": "PC-A",
+      "sub": "aaaa.aaaa.aaaa"
+    },
+    {
+      "id": "PCB",
+      "kind": "host",
+      "x": 1.33,
+      "y": 1.7,
+      "label": "PC-B",
+      "sub": "bbbb.bbbb.bbbb"
+    },
+    {
+      "id": "PCC",
+      "kind": "host",
+      "x": 2.67,
+      "y": 1.7,
+      "label": "PC-C",
+      "sub": "cccc.cccc.cccc"
+    },
+    {
+      "id": "PCD",
+      "kind": "host",
+      "x": 4,
+      "y": 1.7,
+      "label": "PC-D",
+      "sub": "dddd.dddd.dddd"
+    }
+  ],
+  "links": [
+    {
+      "a": "SW1",
+      "b": "PCA",
+      "bLabel": "Fa0/1"
+    },
+    {
+      "a": "SW1",
+      "b": "PCB",
+      "bLabel": "Fa0/2"
+    },
+    {
+      "a": "SW1",
+      "b": "PCC",
+      "bLabel": "Fa0/3"
+    },
+    {
+      "a": "SW1",
+      "b": "PCD",
+      "bLabel": "Fa0/4"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. A new switch knows nobody",
+      "text": "The MAC table is empty: `show mac address-table dynamic` lists nothing. The switch will fill it purely by watching the **source** address of each frame that arrives.",
+      "focus": [
+        "SW1"
+      ]
+    },
+    {
+      "title": "2. PC-A sends to PC-C: learn A, flood",
+      "text": "A frame from `aaaa.aaaa.aaaa` arrived on Fa0/1, so PC-A **must** be on Fa0/1: learned. The destination `cccc.cccc.cccc` is unknown, so SW1 **floods** the frame out every other port. PC-B and PC-D see it isn't for them and discard it.\n\nTable: aaaa → Fa0/1.",
+      "nodes": {
+        "PCA": {
+          "badge": "learned Fa0/1",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "SW1",
+            "PCB"
+          ],
+          "label": "to cccc (unknown)",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "PCA",
+            "SW1",
+            "PCC"
+          ],
+          "label": "to cccc (unknown)",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "PCA",
+            "SW1",
+            "PCD"
+          ],
+          "label": "to cccc (unknown)",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. PC-C replies: forward, and learn C",
+      "text": "The reply's destination, `aaaa.aaaa.aaaa`, is in the table, so it goes **only** out Fa0/1. Its source teaches SW1 that PC-C is on Fa0/3.\n\nTable: aaaa → Fa0/1, cccc → Fa0/3.",
+      "nodes": {
+        "PCC": {
+          "badge": "learned Fa0/3",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PCC",
+            "SW1",
+            "PCA"
+          ],
+          "label": "to aaaa (known)"
+        }
+      ]
+    },
+    {
+      "title": "4. Now traffic goes straight through",
+      "text": "Both ends are known, so PC-A's next frame to PC-C is **forwarded** out Fa0/3 alone. PC-B and PC-D never see it. Flooding was a one-time cost.",
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "SW1",
+            "PCC"
+          ],
+          "label": "to cccc (known)",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. PC-B to PC-D: learn B, flood again",
+      "text": "PC-B's source is learned on Fa0/2. PC-D has never spoken, so its MAC is still unknown and this frame floods too, until PC-D replies.\n\nTable: aaaa → Fa0/1, bbbb → Fa0/2, cccc → Fa0/3, dddd → ???",
+      "nodes": {
+        "PCB": {
+          "badge": "learned Fa0/2",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PCB",
+            "SW1",
+            "PCA"
+          ],
+          "label": "to dddd (unknown)",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "PCB",
+            "SW1",
+            "PCC"
+          ],
+          "label": "to dddd (unknown)",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "PCB",
+            "SW1",
+            "PCD"
+          ],
+          "label": "to dddd (unknown)",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "6. Silence ages an entry out",
+      "text": "PC-C sends nothing for **300 seconds** (the default aging time), so SW1 forgets it. That keeps the table fresh if PC-C moves. The next frame to PC-C floods again, and PC-C's reply puts it straight back.",
+      "nodes": {
+        "PCC": {
+          "badge": "aged out",
+          "tone": "muted",
+          "state": "dim"
+        }
+      }
+    }
+  ]
+}
+```
+
 **Let's understand WHY the switch behaves this way — every step has a smart reason:**
 
 - **Why learn from the SOURCE, not the destination?** Because the source is a **fact the switch can trust**: a frame physically arrived on port 1 carrying source MAC AA, so AA *must* be reachable through port 1 — no guessing. The destination, on the other hand, is just a *request* ("please deliver to CC") that the switch may not know yet. You learn from what already happened, not from what's being asked.
@@ -1134,6 +4496,65 @@ right port with no flooding. 🎯
 - **Why FILTER (drop) a frame whose destination is on the same port it came in on?** Because that device is already on that wire — it doesn't need the switch to echo the frame back the way it came. Sending it back would be pointless noise.
 
 - **Why AGE OUT (forget) quiet devices after ~300 seconds?** Two reasons. First, the MAC table has **limited memory** — you can't remember every device forever. Second, devices **move** (unplugged and plugged into a different port, or a laptop roams). If the switch remembered the old port forever, it would keep sending frames to the *wrong* place after a device moved. Forgetting stale entries keeps the map **fresh and correct**. If the device is still active, it'll send another frame and get re-learned instantly — so nothing is lost.
+
+**📝 Exam-style questions — 6.2**
+
+**Q1.** Refer to the exhibit. A frame arrives on Fa0/2 with destination MAC `0011.2233.44dd`. All ports are in VLAN 1. What does SW1 do?
+
+```
+SW1# show mac address-table dynamic
+Vlan    Mac Address       Type        Ports
+----    -----------       --------    -----
+   1    0011.2233.44aa    DYNAMIC     Fa0/1
+   1    0011.2233.44bb    DYNAMIC     Fa0/2
+   1    0011.2233.44cc    DYNAMIC     Fa0/3
+```
+
+- **A.** It drops the frame, because the destination is unknown.
+- **B.** It floods the frame out every port in VLAN 1 except Fa0/2.
+- **C.** It floods the frame out every port in VLAN 1, including Fa0/2.
+- **D.** It sends the frame out Fa0/1 only, the first port in the table.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `0011.2233.44dd` isn't in the table, so this is an **unknown unicast**: the switch floods it out every port in the VLAN except the one it came in on, trusting the real owner to answer so it can learn where it lives. **Why not the others:** dropping it (A) would break communication with a device the switch simply hasn't heard from yet. Sending it back out the arrival port (C) is pointless. The table's order means nothing (D); an unknown MAC isn't tied to any port.
+</details>
+
+**Q2.** PC1 and PC2 are both plugged into a hub, and the hub connects to switch port Fa0/5. The switch has learned both PCs' MACs on Fa0/5. PC1 sends a frame to PC2. What does the switch do?
+
+- **A.** It filters (drops) the frame, because the destination is on the same port the frame arrived on.
+- **B.** It sends the frame back out Fa0/5 so PC2 receives it.
+- **C.** It floods the frame out every port.
+- **D.** It moves PC2's entry to a different port.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** PC2 is on the same wire as PC1, behind the hub, so it has *already* received the frame. The switch sees the destination is on the arrival port and **filters** it. **Why not the others:** echoing it back (B) would just duplicate what PC2 already heard. Both MACs are known, so there's no reason to flood (C). Nothing has moved, so the table stays as it is (D).
+</details>
+
+**Q3.** A user unplugs her laptop from Fa0/3 and plugs it into Fa0/7 on the same switch and VLAN. The laptop immediately sends a frame. What happens to its MAC table entry?
+
+- **A.** The switch updates the entry to point to Fa0/7 as soon as it sees the laptop's source MAC there.
+- **B.** The entry stays on Fa0/3 until the 300-second aging timer expires.
+- **C.** The switch shuts down Fa0/7, because the MAC address is already known on another port.
+- **D.** The switch keeps two entries, one on Fa0/3 and one on Fa0/7.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Learning from the source address works both ways: the first frame from the laptop on Fa0/7 proves where it is now, so the switch moves the entry straight away. **Why not the others:** the aging timer (B) only cleans up devices that go *quiet*; an active device is re-learned the moment it speaks. Shutting the port (C) is something port security might do, not normal learning. A MAC address lives on one port per VLAN (D); two entries would leave the switch not knowing where to send.
+</details>
+
+**Q4.** By default, how long does a Cisco Catalyst switch keep a dynamic MAC address entry for a device that has gone silent?
+
+- **A.** 30 seconds
+- **B.** 60 seconds
+- **C.** 300 seconds
+- **D.** 4 hours
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The default MAC aging time is **300 seconds** (5 minutes). A device that stays quiet that long is forgotten, and re-learned the moment it sends again. **Why not the others:** 30 and 60 seconds (A, B) are not the default; too short a timer would cause extra flooding. 4 hours (D) is the default **ARP** cache timeout on a Cisco router, a different table entirely.
+</details>
 
 ## 6.3 Collision Domains vs. Broadcast Domains
 
@@ -1153,10 +4574,269 @@ Two important ideas:
 
 **Memory trick:** **Switches break up collision domains. Routers break up broadcast domains.**
 
+Step through it on a small network with a switch on one side of a router and a hub on the other:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Counting collision and broadcast domains",
+  "caption": "The shaded areas are the broadcast domains. Press **Next**.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2.5,
+      "y": 0
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 1,
+      "y": 1.3
+    },
+    {
+      "id": "HUB",
+      "kind": "switch",
+      "x": 4,
+      "y": 1.3,
+      "label": "HUB1"
+    },
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0.4,
+      "y": 2.7
+    },
+    {
+      "id": "PC2",
+      "kind": "host",
+      "x": 1.6,
+      "y": 2.7
+    },
+    {
+      "id": "PC3",
+      "kind": "host",
+      "x": 3.4,
+      "y": 2.7
+    },
+    {
+      "id": "PC4",
+      "kind": "host",
+      "x": 4.6,
+      "y": 2.7
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "SW1",
+      "aLabel": "Gi0/0"
+    },
+    {
+      "a": "R1",
+      "b": "HUB",
+      "aLabel": "Gi0/1"
+    },
+    {
+      "a": "SW1",
+      "b": "PC1"
+    },
+    {
+      "a": "SW1",
+      "b": "PC2"
+    },
+    {
+      "a": "HUB",
+      "b": "PC3"
+    },
+    {
+      "a": "HUB",
+      "b": "PC4"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Broadcast domain 1",
+      "nodes": [
+        "SW1",
+        "PC1",
+        "PC2"
+      ],
+      "tone": "accent"
+    },
+    {
+      "label": "Broadcast domain 2",
+      "nodes": [
+        "HUB",
+        "PC3",
+        "PC4"
+      ],
+      "tone": "purple"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. A broadcast floods its own side",
+      "text": "PC1 sends an ARP broadcast. SW1 floods it to PC2 and to R1's Gi0/0, as it must. R1 receives it but **does not forward it** out Gi0/1.",
+      "nodes": {
+        "R1": {
+          "badge": "stops here",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "SW1",
+            "PC2"
+          ],
+          "label": "broadcast",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "PC1",
+            "SW1",
+            "R1"
+          ],
+          "label": "broadcast",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "2. The router is the wall",
+      "text": "The same happens on the other side: PC3's broadcast reaches PC4 and R1's Gi0/1, and stops there. **One broadcast domain per router interface**: two here.",
+      "packets": [
+        {
+          "path": [
+            "PC3",
+            "HUB",
+            "PC4"
+          ],
+          "label": "broadcast",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "PC3",
+            "HUB",
+            "R1"
+          ],
+          "label": "broadcast",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. On the switch: one collision domain per port",
+      "text": "Each of SW1's ports is its own collision domain: the link to PC1, the link to PC2 and the link to R1. That's **3**, and with full-duplex none of them ever sees a collision.",
+      "focus": [
+        "SW1",
+        "PC1",
+        "PC2",
+        "R1",
+        "SW1-PC1",
+        "SW1-PC2",
+        "R1-SW1"
+      ],
+      "nodes": {
+        "R1": null,
+        "SW1": {
+          "badge": "3 col. domains",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "4. On the hub: everything shares one",
+      "text": "A hub repeats every signal to every port, so PC3, PC4 and R1's Gi0/1 all share **one** collision domain. Total: **4 collision domains, 2 broadcast domains**. Swap the hub for a switch and it becomes 5 and 2.",
+      "focus": [
+        "HUB",
+        "PC3",
+        "PC4",
+        "R1",
+        "HUB-PC3",
+        "HUB-PC4",
+        "R1-HUB"
+      ],
+      "nodes": {
+        "SW1": null,
+        "HUB": {
+          "badge": "1 col. domain",
+          "tone": "warn"
+        }
+      }
+    }
+  ]
+}
+```
+
 **Why do these two "domains" even matter in real life?** Because they're really two different questions about *how big a problem can spread*:
 
 - A **collision domain** asks *"how many devices are fighting over one wire?"* Bigger collision domains = more crashes = slower network. Switches shrink each collision domain down to a **single wire** (one device), which is *why* replacing hubs with switches was such a massive speed boost — nobody fights over the wire anymore.
 - A **broadcast domain** asks *"how far does a 'HEY EVERYONE!' shout travel?"* Every device in the domain must stop and process every broadcast. Too many devices in one broadcast domain = everyone drowning in broadcast noise (exactly the problem VLANs and routers solve, from Chapter 1 and Chapter 7). *This is why we care:* keeping broadcast domains a reasonable size is the difference between a snappy network and a sluggish one. Switches can't shrink broadcast domains on their own — only **routers** (or **VLANs**, which are just broadcast domains in software) can. That single fact drives a huge amount of network design.
+
+**📝 Exam-style questions — 6.3**
+
+**Q1.** Refer to the exhibit. How many collision domains and broadcast domains are there? All switch ports and router interfaces are in use as shown, and there are no VLANs beyond the default.
+
+```
+                 [ R1 ]
+          Gi0/0 /      \ Gi0/1
+               /        \
+            [SW1]      [HUB1]
+           /  |  \     /  |  \
+        PC1  PC2  PC3 PC4 PC5 PC6
+```
+
+- **A.** 5 collision domains and 2 broadcast domains
+- **B.** 7 collision domains and 2 broadcast domains
+- **C.** 4 collision domains and 1 broadcast domain
+- **D.** 5 collision domains and 1 broadcast domain
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Every **switch port** is its own collision domain: SW1 uses four ports (PC1, PC2, PC3 and the link to R1), so that's 4. Everything on the **hub** is one shared collision domain: +1, total **5**. The router stops broadcasts, so each router interface is its own broadcast domain: **2**. **Why not the others:** 7 (B) counts each hub port separately, but a hub repeats everything everywhere, so it's all one domain. C forgets the hub side entirely and the router's broadcast split. D gets the collision domains right but ignores that R1 separates the two broadcast domains.
+</details>
+
+**Q2.** Which device, by default, breaks up broadcast domains?
+
+- **A.** Router
+- **B.** Layer 2 switch
+- **C.** Hub
+- **D.** Access point
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Routers don't forward broadcasts, so each router interface marks the edge of a broadcast domain. **Why not the others:** a Layer 2 switch (B) floods broadcasts out every port in the VLAN; it breaks up *collision* domains, not broadcast domains. A hub (C) breaks up nothing. An access point (D) bridges wireless clients onto the wired LAN, so they share the same broadcast domain.
+</details>
+
+**Q3.** Which two statements are true? (Choose two.)
+
+- **A.** Each port on a switch is a separate collision domain.
+- **B.** All ports on a hub share one collision domain.
+- **C.** Each port on a switch is a separate broadcast domain.
+- **D.** A router forwards broadcasts between its interfaces.
+- **E.** Each port on a hub is a separate broadcast domain.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Switches shrink collision domains to one port each; a hub is one big shared wire. **Why not the others:** all the ports of a switch (in one VLAN) are one broadcast domain (C). Routers *stop* broadcasts (D). A hub repeats everything, broadcasts included, to every port (E).
+</details>
+
+**Q4.** Why is a very large broadcast domain a problem?
+
+- **A.** Every device in it has to receive and process every broadcast, so broadcast traffic steals bandwidth and CPU from everyone.
+- **B.** Broadcasts cause collisions on full-duplex switch ports.
+- **C.** Switches can only learn 100 MAC addresses per broadcast domain.
+- **D.** Routers inside the broadcast domain must forward every broadcast.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A broadcast must be handled by every device in the domain. With thousands of devices, the background "HEY EVERYONE!" noise grows until real traffic suffers. That's why we cut networks up with routers and VLANs. **Why not the others:** full-duplex ports can't have collisions (B). There's no 100-address limit (C); switches hold thousands. Routers don't forward broadcasts at all (D); they're the boundary of the domain.
+</details>
 
 ## 6.4 Meeting the Cisco IOS (The Switch's Brain)
 
@@ -1179,6 +4859,50 @@ Switch(config-if)# exit        ← go back one level
 Switch(config)# end            ← jump all the way back to Privileged
 ```
 
+**📝 Exam-style questions — 6.4**
+
+**Q1.** Which prompt shows that you are in privileged EXEC mode?
+
+- **A.** `Switch>`
+- **B.** `Switch#`
+- **C.** `Switch(config)#`
+- **D.** `Switch(config-if)#`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The `#` on its own after the hostname means **privileged EXEC**, the mode `enable` takes you to. **Why not the others:** `>` (A) is user EXEC, where you can only look at a little. `(config)#` (C) is global configuration and `(config-if)#` (D) is interface configuration; both are configuration modes, not privileged EXEC.
+</details>
+
+**Q2.** You are at `SW1(config-if)#` and want to get back to `SW1#` with one command. Which command do you use?
+
+- **A.** `exit`
+- **B.** `end`
+- **C.** `disable`
+- **D.** `logout`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `end` (or Ctrl+Z) jumps from any configuration mode straight back to privileged EXEC. **Why not the others:** `exit` (A) goes back only one level, to `SW1(config)#`. `disable` (C) drops from privileged EXEC to user EXEC and isn't a configuration-mode command. `logout` (D) ends the session altogether.
+</details>
+
+**Q3.** Refer to the exhibit. How can the engineer view the running configuration without leaving global configuration mode?
+
+```
+SW1(config)# show running-config
+                  ^
+% Invalid input detected at '^' marker.
+```
+
+- **A.** `do show running-config`
+- **B.** `enable show running-config`
+- **C.** `exec show running-config`
+- **D.** `show running-config all`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `show` commands belong to EXEC mode, so configuration mode rejects them. Putting **`do`** in front runs an EXEC command from any configuration mode. **Why not the others:** `enable` (B) moves from user EXEC to privileged EXEC; it doesn't run other commands. `exec` (C) doesn't run commands; under a `line` it only turns the EXEC shell on or off for that line. Adding `all` (D) is still a `show` command, so config mode rejects it just the same.
+</details>
+
 ## 6.5 Your First Switch Configuration (Try It!)
 
 Here's a friendly starter config with comments explaining each line:
@@ -1200,6 +4924,62 @@ SW1# copy running-config startup-config      ! SAVE! (or it's lost on reboot)
 
 > **Super important:** `running-config` is the **live** config in memory (lost on reboot). `startup-config` is **saved** to storage. Always `copy running-config startup-config` (or `write memory`) to save your work!
 
+**📝 Exam-style questions — 6.5**
+
+**Q1.** What does `copy running-config startup-config` do?
+
+- **A.** It saves the live configuration from RAM to NVRAM, so it survives a reload.
+- **B.** It replaces the live configuration with the saved one.
+- **C.** It copies the configuration to a TFTP server.
+- **D.** It erases the saved configuration.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The **running-config** lives in RAM and vanishes on reload; the **startup-config** in NVRAM is what the switch loads at boot. Copying running to startup saves your work (`write memory` does the same). **Why not the others:** B is the opposite direction (`copy startup-config running-config`, which actually *merges* rather than replaces). Copying to TFTP (C) is `copy running-config tftp:`. Erasing the saved config (D) is `erase startup-config`.
+</details>
+
+**Q2.** Refer to the exhibit. An engineer expects the console to ask for a password, but it doesn't. Why?
+
+```
+SW1# show running-config | section line con
+line con 0
+ password ConsolePass
+```
+
+- **A.** The `login` command is missing, so the password is never checked.
+- **B.** The password must be encrypted with `service password-encryption` before it works.
+- **C.** Console passwords only apply to SSH users.
+- **D.** The `enable secret` command overrides the console password.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `password` only *stores* a password; `login` tells the line to *ask* for it. Without `login`, anyone at the console walks straight in. **Why not the others:** `service password-encryption` (B) just hides the password in the config file; it doesn't change whether it's checked. The console line is for the console, not SSH (C). `enable secret` (D) protects the step into privileged EXEC; it doesn't affect the console login.
+</details>
+
+**Q3.** A switch has both `enable password Cisco1` and `enable secret Cisco2` configured. Which password gets you into privileged EXEC mode?
+
+- **A.** Cisco1
+- **B.** Cisco2
+- **C.** Either one
+- **D.** Neither, because the two commands conflict
+
+<details><summary>Answer</summary>
+
+**Answer: B.** When both exist, **`enable secret` wins**, because it's stored as a proper hash and is the more secure of the two. **Why not the others:** `enable password` (A) is ignored while a secret is set. Only one is accepted (C). IOS allows both lines in the config (D); it just uses the secret.
+</details>
+
+**Q4.** What does `service password-encryption` do?
+
+- **A.** It hides plain-text passwords in the configuration with weak, reversible (type 7) encryption.
+- **B.** It hashes every password with strong encryption that can't be reversed.
+- **C.** It encrypts all management traffic sent to the switch.
+- **D.** It requires users to enter a password before reaching user EXEC mode.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** It scrambles passwords like the console and vty `password` lines so they don't show in plain text over someone's shoulder, but type 7 is easy to reverse, so it's a privacy screen, not real protection. **Why not the others:** strong one-way hashing (B) is what `enable secret` and `username ... secret` give you. Encrypting management traffic (C) is SSH's job. Requiring a password at login (D) is what `login` does.
+</details>
+
 ## 6.6 Setting Up Remote Management (SSH)
 
 To manage a switch over the network (not just the console cable), set up **SSH** (secure) — never Telnet (unsecure). A switch needs an IP address on a **management VLAN** for this:
@@ -1219,6 +4999,137 @@ SW1(config-line)# login local                ! use the username/password above
 SW1(config-line)# exit
 ```
 
+Step through an SSH login from an admin PC on another subnet, and see which line of that configuration each step needs:
+
+```diagram
+{
+  "type": "sequence",
+  "title": "What each SSH setting is for",
+  "actors": [
+    {
+      "id": "ADM",
+      "kind": "host",
+      "label": "Admin PC"
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "label": "SW1"
+    }
+  ],
+  "messages": [
+    {
+      "from": "ADM",
+      "to": "SW1",
+      "label": "TCP SYN to port 22",
+      "detail": "to 192.168.1.10",
+      "text": "The admin PC, 10.10.20.50, is on another subnet. Its request is addressed to the switch's management IP, 192.168.1.10, so the switch needs `interface vlan 1` with an `ip address` and `no shutdown`. A Layer 2 switch has no other IP address to reach."
+    },
+    {
+      "from": "SW1",
+      "to": "ADM",
+      "label": "SYN-ACK",
+      "detail": "via default gateway",
+      "text": "The admin is on **another subnet**, so the switch hands its reply to its `ip default-gateway`. Without that line the reply has nowhere to go and the session just hangs."
+    },
+    {
+      "from": "ADM",
+      "to": "SW1",
+      "label": "ACK",
+      "text": "TCP is up. The vty line accepts it because `transport input ssh` lists SSH. A Telnet attempt to port 23 would be refused right here."
+    },
+    {
+      "from": "SW1",
+      "to": "ADM",
+      "label": "RSA host key",
+      "text": "The key pair comes from `crypto key generate rsa`, which needed the hostname and `ip domain-name` first. The admin's SSH client checks and remembers this key."
+    },
+    {
+      "note": "Key exchange: session now encrypted",
+      "over": [
+        "ADM",
+        "SW1"
+      ],
+      "text": "Both sides agree on session keys. From here on, everything, including the password, crosses the network encrypted. That's the whole reason to use SSH and never Telnet."
+    },
+    {
+      "from": "ADM",
+      "to": "SW1",
+      "label": "username + password",
+      "detail": "inside the encryption",
+      "text": "`login local` tells the vty lines to check the switch's own user list, created by `username admin secret ...`."
+    },
+    {
+      "from": "SW1",
+      "to": "ADM",
+      "label": "SW1> prompt",
+      "tone": "good",
+      "states": {
+        "ADM": "logged in"
+      },
+      "text": "The admin lands in **user EXEC**. Typing `enable` and the enable secret gets to `SW1#`."
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 6.6**
+
+**Q1.** An engineer enters `crypto key generate rsa` on a brand-new switch and IOS rejects it. Which two settings are needed first? (Choose two.)
+
+- **A.** A hostname other than the default
+- **B.** An IP domain name, set with `ip domain-name`
+- **C.** A local user account, created with `username`
+- **D.** `transport input ssh` on the vty lines
+- **E.** An IP address on the VLAN 1 interface
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** The RSA key is named after the switch's **hostname plus domain name**, so IOS refuses to generate it while the hostname is still the default or no domain name is set. **Why not the others:** a local user (C), `transport input ssh` (D) and a management IP address (E) are all needed for SSH logins to *work*, but none of them is required to generate the key.
+</details>
+
+**Q2.** Refer to the exhibit. A user tries to Telnet to the switch. What happens?
+
+```
+line vty 0 15
+ login local
+ transport input ssh
+```
+
+- **A.** The connection is refused, because the vty lines accept SSH only.
+- **B.** The user is asked for a username and password, and Telnet works.
+- **C.** Telnet works without any password, because `login local` applies to SSH only.
+- **D.** The switch converts the Telnet session to SSH automatically.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `transport input ssh` says which protocols the vty lines accept, and Telnet isn't on the list, so the connection is refused. **Why not the others:** Telnet never reaches the login prompt (B). `login local` applies to whatever protocol the line accepts (C); here that's only SSH. Telnet and SSH are different protocols, so nothing can "convert" one into the other (D).
+</details>
+
+**Q3.** Why does a Layer 2 switch need `ip default-gateway` to be managed from another subnet?
+
+- **A.** So that the switch can send replies to management hosts that are on other subnets
+- **B.** So that the switch can route traffic between its VLANs
+- **C.** So that PCs plugged into the switch can reach the internet
+- **D.** So that the switch can generate its RSA keys
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The switch's management interface is like a host: to answer an admin on another subnet, it needs a gateway to send the replies to. Without one, the SSH session from another subnet never gets its replies. **Why not the others:** a Layer 2 switch doesn't route (B); the default gateway is only for the switch's *own* traffic. PCs use their own default gateway (C), not the switch's. RSA keys (D) need a hostname and domain name, not a gateway.
+</details>
+
+**Q4.** Which command limits the vty lines to SSH only?
+
+- **A.** `transport input ssh`
+- **B.** `ip ssh version 2`
+- **C.** `login local`
+- **D.** `transport output ssh`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `transport input ssh` under `line vty 0 15` controls which protocols may come *in*, so Telnet is refused. **Why not the others:** `ip ssh version 2` (B) chooses the SSH version but doesn't block Telnet. `login local` (C) says to check the local username database; it doesn't choose a protocol. `transport output` (D) controls connections made *from* the switch to other devices, not into it.
+</details>
+
 ## 6.7 Helpful "Show" Commands (Your Eyes Into the Switch)
 
 | Command | What it shows |
@@ -1229,6 +5140,54 @@ SW1(config-line)# exit
 | `show ip interface brief` | Quick list of interfaces & IPs |
 | `show version` | IOS version, uptime, hardware info |
 | `show vlan brief` | List of VLANs and their ports |
+
+**📝 Exam-style questions — 6.7**
+
+**Q1.** Which command gives a short list of interfaces with their IP addresses and up/down status?
+
+- **A.** `show ip interface brief`
+- **B.** `show interfaces status`
+- **C.** `show vlan brief`
+- **D.** `show version`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `show ip interface brief` lists every interface on one line each, with its IP address, status and protocol. **Why not the others:** `show interfaces status` (B) shows switch ports with their VLAN, duplex and speed, but no IP addresses. `show vlan brief` (C) lists VLANs and their ports. `show version` (D) shows the IOS version, uptime and hardware.
+</details>
+
+**Q2.** Which command shows the IOS version, how long the switch has been up and the hardware model?
+
+- **A.** `show running-config`
+- **B.** `show version`
+- **C.** `show interfaces status`
+- **D.** `show mac address-table`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** `show version` shows the software version, uptime, model, memory and how the switch last booted. **Why not the others:** `show running-config` (A) shows the live configuration. `show interfaces status` (C) shows the ports. `show mac address-table` (D) shows which MACs were learned on which ports.
+</details>
+
+**Q3.** Refer to the exhibit. Which statement is true?
+
+```
+SW1# show interfaces status
+
+Port      Name         Status       Vlan   Duplex  Speed Type
+Fa0/1     PC-Finance   connected    10     a-full  a-100 10/100BaseTX
+Fa0/2                  notconnect   1        auto   auto 10/100BaseTX
+Fa0/3     Printer      err-disabled 10       auto   auto 10/100BaseTX
+Gi0/1     Uplink       connected    trunk    full   1000 10/100/1000BaseTX
+```
+
+- **A.** Fa0/1 auto-negotiated full-duplex at 100 Mbps.
+- **B.** Fa0/3 was shut down by an administrator with the `shutdown` command.
+- **C.** Gi0/1 is an access port in VLAN 1.
+- **D.** Fa0/2 has a device attached and is passing traffic.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The `a-` prefix means the value was **auto-negotiated**, so `a-full` and `a-100` say Fa0/1 negotiated full-duplex at 100 Mbps. **Why not the others:** a port shut down by an administrator shows **disabled** (B); **err-disabled** means the switch shut it down itself, for example after a port-security violation. Gi0/1's VLAN column says **trunk** (C). **notconnect** (D) means no link, so nothing working is plugged in.
+</details>
 
 ## 6.8 Port Security — Locking Down a Port
 
@@ -1249,6 +5208,212 @@ SW1(config-if)# switchport port-security violation shutdown  ! if broken, shut t
 - **shutdown:** Turn the port off completely (default). Needs an admin to turn it back on.
 
 **Story Time 📖:** Port security is like a locker that only opens for the first backpack you put in it. If a different backpack tries, the locker can ignore it (protect), ignore-and-tattle (restrict), or slam shut and refuse everyone (shutdown).
+
+Step through a violation with the configuration above:
+
+```diagram
+{
+  "type": "topology",
+  "title": "Port security: sticky learning and a shutdown violation",
+  "caption": "Fa0/1 allows **one** MAC address, learned sticky, with violation mode **shutdown**. Both devices use the same wall jack, Fa0/1. Press **Next**.",
+  "nodes": [
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 2,
+      "y": 0,
+      "sub": "Fa0/1: max 1"
+    },
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0.8,
+      "y": 1.6,
+      "label": "PC1",
+      "sub": "0050.7966.6801"
+    },
+    {
+      "id": "LAP",
+      "kind": "host",
+      "x": 3.2,
+      "y": 1.6,
+      "label": "Visitor laptop",
+      "sub": "0050.7966.6802"
+    }
+  ],
+  "links": [
+    {
+      "id": "p1",
+      "a": "SW1",
+      "b": "PC1"
+    },
+    {
+      "id": "p2",
+      "a": "SW1",
+      "b": "LAP",
+      "style": "dashed"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Sticky learns the first MAC",
+      "text": "PC1 sends its first frame. With `mac-address sticky`, SW1 learns `0050.7966.6801` and writes it into the running-config as a secure address. That's the one allowed MAC (`maximum 1`). Save the config, or the sticky address is lost on reload.",
+      "nodes": {
+        "LAP": {
+          "state": "dim"
+        },
+        "SW1": {
+          "badge": "sticky 6801",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "p2": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "SW1"
+          ],
+          "label": "src 6801"
+        }
+      ]
+    },
+    {
+      "title": "2. Someone plugs in a laptop instead",
+      "text": "A visitor unplugs PC1 and plugs a laptop into the same jack. Its first frame has source `0050.7966.6802`, a second MAC on a port that allows one. That's a **violation**.",
+      "nodes": {
+        "PC1": {
+          "state": "dim"
+        },
+        "LAP": null
+      },
+      "links": {
+        "p1": "dim",
+        "p2": null
+      },
+      "packets": [
+        {
+          "path": [
+            "LAP",
+            "SW1"
+          ],
+          "label": "src 6802",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. Shutdown mode err-disables the port",
+      "text": "In **shutdown** mode (the default) SW1 puts Fa0/1 into **err-disabled**: no traffic at all, a log message, and the violation counter goes up. **restrict** would instead drop only the laptop's frames and log them; **protect** would drop them silently. Either way the port would stay up.",
+      "nodes": {
+        "SW1": {
+          "badge": "err-disabled",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "p2": "down"
+      }
+    },
+    {
+      "title": "4. Recovery takes an administrator",
+      "text": "The laptop is removed and PC1 is plugged back in, but the port stays dead until an admin enters `shutdown` then `no shutdown` on Fa0/1 (unless `errdisable recovery` has been configured). Then PC1's sticky MAC is allowed again.",
+      "nodes": {
+        "SW1": {
+          "badge": "secure-up",
+          "tone": "good"
+        },
+        "PC1": null,
+        "LAP": {
+          "state": "dim"
+        }
+      },
+      "links": {
+        "p1": null,
+        "p2": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "SW1"
+          ],
+          "label": "src 6801",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 6.8**
+
+**Q1.** Which violation mode drops traffic from unknown MAC addresses, increments the violation counter and sends a log message, but leaves the port up?
+
+- **A.** protect
+- **B.** restrict
+- **C.** shutdown
+- **D.** sticky
+
+<details><summary>Answer</summary>
+
+**Answer: B.** **restrict** drops the offending frames *and* tells you about it (syslog, SNMP and the violation counter), while legitimate traffic keeps flowing. **Why not the others:** **protect** (A) drops silently, with no log and no counter. **shutdown** (C) err-disables the whole port. **sticky** (D) isn't a violation mode at all; it's how the switch learns and saves allowed MACs.
+</details>
+
+**Q2.** Refer to the exhibit. The unauthorized device has been removed. What must the administrator do to bring Fa0/1 back into service?
+
+```
+SW1# show port-security interface fa0/1
+Port Security              : Enabled
+Port Status                : Secure-shutdown
+Violation Mode             : Shutdown
+Aging Time                 : 0 mins
+Aging Type                 : Absolute
+SecureStatic Address Aging : Disabled
+Maximum MAC Addresses      : 1
+Total MAC Addresses        : 1
+Configured MAC Addresses   : 0
+Sticky MAC Addresses       : 1
+Last Source Address:Vlan   : 0050.7966.6802:1
+Security Violation Count   : 1
+```
+
+- **A.** Enter `shutdown` and then `no shutdown` on Fa0/1.
+- **B.** Nothing; the port recovers by itself after 300 seconds.
+- **C.** Enter `no switchport port-security violation shutdown` on Fa0/1.
+- **D.** Enter `clear mac address-table dynamic` on SW1.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** In **shutdown** mode a violation puts the port in the err-disabled state ("Secure-shutdown"). It stays there until someone bounces it with `shutdown` then `no shutdown`. **Why not the others:** there's no automatic recovery by default (B); you'd have to configure `errdisable recovery cause psecure-violation` for that. Changing the violation mode (C) affects *future* violations; it doesn't revive a port that's already err-disabled. Clearing dynamic MAC entries (D) doesn't touch the port's state, and the sticky address isn't a dynamic entry anyway.
+</details>
+
+**Q3.** If you enable port security without choosing a violation mode, which mode is used?
+
+- **A.** protect
+- **B.** restrict
+- **C.** shutdown
+- **D.** None; the command fails until a mode is set
+
+<details><summary>Answer</summary>
+
+**Answer: C.** **shutdown** is the default, so the first unknown MAC err-disables the port. **Why not the others:** protect (A) and restrict (B) must be configured explicitly. Port security works without naming a mode (D), because shutdown is assumed.
+</details>
+
+**Q4.** On a switch port left at its default `switchport mode dynamic auto`, the command `switchport port-security` is rejected. Why does the configuration set `switchport mode access` first?
+
+- **A.** Port security can't be enabled on a dynamic (DTP) port, because the port might become a trunk.
+- **B.** `switchport mode access` turns on MAC learning, which is off by default.
+- **C.** Access mode is needed for the port to supply PoE.
+- **D.** Port security only works on ports in VLAN 1, and access mode puts the port there.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** IOS answers "Command rejected: ... is a dynamic port." A port that might negotiate itself into a trunk is a moving target, so port security wants a port fixed as access (or a static trunk). **Why not the others:** MAC learning is always on (B). PoE doesn't depend on the switchport mode (C). Port security works in any VLAN (D), and access mode doesn't change the port's VLAN.
+</details>
 
 ---
 
