@@ -15,15 +15,6 @@ const { Network, Session } = await import("data:text/javascript," + encodeURICom
 // ---------------------------------------------------------------- runner
 // Check name -> owner of the gap (routing / switching / services / VPN / BGP / core-CLI).
 const KNOWN_GAPS = {
-  "command errors: bare show asks for a subcommand": "core-CLI",
-  "ping and traceroute: repeat and size options": "core-CLI",
-  "ACLs: standard ACL show format": "core-CLI",
-  "ACLs: extended ACL show format": "core-CLI",
-  "remote access: SSH enabled log after key generation": "core-CLI",
-  "trunks and DTP: native VLAN mismatch is reported by CDP": "switching",
-  "port security: violation logs the offending MAC": "switching",
-  "DHCP: binding table": "services",
-  "CCNP services: unsynchronised clock by default": "services",
 };
 
 const results = { pass: 0, fail: 0, known: 0, fixed: 0, skipped: 0 };
@@ -1007,7 +998,7 @@ check("binding table", () => {
   const out = t.run("R1", "show ip dhcp binding");
   has(out, /Bindings from all pools not associated with VRF:/);
   has(out, /IP address +Client-ID\/ +Lease expiration +Type/);
-  has(out, /192\.168\.1\.11 +01?0050\.7966\.68\w\w/);
+  has(out, /192\.168\.1\.11 +0100\.5079\.6668\.\w\w /);
 });
 check("show ip dhcp pool", () => {
   const t = dhcpLab();
@@ -1132,7 +1123,10 @@ section("CCNP OSPF areas");
     check("stub flag mismatch drops the adjacency", () => {
       const t = three();
       t.conf("R2", "router ospf 1", "area 1 stub");
-      lacks(t.run("R3", "show ip ospf neighbor"), "FULL");
+      // The console also shows the ADJCHG log ("from FULL to DOWN"); the neighbour table must have no FULL entry.
+      const out = t.run("R3", "show ip ospf neighbor");
+      has(out, /from FULL to DOWN/);
+      lacks(out.slice(out.indexOf("Neighbor ID")), "FULL");
     });
     check("area range summarises at the ABR", () => {
       const t = three();

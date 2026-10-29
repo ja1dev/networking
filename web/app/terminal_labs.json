@@ -5561,6 +5561,5120 @@
   }
  },
  {
+  "id": "vrf-lite",
+  "title": "VRF-lite: two customers, one network",
+  "topic": "VRF-lite",
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "minutes": 25,
+  "summary": "Split two routers into RED and BLUE routing tables, carry both over one cable with subinterfaces, run OSPF per VRF, and prove overlapping addresses stay separate.",
+  "intro": "Two customers, RED and BLUE, share your two routers. Both chose **the same addresses** (`10.1.1.0/24` at site 1, `10.2.2.0/24` at site 2), and neither may ever reach the other. One global routing table can't hold two `10.1.1.0/24` networks, so you give each customer its own: a **VRF** (VPN routing and forwarding instance). An interface belongs to exactly one VRF, and a packet that arrives on it is routed only with that VRF's table. This is **VRF-lite**: VRFs without MPLS, carried hop by hop.\n\nWhy it matters: VRFs are how one box serves many tenants (guest Wi-Fi vs corporate, management vs data, customers on a provider edge). The exam expects you to read `show ip route vrf X`, know that `ping` and `traceroute` need `vrf X`, and know that putting an interface into a VRF **removes its IP address** (IOS warns you).\n\n| Link | RED | BLUE |\n|---|---|---|\n| Site 1 LAN (R1) | Gi0/0, 10.1.1.1/24 | Gi0/1, 10.1.1.1/24 |\n| R1 to R2 (Gi0/2) | Gi0/2.10, VLAN 10, 10.0.12.0/30 | Gi0/2.20, VLAN 20, 10.0.12.0/30 |\n| Site 2 LAN (R2) | Gi0/0, 10.2.2.1/24 | Gi0/1, 10.2.2.1/24 |\n\nHosts: PC-A1 and PC-B1 are both `10.1.1.10`. PC-A2 is `10.2.2.10` (RED), PC-B2 is `10.2.2.20` (BLUE).",
+  "height": 420,
+  "devices": [
+   {
+    "name": "PCA1",
+    "type": "pc",
+    "x": 90,
+    "y": 90
+   },
+   {
+    "name": "PCB1",
+    "type": "pc",
+    "x": 90,
+    "y": 330
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 280,
+    "y": 210
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 520,
+    "y": 210
+   },
+   {
+    "name": "PCA2",
+    "type": "pc",
+    "x": 710,
+    "y": 90
+   },
+   {
+    "name": "PCB2",
+    "type": "pc",
+    "x": 710,
+    "y": 330
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "PCA1",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "PCB1",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "R2",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "PCA2",
+    "eth0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "PCB2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "no shutdown",
+    "interface g0/1",
+    "no shutdown",
+    "interface g0/2",
+    "no shutdown",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "no shutdown",
+    "interface g0/1",
+    "no shutdown",
+    "interface g0/2",
+    "no shutdown",
+    "end"
+   ],
+   "PCA1": [
+    "ip 10.1.1.10/24 10.1.1.1"
+   ],
+   "PCB1": [
+    "ip 10.1.1.10/24 10.1.1.1"
+   ],
+   "PCA2": [
+    "ip 10.2.2.10/24 10.2.2.1"
+   ],
+   "PCB2": [
+    "ip 10.2.2.20/24 10.2.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Create the two VRFs",
+    "text": "On **both** routers define `RED` with route distinguisher `65000:1` and `BLUE` with `65000:2`, each with the IPv4 address family. The RD only labels routes; with VRF-lite it never leaves the box, but IOS wants one.",
+    "hint": "`vrf definition RED`, `rd 65000:1`, `address-family ipv4`, `exit-address-family`. Same again for BLUE. Check with `show vrf`.",
+    "checks": [
+     {
+      "type": "vrf",
+      "device": "R1",
+      "vrf": "RED",
+      "rd": "65000:1",
+      "ipv4": true
+     },
+     {
+      "type": "vrf",
+      "device": "R1",
+      "vrf": "BLUE",
+      "rd": "65000:2",
+      "ipv4": true
+     },
+     {
+      "type": "vrf",
+      "device": "R2",
+      "vrf": "RED",
+      "rd": "65000:1",
+      "ipv4": true
+     },
+     {
+      "type": "vrf",
+      "device": "R2",
+      "vrf": "BLUE",
+      "rd": "65000:2",
+      "ipv4": true
+     }
+    ]
+   },
+   {
+    "title": "Put the customer LANs in their VRFs",
+    "text": "R1 Gi0/0 and R2 Gi0/0 belong to RED; R1 Gi0/1 and R2 Gi0/1 belong to BLUE. Give each the gateway address from the table. Notice that R1 accepts `10.1.1.1/24` **twice**: each VRF is its own address space. Each PC should then reach its gateway.",
+    "hint": "`interface g0/0`, `vrf forwarding RED`, then `ip address 10.1.1.1 255.255.255.0`. Order matters: `vrf forwarding` wipes the address.",
+    "checks": [
+     {
+      "type": "vrf-if",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "vrf": "RED"
+     },
+     {
+      "type": "vrf-if",
+      "device": "R1",
+      "intf": "Gi0/1",
+      "vrf": "BLUE"
+     },
+     {
+      "type": "vrf-if",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "vrf": "RED"
+     },
+     {
+      "type": "vrf-if",
+      "device": "R2",
+      "intf": "Gi0/1",
+      "vrf": "BLUE"
+     },
+     {
+      "type": "ifip",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "ip": "10.1.1.1/24"
+     },
+     {
+      "type": "ifip",
+      "device": "R1",
+      "intf": "Gi0/1",
+      "ip": "10.1.1.1/24"
+     },
+     {
+      "type": "ifip",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "ip": "10.2.2.1/24"
+     },
+     {
+      "type": "ifip",
+      "device": "R2",
+      "intf": "Gi0/1",
+      "ip": "10.2.2.1/24"
+     },
+     {
+      "type": "ping",
+      "from": "PCA1",
+      "to": "10.1.1.1"
+     },
+     {
+      "type": "ping",
+      "from": "PCB1",
+      "to": "10.1.1.1"
+     },
+     {
+      "type": "ping",
+      "from": "PCA2",
+      "to": "10.2.2.1"
+     },
+     {
+      "type": "ping",
+      "from": "PCB2",
+      "to": "10.2.2.1"
+     }
+    ]
+   },
+   {
+    "title": "One cable, two VRFs",
+    "text": "The R1-R2 cable has to carry both customers. Split Gi0/2 into subinterfaces: `.10` (802.1Q VLAN 10) in RED and `.20` (VLAN 20) in BLUE, both using `10.0.12.0/30` (R1 is .1, R2 is .2). A plain `ping 10.0.12.2` fails: R1's global table has no such network. Try `ping vrf RED 10.0.12.2`.",
+    "hint": "`interface g0/2.10`, `encapsulation dot1Q 10`, `vrf forwarding RED`, `ip address 10.0.12.1 255.255.255.252`.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "R1",
+      "to": "10.0.12.2",
+      "vrf": "RED"
+     },
+     {
+      "type": "ping",
+      "from": "R1",
+      "to": "10.0.12.2",
+      "vrf": "BLUE"
+     }
+    ]
+   },
+   {
+    "title": "Route inside each VRF",
+    "text": "Run one OSPF process per VRF on both routers: process 10 for RED, 20 for BLUE, every `10.x` interface in area 0. Then `show ip route vrf RED` on R1 should list R2's `10.2.2.0/24`, while the global `show ip route` stays empty.",
+    "hint": "`router ospf 10 vrf RED`, `network 10.0.0.0 0.255.255.255 area 0`; `router ospf 20 vrf BLUE` the same way.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R1",
+      "vrf": "RED",
+      "prefix": "10.2.2.0/24",
+      "code": "O"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "vrf": "BLUE",
+      "prefix": "10.2.2.0/24",
+      "code": "O"
+     },
+     {
+      "type": "route",
+      "device": "R2",
+      "vrf": "RED",
+      "prefix": "10.1.1.0/24",
+      "code": "O"
+     },
+     {
+      "type": "route",
+      "device": "R2",
+      "vrf": "BLUE",
+      "prefix": "10.1.1.0/24",
+      "code": "O"
+     },
+     {
+      "type": "noroute",
+      "device": "R1",
+      "prefix": "10.2.2.0/24"
+     }
+    ]
+   },
+   {
+    "title": "Same addresses, separate customers",
+    "text": "PC-A1 reaches PC-A2 and PC-B1 reaches PC-B2, but neither can reach the other customer's host even though the addresses look reachable.",
+    "hint": "If a ping fails, check the VRF of every interface on the path with `show ip vrf interfaces`.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PCA1",
+      "to": "10.2.2.10"
+     },
+     {
+      "type": "ping",
+      "from": "PCB1",
+      "to": "10.2.2.20"
+     },
+     {
+      "type": "noping",
+      "from": "PCA1",
+      "to": "10.2.2.20"
+     },
+     {
+      "type": "noping",
+      "from": "PCB1",
+      "to": "10.2.2.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "vrf definition RED",
+    "rd 65000:1",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "vrf definition BLUE",
+    "rd 65000:2",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "interface g0/0",
+    "vrf forwarding RED",
+    "ip address 10.1.1.1 255.255.255.0",
+    "interface g0/1",
+    "vrf forwarding BLUE",
+    "ip address 10.1.1.1 255.255.255.0",
+    "interface g0/2.10",
+    "encapsulation dot1Q 10",
+    "vrf forwarding RED",
+    "ip address 10.0.12.1 255.255.255.252",
+    "interface g0/2.20",
+    "encapsulation dot1Q 20",
+    "vrf forwarding BLUE",
+    "ip address 10.0.12.1 255.255.255.252",
+    "router ospf 10 vrf RED",
+    "network 10.0.0.0 0.255.255.255 area 0",
+    "router ospf 20 vrf BLUE",
+    "network 10.0.0.0 0.255.255.255 area 0",
+    "end"
+   ],
+   "R2": [
+    "vrf definition RED",
+    "rd 65000:1",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "vrf definition BLUE",
+    "rd 65000:2",
+    "address-family ipv4",
+    "exit-address-family",
+    "exit",
+    "interface g0/0",
+    "vrf forwarding RED",
+    "ip address 10.2.2.1 255.255.255.0",
+    "interface g0/1",
+    "vrf forwarding BLUE",
+    "ip address 10.2.2.1 255.255.255.0",
+    "interface g0/2.10",
+    "encapsulation dot1Q 10",
+    "vrf forwarding RED",
+    "ip address 10.0.12.2 255.255.255.252",
+    "interface g0/2.20",
+    "encapsulation dot1Q 20",
+    "vrf forwarding BLUE",
+    "ip address 10.0.12.2 255.255.255.252",
+    "router ospf 10 vrf RED",
+    "network 10.0.0.0 0.255.255.255 area 0",
+    "router ospf 20 vrf BLUE",
+    "network 10.0.0.0 0.255.255.255 area 0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "gre-tunnel",
+  "title": "GRE tunnel, OSPF over it, and recursive routing",
+  "topic": "GRE tunnels",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "minutes": 25,
+  "summary": "Build a point-to-point GRE tunnel over the internet, run OSPF across it, and fix the recursive routing that takes it down.",
+  "intro": "HQ and Branch only share the internet, which won't carry private addresses or routing protocol multicast. A **GRE tunnel** wraps any packet in a new IP header addressed between the two public interfaces, so the two routers see a virtual point-to-point link between them (`172.16.0.0/30`) and can run OSPF over it as if they were cabled together.\n\nA tunnel comes up when its **source** interface is up and its **destination** is routable. The classic failure is **recursive routing**: if the router learns the route to the tunnel destination *through the tunnel itself*, IOS logs `%TUN-5-RECURDOWN` and drops the tunnel. R2 here already runs OSPF with a lazy `network 0.0.0.0 255.255.255.255 area 0`, so it will advertise its public subnet into the tunnel.\n\n| Device | LAN (Gi0/0) | Internet (Gi0/1) | Default route |\n|---|---|---|---|\n| R1 (HQ) | 192.168.1.1/24 | 203.0.113.1/30 | 203.0.113.2 |\n| R2 (Branch) | 192.168.2.1/24 | 198.51.100.1/30 | 198.51.100.2 |\n\nThe ISP only knows the public `/30`s: it has no route to either `192.168.x.0/24`, so the LANs can't talk until you build the VPN.\n\nGRE adds 24 bytes, so the tunnel's IP MTU should be lowered (1400) and TCP's MSS clamped (1360) to avoid fragmentation.",
+  "height": 400,
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 320
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 190
+   },
+   {
+    "name": "ISP",
+    "type": "router",
+    "x": 400,
+    "y": 90
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 190
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 710,
+    "y": 320
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "ISP": [
+    "hostname ISP",
+    "interface g0/0",
+    "ip address 203.0.113.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.2 255.255.255.252",
+    "no shutdown",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 203.0.113.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 203.0.113.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 198.51.100.2",
+    "router ospf 1",
+    "network 0.0.0.0 255.255.255.255 area 0",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Build the tunnel",
+    "text": "Create `Tunnel0` on both routers: R1 is `172.16.0.1/30`, R2 is `172.16.0.2/30`. Source each from Gi0/1 and point it at the other router's public address. Both tunnels should be up/up and R1 should ping `172.16.0.2`.",
+    "hint": "`interface tunnel 0`, `ip address 172.16.0.1 255.255.255.252`, `tunnel source g0/1`, `tunnel destination 198.51.100.1`. Check with `show interfaces tunnel 0`.",
+    "checks": [
+     {
+      "type": "tunnel",
+      "device": "R1",
+      "intf": "Tunnel0",
+      "state": "up"
+     },
+     {
+      "type": "tunnel",
+      "device": "R2",
+      "intf": "Tunnel0",
+      "state": "up"
+     },
+     {
+      "type": "ping",
+      "from": "R1",
+      "to": "172.16.0.2"
+     }
+    ]
+   },
+   {
+    "title": "Run OSPF over the tunnel",
+    "text": "On R1, start OSPF process 1 with the HQ LAN and the tunnel in area 0. The neighbour comes up on Tunnel0 (as a point-to-point network, cost 1000) and R1 learns `192.168.2.0/24` via `172.16.0.2`. Then watch R1's console: something goes wrong.",
+    "hint": "`router ospf 1`, `network 192.168.1.0 0.0.0.255 area 0`, `network 172.16.0.0 0.0.0.3 area 0`. `show ip ospf neighbor`, `show ip route ospf`.",
+    "checks": [
+     {
+      "type": "ospf-nbr",
+      "device": "R1",
+      "neighbor": "198.51.100.1"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.2.0/24",
+      "code": "O",
+      "via": "172.16.0.2"
+     }
+    ]
+   },
+   {
+    "title": "Stop the recursive routing",
+    "text": "R2's `network 0.0.0.0 255.255.255.255` puts its public `198.51.100.0/30` into OSPF. R1 learns that more specific route over the tunnel, so the way to the tunnel's own destination is now *through* the tunnel: `%TUN-5-RECURDOWN`. Advertise only the Branch LAN and the tunnel on R2.",
+    "hint": "On R2: `router ospf 1`, `no network 0.0.0.0 255.255.255.255 area 0`, then the two specific `network` statements. `show interfaces tunnel 0 | include linestate`.",
+    "checks": [
+     {
+      "type": "noroute",
+      "device": "R1",
+      "prefix": "198.51.100.0/30",
+      "code": "O"
+     },
+     {
+      "type": "tunnel",
+      "device": "R1",
+      "intf": "Tunnel0",
+      "state": "up"
+     },
+     {
+      "type": "ospf-nbr",
+      "device": "R2",
+      "neighbor": "203.0.113.1"
+     }
+    ]
+   },
+   {
+    "title": "Make room for the GRE header",
+    "text": "Set `ip mtu 1400` and `ip tcp adjust-mss 1360` on both tunnel interfaces, then confirm PC1 reaches PC2 through the tunnel (a traceroute shows the `172.16.0.2` hop).",
+    "hint": "Both commands go under `interface tunnel 0`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip mtu 1400$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip tcp adjust-mss 1360$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip mtu 1400$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip tcp adjust-mss 1360$"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.2.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "interface tunnel 0",
+    "ip address 172.16.0.1 255.255.255.252",
+    "ip mtu 1400",
+    "ip tcp adjust-mss 1360",
+    "tunnel source g0/1",
+    "tunnel destination 198.51.100.1",
+    "router ospf 1",
+    "network 192.168.1.0 0.0.0.255 area 0",
+    "network 172.16.0.0 0.0.0.3 area 0",
+    "end"
+   ],
+   "R2": [
+    "interface tunnel 0",
+    "ip address 172.16.0.2 255.255.255.252",
+    "ip mtu 1400",
+    "ip tcp adjust-mss 1360",
+    "tunnel source g0/1",
+    "tunnel destination 203.0.113.1",
+    "router ospf 1",
+    "no network 0.0.0.0 255.255.255.255 area 0",
+    "network 192.168.2.0 0.0.0.255 area 0",
+    "network 172.16.0.0 0.0.0.3 area 0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ipsec-site-to-site",
+  "title": "Site-to-site IPsec with a crypto map",
+  "topic": "IPsec VPN",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "minutes": 25,
+  "summary": "Encrypt LAN-to-LAN traffic over the internet: ISAKMP policy and pre-shared key, transform set, mirrored crypto ACLs and a crypto map.",
+  "intro": "A crypto map turns the internet link into a VPN without any tunnel interface. Traffic that its ACL calls **interesting** is encrypted (ESP) and sent to the peer's public address; everything else leaves in the clear.\n\nNegotiation happens in two phases, and both ends must agree on each:\n\n1. **IKE phase 1 (ISAKMP)** builds a secure channel: an ISAKMP **policy** in common (encryption, hash, authentication, DH group) and the same **pre-shared key** configured for each other's address. It needs UDP 500 between the peers.\n2. **IKE phase 2 (IPsec)** agrees on a **transform set** (how the data is protected) and on the traffic to protect. The crypto ACLs must be **mirror images**: R1 protects 192.168.1.0 to 192.168.2.0, R2 protects 192.168.2.0 to 192.168.1.0.\n\n| Device | LAN (Gi0/0) | Internet (Gi0/1) | Default route |\n|---|---|---|---|\n| R1 (HQ) | 192.168.1.1/24 | 203.0.113.1/30 | 203.0.113.2 |\n| R2 (Branch) | 192.168.2.1/24 | 198.51.100.1/30 | 198.51.100.2 |\n\nThe ISP only knows the public `/30`s: it has no route to either `192.168.x.0/24`, so the LANs can't talk until you build the VPN.\n\nUse the same parameters on both sides: policy 10 with AES-256, SHA-256, pre-shared key `Cisc0VPN`, DH group 14; transform set `TS` with `esp-aes 256 esp-sha-hmac`; ACL 110; crypto map `VPN` sequence 10. Verify with `show crypto isakmp sa`, `show crypto ipsec sa` (watch the encaps and decaps counters) and `show crypto session`.",
+  "height": 400,
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 320
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 190
+   },
+   {
+    "name": "ISP",
+    "type": "router",
+    "x": 400,
+    "y": 90
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 190
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 710,
+    "y": 320
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "ISP": [
+    "hostname ISP",
+    "interface g0/0",
+    "ip address 203.0.113.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.2 255.255.255.252",
+    "no shutdown",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 203.0.113.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 203.0.113.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 198.51.100.2",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Phase 1: ISAKMP policy and key",
+    "text": "On both routers create ISAKMP policy 10 (AES 256, SHA-256, pre-shared keys, DH group 14) and the key `Cisc0VPN` for the other router's public address.",
+    "hint": "`crypto isakmp policy 10`, `encryption aes 256`, `hash sha256`, `authentication pre-share`, `group 14`; then `crypto isakmp key Cisc0VPN address 198.51.100.1` on R1.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^crypto isakmp policy 10\\n encr aes 256\\n hash sha256\\n authentication pre-share\\n group 14$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^crypto isakmp policy 10\\n encr aes 256\\n hash sha256\\n authentication pre-share\\n group 14$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^crypto isakmp key Cisc0VPN address 198\\.51\\.100\\.1$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^crypto isakmp key Cisc0VPN address 203\\.0\\.113\\.1$"
+     }
+    ]
+   },
+   {
+    "title": "Phase 2: transform set and interesting traffic",
+    "text": "Define transform set `TS` as `esp-aes 256 esp-sha-hmac` on both routers, and ACL 110 matching LAN-to-LAN traffic. Remember the ACLs are mirror images of each other.",
+    "hint": "`crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac`. R1: `access-list 110 permit ip 192.168.1.0 0.0.0.255 192.168.2.0 0.0.0.255`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^access-list 110 permit ip 192\\.168\\.1\\.0 0\\.0\\.0\\.255 192\\.168\\.2\\.0 0\\.0\\.0\\.255$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^access-list 110 permit ip 192\\.168\\.2\\.0 0\\.0\\.0\\.255 192\\.168\\.1\\.0 0\\.0\\.0\\.255$"
+     }
+    ]
+   },
+   {
+    "title": "Build and apply the crypto map",
+    "text": "Crypto map `VPN` sequence 10 ties it together: the peer, the transform set and ACL 110. Apply it to Gi0/1, the interface the encrypted traffic leaves by. Both ends must now be able to build their security associations.",
+    "hint": "`crypto map VPN 10 ipsec-isakmp`, `set peer 198.51.100.1`, `set transform-set TS`, `match address 110`; `interface g0/1`, `crypto map VPN`.",
+    "checks": [
+     {
+      "type": "ipsec-sa",
+      "device": "R1",
+      "peer": "198.51.100.1"
+     },
+     {
+      "type": "ipsec-sa",
+      "device": "R2",
+      "peer": "203.0.113.1"
+     }
+    ]
+   },
+   {
+    "title": "Encrypted end to end",
+    "text": "PC1 and PC2 reach each other, and the traffic crosses the internet encrypted. Ping, then look at `show crypto ipsec sa` on R1: `#pkts encaps` should be climbing.",
+    "hint": "The first packet can be lost while IKE negotiates. If nothing works, `debug crypto isakmp` on R1 and ping again.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.2.10",
+      "encrypted": true
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "192.168.1.10",
+      "encrypted": true
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "crypto isakmp policy 10",
+    "encryption aes 256",
+    "hash sha256",
+    "authentication pre-share",
+    "group 14",
+    "exit",
+    "crypto isakmp key Cisc0VPN address 198.51.100.1",
+    "crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac",
+    "mode tunnel",
+    "exit",
+    "access-list 110 permit ip 192.168.1.0 0.0.0.255 192.168.2.0 0.0.0.255",
+    "crypto map VPN 10 ipsec-isakmp",
+    "set peer 198.51.100.1",
+    "set transform-set TS",
+    "match address 110",
+    "exit",
+    "interface g0/1",
+    "crypto map VPN",
+    "end"
+   ],
+   "R2": [
+    "crypto isakmp policy 10",
+    "encryption aes 256",
+    "hash sha256",
+    "authentication pre-share",
+    "group 14",
+    "exit",
+    "crypto isakmp key Cisc0VPN address 203.0.113.1",
+    "crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac",
+    "mode tunnel",
+    "exit",
+    "access-list 110 permit ip 192.168.2.0 0.0.0.255 192.168.1.0 0.0.0.255",
+    "crypto map VPN 10 ipsec-isakmp",
+    "set peer 203.0.113.1",
+    "set transform-set TS",
+    "match address 110",
+    "exit",
+    "interface g0/1",
+    "crypto map VPN",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "dmvpn",
+  "title": "DMVPN phase 3 with EIGRP",
+  "topic": "DMVPN",
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "minutes": 30,
+  "summary": "Build a multipoint GRE hub, register two spokes with NHRP, run EIGRP over the cloud and let phase 3 shortcuts send spoke-to-spoke traffic direct.",
+  "intro": "**DMVPN** gives every branch one tunnel interface that reaches the hub and, on demand, every other branch. Three pieces make it work:\n\n- **mGRE**: `tunnel mode gre multipoint` lets one tunnel interface talk to many endpoints (no fixed `tunnel destination`).\n- **NHRP**: each spoke *registers* its public (NBMA) address with the hub, its next-hop server. The hub learns who is where; spokes ask it when they need to find each other.\n- **A routing protocol** over the cloud (EIGRP here). The hub must hear spokes' hellos and send its own: `ip nhrp map multicast dynamic` on the hub, `multicast` on the spokes' NHS line.\n\n**Phase 3**: spokes route to each other via the hub. When the hub sees a packet come in and go back out the same tunnel, it sends an NHRP **redirect** (`ip nhrp redirect`); the spokes resolve each other and install a **shortcut** (`ip nhrp shortcut`), shown with a `%` (next-hop override) or as an `H` route. From then on traffic goes spoke to spoke.\n\n| Router | Public (Gi0/1) | LAN (Gi0/0) | Tunnel0 |\n|---|---|---|---|\n| HUB | 100.64.0.1/24 | 10.0.0.1/24 | 172.16.0.1/24 |\n| S1 | 100.64.1.1/24 | 10.1.1.1/24 | 172.16.0.2/24 |\n| S2 | 100.64.2.1/24 | 10.2.2.1/24 | 172.16.0.3/24 |\n\nNHRP network-id `1`, authentication `NHRPKEY`, EIGRP AS `100`. INET is the internet and only knows the `100.64.x.0` networks.",
+  "height": 500,
+  "devices": [
+   {
+    "name": "HUB",
+    "type": "router",
+    "x": 400,
+    "y": 80
+   },
+   {
+    "name": "SRV",
+    "type": "pc",
+    "x": 680,
+    "y": 80
+   },
+   {
+    "name": "INET",
+    "type": "router",
+    "x": 400,
+    "y": 230
+   },
+   {
+    "name": "S1",
+    "type": "router",
+    "x": 210,
+    "y": 340
+   },
+   {
+    "name": "S2",
+    "type": "router",
+    "x": 590,
+    "y": 340
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 110,
+    "y": 440
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 690,
+    "y": 440
+   }
+  ],
+  "links": [
+   [
+    "HUB",
+    "GigabitEthernet0/1",
+    "INET",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "S1",
+    "GigabitEthernet0/1",
+    "INET",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "S2",
+    "GigabitEthernet0/1",
+    "INET",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "HUB",
+    "GigabitEthernet0/0",
+    "SRV",
+    "eth0"
+   ],
+   [
+    "S1",
+    "GigabitEthernet0/0",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "S2",
+    "GigabitEthernet0/0",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "INET": [
+    "hostname INET",
+    "interface g0/0",
+    "ip address 100.64.0.254 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 100.64.1.254 255.255.255.0",
+    "no shutdown",
+    "interface g0/2",
+    "ip address 100.64.2.254 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "HUB": [
+    "hostname HUB",
+    "interface g0/0",
+    "ip address 10.0.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 100.64.0.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 100.64.0.254",
+    "end"
+   ],
+   "S1": [
+    "hostname S1",
+    "interface g0/0",
+    "ip address 10.1.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 100.64.1.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 100.64.1.254",
+    "end"
+   ],
+   "S2": [
+    "hostname S2",
+    "interface g0/0",
+    "ip address 10.2.2.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 100.64.2.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 100.64.2.254",
+    "end"
+   ],
+   "SRV": [
+    "ip 10.0.0.10/24 10.0.0.1"
+   ],
+   "PC1": [
+    "ip 10.1.1.10/24 10.1.1.1"
+   ],
+   "PC2": [
+    "ip 10.2.2.10/24 10.2.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "The hub's multipoint tunnel",
+    "text": "On HUB create `Tunnel0` (`172.16.0.1/24`) sourced from Gi0/1 in multipoint GRE mode, with NHRP network-id 1, authentication `NHRPKEY`, and dynamic multicast mapping so routing hellos reach every registered spoke.",
+    "hint": "`interface tunnel 0`, `ip address 172.16.0.1 255.255.255.0`, `tunnel source g0/1`, `tunnel mode gre multipoint`, `ip nhrp network-id 1`, `ip nhrp authentication NHRPKEY`, `ip nhrp map multicast dynamic`.",
+    "checks": [
+     {
+      "type": "tunnel",
+      "device": "HUB",
+      "intf": "Tunnel0",
+      "state": "up",
+      "mode": "gre-mp"
+     },
+     {
+      "type": "config",
+      "device": "HUB",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip nhrp map multicast dynamic$"
+     }
+    ]
+   },
+   {
+    "title": "Spokes register with the hub",
+    "text": "Give S1 (`172.16.0.2`) and S2 (`172.16.0.3`) the same kind of tunnel, pointing at the hub as their next-hop server: tunnel address `172.16.0.1`, NBMA (public) address `100.64.0.1`, and use it for multicast. `show dmvpn` on HUB should list both spokes.",
+    "hint": "`ip nhrp nhs 172.16.0.1 nbma 100.64.0.1 multicast`, plus the same network-id and authentication as the hub.",
+    "checks": [
+     {
+      "type": "nhrp-peer",
+      "device": "HUB",
+      "peer": "172.16.0.2",
+      "registered": true
+     },
+     {
+      "type": "nhrp-peer",
+      "device": "HUB",
+      "peer": "172.16.0.3",
+      "registered": true
+     }
+    ]
+   },
+   {
+    "title": "EIGRP across the cloud",
+    "text": "Run EIGRP AS 100 on all three routers for the tunnel network and each LAN. The hub learns a spoke's LAN on Tunnel0 and, by default, split horizon stops it from advertising that route back out Tunnel0. Turn split horizon off on the hub's tunnel so each spoke learns the other's LAN.",
+    "hint": "`router eigrp 100`, `network 172.16.0.0 0.0.0.255`, `network 10.x.x.0 0.0.0.255`. On HUB's Tunnel0: `no ip split-horizon eigrp 100`.",
+    "checks": [
+     {
+      "type": "eigrp-nbrs",
+      "device": "HUB",
+      "count": 2
+     },
+     {
+      "type": "route",
+      "device": "S1",
+      "prefix": "10.2.2.0/24",
+      "code": "D"
+     },
+     {
+      "type": "route",
+      "device": "S2",
+      "prefix": "10.1.1.0/24",
+      "code": "D"
+     }
+    ]
+   },
+   {
+    "title": "Phase 3: spoke to spoke",
+    "text": "Enable `ip nhrp redirect` on the hub's tunnel and `ip nhrp shortcut` on both spokes. Ping PC2 from PC1: the first packets go through the hub, the hub redirects, and the spokes build a direct tunnel. A traceroute from PC1 to PC2 should then skip `172.16.0.1`, and `show ip route` on S1 marks the route with `%`.",
+    "hint": "Ping first, then trace. `show ip nhrp` on S1 shows the shortcut entry; `show dmvpn` shows the dynamic spoke-to-spoke peer.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "HUB",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip nhrp redirect$"
+     },
+     {
+      "type": "config",
+      "device": "S1",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip nhrp shortcut$"
+     },
+     {
+      "type": "config",
+      "device": "S2",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? ip nhrp shortcut$"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.2.2.10"
+     },
+     {
+      "type": "trace-avoids",
+      "from": "PC1",
+      "to": "10.2.2.10",
+      "avoid": "172.16.0.1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "HUB": [
+    "interface tunnel 0",
+    "ip address 172.16.0.1 255.255.255.0",
+    "tunnel source g0/1",
+    "tunnel mode gre multipoint",
+    "ip nhrp network-id 1",
+    "ip nhrp authentication NHRPKEY",
+    "ip nhrp map multicast dynamic",
+    "ip nhrp redirect",
+    "no ip split-horizon eigrp 100",
+    "router eigrp 100",
+    "network 172.16.0.0 0.0.0.255",
+    "network 10.0.0.0 0.0.0.255",
+    "end"
+   ],
+   "S1": [
+    "interface tunnel 0",
+    "ip address 172.16.0.2 255.255.255.0",
+    "tunnel source g0/1",
+    "tunnel mode gre multipoint",
+    "ip nhrp network-id 1",
+    "ip nhrp authentication NHRPKEY",
+    "ip nhrp nhs 172.16.0.1 nbma 100.64.0.1 multicast",
+    "ip nhrp shortcut",
+    "router eigrp 100",
+    "network 172.16.0.0 0.0.0.255",
+    "network 10.1.1.0 0.0.0.255",
+    "end"
+   ],
+   "S2": [
+    "interface tunnel 0",
+    "ip address 172.16.0.3 255.255.255.0",
+    "tunnel source g0/1",
+    "tunnel mode gre multipoint",
+    "ip nhrp network-id 1",
+    "ip nhrp authentication NHRPKEY",
+    "ip nhrp nhs 172.16.0.1 nbma 100.64.0.1 multicast",
+    "ip nhrp shortcut",
+    "router eigrp 100",
+    "network 172.16.0.0 0.0.0.255",
+    "network 10.2.2.0 0.0.0.255",
+    "end"
+   ],
+   "PC1": [
+    "ping 10.2.2.10"
+   ]
+  }
+ },
+ {
+  "id": "vpn-troubleshooting",
+  "title": "Ticket: the GRE over IPsec VPN is down",
+  "topic": "VPN troubleshooting",
+  "track": "ccnp",
+  "exam": "ENARSI",
+  "minutes": 30,
+  "summary": "A protected GRE tunnel between HQ and Branch never carries traffic. Three separate faults: a wrong tunnel destination, a mismatched IKE key, and a routing loop through the tunnel.",
+  "intro": "**Ticket #4471:** \"Branch has been cut off from HQ since the router swap. The VPN shows up/up on HQ but nothing gets through, and when it briefly worked last night the tunnel kept flapping.\"\n\nThe design: a GRE tunnel (`172.16.0.0/30`) between R1 and R2, protected with IPsec (`tunnel protection ipsec profile PROTECT`), with OSPF over it advertising the two LANs. The pre-shared key is meant to be `VPNkey99` on both sides.\n\n| Device | LAN (Gi0/0) | Internet (Gi0/1) | Default route |\n|---|---|---|---|\n| R1 (HQ) | 192.168.1.1/24 | 203.0.113.1/30 | 203.0.113.2 |\n| R2 (Branch) | 192.168.2.1/24 | 198.51.100.1/30 | 198.51.100.2 |\n\nThe ISP only knows the public `/30`s: it has no route to either `192.168.x.0/24`, so the LANs can't talk until you build the VPN.\n\nWork like the exam wants you to: check layer by layer. Is the tunnel pointed at the right place (`show interfaces tunnel 0`)? Does IKE complete (`show crypto isakmp sa`, `debug crypto isakmp`, and the `%CRYPTO` messages)? Does the routing protocol keep the tunnel's own destination out of the tunnel? There are **three** faults; fix each without breaking the design.",
+  "height": 400,
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 320
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 190
+   },
+   {
+    "name": "ISP",
+    "type": "router",
+    "x": 400,
+    "y": 90
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 190
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 710,
+    "y": 320
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "ISP": [
+    "hostname ISP",
+    "interface g0/0",
+    "ip address 203.0.113.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.2 255.255.255.252",
+    "no shutdown",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 203.0.113.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 203.0.113.2",
+    "crypto isakmp policy 10",
+    "encryption aes 256",
+    "hash sha256",
+    "authentication pre-share",
+    "group 14",
+    "exit",
+    "crypto isakmp key VPNkey99 address 198.51.100.1",
+    "crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac",
+    "mode transport",
+    "exit",
+    "crypto ipsec profile PROTECT",
+    "set transform-set TS",
+    "exit",
+    "interface tunnel 0",
+    "ip address 172.16.0.1 255.255.255.252",
+    "tunnel source g0/1",
+    "tunnel destination 198.51.100.1",
+    "tunnel protection ipsec profile PROTECT",
+    "exit",
+    "router ospf 1",
+    "network 0.0.0.0 255.255.255.255 area 0",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 198.51.100.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 198.51.100.2",
+    "crypto isakmp policy 10",
+    "encryption aes 256",
+    "hash sha256",
+    "authentication pre-share",
+    "group 14",
+    "exit",
+    "crypto isakmp key VPNkey98 address 203.0.113.1",
+    "crypto ipsec transform-set TS esp-aes 256 esp-sha-hmac",
+    "mode transport",
+    "exit",
+    "crypto ipsec profile PROTECT",
+    "set transform-set TS",
+    "exit",
+    "interface tunnel 0",
+    "ip address 172.16.0.2 255.255.255.252",
+    "tunnel source g0/1",
+    "tunnel destination 203.0.113.11",
+    "tunnel protection ipsec profile PROTECT",
+    "exit",
+    "router ospf 1",
+    "network 192.168.2.0 0.0.0.255 area 0",
+    "network 172.16.0.0 0.0.0.3 area 0",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC2": [
+    "ip 192.168.2.10/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Fault 1: where does the tunnel go?",
+    "text": "Compare both ends of the tunnel. Each must use its own public address as the source and the other router's public address as the destination.",
+    "hint": "`show interfaces tunnel 0 | include source` on both routers. One destination has a typo.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^interface Tunnel0\\n(?: .*\\n)*? tunnel destination 203\\.0\\.113\\.1$"
+     }
+    ]
+   },
+   {
+    "title": "Fault 2: IKE never completes",
+    "text": "With the tunnel pointed correctly, IPsec still has to come up. Find out why phase 1 fails and fix it so both routers have a working security association.",
+    "hint": "`show crypto isakmp sa` shows `MM_NO_STATE`. A `%CRYPTO-4-IKMP_BAD_MESSAGE ... failed its sanity check` message usually means the pre-shared keys differ. Compare with `show running-config | include isakmp key`.",
+    "checks": [
+     {
+      "type": "ipsec-sa",
+      "device": "R1",
+      "peer": "198.51.100.1"
+     },
+     {
+      "type": "ipsec-sa",
+      "device": "R2",
+      "peer": "203.0.113.1"
+     }
+    ]
+   },
+   {
+    "title": "Fault 3: the flapping tunnel",
+    "text": "Once IPsec works, OSPF comes up over the tunnel and then R2's tunnel drops with `%TUN-5-RECURDOWN`. Fix the OSPF configuration so the tunnel stays up and only the LANs and the tunnel network are advertised.",
+    "hint": "R1 advertises everything with `network 0.0.0.0 255.255.255.255 area 0`, including its public `203.0.113.0/30`: R2 then reaches the tunnel destination through the tunnel itself.",
+    "checks": [
+     {
+      "type": "noroute",
+      "device": "R2",
+      "prefix": "203.0.113.0/30",
+      "code": "O"
+     },
+     {
+      "type": "tunnel",
+      "device": "R1",
+      "intf": "Tunnel0",
+      "state": "up"
+     },
+     {
+      "type": "tunnel",
+      "device": "R2",
+      "intf": "Tunnel0",
+      "state": "up"
+     },
+     {
+      "type": "ospf-nbr",
+      "device": "R2",
+      "neighbor": "203.0.113.1"
+     }
+    ]
+   },
+   {
+    "title": "Close the ticket",
+    "text": "PC1 and PC2 reach each other through the encrypted tunnel.",
+    "hint": "`show crypto ipsec sa` on R1 should show encaps and decaps climbing as you ping.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.2.10",
+      "encrypted": true
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.2.0/24",
+      "code": "O",
+      "via": "172.16.0.2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "interface tunnel 0",
+    "tunnel destination 203.0.113.1",
+    "exit",
+    "crypto isakmp key VPNkey99 address 203.0.113.1",
+    "end"
+   ],
+   "R1": [
+    "router ospf 1",
+    "no network 0.0.0.0 255.255.255.255 area 0",
+    "network 192.168.1.0 0.0.0.255 area 0",
+    "network 172.16.0.0 0.0.0.3 area 0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "qos-marking-policing",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "QoS: classify, mark and police at the edge",
+  "topic": "QoS (MQC)",
+  "minutes": 30,
+  "summary": "Class-maps and policy-maps: mark ICMP as EF leaving the branch, watch the next router count it, then police it to 8 kbps.",
+  "height": 360,
+  "intro": "QoS on IOS is built from three pieces, the **Modular QoS CLI**:\n\n1. a **class-map** says *which* traffic (`match protocol icmp`, `match dscp ef`, `match access-group 101`);\n2. a **policy-map** says *what to do* with each class (`set dscp ef`, `police cir 8000`, `bandwidth`, `priority`);\n3. `service-policy input|output` attaches the policy to an interface.\n\nAnything no class matches falls into **class-default**. Marking is how the edge tells the rest of the network what a packet is worth: R2 already has a policy that counts packets arriving with **DSCP EF** (46) on its WAN link, so you can see your marking survive the hop.\n\nA **policer** measures traffic against a rate (CIR) with a burst allowance (Bc). Packets within it **conform**, the rest **exceed** and are dropped (or re-marked). Queueing tools (`bandwidth`, `priority`, `shape`) only work outbound; IOS refuses them on an input policy.\n\nUse `show policy-map interface g0/0` to watch the counters move.",
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 270
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 290,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 510,
+    "y": 150
+   },
+   {
+    "name": "SRV",
+    "type": "pc",
+    "x": 710,
+    "y": 270
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "SRV",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.2.0 255.255.255.0 10.12.0.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.1.0 255.255.255.0 10.12.0.1",
+    "class-map match-any EF-SEEN",
+    "match dscp ef",
+    "exit",
+    "policy-map WAN-IN",
+    "class EF-SEEN",
+    "exit",
+    "exit",
+    "interface g0/0",
+    "service-policy input WAN-IN",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "SRV": [
+    "ip 192.168.2.100/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Classify the traffic",
+    "text": "On R1, create a **match-all** class-map called `ICMP-TRAFFIC` that matches the ICMP protocol.",
+    "hint": "`class-map match-all ICMP-TRAFFIC`, then `match protocol icmp`. `show class-map` lists it.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^class-map match-all ICMP-TRAFFIC$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ match protocol icmp$"
+     }
+    ]
+   },
+   {
+    "title": "Mark it EF toward the WAN",
+    "text": "Build a policy-map `WAN-OUT` that sets DSCP **EF** on `ICMP-TRAFFIC`, apply it **outbound** on R1 Gi0/0, then ping `192.168.2.100` from PC1. R2's `WAN-IN` policy should count the EF packets arriving.",
+    "hint": "`policy-map WAN-OUT`, `class ICMP-TRAFFIC`, `set dscp ef`; then `interface g0/0`, `service-policy output WAN-OUT`. Check `show policy-map interface g0/0` on both routers.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ service-policy output WAN-OUT$"
+     },
+     {
+      "type": "qos-marked",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "dir": "output",
+      "class": "ICMP-TRAFFIC",
+      "min": 1
+     },
+     {
+      "type": "qos-class",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "dir": "input",
+      "class": "EF-SEEN",
+      "min": 1
+     }
+    ]
+   },
+   {
+    "title": "Police it to 8 kbps",
+    "text": "In the same class, police to a CIR of **8000 bps** with a **1500-byte** burst (conform: transmit, exceed: drop). Send big pings from PC1 (`ping 192.168.2.100 -l 1000`) and watch packets exceed.",
+    "hint": "Under `class ICMP-TRAFFIC`: `police cir 8000 bc 1500` (the defaults are conform-action transmit, exceed-action drop). The policer's counters are in `show policy-map interface g0/0`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^  police cir 8000 bc 1500$"
+     },
+     {
+      "type": "qos-police",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "dir": "output",
+      "class": "ICMP-TRAFFIC",
+      "conformed": 1,
+      "exceeded": 1
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "class-map match-all ICMP-TRAFFIC",
+    "match protocol icmp",
+    "exit",
+    "policy-map WAN-OUT",
+    "class ICMP-TRAFFIC",
+    "set dscp ef",
+    "police cir 8000 bc 1500",
+    "exit",
+    "exit",
+    "exit",
+    "interface g0/0",
+    "service-policy output WAN-OUT",
+    "end"
+   ],
+   "PC1": [
+    "ping 192.168.2.100 -c 3",
+    "ping 192.168.2.100 -c 5 -l 1000"
+   ]
+  }
+ },
+ {
+  "id": "aaa-local-fallback",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "AAA: RADIUS first, local users as the fallback",
+  "topic": "AAA",
+  "minutes": 25,
+  "summary": "aaa new-model, a RADIUS server group, a named login list with a local fallback, and exec authorization so admins land in privileged mode.",
+  "height": 300,
+  "intro": "`aaa new-model` switches a device to **method lists**: an ordered list of ways to check a login, such as `group ISE-GROUP local`. IOS tries each method in turn, but only moves on when a method gives **no answer** (an error), for example a RADIUS server that doesn't respond. A wrong password from a method that *does* answer ends the attempt.\n\nThe RADIUS server `10.12.0.100` isn't up yet, which is exactly why you want `local` as the fallback: otherwise nobody can log in.\n\nTwo details that trip people up:\n\n- With AAA on, a VTY line with no list named uses the **default** list; if there is no default list, VTYs use the **local** database and the console needs no login.\n- Logging in as a `privilege 15` user only lands you at `#` when **exec authorization** says so (`aaa authorization exec default local`). Without it you start at level 1. (On the console, exec authorization needs `aaa authorization console` as well.)\n\nTest from R1 with `telnet 10.12.0.2`. The user `netadmin` (privilege 15, secret `Cisc0Admin!`) already exists on R2.",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 150
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "username netadmin privilege 15 secret Cisc0Admin!",
+    "line vty 0 4",
+    "transport input telnet ssh",
+    "end"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Point AAA at the RADIUS server",
+    "text": "On R2, turn on AAA, define RADIUS server `ISE` at `10.12.0.100` (ports 1812/1813, key `R4dius!Key`) and put it in a server group `ISE-GROUP`.",
+    "hint": "`aaa new-model`; `radius server ISE`, `address ipv4 10.12.0.100 auth-port 1812 acct-port 1813`, `key R4dius!Key`; `aaa group server radius ISE-GROUP`, `server name ISE`. `show aaa servers` shows it as DEAD: nothing answers at that address.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^aaa new-model$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^radius server ISE$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ address ipv4 10\\.12\\.0\\.100 auth-port 1812 acct-port 1813$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^aaa group server radius ISE-GROUP$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ server name ISE$"
+     }
+    ]
+   },
+   {
+    "title": "A login list with a local fallback",
+    "text": "Create login list `VTY-AUTH` that tries `ISE-GROUP` first and falls back to the **local** database, and use it on the VTY lines. `netadmin` should then be able to telnet in from R1.",
+    "hint": "`aaa authentication login VTY-AUTH group ISE-GROUP local`, then `line vty 0 4`, `login authentication VTY-AUTH`. From R1: `telnet 10.12.0.2`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^aaa authentication login VTY-AUTH group ISE-GROUP local$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ login authentication VTY-AUTH$"
+     },
+     {
+      "type": "login",
+      "device": "R2",
+      "line": "vty",
+      "user": "netadmin",
+      "password": "Cisc0Admin!"
+     },
+     {
+      "type": "login",
+      "device": "R2",
+      "line": "vty",
+      "user": "netadmin",
+      "password": "wrong-password",
+      "ok": false
+     }
+    ]
+   },
+   {
+    "title": "Land in privileged EXEC",
+    "text": "Make R2 honour the user's privilege level for exec sessions, so `netadmin` gets the `#` prompt straight away. The console must still open without credentials.",
+    "hint": "`aaa authorization exec default local`. `show privilege` after logging in should say 15.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^aaa authorization exec default local$"
+     },
+     {
+      "type": "login",
+      "device": "R2",
+      "line": "vty",
+      "user": "netadmin",
+      "password": "Cisc0Admin!",
+      "level": 15
+     },
+     {
+      "type": "login",
+      "device": "R2",
+      "line": "con",
+      "password": ""
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "aaa new-model",
+    "radius server ISE",
+    "address ipv4 10.12.0.100 auth-port 1812 acct-port 1813",
+    "key R4dius!Key",
+    "exit",
+    "aaa group server radius ISE-GROUP",
+    "server name ISE",
+    "exit",
+    "aaa authentication login VTY-AUTH group ISE-GROUP local",
+    "aaa authorization exec default local",
+    "line vty 0 4",
+    "login authentication VTY-AUTH",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "snmpv3-syslog",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "SNMPv3 and syslog for the NMS",
+  "topic": "SNMP and syslog",
+  "minutes": 35,
+  "summary": "Replace open v2c communities with an ACL-protected read-only one, add an SNMPv3 authPriv user, and send logs and traps to the NMS.",
+  "height": 340,
+  "intro": "R1 still has the factory-style communities `public` (RO) and `private` (**RW**): anyone who can reach it can read *and change* its configuration over SNMP. The NMS at `192.168.1.100` is the only thing that should talk to it.\n\n- **SNMPv2c** authenticates with a community string sent in clear. Lock it to read-only and an ACL.\n- **SNMPv3** has users in groups. A group's security level is `noauth`, `auth` (signed) or `priv` (signed and encrypted); its **views** decide what it may read or write. Note that `snmp-server user` lines never appear in the running-config.\n- **Syslog** sends messages at or below the `logging trap` severity to `logging host`; `logging buffered` keeps a copy in RAM for `show logging`.\n- **Traps** are SNMP's push notifications: `snmp-server enable traps` plus a `snmp-server host`.\n\nSeverities: 0 emergencies, 1 alerts, 2 critical, 3 errors, 4 warnings, 5 notifications, 6 informational, 7 debugging. Bounce Loopback0 (`shutdown`, `no shutdown`) to generate some messages.",
+  "devices": [
+   {
+    "name": "NMS",
+    "type": "pc",
+    "x": 110,
+    "y": 260
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 330,
+    "y": 140
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 600,
+    "y": 140
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "NMS",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 1.1.1.1 255.255.255.255",
+    "exit",
+    "snmp-server community public RO",
+    "snmp-server community private RW",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.1.0 255.255.255.0 10.12.0.1",
+    "end"
+   ],
+   "NMS": [
+    "ip 192.168.1.100/24 192.168.1.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Retire the open communities",
+    "text": "Remove `public` and `private`. Add a read-only community `N3tR3ad` that only the NMS subnet `192.168.1.0/24` may use (standard ACL 10). R2 must be refused.",
+    "hint": "`no snmp-server community public`, `no snmp-server community private`, `access-list 10 permit 192.168.1.0 0.0.0.255`, `snmp-server community N3tR3ad RO 10`.",
+    "checks": [
+     {
+      "type": "noconfig",
+      "device": "R1",
+      "match": "^snmp-server community (public|private)"
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "NMS",
+      "community": "N3tR3ad"
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "R2",
+      "community": "N3tR3ad",
+      "ok": false
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "NMS",
+      "community": "N3tR3ad",
+      "write": true,
+      "ok": false
+     }
+    ]
+   },
+   {
+    "title": "An SNMPv3 user with auth and priv",
+    "text": "Create view `NETVIEW` including `iso`, group `NETOPS` at the **priv** level reading that view, and user `nms` in it with SHA authentication (`Auth#Pass1`) and AES-128 privacy (`Priv#Pass1`). The group gets no write view.",
+    "hint": "`snmp-server view NETVIEW iso included`, `snmp-server group NETOPS v3 priv read NETVIEW`, `snmp-server user nms NETOPS v3 auth sha Auth#Pass1 priv aes 128 Priv#Pass1`. `show snmp user` confirms it; it won't be in `show running-config`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^snmp-server group NETOPS v3 priv read NETVIEW$"
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "NMS",
+      "user": "nms",
+      "auth": "Auth#Pass1",
+      "priv": "Priv#Pass1"
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "NMS",
+      "user": "nms",
+      "auth": "Auth#Pass1",
+      "priv": "wrong",
+      "ok": false
+     },
+     {
+      "type": "snmp-access",
+      "device": "R1",
+      "from": "NMS",
+      "user": "nms",
+      "auth": "Auth#Pass1",
+      "priv": "Priv#Pass1",
+      "write": true,
+      "ok": false
+     }
+    ]
+   },
+   {
+    "title": "Send the logs to the NMS",
+    "text": "Log to `192.168.1.100` at **notifications** and above, keep a 16384-byte buffer at **informational**, then bounce Loopback0 and check both.",
+    "hint": "`logging host 192.168.1.100`, `logging trap notifications`, `logging buffered 16384 informational`; then `interface loopback0`, `shutdown`, `no shutdown`. `show logging` shows the host's counter and the buffer.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^logging trap notifications$"
+     },
+     {
+      "type": "log-host",
+      "device": "R1",
+      "host": "192.168.1.100",
+      "min": 1
+     },
+     {
+      "type": "log-buffer",
+      "device": "R1",
+      "pattern": "%LINK-3-UPDOWN: Interface Loopback0, changed state to up"
+     }
+    ]
+   },
+   {
+    "title": "Link traps",
+    "text": "Send SNMP **linkUp/linkDown** traps to the NMS as SNMPv3 user `nms` at the priv level, then bounce Loopback0 again.",
+    "hint": "`snmp-server enable traps snmp linkdown linkup`, `snmp-server host 192.168.1.100 version 3 priv nms`. `show snmp` counts Trap PDUs.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^snmp-server host 192\\.168\\.1\\.100 version 3 priv nms$"
+     },
+     {
+      "type": "snmp-traps",
+      "device": "R1",
+      "host": "192.168.1.100",
+      "min": 1
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "no snmp-server community public",
+    "no snmp-server community private",
+    "access-list 10 permit 192.168.1.0 0.0.0.255",
+    "snmp-server community N3tR3ad RO 10",
+    "snmp-server view NETVIEW iso included",
+    "snmp-server group NETOPS v3 priv read NETVIEW",
+    "snmp-server user nms NETOPS v3 auth sha Auth#Pass1 priv aes 128 Priv#Pass1",
+    "logging host 192.168.1.100",
+    "logging trap notifications",
+    "logging buffered 16384 informational",
+    "snmp-server enable traps snmp linkdown linkup",
+    "snmp-server host 192.168.1.100 version 3 priv nms",
+    "interface loopback0",
+    "shutdown",
+    "no shutdown",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ntp-authentication",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "NTP: a master, authenticated clients and a chain",
+  "topic": "NTP",
+  "minutes": 25,
+  "summary": "Make R1 the stratum 3 time source, have R2 sync with MD5 authentication, and R3 sync from R2's loopback one stratum further down.",
+  "height": 300,
+  "intro": "NTP builds a tree of clocks. Each hop adds one to the **stratum**: R1 as `ntp master 3` is stratum 3, a router synced to it is stratum 4, the next one 5. Stratum 16 means *unsynchronised*.\n\nWith `ntp authenticate` on, a client only accepts a server whose replies are signed with a key that is both **defined** (`ntp authentication-key`) and **trusted** (`ntp trusted-key`), and the server must hold the same key value. The server doesn't need `ntp authenticate` itself.\n\nUntil a clock is synchronised IOS marks its timestamps with `*` (`*Oct 29 ...`). Watch the star disappear from R2's log messages once it syncs. Useful commands: `show ntp status`, `show ntp associations` (`*` is the peer it uses), `show clock`.\n\nStatic routes are already in place.",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 150,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 400,
+    "y": 150
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 650,
+    "y": 150
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.12.0.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.23.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "end"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    "ip address 10.23.0.3 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.23.0.2",
+    "end"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "R1 is the time source",
+    "text": "Make R1 an authoritative NTP master at **stratum 3**.",
+    "hint": "`ntp master 3`. `show ntp status` on R1 then says synchronized, stratum 3.",
+    "checks": [
+     {
+      "type": "ntp-sync",
+      "device": "R1",
+      "stratum": 3
+     }
+    ]
+   },
+   {
+    "title": "R2 syncs with authentication",
+    "text": "Give R1 and R2 MD5 key **1** with the value `T1meKey`. On R2, turn on NTP authentication, trust key 1 and use R1 (`10.12.0.1`) as its server with that key.",
+    "hint": "R1: `ntp authentication-key 1 md5 T1meKey`. R2: the same key, `ntp trusted-key 1`, `ntp authenticate`, `ntp server 10.12.0.1 key 1`. A key that's defined but not trusted, or a different value on R1, leaves R2 at stratum 16.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ntp authenticate$"
+     },
+     {
+      "type": "ntp-sync",
+      "device": "R2",
+      "peer": "10.12.0.1",
+      "stratum": 4
+     }
+    ]
+   },
+   {
+    "title": "R3 follows R2's loopback",
+    "text": "Sync R3 to R2's loopback address `2.2.2.2`. It should end up at stratum 5.",
+    "hint": "`ntp server 2.2.2.2` on R3. A client can only sync to a server that is itself synchronised.",
+    "checks": [
+     {
+      "type": "ntp-sync",
+      "device": "R3",
+      "peer": "2.2.2.2",
+      "stratum": 5
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "ntp master 3",
+    "ntp authentication-key 1 md5 T1meKey",
+    "end"
+   ],
+   "R2": [
+    "ntp authentication-key 1 md5 T1meKey",
+    "ntp trusted-key 1",
+    "ntp authenticate",
+    "ntp server 10.12.0.1 key 1",
+    "end"
+   ],
+   "R3": [
+    "ntp server 2.2.2.2",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "flexible-netflow",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "Flexible NetFlow: who is talking to whom",
+  "topic": "NetFlow",
+  "minutes": 25,
+  "summary": "A flow record, an exporter to the collector and a monitor on the LAN interface, then real traffic in the flow cache.",
+  "height": 340,
+  "intro": "NetFlow counts traffic as **flows**: packets that share the same key fields. Flexible NetFlow splits the job into three objects:\n\n- a **flow record** lists the `match` fields (the key, such as source and destination address and protocol) and the `collect` fields (counters and timestamps);\n- a **flow exporter** says where to send the records (a collector's address and UDP port);\n- a **flow monitor** ties a record to its exporters and keeps the cache. You apply it to an interface with `ip flow monitor NAME input|output`.\n\nThe collector `COLL` (`192.168.2.50`) listens on UDP 2055. Generate traffic from PC1 and read the cache with `show flow monitor LAN-MON cache`; `show flow exporter` shows what was sent.",
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 270
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 290,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 510,
+    "y": 150
+   },
+   {
+    "name": "COLL",
+    "type": "pc",
+    "x": 710,
+    "y": 270
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "COLL",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.2.0 255.255.255.0 10.12.0.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.2.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.1.0 255.255.255.0 10.12.0.1",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "COLL": [
+    "ip 192.168.2.50/24 192.168.2.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Define the flow record",
+    "text": "On R1, create flow record `LAN-REC` keyed on IPv4 source address, destination address and protocol, collecting byte and packet counters (64-bit).",
+    "hint": "`flow record LAN-REC`, then `match ipv4 source address`, `match ipv4 destination address`, `match ipv4 protocol`, `collect counter bytes long`, `collect counter packets long`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^flow record LAN-REC$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ match ipv4 source address$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ match ipv4 destination address$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ match ipv4 protocol$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ collect counter bytes long$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ collect counter packets long$"
+     }
+    ]
+   },
+   {
+    "title": "Export to the collector",
+    "text": "Create exporter `COLLECTOR` sending to `192.168.2.50` on UDP port **2055**, sourced from Gi0/0.",
+    "hint": "`flow exporter COLLECTOR`, `destination 192.168.2.50`, `source g0/0`, `transport udp 2055`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^flow exporter COLLECTOR$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ destination 192\\.168\\.2\\.50$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ transport udp 2055$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ source GigabitEthernet0/0$"
+     }
+    ]
+   },
+   {
+    "title": "Monitor the LAN and catch a flow",
+    "text": "Create monitor `LAN-MON` using that record and exporter, apply it to traffic **entering** Gi0/1, then ping the collector from PC1. The flow should show up in the cache.",
+    "hint": "`flow monitor LAN-MON`, `record LAN-REC`, `exporter COLLECTOR`; `interface g0/1`, `ip flow monitor LAN-MON input`. Then `ping 192.168.2.50` on PC1 and `show flow monitor LAN-MON cache` on R1.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ ip flow monitor LAN-MON input$"
+     },
+     {
+      "type": "flow",
+      "device": "R1",
+      "monitor": "LAN-MON",
+      "src": "192.168.1.10",
+      "dst": "192.168.2.50",
+      "min": 1
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "flow record LAN-REC",
+    "match ipv4 source address",
+    "match ipv4 destination address",
+    "match ipv4 protocol",
+    "collect counter bytes long",
+    "collect counter packets long",
+    "exit",
+    "flow exporter COLLECTOR",
+    "destination 192.168.2.50",
+    "source g0/0",
+    "transport udp 2055",
+    "exit",
+    "flow monitor LAN-MON",
+    "record LAN-REC",
+    "exporter COLLECTOR",
+    "exit",
+    "interface g0/1",
+    "ip flow monitor LAN-MON input",
+    "end"
+   ],
+   "PC1": [
+    "ping 192.168.2.50 -c 3"
+   ]
+  }
+ },
+ {
+  "id": "eem-self-heal",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "EEM: an applet that undoes a shutdown",
+  "topic": "Embedded Event Manager",
+  "minutes": 25,
+  "summary": "Buffer the logs, write an EEM applet triggered by a syslog pattern that re-enables the WAN link, and test it.",
+  "height": 300,
+  "intro": "The **Embedded Event Manager** runs small scripts on the router itself. An **applet** has one `event` (what triggers it) and numbered `action`s (what it does).\n\n- `event syslog pattern \"REGEX\"` fires when a log message matches the regular expression.\n- `action 1.0 cli command \"enable\"` runs a command as if typed. An applet starts at user EXEC, so `enable` usually comes first.\n- `action ... syslog msg \"text\"` writes its own `%HA_EM-6-LOG` message.\n\nActions run in the order of their **labels compared as text**, not as numbers: `10.0` runs before `2.0`. Use labels like `1.0`, `2.0` ... `9.0`, or zero-pad them.\n\nYour job: if someone shuts R1's WAN interface Gi0/0, the router should bring it straight back up and say so in the log.",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 150
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 2.2.2.2 255.255.255.255 10.12.0.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "end"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Keep the logs in RAM",
+    "text": "Buffer log messages on R1: 8192 bytes, **informational** and above.",
+    "hint": "`logging buffered 8192 informational`. `show logging` shows the buffer.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^logging buffered 8192 informational$"
+     }
+    ]
+   },
+   {
+    "title": "Write the applet",
+    "text": "Create applet `NOSHUT-G0` triggered by the message for Gi0/0 going administratively down. It should re-enable Gi0/0 and then log `G0/0 was shut down and has been re-enabled`.",
+    "hint": "`event manager applet NOSHUT-G0`; `event syslog pattern \"Interface GigabitEthernet0/0, changed state to administratively down\"`; actions `1.0` enable, `2.0` configure terminal, `3.0` interface GigabitEthernet0/0, `4.0` no shutdown, `5.0` `syslog msg \"...\"`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^event manager applet NOSHUT-G0$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ event syslog pattern \"Interface GigabitEthernet0/0, changed state to administratively down\"$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ action 4\\.0 cli command \"no shutdown\"$"
+     }
+    ]
+   },
+   {
+    "title": "Test it",
+    "text": "Shut Gi0/0. The applet should bring it back, R1 should still reach `2.2.2.2`, and its message should be in the buffer.",
+    "hint": "`interface g0/0`, `shutdown`. Then `show ip interface brief`, `show event manager history events` and `show logging`.",
+    "checks": [
+     {
+      "type": "eem-ran",
+      "device": "R1",
+      "applet": "NOSHUT-G0"
+     },
+     {
+      "type": "ifup",
+      "device": "R1",
+      "intf": "Gi0/0"
+     },
+     {
+      "type": "log-buffer",
+      "device": "R1",
+      "pattern": "%HA_EM-6-LOG: NOSHUT-G0: G0/0 was shut down and has been re-enabled"
+     },
+     {
+      "type": "ping",
+      "from": "R1",
+      "to": "2.2.2.2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "logging buffered 8192 informational",
+    "event manager applet NOSHUT-G0",
+    "event syslog pattern \"Interface GigabitEthernet0/0, changed state to administratively down\"",
+    "action 1.0 cli command \"enable\"",
+    "action 2.0 cli command \"configure terminal\"",
+    "action 3.0 cli command \"interface GigabitEthernet0/0\"",
+    "action 4.0 cli command \"no shutdown\"",
+    "action 5.0 syslog msg \"G0/0 was shut down and has been re-enabled\"",
+    "exit",
+    "interface g0/0",
+    "shutdown",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "services-troubleshooting",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "Ticket: management services are broken",
+  "topic": "Troubleshooting",
+  "minutes": 40,
+  "summary": "Five faults on R2: NTP won't sync, nobody can log in, syslog goes nowhere, the NMS is refused over SNMP and LLDP sees no neighbour.",
+  "height": 340,
+  "intro": "**Ticket #4471:** *\"Since the change window on R2: its clock is wrong, the NOC can't telnet in, our syslog server gets nothing from it, the NMS polls time out and the topology map lost the link to R1.\"*\n\nThe NOC's NMS and syslog server is `NMS` at `192.168.1.100`. R1 is the NTP master (stratum 4, key 1 = `TimeKey`). The NOC logs in as `admin` / `N0cAccess!`.\n\nWork like you would on a real device: `show ntp associations`, `show running-config | section aaa|line vty`, `show logging`, `show access-lists`, `show snmp community`, `show lldp neighbors`. Each task is one fault; fix the cause, don't work around it.",
+  "devices": [
+   {
+    "name": "NMS",
+    "type": "pc",
+    "x": 110,
+    "y": 260
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 330,
+    "y": 140
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 600,
+    "y": 140
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "NMS",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ntp authentication-key 1 md5 TimeKey",
+    "ntp master 4",
+    "lldp run",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "exit",
+    "ip route 192.168.1.0 255.255.255.0 10.12.0.1",
+    "ntp authentication-key 1 md5 Tim3Key",
+    "ntp trusted-key 1",
+    "ntp authenticate",
+    "ntp server 10.12.0.1 key 1",
+    "username admin privilege 15 secret N0cAccess!",
+    "aaa new-model",
+    "aaa authentication login VTY local",
+    "aaa authorization exec default local",
+    "line vty 0 4",
+    "login authentication VYT",
+    "transport input telnet ssh",
+    "exit",
+    "logging host 192.168.1.10",
+    "access-list 20 permit 192.168.10.0 0.0.0.255",
+    "snmp-server community N3tR3ad RO 20",
+    "end"
+   ],
+   "NMS": [
+    "ip 192.168.1.100/24 192.168.1.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "The clock",
+    "text": "R2 should synchronise to R1 (`10.12.0.1`) at stratum 5.",
+    "hint": "`show ntp associations` shows R1 reachable but not selected. Compare the key *value* on both routers: `show running-config | include ntp` shows them encrypted, so re-enter R2's key 1 as `TimeKey`.",
+    "checks": [
+     {
+      "type": "ntp-sync",
+      "device": "R2",
+      "peer": "10.12.0.1",
+      "stratum": 5
+     }
+    ]
+   },
+   {
+    "title": "Nobody can log in",
+    "text": "`admin` must be able to telnet to R2 and land at privileged EXEC.",
+    "hint": "`show running-config | section line vty` against `| include aaa authentication`: the line points at a list that doesn't exist. IOS warned when it was configured.",
+    "checks": [
+     {
+      "type": "login",
+      "device": "R2",
+      "line": "vty",
+      "user": "admin",
+      "password": "N0cAccess!",
+      "level": 15
+     }
+    ]
+   },
+   {
+    "title": "Syslog goes nowhere",
+    "text": "R2's logs must reach the syslog server. Bounce R2's Loopback0 afterwards to prove it.",
+    "hint": "`show logging`: the configured host isn't the NMS. Replace it with `logging host 192.168.1.100` (and remove the wrong one).",
+    "checks": [
+     {
+      "type": "noconfig",
+      "device": "R2",
+      "match": "^logging host 192\\.168\\.1\\.10$"
+     },
+     {
+      "type": "log-host",
+      "device": "R2",
+      "host": "192.168.1.100",
+      "min": 1
+     }
+    ]
+   },
+   {
+    "title": "SNMP polls time out",
+    "text": "The NMS must be able to read R2 with community `N3tR3ad`. Keep the community's ACL; fix what it permits.",
+    "hint": "`show access-lists 20`: it permits the wrong subnet. The NMS lives in `192.168.1.0/24`.",
+    "checks": [
+     {
+      "type": "snmp-access",
+      "device": "R2",
+      "from": "NMS",
+      "community": "N3tR3ad"
+     }
+    ]
+   },
+   {
+    "title": "The topology map",
+    "text": "The NMS builds its map from LLDP. R1 should see R2 as a neighbour on Gi0/0.",
+    "hint": "`show lldp` on R2.",
+    "checks": [
+     {
+      "type": "lldp-nbr",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "neighbor": "R2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "ntp authentication-key 1 md5 TimeKey",
+    "line vty 0 4",
+    "login authentication VTY",
+    "exit",
+    "no logging host 192.168.1.10",
+    "logging host 192.168.1.100",
+    "access-list 20 permit 192.168.1.0 0.0.0.255",
+    "lldp run",
+    "interface loopback0",
+    "shutdown",
+    "no shutdown",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ccnp-mst",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "MST: one region, two instances",
+  "topic": "Spanning tree (MST)",
+  "minutes": 30,
+  "height": 470,
+  "summary": "Replace PVST+ with MST, build a region three switches agree on, and give each instance its own root so both uplinks carry traffic.",
+  "intro": "PVST+ runs a spanning tree for **every** VLAN. With hundreds of VLANs that is hundreds of trees to compute and send BPDUs for. **MST** (802.1s) maps many VLANs onto a few **instances**, each with its own tree.\n\nSwitches only act as one MST **region** when three things match exactly: the region **name**, the **revision** number and the **VLAN-to-instance table**. One typo and a switch becomes its own region, and the links to it turn into region **boundary** ports that follow instance 0 (the CIST) for every VLAN.\n\nThe goal here is load sharing: instance 1 (VLANs 10 and 20) rooted at DSW1, instance 2 (VLANs 30 and 40) rooted at DSW2, so ASW1 sends each half of its VLANs up a different uplink.\n\n| Switch | Links |\n|---|---|\n| DSW1 | Gi0/1 to DSW2, Gi0/2 to ASW1 |\n| DSW2 | Gi0/1 to DSW1, Gi0/2 to ASW1 |\n| ASW1 | Gi0/1 to DSW1, Gi0/2 to DSW2, PC1 (VLAN 10) on Fa0/1, PC3 (VLAN 30) on Fa0/3 |\n\nThe trunks and VLANs 10, 20, 30 and 40 are already in place. MST uses the long path-cost method, so a gigabit link costs 20000. `show spanning-tree mst` and `show spanning-tree mst configuration` are your friends.",
+  "devices": [
+   {
+    "name": "DSW1",
+    "type": "switch",
+    "x": 220,
+    "y": 110
+   },
+   {
+    "name": "DSW2",
+    "type": "switch",
+    "x": 580,
+    "y": 110
+   },
+   {
+    "name": "ASW1",
+    "type": "switch",
+    "x": 400,
+    "y": 290
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 230,
+    "y": 420
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 570,
+    "y": 420
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 80,
+    "y": 230
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 720,
+    "y": 230
+   }
+  ],
+  "links": [
+   [
+    "DSW1",
+    "GigabitEthernet0/1",
+    "DSW2",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "DSW1",
+    "GigabitEthernet0/2",
+    "ASW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "DSW2",
+    "GigabitEthernet0/2",
+    "ASW1",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "ASW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "ASW1",
+    "FastEthernet0/3",
+    "PC3",
+    "eth0"
+   ],
+   [
+    "DSW1",
+    "FastEthernet0/1",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "DSW2",
+    "FastEthernet0/1",
+    "PC4",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "DSW1": [
+    "hostname DSW1",
+    "vlan 10,20,30,40",
+    "exit",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "end"
+   ],
+   "DSW2": [
+    "hostname DSW2",
+    "vlan 10,20,30,40",
+    "exit",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 30",
+    "end"
+   ],
+   "ASW1": [
+    "hostname ASW1",
+    "vlan 10,20,30,40",
+    "exit",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "spanning-tree portfast",
+    "interface f0/3",
+    "switchport mode access",
+    "switchport access vlan 30",
+    "spanning-tree portfast",
+    "end"
+   ],
+   "PC1": [
+    "ip 10.1.10.11/24"
+   ],
+   "PC2": [
+    "ip 10.1.10.12/24"
+   ],
+   "PC3": [
+    "ip 10.1.30.13/24"
+   ],
+   "PC4": [
+    "ip 10.1.30.14/24"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Run MST everywhere",
+    "text": "Switch all three switches to MST mode.",
+    "hint": "`spanning-tree mode mst` in global configuration on each switch. Until they share a region each switch is a region of one.",
+    "checks": [
+     {
+      "type": "stp-mode",
+      "device": "DSW1",
+      "mode": "mst"
+     },
+     {
+      "type": "stp-mode",
+      "device": "DSW2",
+      "mode": "mst"
+     },
+     {
+      "type": "stp-mode",
+      "device": "ASW1",
+      "mode": "mst"
+     }
+    ]
+   },
+   {
+    "title": "Build the region",
+    "text": "Configure region **CAMPUS**, revision **1**: instance 1 carries VLANs 10 and 20, instance 2 carries VLANs 30 and 40. All three switches must end up in the same region.",
+    "hint": "`spanning-tree mst configuration`, then `name CAMPUS`, `revision 1`, `instance 1 vlan 10,20`, `instance 2 vlan 30,40`, `exit`. The changes apply when you leave the submode. Compare `show spanning-tree mst configuration` on each switch: every field has to match.",
+    "checks": [
+     {
+      "type": "mst-region",
+      "device": "ASW1",
+      "peer": "DSW1",
+      "name": "CAMPUS"
+     },
+     {
+      "type": "mst-region",
+      "device": "ASW1",
+      "peer": "DSW2"
+     }
+    ]
+   },
+   {
+    "title": "A root per instance",
+    "text": "Make DSW1 the root for instance 1 and DSW2 the root for instance 2. Each should also be the backup root for the other instance.",
+    "hint": "`spanning-tree mst 1 root primary` and `spanning-tree mst 2 root secondary` on DSW1; the opposite on DSW2. Priorities are per instance.",
+    "checks": [
+     {
+      "type": "mst-root",
+      "device": "DSW1",
+      "instance": 1
+     },
+     {
+      "type": "mst-root",
+      "device": "DSW2",
+      "instance": 2
+     },
+     {
+      "type": "config",
+      "device": "DSW1",
+      "match": "^spanning-tree mst 2 priority 28672$"
+     },
+     {
+      "type": "config",
+      "device": "DSW2",
+      "match": "^spanning-tree mst 1 priority 28672$"
+     }
+    ]
+   },
+   {
+    "title": "Both uplinks in use",
+    "text": "On ASW1 the uplink to DSW1 should forward instance 1 while the uplink to DSW2 forwards instance 2, and the PCs reach their partners in each VLAN.",
+    "hint": "`show spanning-tree mst 1` and `show spanning-tree mst 2` on ASW1: the root port changes with the instance and the other uplink is the alternate.",
+    "checks": [
+     {
+      "type": "mst-port",
+      "device": "ASW1",
+      "intf": "Gi0/1",
+      "instance": 1,
+      "role": "Root"
+     },
+     {
+      "type": "mst-port",
+      "device": "ASW1",
+      "intf": "Gi0/2",
+      "instance": 2,
+      "role": "Root"
+     },
+     {
+      "type": "mst-port",
+      "device": "ASW1",
+      "intf": "Gi0/2",
+      "instance": 1,
+      "state": "BLK"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.1.10.12"
+     },
+     {
+      "type": "ping",
+      "from": "PC3",
+      "to": "10.1.30.14"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "DSW1": [
+    "spanning-tree mode mst",
+    "spanning-tree mst configuration",
+    "name CAMPUS",
+    "revision 1",
+    "instance 1 vlan 10,20",
+    "instance 2 vlan 30,40",
+    "exit",
+    "spanning-tree mst 1 root primary",
+    "spanning-tree mst 2 root secondary",
+    "end"
+   ],
+   "DSW2": [
+    "spanning-tree mode mst",
+    "spanning-tree mst configuration",
+    "name CAMPUS",
+    "revision 1",
+    "instance 1 vlan 10,20",
+    "instance 2 vlan 30,40",
+    "exit",
+    "spanning-tree mst 2 root primary",
+    "spanning-tree mst 1 root secondary",
+    "end"
+   ],
+   "ASW1": [
+    "spanning-tree mode mst",
+    "spanning-tree mst configuration",
+    "name CAMPUS",
+    "revision 1",
+    "instance 1 vlan 10,20",
+    "instance 2 vlan 30,40",
+    "exit",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ccnp-stp-protection",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "Protecting spanning tree",
+  "topic": "Spanning tree (protection)",
+  "minutes": 30,
+  "height": 470,
+  "summary": "Root guard against a rogue switch, PortFast and BPDU guard on edge ports, loop guard against a one-way BPDU path, and automatic errdisable recovery.",
+  "intro": "Spanning tree trusts every BPDU it hears. The protection features decide which ports may be trusted with what:\n\n- **Root guard** on a port that must never lead to the root. A superior BPDU there puts the port in **root-inconsistent** (blocking) instead of moving the root.\n- **BPDU guard** on an edge (PortFast) port. Any BPDU err-disables the port.\n- **Loop guard** on a root or alternate port. If BPDUs stop arriving, the port goes **loop-inconsistent** instead of becoming designated and opening a loop.\n- **errdisable recovery** brings err-disabled ports back after a timer.\n\nDSW1 is meant to be the root (priority 4096). Somebody has plugged a switch called ROGUE, priority 0, into ASW1 Fa0/24, and it has just become the root of the whole network. On top of that, DSW2's downlink to ASW1 has `spanning-tree bpdufilter enable` on it, so ASW1's blocked uplink no longer hears BPDUs and has started forwarding.\n\nUse `show spanning-tree vlan 1` and `show spanning-tree inconsistentports` as you go.",
+  "devices": [
+   {
+    "name": "DSW1",
+    "type": "switch",
+    "x": 220,
+    "y": 100
+   },
+   {
+    "name": "DSW2",
+    "type": "switch",
+    "x": 580,
+    "y": 100
+   },
+   {
+    "name": "ASW1",
+    "type": "switch",
+    "x": 400,
+    "y": 260
+   },
+   {
+    "name": "ROGUE",
+    "type": "switch",
+    "x": 660,
+    "y": 380
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 220,
+    "y": 400
+   }
+  ],
+  "links": [
+   [
+    "DSW1",
+    "GigabitEthernet0/1",
+    "DSW2",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "DSW1",
+    "GigabitEthernet0/2",
+    "ASW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "DSW2",
+    "GigabitEthernet0/2",
+    "ASW1",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "ASW1",
+    "FastEthernet0/24",
+    "ROGUE",
+    "FastEthernet0/24"
+   ],
+   [
+    "ASW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "DSW1": [
+    "hostname DSW1",
+    "spanning-tree vlan 1 priority 4096",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "end"
+   ],
+   "DSW2": [
+    "hostname DSW2",
+    "spanning-tree vlan 1 priority 8192",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "interface g0/2",
+    "spanning-tree bpdufilter enable",
+    "end"
+   ],
+   "ASW1": [
+    "hostname ASW1",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "interface f0/1",
+    "switchport mode access",
+    "end"
+   ],
+   "ROGUE": [
+    "hostname ROGUE",
+    "spanning-tree vlan 1 priority 0",
+    "end"
+   ],
+   "PC1": [
+    "ip 10.0.0.11/24"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Keep the root where it belongs",
+    "text": "Stop ROGUE from being the root bridge without unplugging it. DSW1 must be the root for VLAN 1 again.",
+    "hint": "On ASW1, `interface f0/24` and `spanning-tree guard root`. The port goes BKN with `*ROOT_Inc` and the rest of the network forgets the rogue's BPDUs.",
+    "checks": [
+     {
+      "type": "stp-root",
+      "device": "DSW1",
+      "vlan": 1
+     },
+     {
+      "type": "stp-inconsistent",
+      "device": "ASW1",
+      "intf": "Fa0/24",
+      "vlan": 1,
+      "kind": "root"
+     }
+    ]
+   },
+   {
+    "title": "Edge port for PC1",
+    "text": "Make Fa0/1 on ASW1 a PortFast edge port with BPDU guard, so a switch plugged in there is shut down at once.",
+    "hint": "`interface f0/1`, `spanning-tree portfast` and `spanning-tree bpduguard enable`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "ASW1",
+      "match": "^interface FastEthernet0/1\\n(?: .*\\n)*? spanning-tree portfast\\n"
+     },
+     {
+      "type": "config",
+      "device": "ASW1",
+      "match": "^interface FastEthernet0/1\\n(?: .*\\n)*? spanning-tree bpduguard enable\\n"
+     }
+    ]
+   },
+   {
+    "title": "Loop guard on the uplinks",
+    "text": "Turn on loop guard on both of ASW1's uplinks. The uplink to DSW2 hears no BPDUs, so it should go loop-inconsistent instead of forwarding.",
+    "hint": "`interface range g0/1 - 2`, `spanning-tree guard loop`. Then `show spanning-tree vlan 1` on ASW1 shows Gi0/2 as `BKN*` with `*LOOP_Inc`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "ASW1",
+      "match": "^interface GigabitEthernet0/1\\n(?: .*\\n)*? spanning-tree guard loop\\n"
+     },
+     {
+      "type": "config",
+      "device": "ASW1",
+      "match": "^interface GigabitEthernet0/2\\n(?: .*\\n)*? spanning-tree guard loop\\n"
+     }
+    ]
+   },
+   {
+    "title": "Fix the cause",
+    "text": "Remove the BPDU filter from DSW2's downlink. ASW1's Gi0/2 should go back to a normal alternate port, blocking.",
+    "hint": "`interface g0/2` on DSW2, `no spanning-tree bpdufilter`. BPDU filter on a switch-facing port is almost always a mistake.",
+    "checks": [
+     {
+      "type": "noconfig",
+      "device": "DSW2",
+      "match": "bpdufilter"
+     },
+     {
+      "type": "stp-port",
+      "device": "ASW1",
+      "intf": "Gi0/2",
+      "vlan": 1,
+      "role": "Altn",
+      "state": "BLK"
+     }
+    ]
+   },
+   {
+    "title": "Recover by itself",
+    "text": "Have ASW1 bring BPDU-guard err-disabled ports back automatically after 60 seconds.",
+    "hint": "`errdisable recovery cause bpduguard` and `errdisable recovery interval 60`. `show errdisable recovery` lists the timers.",
+    "checks": [
+     {
+      "type": "errdisable-recovery",
+      "device": "ASW1",
+      "cause": "bpduguard",
+      "interval": 60
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "ASW1": [
+    "interface f0/24",
+    "spanning-tree guard root",
+    "interface f0/1",
+    "spanning-tree portfast",
+    "spanning-tree bpduguard enable",
+    "interface range g0/1 - 2",
+    "spanning-tree guard loop",
+    "exit",
+    "errdisable recovery cause bpduguard",
+    "errdisable recovery interval 60",
+    "end"
+   ],
+   "DSW2": [
+    "interface g0/2",
+    "no spanning-tree bpdufilter",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ccnp-vtp",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "VTP without the disasters",
+  "topic": "VTP",
+  "minutes": 30,
+  "height": 470,
+  "summary": "A VTP domain with a server, clients and a password, the configuration revision that can wipe every VLAN, joining a switch safely, and pruning.",
+  "intro": "VTP copies the VLAN database from switch to switch over trunks. Within a **domain** (same name and password), the database with the highest **configuration revision** wins and overwrites everyone else's, whatever it contains. A **server** can change VLANs, a **client** only learns them, and a **transparent** switch keeps its own VLANs but passes adverts along.\n\nThat is how a lab switch with an old, higher revision can delete every VLAN in production the moment its trunk comes up. The revision goes back to 0 when a switch moves to transparent mode, or when its domain name changes.\n\nSW1 will be the server. SW2 and SW3 should be clients (SW3 is still in transparent mode from its old job). The switch called NEW comes from another building: it is already in domain `CCNP` with password `cisco123`, has a pile of VLANs and a high revision. Its Gi0/1 to SW3 is shut for now.\n\n| Switch | Gi0/1 | Gi0/2 | Access ports |\n|---|---|---|---|\n| SW1 | SW2 | | PC1 on Fa0/1 (VLAN 10) |\n| SW2 | SW1 | SW3 | |\n| SW3 | SW2 | NEW | PC2 on Fa0/1 (VLAN 10) |",
+  "devices": [
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 120,
+    "y": 140
+   },
+   {
+    "name": "SW2",
+    "type": "switch",
+    "x": 330,
+    "y": 140
+   },
+   {
+    "name": "SW3",
+    "type": "switch",
+    "x": 540,
+    "y": 140
+   },
+   {
+    "name": "NEW",
+    "type": "switch",
+    "x": 700,
+    "y": 300
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 120,
+    "y": 330
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 480,
+    "y": 330
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "SW2",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW2",
+    "GigabitEthernet0/2",
+    "SW3",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW3",
+    "GigabitEthernet0/2",
+    "NEW",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW3",
+    "FastEthernet0/1",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1",
+    "vlan 10",
+    "name USERS",
+    "vlan 20",
+    "name SERVERS",
+    "exit",
+    "interface g0/1",
+    "switchport mode trunk",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "end"
+   ],
+   "SW2": [
+    "hostname SW2",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "end"
+   ],
+   "SW3": [
+    "hostname SW3",
+    "vtp mode transparent",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "end"
+   ],
+   "NEW": [
+    "hostname NEW",
+    "interface g0/1",
+    "switchport mode trunk",
+    "shutdown",
+    "exit",
+    "vtp domain CCNP",
+    "vtp password cisco123",
+    "vlan 500",
+    "vlan 501",
+    "vlan 502",
+    "vlan 503",
+    "vlan 504",
+    "vlan 505",
+    "vlan 506",
+    "vlan 507",
+    "vlan 508",
+    "vlan 509",
+    "end"
+   ],
+   "PC1": [
+    "ip 10.10.10.11/24"
+   ],
+   "PC2": [
+    "ip 10.10.10.12/24"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Set up the domain",
+    "text": "On SW1: VTP domain **CCNP**, password **cisco123**, version **2**, server mode.",
+    "hint": "`vtp domain CCNP`, `vtp password cisco123`, `vtp version 2`. Server is the default mode. `show vtp status` and `show vtp password` confirm it.",
+    "checks": [
+     {
+      "type": "vtp",
+      "device": "SW1",
+      "domain": "CCNP",
+      "password": "cisco123",
+      "version": 2,
+      "mode": "server"
+     }
+    ]
+   },
+   {
+    "title": "Clients learn the VLANs",
+    "text": "Make SW2 and SW3 VTP clients in the same domain. SW3 should learn VLAN 10 (USERS), and PC1 and PC2 can then ping.",
+    "hint": "`vtp mode client` and `vtp password cisco123` on each. A client with no domain name takes the domain from the first advert it hears. SW3's Fa0/1 is in VLAN 10, which only exists there once VTP brings it.",
+    "checks": [
+     {
+      "type": "vtp",
+      "device": "SW2",
+      "mode": "client",
+      "domain": "CCNP"
+     },
+     {
+      "type": "vtp",
+      "device": "SW3",
+      "mode": "client",
+      "domain": "CCNP"
+     },
+     {
+      "type": "vtp-vlan",
+      "device": "SW3",
+      "vlan": 10,
+      "name": "USERS"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.10.10.12"
+     }
+    ]
+   },
+   {
+    "title": "Join NEW without wiping the domain",
+    "text": "Bring NEW's Gi0/1 up as a VTP client of the domain. SW1 must keep its VLANs, and NEW must end up with VLAN 10.",
+    "hint": "Compare `show vtp status` on NEW and SW1: NEW's revision is higher. Put NEW in transparent mode first (that resets the revision to 0), then `vtp mode client`, and only then `no shutdown` on Gi0/1. If you bring it up first, its database replaces SW1's and you'll have to rebuild the VLANs.",
+    "checks": [
+     {
+      "type": "vtp",
+      "device": "NEW",
+      "mode": "client"
+     },
+     {
+      "type": "ifup",
+      "device": "NEW",
+      "intf": "Gi0/1"
+     },
+     {
+      "type": "vtp-vlan",
+      "device": "SW1",
+      "vlan": 10,
+      "name": "USERS"
+     },
+     {
+      "type": "vtp-vlan",
+      "device": "NEW",
+      "vlan": 10
+     },
+     {
+      "type": "vtp-vlan",
+      "device": "SW1",
+      "vlan": 500,
+      "absent": true
+     }
+    ]
+   },
+   {
+    "title": "Prune what nobody uses",
+    "text": "Turn on VTP pruning so VLAN 20 isn't flooded down trunks to switches that have no ports in it.",
+    "hint": "`vtp pruning` on the server; the clients learn it. `show interfaces trunk` on SW1: VLAN 20 drops out of the last section, \"Vlans in spanning tree forwarding state and not pruned\".",
+    "checks": [
+     {
+      "type": "vtp",
+      "device": "SW1",
+      "pruning": true
+     },
+     {
+      "type": "vtp",
+      "device": "SW3",
+      "pruning": true
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "vtp domain CCNP",
+    "vtp password cisco123",
+    "vtp version 2",
+    "vtp pruning",
+    "end"
+   ],
+   "SW2": [
+    "vtp mode client",
+    "vtp password cisco123",
+    "end"
+   ],
+   "SW3": [
+    "vtp mode client",
+    "vtp password cisco123",
+    "end"
+   ],
+   "NEW": [
+    "vtp mode transparent",
+    "vtp mode client",
+    "interface g0/1",
+    "no shutdown",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ccnp-vrrp",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "VRRPv3: an open-standard gateway",
+  "topic": "First-hop redundancy (VRRP)",
+  "minutes": 25,
+  "height": 470,
+  "summary": "VRRPv3 between two routers: the address-family syntax, master election, tracking the uplink and a real failover test.",
+  "intro": "**VRRP** does the job of HSRP but is an IETF standard, so it works between different vendors. The differences that trip people up:\n\n- The roles are **master** and **backup** (not active and standby).\n- **Preemption is on by default.**\n- A router whose real interface address *is* the virtual IP is the **owner** and always wins with priority 255.\n- The virtual MAC is `0000.5e00.01xx`, where xx is the group number in hex.\n\nNewer IOS uses **VRRPv3** with its own syntax: `fhrp version vrrp v3` once globally, then a group per interface with `vrrp <group> address-family ipv4`, and `address`, `priority`, `track` inside it.\n\nR1 and R2 both reach CORE, which has `8.8.8.8` on a loopback. The PCs already point at `192.168.10.1`, which nobody owns yet. Track 1 on R1 follows its uplink Gi0/1.\n\n| Router | LAN Gi0/0 | Uplink Gi0/1 |\n|---|---|---|\n| R1 | 192.168.10.2 | 10.1.0.1 |\n| R2 | 192.168.10.3 | 10.2.0.1 |",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 110
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 110
+   },
+   {
+    "name": "CORE",
+    "type": "router",
+    "x": 400,
+    "y": 20
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 400,
+    "y": 260
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 180,
+    "y": 400
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 400,
+    "y": 400
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "SW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "SW1",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "CORE",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "CORE",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "CORE": [
+    "hostname CORE",
+    "interface g0/0",
+    "ip address 10.1.0.2 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.2.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 8.8.8.8 255.255.255.255",
+    "exit",
+    "ip route 192.168.10.0 255.255.255.0 10.1.0.1",
+    "ip route 192.168.10.0 255.255.255.0 10.2.0.1",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/1",
+    "ip address 10.1.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/0",
+    "ip address 192.168.10.2 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.1.0.2",
+    "track 1 interface g0/1 line-protocol",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/1",
+    "ip address 10.2.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/0",
+    "ip address 192.168.10.3 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.2.0.2",
+    "end"
+   ],
+   "SW1": [
+    "hostname SW1",
+    "interface range f0/1 - 3",
+    "switchport mode access",
+    "spanning-tree portfast",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.10.11/24 192.168.10.1"
+   ],
+   "PC2": [
+    "ip 192.168.10.12/24 192.168.10.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "VRRPv3 group 10",
+    "text": "Enable VRRPv3 on both routers and create group 10 on Gi0/0 with virtual address `192.168.10.1`. R1 gets priority 120 and should be the master.",
+    "hint": "`fhrp version vrrp v3`, then `interface g0/0`, `vrrp 10 address-family ipv4`, `address 192.168.10.1 primary`, `priority 120` (R1 only), `exit-vrrp`. `show vrrp brief` shows MASTER and BACKUP.",
+    "checks": [
+     {
+      "type": "fhrp",
+      "proto": "vrrp",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "group": 10,
+      "state": "Master"
+     },
+     {
+      "type": "fhrp",
+      "proto": "vrrp",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "group": 10,
+      "state": "Backup"
+     }
+    ]
+   },
+   {
+    "title": "The PCs use it",
+    "text": "Both PCs should reach `8.8.8.8` through the virtual gateway.",
+    "hint": "From PC1, `ping 8.8.8.8`, then `show arp`: the gateway's MAC is `00:00:5e:00:01:0a`, the VRRP virtual MAC for group 10.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "8.8.8.8"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "8.8.8.8"
+     }
+    ]
+   },
+   {
+    "title": "Track the uplink",
+    "text": "If R1's uplink fails, R1 should give up the master role: lower its priority by 30 when track 1 goes down.",
+    "hint": "Inside `vrrp 10 address-family ipv4` on R1: `track 1 decrement 30`. 120 - 30 = 90, below R2's 100.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^  track 1 decrement 30$"
+     }
+    ]
+   },
+   {
+    "title": "Prove the failover",
+    "text": "Shut R1's Gi0/1, check that R2 becomes the master and the PCs still reach 8.8.8.8, then bring Gi0/1 back. R1 should take over again on its own.",
+    "hint": "`interface g0/1`, `shutdown` on R1, `show vrrp brief` on R2, a ping from a PC, then `no shutdown`. Preemption (on by default) lets R1 back in.",
+    "checks": [
+     {
+      "type": "fhrp",
+      "proto": "vrrp",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "group": 10,
+      "state": "Master",
+      "seen": true
+     },
+     {
+      "type": "fhrp",
+      "proto": "vrrp",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "group": 10,
+      "state": "Master"
+     },
+     {
+      "type": "ifup",
+      "device": "R1",
+      "intf": "Gi0/1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "fhrp version vrrp v3",
+    "interface g0/0",
+    "vrrp 10 address-family ipv4",
+    "address 192.168.10.1 primary",
+    "exit-vrrp",
+    "end"
+   ],
+   "R1": [
+    "fhrp version vrrp v3",
+    "interface g0/0",
+    "vrrp 10 address-family ipv4",
+    "address 192.168.10.1 primary",
+    "priority 120",
+    "track 1 decrement 30",
+    "exit-vrrp",
+    "interface g0/1",
+    "shutdown",
+    "no shutdown",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ccnp-glbp",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "GLBP: share the gateway",
+  "topic": "First-hop redundancy (GLBP)",
+  "minutes": 30,
+  "height": 470,
+  "summary": "One virtual IP, two routers forwarding at once: the AVG hands each host a different virtual MAC, weighting decides who forwards, and forwarders survive their router.",
+  "intro": "HSRP and VRRP leave the standby router idle. **GLBP** (Cisco) lets every router in the group forward.\n\n- One router is the **AVG** (active virtual gateway, highest priority, then highest IP). It answers every ARP for the virtual IP.\n- Each router is an **AVF** (active virtual forwarder) with its own virtual MAC, `0007.b400.xxyy` (group xx, forwarder yy).\n- The AVG hands out those MACs in turn (**round-robin**, the default), or by **weighting**, or by **host-dependent** hashing.\n- **Weighting** with thresholds decides whether a router still forwards. If its weighting falls below the lower threshold, another AVF takes over its MAC.\n\nOnly R1 needs to be told the virtual IP: `glbp 1 ip` on its own lets R2 learn it from the AVG.\n\nThe PCs point at `192.168.10.1`. CORE has `8.8.8.8`. Track 1 on R1 follows its uplink.\n\n| Router | LAN Gi0/0 | Uplink Gi0/1 |\n|---|---|---|\n| R1 | 192.168.10.2 | 10.1.0.1 |\n| R2 | 192.168.10.3 | 10.2.0.1 |",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 110
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 110
+   },
+   {
+    "name": "CORE",
+    "type": "router",
+    "x": 400,
+    "y": 20
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 400,
+    "y": 260
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 180,
+    "y": 400
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 400,
+    "y": 400
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 620,
+    "y": 400
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "SW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "SW1",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "CORE",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "CORE",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/3",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "CORE": [
+    "hostname CORE",
+    "interface g0/0",
+    "ip address 10.1.0.2 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.2.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 8.8.8.8 255.255.255.255",
+    "exit",
+    "ip route 192.168.10.0 255.255.255.0 10.1.0.1",
+    "ip route 192.168.10.0 255.255.255.0 10.2.0.1",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/1",
+    "ip address 10.1.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/0",
+    "ip address 192.168.10.2 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.1.0.2",
+    "track 1 interface g0/1 line-protocol",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/1",
+    "ip address 10.2.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/0",
+    "ip address 192.168.10.3 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.2.0.2",
+    "end"
+   ],
+   "SW1": [
+    "hostname SW1",
+    "interface range f0/1 - 3",
+    "switchport mode access",
+    "spanning-tree portfast",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.10.11/24 192.168.10.1"
+   ],
+   "PC2": [
+    "ip 192.168.10.12/24 192.168.10.1"
+   ],
+   "PC3": [
+    "ip 192.168.10.13/24 192.168.10.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Group 1 with R1 as AVG",
+    "text": "Configure GLBP group 1 on both routers' Gi0/0 with virtual IP `192.168.10.1`. R1 gets priority 150 and preempt, so it is the AVG.",
+    "hint": "R1: `glbp 1 ip 192.168.10.1`, `glbp 1 priority 150`, `glbp 1 preempt`. R2: `glbp 1 ip` (it learns the address). `show glbp brief` lists the AVG and both forwarders.",
+    "checks": [
+     {
+      "type": "fhrp",
+      "proto": "glbp",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "group": 1,
+      "state": "Active"
+     },
+     {
+      "type": "fhrp",
+      "proto": "glbp",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "group": 1,
+      "state": "Standby"
+     }
+    ]
+   },
+   {
+    "title": "Both routers forward",
+    "text": "Ping `8.8.8.8` from all three PCs. The AVG should hand them out across both routers' virtual MACs.",
+    "hint": "Compare `show arp` on the PCs: different PCs get `00:07:b4:00:01:01` and `00:07:b4:00:01:02`. Round-robin goes to the next forwarder with each new host.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "8.8.8.8"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "8.8.8.8"
+     },
+     {
+      "type": "ping",
+      "from": "PC3",
+      "to": "8.8.8.8"
+     },
+     {
+      "type": "glbp-hosts",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "group": 1,
+      "distinct": 2
+     },
+     {
+      "type": "glbp-forwarding",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "group": 1,
+      "count": 1
+     }
+    ]
+   },
+   {
+    "title": "Weight the uplink",
+    "text": "On R1, set weighting 100 with a lower threshold of 70 and an upper threshold of 90, and drop it by 40 when track 1 goes down.",
+    "hint": "`glbp 1 weighting 100 lower 70 upper 90` and `glbp 1 weighting track 1 decrement 40`. With the uplink down R1 falls to 60, below 70, and stops forwarding.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ glbp 1 weighting 100 lower 70 upper 90$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ glbp 1 weighting track 1 decrement 40$"
+     }
+    ]
+   },
+   {
+    "title": "Lose R1's uplink",
+    "text": "Shut R1's Gi0/1: R2 should take over R1's forwarder (forwarding both virtual MACs) and every PC still reaches 8.8.8.8. Then bring the uplink back.",
+    "hint": "`shutdown` on R1 Gi0/1, `show glbp brief` on R2 (both forwarders Active), a ping from each PC, then `no shutdown`. R1 is still the AVG throughout: only forwarding moved.",
+    "checks": [
+     {
+      "type": "glbp-forwarding",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "group": 1,
+      "count": 2,
+      "peak": true
+     },
+     {
+      "type": "fhrp",
+      "proto": "glbp",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "group": 1,
+      "state": "Active"
+     },
+     {
+      "type": "ifup",
+      "device": "R1",
+      "intf": "Gi0/1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "interface g0/0",
+    "glbp 1 ip",
+    "end"
+   ],
+   "R1": [
+    "interface g0/0",
+    "glbp 1 ip 192.168.10.1",
+    "glbp 1 priority 150",
+    "glbp 1 preempt",
+    "glbp 1 weighting 100 lower 70 upper 90",
+    "glbp 1 weighting track 1 decrement 40",
+    "interface g0/1",
+    "shutdown",
+    "no shutdown",
+    "end"
+   ],
+   "PC1": [
+    "ping 8.8.8.8 -c 2"
+   ],
+   "PC2": [
+    "ping 8.8.8.8 -c 2"
+   ],
+   "PC3": [
+    "ping 8.8.8.8 -c 2"
+   ]
+  }
+ },
+ {
+  "id": "ccnp-span",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "SPAN and RSPAN: copy the traffic",
+  "topic": "Monitoring (SPAN/RSPAN)",
+  "minutes": 25,
+  "height": 420,
+  "summary": "A local SPAN session to an IDS, a remote-span VLAN across a trunk, and an RSPAN session that delivers copies to an analyzer on another switch.",
+  "intro": "**SPAN** copies the frames crossing source ports or VLANs to a destination port where a sniffer or IDS listens. A destination port stops being a normal switch port: it doesn't forward ordinary traffic and shows as **monitoring**.\n\n**RSPAN** sends the copies across the network in a dedicated VLAN marked `remote-span` on every switch it crosses. The source switch's session ends in `destination remote vlan`, the far switch's session starts with `source remote vlan`. (**ERSPAN** does the same over IP with GRE, configured on routers.)\n\nPC1 and PC2 share VLAN 10 on SW1. IDS sits on SW1 Fa0/24, ANALYZER on SW2 Fa0/24. The SW1-SW2 link is a trunk already. Pings generate the traffic: send a few after each session.",
+  "devices": [
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 260,
+    "y": 160
+   },
+   {
+    "name": "SW2",
+    "type": "switch",
+    "x": 560,
+    "y": 160
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 100,
+    "y": 330
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 260,
+    "y": 330
+   },
+   {
+    "name": "IDS",
+    "type": "pc",
+    "x": 420,
+    "y": 330
+   },
+   {
+    "name": "ANALYZER",
+    "type": "pc",
+    "x": 640,
+    "y": 330
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "SW2",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/24",
+    "IDS",
+    "eth0"
+   ],
+   [
+    "SW2",
+    "FastEthernet0/24",
+    "ANALYZER",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1",
+    "vlan 10",
+    "exit",
+    "interface g0/1",
+    "switchport mode trunk",
+    "interface range f0/1 - 2",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "end"
+   ],
+   "SW2": [
+    "hostname SW2",
+    "vlan 10",
+    "exit",
+    "interface g0/1",
+    "switchport mode trunk",
+    "end"
+   ],
+   "PC1": [
+    "ip 10.10.10.1/24"
+   ],
+   "PC2": [
+    "ip 10.10.10.2/24"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Mirror PC1 to the IDS",
+    "text": "On SW1, session 1 copies everything PC1's port sends and receives to Fa0/24. Then ping PC2 from PC1 so the IDS gets copies.",
+    "hint": "`monitor session 1 source interface f0/1 both` and `monitor session 1 destination interface f0/24`. `show monitor session 1` and `show interfaces status` (Fa0/24 shows monitoring).",
+    "checks": [
+     {
+      "type": "span",
+      "device": "SW1",
+      "session": 1,
+      "kind": "local",
+      "source": "f0/1",
+      "dest": "f0/24"
+     },
+     {
+      "type": "span-copies",
+      "device": "SW1",
+      "session": 1,
+      "min": 2
+     }
+    ]
+   },
+   {
+    "title": "An RSPAN VLAN",
+    "text": "Create VLAN 900 as a remote-span VLAN on both switches.",
+    "hint": "`vlan 900`, `remote-span`. `show vlan remote-span` lists it. Without the attribute, a switch learns MAC addresses in that VLAN and the copies go nowhere useful.",
+    "checks": [
+     {
+      "type": "rspan-vlan",
+      "device": "SW1",
+      "vlan": 900
+     },
+     {
+      "type": "rspan-vlan",
+      "device": "SW2",
+      "vlan": 900
+     }
+    ]
+   },
+   {
+    "title": "Copies to the analyzer",
+    "text": "Session 2 on SW1 sends everything received in VLAN 10 into RSPAN VLAN 900; session 1 on SW2 takes VLAN 900 to Fa0/24. Ping again so the analyzer gets copies.",
+    "hint": "SW1: `monitor session 2 source vlan 10 rx` and `monitor session 2 destination remote vlan 900`. SW2: `monitor session 1 source remote vlan 900` and `monitor session 1 destination interface f0/24`.",
+    "checks": [
+     {
+      "type": "span",
+      "device": "SW1",
+      "session": 2,
+      "kind": "rspan-src",
+      "vlan": 10
+     },
+     {
+      "type": "span",
+      "device": "SW2",
+      "session": 1,
+      "kind": "rspan-dst",
+      "dest": "f0/24"
+     },
+     {
+      "type": "span-copies",
+      "device": "SW2",
+      "session": 1,
+      "min": 2
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "monitor session 1 source interface f0/1 both",
+    "monitor session 1 destination interface f0/24",
+    "vlan 900",
+    "remote-span",
+    "exit",
+    "monitor session 2 source vlan 10 rx",
+    "monitor session 2 destination remote vlan 900",
+    "end"
+   ],
+   "SW2": [
+    "vlan 900",
+    "remote-span",
+    "exit",
+    "monitor session 1 source remote vlan 900",
+    "monitor session 1 destination interface f0/24",
+    "end"
+   ],
+   "PC1": [
+    "ping 10.10.10.2 -c 2"
+   ]
+  }
+ },
+ {
+  "id": "ccnp-dhcp-security",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "DHCP snooping, DAI and IP source guard",
+  "topic": "Switch security",
+  "minutes": 35,
+  "height": 470,
+  "summary": "Block a rogue DHCP server with snooping, get past the option-82 trap, then use the binding table for dynamic ARP inspection and IP source guard.",
+  "intro": "Three features that build on each other:\n\n1. **DHCP snooping** splits ports into **trusted** (towards real servers) and **untrusted**. Server messages (offers, acks) arriving on an untrusted port are dropped, so a rogue server can't hand out addresses. It also records a **binding**: MAC, IP, VLAN and port for each lease.\n2. **Dynamic ARP inspection** checks every ARP on untrusted ports against those bindings (or an ARP ACL), so nobody can claim someone else's IP.\n3. **IP source guard** drops IP packets whose source address isn't the one bound to that port.\n\nOne classic trap: snooping inserts **DHCP option 82** with a zero relay address. An IOS DHCP server drops such requests unless it trusts the relay information (`ip dhcp relay information trust-all`), or the switch stops inserting it (`no ip dhcp snooping information option`).\n\nR1 (Gi0/1 uplink) is the real DHCP server for 10.1.1.0/24, handing out .100 and up. ROGUE on Fa0/24 runs its own DHCP server. PC1 and PC2 use DHCP. SERVER has the static address 10.1.1.50.",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 400,
+    "y": 40
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 400,
+    "y": 200
+   },
+   {
+    "name": "ROGUE",
+    "type": "router",
+    "x": 690,
+    "y": 200
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 160,
+    "y": 380
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 400,
+    "y": 380
+   },
+   {
+    "name": "SERVER",
+    "type": "pc",
+    "x": 640,
+    "y": 380
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "R1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/24",
+    "ROGUE",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/3",
+    "SERVER",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.1.1.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip dhcp excluded-address 10.1.1.1 10.1.1.99",
+    "ip dhcp pool LAN",
+    "network 10.1.1.0 255.255.255.0",
+    "default-router 10.1.1.1",
+    "end"
+   ],
+   "ROGUE": [
+    "hostname ROGUE",
+    "interface g0/0",
+    "ip address 10.1.1.250 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip dhcp pool EVIL",
+    "network 10.1.1.0 255.255.255.0",
+    "default-router 10.1.1.250",
+    "end"
+   ],
+   "SW1": [
+    "hostname SW1",
+    "interface range f0/1 - 3",
+    "switchport mode access",
+    "spanning-tree portfast",
+    "interface f0/24",
+    "switchport mode access",
+    "end"
+   ],
+   "SERVER": [
+    "ip 10.1.1.50/24 10.1.1.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Snoop and trust the uplink",
+    "text": "Turn on DHCP snooping for VLAN 1 on SW1 and trust only the uplink to R1.",
+    "hint": "`ip dhcp snooping`, `ip dhcp snooping vlan 1`, and on `interface g0/1`, `ip dhcp snooping trust`. Every other port stays untrusted, including the rogue's.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^ip dhcp snooping$"
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^ip dhcp snooping vlan 1$"
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^interface GigabitEthernet0/1\\n(?: .*\\n)*? ip dhcp snooping trust\\n"
+     }
+    ]
+   },
+   {
+    "title": "A real lease for PC1",
+    "text": "PC1 should get its address from R1 (10.1.1.100 or above), not from ROGUE, and SW1 should have a binding for it.",
+    "hint": "Try `ip dhcp` on PC1. If nothing answers, it's option 82: either `ip dhcp relay information trust-all` on R1 or `no ip dhcp snooping information option` on SW1. Then `show ip dhcp snooping binding`.",
+    "checks": [
+     {
+      "type": "dhcp",
+      "device": "PC1"
+     },
+     {
+      "type": "ip-range",
+      "device": "PC1",
+      "from": "10.1.1.100",
+      "to": "10.1.1.254"
+     },
+     {
+      "type": "snoop-binding",
+      "device": "SW1",
+      "intf": "Fa0/1"
+     }
+    ]
+   },
+   {
+    "title": "Inspect ARP",
+    "text": "Turn on dynamic ARP inspection for VLAN 1. PC1 must still reach R1, and so must SERVER, whose static address has no binding.",
+    "hint": "`ip arp inspection vlan 1`. The router's ARP replies arrive on the uplink, so trust it: `ip arp inspection trust` on Gi0/1. For SERVER (its MAC is in `show ip` on SERVER), an ARP ACL: `arp access-list STATIC`, `permit ip host 10.1.1.50 mac host 0050.7966.6805`, then `ip arp inspection filter STATIC vlan 1`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^ip arp inspection vlan 1$"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.1.1.1"
+     },
+     {
+      "type": "ping",
+      "from": "SERVER",
+      "to": "10.1.1.1"
+     }
+    ]
+   },
+   {
+    "title": "Lock PC2's source address",
+    "text": "Give PC2 a lease, then turn on IP source guard on its port. PC2 can only use the address it was given.",
+    "hint": "`ip dhcp` on PC2, then `interface f0/2`, `ip verify source`. `show ip verify source` lists the address allowed on the port.",
+    "checks": [
+     {
+      "type": "dhcp",
+      "device": "PC2"
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^interface FastEthernet0/2\\n(?: .*\\n)*? ip verify source\\n"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "10.1.1.1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "ip dhcp snooping",
+    "ip dhcp snooping vlan 1",
+    "no ip dhcp snooping information option",
+    "interface g0/1",
+    "ip dhcp snooping trust",
+    "ip arp inspection trust",
+    "exit",
+    "ip arp inspection vlan 1",
+    "arp access-list STATIC",
+    "permit ip host 10.1.1.50 mac host 0050.7966.6805",
+    "exit",
+    "ip arp inspection filter STATIC vlan 1",
+    "interface f0/2",
+    "ip verify source",
+    "end"
+   ],
+   "PC1": [
+    "ip dhcp"
+   ],
+   "PC2": [
+    "ip dhcp"
+   ]
+  }
+ },
+ {
+  "id": "ccnp-pvlan",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "Private VLANs",
+  "topic": "Switch security (private VLANs)",
+  "minutes": 25,
+  "height": 440,
+  "summary": "Split one subnet with private VLANs: isolated hosts that only reach the gateway, a community that can talk among itself, and a promiscuous router port.",
+  "intro": "A **private VLAN** splits one VLAN (and one subnet) into pieces that can't talk to each other at layer 2, while everyone keeps the same gateway:\n\n- The **primary** VLAN is the whole thing. A **promiscuous** port (the router) belongs to it and talks to everyone.\n- An **isolated** secondary VLAN: its hosts reach only promiscuous ports, not each other.\n- A **community** secondary VLAN: its hosts reach each other and the promiscuous ports, but not other communities or isolated hosts.\n\nWith VTP versions 1 and 2, private VLANs can only be configured in **transparent** mode.\n\nPlan: primary VLAN 100, isolated VLAN 101 for the hotel rooms ROOM1 and ROOM2, community VLAN 102 for the staff PCs STAFF1 and STAFF2. R1 on Gi0/1 is the gateway, 10.1.0.1. The PCs are addressed and currently all sit in VLAN 1, so they can all reach each other.",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 400,
+    "y": 40
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 400,
+    "y": 190
+   },
+   {
+    "name": "ROOM1",
+    "type": "pc",
+    "x": 100,
+    "y": 360
+   },
+   {
+    "name": "ROOM2",
+    "type": "pc",
+    "x": 300,
+    "y": 360
+   },
+   {
+    "name": "STAFF1",
+    "type": "pc",
+    "x": 500,
+    "y": 360
+   },
+   {
+    "name": "STAFF2",
+    "type": "pc",
+    "x": 700,
+    "y": 360
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "R1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "ROOM1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "ROOM2",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/3",
+    "STAFF1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/4",
+    "STAFF2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.1.0.1 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "SW1": [
+    "hostname SW1",
+    "interface range f0/1 - 4",
+    "switchport mode access",
+    "spanning-tree portfast",
+    "end"
+   ],
+   "ROOM1": [
+    "ip 10.1.0.11/24 10.1.0.1"
+   ],
+   "ROOM2": [
+    "ip 10.1.0.12/24 10.1.0.1"
+   ],
+   "STAFF1": [
+    "ip 10.1.0.21/24 10.1.0.1"
+   ],
+   "STAFF2": [
+    "ip 10.1.0.22/24 10.1.0.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "The private VLANs",
+    "text": "Put SW1 in VTP transparent mode, then create primary VLAN 100 associated with isolated VLAN 101 and community VLAN 102.",
+    "hint": "`vtp mode transparent`, `vlan 101` + `private-vlan isolated`, `vlan 102` + `private-vlan community`, `vlan 100` + `private-vlan primary` + `private-vlan association 101,102`. `show vlan private-vlan`.",
+    "checks": [
+     {
+      "type": "vtp",
+      "device": "SW1",
+      "mode": "transparent"
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^vlan 100\\n private-vlan primary\\n private-vlan association 101,102$"
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^vlan 101\\n private-vlan isolated$"
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^vlan 102\\n private-vlan community$"
+     }
+    ]
+   },
+   {
+    "title": "Host ports",
+    "text": "The rooms go in isolated VLAN 101, the staff PCs in community VLAN 102.",
+    "hint": "`interface range f0/1 - 2`, `switchport mode private-vlan host`, `switchport private-vlan host-association 100 101`; the same for f0/3 - 4 with 102.",
+    "checks": [
+     {
+      "type": "pvlan-port",
+      "device": "SW1",
+      "intf": "Fa0/1",
+      "mode": "host"
+     },
+     {
+      "type": "pvlan-port",
+      "device": "SW1",
+      "intf": "Fa0/2",
+      "mode": "host"
+     },
+     {
+      "type": "pvlan-port",
+      "device": "SW1",
+      "intf": "Fa0/3",
+      "mode": "host"
+     },
+     {
+      "type": "pvlan-port",
+      "device": "SW1",
+      "intf": "Fa0/4",
+      "mode": "host"
+     }
+    ]
+   },
+   {
+    "title": "A promiscuous gateway",
+    "text": "Make Gi0/1 (to R1) a promiscuous port mapped to both secondary VLANs. Every PC reaches 10.1.0.1.",
+    "hint": "`interface g0/1`, `switchport mode private-vlan promiscuous`, `switchport private-vlan mapping 100 101,102`.",
+    "checks": [
+     {
+      "type": "pvlan-port",
+      "device": "SW1",
+      "intf": "Gi0/1",
+      "mode": "promiscuous"
+     },
+     {
+      "type": "ping",
+      "from": "ROOM1",
+      "to": "10.1.0.1"
+     },
+     {
+      "type": "ping",
+      "from": "STAFF2",
+      "to": "10.1.0.1"
+     }
+    ]
+   },
+   {
+    "title": "Check the isolation",
+    "text": "Confirm it: the rooms can't reach each other or the staff, but the staff PCs reach each other.",
+    "hint": "Ping from ROOM1 to ROOM2 and STAFF1 (both fail), and from STAFF1 to STAFF2 (works). Same subnet, different layer-2 reach.",
+    "checks": [
+     {
+      "type": "noping",
+      "from": "ROOM1",
+      "to": "10.1.0.12"
+     },
+     {
+      "type": "noping",
+      "from": "ROOM1",
+      "to": "10.1.0.21"
+     },
+     {
+      "type": "ping",
+      "from": "STAFF1",
+      "to": "10.1.0.22"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "vtp mode transparent",
+    "vlan 101",
+    "private-vlan isolated",
+    "vlan 102",
+    "private-vlan community",
+    "vlan 100",
+    "private-vlan primary",
+    "private-vlan association 101,102",
+    "exit",
+    "interface range f0/1 - 2",
+    "switchport mode private-vlan host",
+    "switchport private-vlan host-association 100 101",
+    "interface range f0/3 - 4",
+    "switchport mode private-vlan host",
+    "switchport private-vlan host-association 100 102",
+    "interface g0/1",
+    "switchport mode private-vlan promiscuous",
+    "switchport private-vlan mapping 100 101,102",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ccnp-l3-switch",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "Layer-3 switching",
+  "topic": "Inter-VLAN routing (multilayer switch)",
+  "minutes": 30,
+  "height": 470,
+  "summary": "Route between VLANs on the switch itself: ip routing, SVIs as gateways, a routed uplink with a default route, a voice VLAN and protected kiosk ports.",
+  "intro": "A multilayer switch can route between VLANs in hardware, with no router-on-a-stick. Three pieces:\n\n- `ip routing` turns routing on. Without it the switch is a layer-2 switch with a management address.\n- An **SVI** (`interface vlan 10`) is the gateway for each VLAN. It comes up while some port in the VLAN is up.\n- `no switchport` makes a physical port a **routed port**, with its own IP address, like a router interface.\n\nTwo access-layer extras live here too. A **voice VLAN** puts an IP phone's traffic in its own tagged VLAN while the PC behind it stays untagged in the access VLAN. **Protected ports** on the same switch can't talk to each other, only to unprotected ports.\n\n| VLAN | Subnet | Gateway (SVI) | Ports |\n|---|---|---|---|\n| 10 Users | 10.1.10.0/24 | .1 | PC1 on Fa0/1 |\n| 20 Servers | 10.1.20.0/24 | .1 | SRV1 on Fa0/2 |\n| 30 Kiosks | 10.1.30.0/24 | .1 | KIOSK1, KIOSK2 on Fa0/3, Fa0/4 |\n\nThe VLANs, access ports and SVIs are configured. The uplink Gi0/1 to ISP should be 10.0.0.1/30; ISP is 10.0.0.2 and has `8.8.8.8`.",
+  "devices": [
+   {
+    "name": "ISP",
+    "type": "router",
+    "x": 400,
+    "y": 40
+   },
+   {
+    "name": "MLS1",
+    "type": "switch",
+    "x": 400,
+    "y": 200
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 100,
+    "y": 370
+   },
+   {
+    "name": "SRV1",
+    "type": "pc",
+    "x": 300,
+    "y": 370
+   },
+   {
+    "name": "KIOSK1",
+    "type": "pc",
+    "x": 500,
+    "y": 370
+   },
+   {
+    "name": "KIOSK2",
+    "type": "pc",
+    "x": 700,
+    "y": 370
+   }
+  ],
+  "links": [
+   [
+    "MLS1",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "MLS1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "MLS1",
+    "FastEthernet0/2",
+    "SRV1",
+    "eth0"
+   ],
+   [
+    "MLS1",
+    "FastEthernet0/3",
+    "KIOSK1",
+    "eth0"
+   ],
+   [
+    "MLS1",
+    "FastEthernet0/4",
+    "KIOSK2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "ISP": [
+    "hostname ISP",
+    "interface g0/0",
+    "ip address 10.0.0.2 255.255.255.252",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 8.8.8.8 255.255.255.255",
+    "exit",
+    "ip route 10.1.0.0 255.255.0.0 10.0.0.1",
+    "end"
+   ],
+   "MLS1": [
+    "hostname MLS1",
+    "vlan 10",
+    "name USERS",
+    "vlan 20",
+    "name SERVERS",
+    "vlan 30",
+    "name KIOSKS",
+    "exit",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "spanning-tree portfast",
+    "interface f0/2",
+    "switchport mode access",
+    "switchport access vlan 20",
+    "spanning-tree portfast",
+    "interface range f0/3 - 4",
+    "switchport mode access",
+    "switchport access vlan 30",
+    "spanning-tree portfast",
+    "interface vlan 10",
+    "ip address 10.1.10.1 255.255.255.0",
+    "no shutdown",
+    "interface vlan 20",
+    "ip address 10.1.20.1 255.255.255.0",
+    "no shutdown",
+    "interface vlan 30",
+    "ip address 10.1.30.1 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "PC1": [
+    "ip 10.1.10.10/24 10.1.10.1"
+   ],
+   "SRV1": [
+    "ip 10.1.20.10/24 10.1.20.1"
+   ],
+   "KIOSK1": [
+    "ip 10.1.30.11/24 10.1.30.1"
+   ],
+   "KIOSK2": [
+    "ip 10.1.30.12/24 10.1.30.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Route between the VLANs",
+    "text": "Turn on routing so PC1 reaches SRV1 through the SVIs.",
+    "hint": "`ip routing`. `show ip route` lists the SVI subnets as connected. Before that, `show ip route` only prints the default gateway.",
+    "checks": [
+     {
+      "type": "ip-routing",
+      "device": "MLS1"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.1.20.10"
+     }
+    ]
+   },
+   {
+    "title": "A routed uplink",
+    "text": "Make Gi0/1 a routed port with 10.0.0.1/30 and send everything else to ISP with a default route. PC1 should reach 8.8.8.8.",
+    "hint": "`interface g0/1`, `no switchport`, `ip address 10.0.0.1 255.255.255.252`, `no shutdown`, then `ip route 0.0.0.0 0.0.0.0 10.0.0.2`. `show interfaces status` lists Gi0/1 as routed.",
+    "checks": [
+     {
+      "type": "routed-port",
+      "device": "MLS1",
+      "intf": "Gi0/1"
+     },
+     {
+      "type": "route",
+      "device": "MLS1",
+      "prefix": "0.0.0.0/0",
+      "code": "S*",
+      "via": "10.0.0.2"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "8.8.8.8"
+     }
+    ]
+   },
+   {
+    "title": "A phone on PC1's port",
+    "text": "An IP phone is going in front of PC1. Give Fa0/1 voice VLAN 150 (create VLAN 150 named VOICE first).",
+    "hint": "`vlan 150`, `name VOICE`, then `interface f0/1`, `switchport voice vlan 150`. `show interfaces f0/1 switchport` shows the voice VLAN; the phone's frames are tagged 150, PC1's stay untagged in VLAN 10.",
+    "checks": [
+     {
+      "type": "voice-vlan",
+      "device": "MLS1",
+      "intf": "Fa0/1",
+      "vlan": 150
+     },
+     {
+      "type": "vtp-vlan",
+      "device": "MLS1",
+      "vlan": 150,
+      "name": "VOICE"
+     }
+    ]
+   },
+   {
+    "title": "Kiosks keep to themselves",
+    "text": "The two kiosks must not reach each other, though both still reach their gateway.",
+    "hint": "`interface range f0/3 - 4`, `switchport protected`. Protected ports don't forward to each other on the same switch.",
+    "checks": [
+     {
+      "type": "noping",
+      "from": "KIOSK1",
+      "to": "10.1.30.12"
+     },
+     {
+      "type": "ping",
+      "from": "KIOSK1",
+      "to": "10.1.30.1"
+     },
+     {
+      "type": "ping",
+      "from": "KIOSK2",
+      "to": "8.8.8.8"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "MLS1": [
+    "ip routing",
+    "interface g0/1",
+    "no switchport",
+    "ip address 10.0.0.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 10.0.0.2",
+    "vlan 150",
+    "name VOICE",
+    "exit",
+    "interface f0/1",
+    "switchport voice vlan 150",
+    "interface range f0/3 - 4",
+    "switchport protected",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ccnp-switching-ticket",
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "title": "Ticket: the campus after the change window",
+  "topic": "Troubleshooting",
+  "minutes": 40,
+  "height": 470,
+  "summary": "Four faults left by last night's change: a broken MST region, a VTP domain typo, two VRRP masters and DHCP snooping that blocks every lease.",
+  "intro": "Last night's change window went badly and the morning's tickets are in:\n\n> *\"PC1 gets no address.\"* *\"PC2 can't reach the file server PC3.\"* *\"show vrrp says both routers are master.\"* *\"The new access switch shows boundary ports in show spanning-tree mst.\"*\n\nFind and fix each fault without redesigning anything. The intended design:\n\n- DSW1 and ASW1 form one MST region: name **CAMPUS**, revision **1**, instance 1 = VLANs 10 and 20.\n- VTP domain **CAMPUS**: DSW1 is the server, ASW1 a client.\n- R1 and R2 run **VRRP group 10** on Gi0/0 with virtual IP 10.10.10.254. R1 (priority 110) is master.\n- R1 is the DHCP server for VLAN 10. ASW1 runs DHCP snooping on VLAN 10 and does not insert option 82.\n\n| Device | Notes |\n|---|---|\n| DSW1 | Gi0/1 R1, Gi0/2 R2, Fa0/23 trunk to ASW1, PC3 (VLAN 20) on Fa0/1 |\n| ASW1 | Fa0/23 trunk to DSW1, PC1 (VLAN 10, DHCP) on Fa0/1, PC2 (VLAN 20) on Fa0/2 |",
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 250,
+    "y": 40
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 550,
+    "y": 40
+   },
+   {
+    "name": "DSW1",
+    "type": "switch",
+    "x": 400,
+    "y": 170
+   },
+   {
+    "name": "ASW1",
+    "type": "switch",
+    "x": 400,
+    "y": 320
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 700,
+    "y": 230
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 240,
+    "y": 430
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 560,
+    "y": 430
+   }
+  ],
+  "links": [
+   [
+    "DSW1",
+    "GigabitEthernet0/1",
+    "R1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "DSW1",
+    "GigabitEthernet0/2",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "DSW1",
+    "FastEthernet0/23",
+    "ASW1",
+    "FastEthernet0/23"
+   ],
+   [
+    "DSW1",
+    "FastEthernet0/1",
+    "PC3",
+    "eth0"
+   ],
+   [
+    "ASW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "ASW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.10.10.1 255.255.255.0",
+    "vrrp 10 ip 10.10.10.254",
+    "vrrp 10 priority 110",
+    "no shutdown",
+    "exit",
+    "ip dhcp excluded-address 10.10.10.1 10.10.10.99",
+    "ip dhcp pool VLAN10",
+    "network 10.10.10.0 255.255.255.0",
+    "default-router 10.10.10.254",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.10.10.2 255.255.255.0",
+    "vrrp 11 ip 10.10.10.254",
+    "no shutdown",
+    "end"
+   ],
+   "DSW1": [
+    "hostname DSW1",
+    "vtp domain CAMPUS",
+    "vlan 10",
+    "name USERS",
+    "vlan 20",
+    "name SERVERS",
+    "exit",
+    "spanning-tree mode mst",
+    "spanning-tree mst configuration",
+    "name CAMPUS",
+    "revision 1",
+    "instance 1 vlan 10,20",
+    "exit",
+    "interface range g0/1 - 2",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "interface f0/23",
+    "switchport mode trunk",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 20",
+    "end"
+   ],
+   "ASW1": [
+    "hostname ASW1",
+    "vtp domain CAMPAS",
+    "vtp mode client",
+    "spanning-tree mode mst",
+    "spanning-tree mst configuration",
+    "name CAMPUS",
+    "revision 2",
+    "instance 1 vlan 10,20",
+    "exit",
+    "ip dhcp snooping",
+    "ip dhcp snooping vlan 10",
+    "no ip dhcp snooping information option",
+    "interface f0/23",
+    "switchport mode trunk",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "spanning-tree portfast",
+    "interface f0/2",
+    "switchport mode access",
+    "switchport access vlan 20",
+    "spanning-tree portfast",
+    "end"
+   ],
+   "PC2": [
+    "ip 10.20.20.12/24"
+   ],
+   "PC3": [
+    "ip 10.20.20.13/24"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "One MST region",
+    "text": "ASW1 must be in the same MST region as DSW1.",
+    "hint": "`show spanning-tree mst configuration` on both: compare name, revision and the instance table. Fix ASW1 to match the design.",
+    "checks": [
+     {
+      "type": "mst-region",
+      "device": "ASW1",
+      "peer": "DSW1",
+      "name": "CAMPUS"
+     }
+    ]
+   },
+   {
+    "title": "VLAN 20 across the switches",
+    "text": "PC2 reaches the file server PC3 in VLAN 20.",
+    "hint": "`show vtp status` on ASW1: look closely at the domain name. A client in the wrong domain learns nothing, so VLANs 10 and 20 don't exist on ASW1 and its ports in them are inactive.",
+    "checks": [
+     {
+      "type": "vtp",
+      "device": "ASW1",
+      "domain": "CAMPUS",
+      "mode": "client"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "10.20.20.13"
+     }
+    ]
+   },
+   {
+    "title": "One master",
+    "text": "R1 is master for VRRP group 10 and R2 is its backup.",
+    "hint": "`show vrrp brief` on both. The routers must agree on the group number to hear each other. Fix R2: `no vrrp 11`, `vrrp 10 ip 10.10.10.254`.",
+    "checks": [
+     {
+      "type": "fhrp",
+      "proto": "vrrp",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "group": 10,
+      "state": "Master"
+     },
+     {
+      "type": "fhrp",
+      "proto": "vrrp",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "group": 10,
+      "state": "Backup"
+     }
+    ]
+   },
+   {
+    "title": "PC1 gets an address",
+    "text": "PC1 gets a lease from R1 and reaches its gateway, 10.10.10.254.",
+    "hint": "With VLAN 10 now on ASW1, try `ip dhcp` on PC1 and look at ASW1's console: offers are dropped on an untrusted port. Trust the uplink: `ip dhcp snooping trust` on Fa0/23.",
+    "checks": [
+     {
+      "type": "dhcp",
+      "device": "PC1"
+     },
+     {
+      "type": "snoop-binding",
+      "device": "ASW1",
+      "intf": "Fa0/1"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.10.10.254"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "ASW1": [
+    "spanning-tree mst configuration",
+    "revision 1",
+    "exit",
+    "vtp domain CAMPUS",
+    "interface f0/23",
+    "ip dhcp snooping trust",
+    "end"
+   ],
+   "R2": [
+    "interface g0/0",
+    "no vrrp 11",
+    "vrrp 10 ip 10.10.10.254",
+    "end"
+   ],
+   "PC1": [
+    "ip dhcp"
+   ]
+  }
+ },
+ {
   "id": "ospf-multiarea",
   "title": "Multi-area OSPF: ABRs and area summaries",
   "topic": "OSPF areas",
