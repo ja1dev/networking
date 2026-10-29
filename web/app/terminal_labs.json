@@ -12958,6 +12958,447 @@
   }
  },
  {
+  "id": "restconf-interfaces",
+  "title": "RESTCONF: read and change an interface",
+  "topic": "Automation (RESTCONF)",
+  "minutes": 30,
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "summary": "Turn on RESTCONF on an IOS-XE router, read its interfaces with GET, then describe and enable one with PATCH.",
+  "height": 340,
+  "intro": "CSR1 is an IOS-XE router (a CSR1000v / Catalyst 8000V). Besides the CLI, IOS-XE can serve its configuration as **YANG data** over HTTPS. That is **RESTCONF**: the URL names a piece of the configuration, and the HTTP verb says what to do with it. WS is a Linux workstation with `curl` on it.\n\n**The URL** is built like a path through the data:\n\n`https://10.0.0.1/restconf/data/ietf-interfaces:interfaces/interface=GigabitEthernet2`\n\n- `/restconf/data` is where all the configuration lives.\n- `ietf-interfaces:interfaces` is *module*`:`*top container*. `ietf-interfaces` is the standard (vendor-neutral) model; `Cisco-IOS-XE-native:native` is Cisco's model of the whole running-config.\n- `interface=GigabitEthernet2` picks one entry from a list by its key.\n\n**Encodings:** the same data can come back as XML (`application/yang-data+xml`, the default) or JSON. Ask for JSON with `-H 'Accept: application/yang-data+json'`. When you *send* data, say what it is with `-H 'Content-Type: application/yang-data+json'`.\n\n**Verbs:** GET reads; PATCH merges your change into what is there; PUT replaces the whole thing; POST creates something new; DELETE removes it.\n\n**Status codes** tell you what happened: `200 OK` (here is the data), `201 Created`, `204 No Content` (done, nothing to show), `400` (your body is wrong), `401` (bad login), `404` (no such path), `409 Conflict` (it already exists), `415` (you forgot the Content-Type). Add `-i` to curl to see the status line.\n\nTwo curl habits: `-k` because the router's certificate is self-signed, and `-u admin:Cisco123` to log in. RESTCONF needs a **privilege 15** local user and `ip http authentication local`.",
+  "devices": [
+   {
+    "name": "WS",
+    "type": "pc",
+    "os": "linux",
+    "x": 120,
+    "y": 200
+   },
+   {
+    "name": "CSR1",
+    "type": "router",
+    "model": "csr",
+    "x": 400,
+    "y": 200
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 680,
+    "y": 200
+   }
+  ],
+  "links": [
+   [
+    "WS",
+    "eth0",
+    "CSR1",
+    "GigabitEthernet1"
+   ],
+   [
+    "CSR1",
+    "GigabitEthernet2",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "CSR1": [
+    "hostname CSR1",
+    "interface g1",
+    "ip address 10.0.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g2",
+    "ip address 10.12.0.1 255.255.255.0"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 2.2.2.2 255.255.255.255"
+   ],
+   "WS": [
+    "ip addr add 10.0.0.10/24 dev eth0",
+    "ip route add default via 10.0.0.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Turn RESTCONF on",
+    "text": "On CSR1, create a privilege 15 user `admin` (secret `Cisco123`), start the HTTPS server, make it log in against the local user database, and enable RESTCONF.",
+    "hint": "`username admin privilege 15 secret Cisco123`, `ip http secure-server`, `ip http authentication local`, `restconf`. Then `show platform software yang-management process` shows nginx running.",
+    "checks": [
+     {
+      "type": "restconf-ready",
+      "device": "CSR1"
+     }
+    ]
+   },
+   {
+    "title": "GET the interfaces",
+    "text": "From WS, read CSR1's interfaces from the `ietf-interfaces` model as JSON. Notice GigabitEthernet2 says `\"enabled\": false`.",
+    "hint": "`curl -k -u admin:Cisco123 -H 'Accept: application/yang-data+json' https://10.0.0.1/restconf/data/ietf-interfaces:interfaces`",
+    "checks": [
+     {
+      "type": "restconf-call",
+      "from": "WS",
+      "method": "GET",
+      "status": 200,
+      "path": "ietf-interfaces:interfaces"
+     }
+    ]
+   },
+   {
+    "title": "PATCH GigabitEthernet2",
+    "text": "With one PATCH, give GigabitEthernet2 the description `link to R2` and enable it. Then look at `show running-config interface g2` on CSR1: the API wrote real configuration.",
+    "hint": "`curl -k -i -u admin:Cisco123 -X PATCH -H 'Content-Type: application/yang-data+json' -d '{\"ietf-interfaces:interface\": {\"name\": \"GigabitEthernet2\", \"description\": \"link to R2\", \"enabled\": true}}' https://10.0.0.1/restconf/data/ietf-interfaces:interfaces/interface=GigabitEthernet2` should answer `204 No Content`.",
+    "checks": [
+     {
+      "type": "restconf-call",
+      "from": "WS",
+      "method": "PATCH",
+      "status": 204,
+      "path": "interface=GigabitEthernet2"
+     },
+     {
+      "type": "config",
+      "device": "CSR1",
+      "match": "^ description link to R2$"
+     },
+     {
+      "type": "ifup",
+      "device": "CSR1",
+      "intf": "GigabitEthernet2"
+     }
+    ]
+   },
+   {
+    "title": "Prove it on the network",
+    "text": "The link is up because of an API call. Check that CSR1 can now reach R2's loopback-facing address 10.12.0.2.",
+    "hint": "`ping 10.12.0.2` on CSR1. If it fails, GET the interface again: is `enabled` true?",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "CSR1",
+      "to": "10.12.0.2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "CSR1": [
+    "username admin privilege 15 secret Cisco123",
+    "ip http secure-server",
+    "ip http authentication local",
+    "restconf"
+   ],
+   "WS": [
+    "curl -k -u admin:Cisco123 -H 'Accept: application/yang-data+json' https://10.0.0.1/restconf/data/ietf-interfaces:interfaces",
+    "curl -k -i -u admin:Cisco123 -X PATCH -H 'Content-Type: application/yang-data+json' -d '{\"ietf-interfaces:interface\": {\"name\": \"GigabitEthernet2\", \"description\": \"link to R2\", \"enabled\": true}}' https://10.0.0.1/restconf/data/ietf-interfaces:interfaces/interface=GigabitEthernet2"
+   ]
+  }
+ },
+ {
+  "id": "restconf-create-delete",
+  "title": "RESTCONF: create with POST, remove with DELETE",
+  "topic": "Automation (RESTCONF)",
+  "minutes": 35,
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "summary": "Create a loopback and a static route with POST, see 409 Conflict when you repeat it, and remove the loopback with DELETE.",
+  "height": 340,
+  "intro": "RESTCONF is already on: user `admin`, secret `Cisco123`. This lab is about **creating and deleting** configuration.\n\n**POST creates.** You POST to the *parent* and the body names the *child*:\n\n- POST to `.../ietf-interfaces:interfaces` with a body `{\"ietf-interfaces:interface\": {...}}` creates one interface. The `type` is mandatory for a new interface: `iana-if-type:softwareLoopback` for a loopback.\n- POST to `.../Cisco-IOS-XE-native:native/ip/route` with `{\"Cisco-IOS-XE-native:ip-route-interface-forwarding-list\": {...}}` creates a static route in Cisco's native model (prefix, mask and a `fwd-list` of next hops).\n\nA successful POST answers **201 Created** and a `Location:` header with the new resource's URL. POST the same thing again and you get **409 Conflict** (`data-exists`): POST never overwrites. That is the difference from PUT, which creates *or* replaces.\n\n**DELETE removes** the resource the URL names, and answers **204 No Content**. Deleting something that isn't there is **404**.\n\nRemember `-i` to see status codes, `-k` for the self-signed certificate, and the `Content-Type: application/yang-data+json` header whenever you send a body.",
+  "devices": [
+   {
+    "name": "WS",
+    "type": "pc",
+    "os": "linux",
+    "x": 120,
+    "y": 200
+   },
+   {
+    "name": "CSR1",
+    "type": "router",
+    "model": "csr",
+    "x": 400,
+    "y": 200
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 680,
+    "y": 200
+   }
+  ],
+  "links": [
+   [
+    "WS",
+    "eth0",
+    "CSR1",
+    "GigabitEthernet1"
+   ],
+   [
+    "CSR1",
+    "GigabitEthernet2",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "CSR1": [
+    "hostname CSR1",
+    "interface g1",
+    "ip address 10.0.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g2",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "username admin privilege 15 secret Cisco123",
+    "ip http secure-server",
+    "ip http authentication local",
+    "restconf"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 2.2.2.2 255.255.255.255"
+   ],
+   "WS": [
+    "ip addr add 10.0.0.10/24 dev eth0",
+    "ip route add default via 10.0.0.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "POST a loopback",
+    "text": "Create Loopback100 on CSR1 with address 10.100.100.1/32 using the `ietf-interfaces` model. Look for `201 Created`.",
+    "hint": "`curl -k -i -u admin:Cisco123 -X POST -H 'Content-Type: application/yang-data+json' -d '{\"ietf-interfaces:interface\": {\"name\": \"Loopback100\", \"type\": \"iana-if-type:softwareLoopback\", \"enabled\": true, \"ietf-ip:ipv4\": {\"address\": [{\"ip\": \"10.100.100.1\", \"netmask\": \"255.255.255.255\"}]}}}' https://10.0.0.1/restconf/data/ietf-interfaces:interfaces`",
+    "checks": [
+     {
+      "type": "restconf-call",
+      "from": "WS",
+      "method": "POST",
+      "status": 201,
+      "path": "ietf-interfaces:interfaces"
+     }
+    ]
+   },
+   {
+    "title": "POST a static route",
+    "text": "Using the native model, add a static route on CSR1 to R2's loopback 2.2.2.2/32 via 10.12.0.2, then ping 2.2.2.2 from CSR1.",
+    "hint": "POST to `https://10.0.0.1/restconf/data/Cisco-IOS-XE-native:native/ip/route` with `{\"Cisco-IOS-XE-native:ip-route-interface-forwarding-list\": {\"prefix\": \"2.2.2.2\", \"mask\": \"255.255.255.255\", \"fwd-list\": [{\"fwd\": \"10.12.0.2\"}]}}`.",
+    "checks": [
+     {
+      "type": "route",
+      "device": "CSR1",
+      "prefix": "2.2.2.2/32",
+      "code": "S",
+      "via": "10.12.0.2"
+     },
+     {
+      "type": "ping",
+      "from": "CSR1",
+      "to": "2.2.2.2"
+     }
+    ]
+   },
+   {
+    "title": "Meet 409 Conflict",
+    "text": "Run the loopback POST again. The router refuses it with `409 Conflict` and an `ietf-restconf:errors` body whose `error-tag` is `data-exists`.",
+    "hint": "Repeat the first command exactly, with `-i` so you see the status line.",
+    "checks": [
+     {
+      "type": "restconf-call",
+      "from": "WS",
+      "method": "POST",
+      "status": 409
+     }
+    ]
+   },
+   {
+    "title": "DELETE the loopback",
+    "text": "Remove Loopback100 with DELETE on its own URL, and confirm it's gone from `show ip interface brief`.",
+    "hint": "`curl -k -i -u admin:Cisco123 -X DELETE https://10.0.0.1/restconf/data/ietf-interfaces:interfaces/interface=Loopback100` answers `204 No Content`.",
+    "checks": [
+     {
+      "type": "restconf-call",
+      "from": "WS",
+      "method": "DELETE",
+      "status": 204,
+      "path": "interface=Loopback100"
+     },
+     {
+      "type": "noconfig",
+      "device": "CSR1",
+      "match": "^interface Loopback100$"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "WS": [
+    "curl -k -i -u admin:Cisco123 -X POST -H 'Content-Type: application/yang-data+json' -d '{\"ietf-interfaces:interface\": {\"name\": \"Loopback100\", \"type\": \"iana-if-type:softwareLoopback\", \"enabled\": true, \"ietf-ip:ipv4\": {\"address\": [{\"ip\": \"10.100.100.1\", \"netmask\": \"255.255.255.255\"}]}}}' https://10.0.0.1/restconf/data/ietf-interfaces:interfaces",
+    "curl -k -i -u admin:Cisco123 -X POST -H 'Content-Type: application/yang-data+json' -d '{\"Cisco-IOS-XE-native:ip-route-interface-forwarding-list\": {\"prefix\": \"2.2.2.2\", \"mask\": \"255.255.255.255\", \"fwd-list\": [{\"fwd\": \"10.12.0.2\"}]}}' https://10.0.0.1/restconf/data/Cisco-IOS-XE-native:native/ip/route",
+    "curl -k -i -u admin:Cisco123 -X POST -H 'Content-Type: application/yang-data+json' -d '{\"ietf-interfaces:interface\": {\"name\": \"Loopback100\", \"type\": \"iana-if-type:softwareLoopback\", \"enabled\": true, \"ietf-ip:ipv4\": {\"address\": [{\"ip\": \"10.100.100.1\", \"netmask\": \"255.255.255.255\"}]}}}' https://10.0.0.1/restconf/data/ietf-interfaces:interfaces",
+    "curl -k -i -u admin:Cisco123 -X DELETE https://10.0.0.1/restconf/data/ietf-interfaces:interfaces/interface=Loopback100"
+   ]
+  }
+ },
+ {
+  "id": "netconf-yang",
+  "title": "NETCONF: get-config and edit-config",
+  "topic": "Automation (NETCONF)",
+  "minutes": 35,
+  "track": "ccnp",
+  "exam": "ENCOR",
+  "summary": "Enable NETCONF on IOS-XE, read the running config with get-config, change it with edit-config, and delete with nc:operation.",
+  "height": 340,
+  "intro": "**NETCONF** carries the same YANG data as RESTCONF, but as XML **RPCs over SSH on port 830**. Each request is an `<rpc>` and each answer an `<rpc-reply>` with the same `message-id`.\n\nOn IOS-XE it needs `netconf-yang` plus SSH logins checked by AAA: `aaa new-model`, `aaa authentication login default local`, `aaa authorization exec default local`, and a privilege 15 user.\n\nOn WS, `netconf-console` is the client. `-i` opens an interactive session (`netconf>` prompt) where you type the operations:\n\n- `hello` shows the server's capabilities: the NETCONF versions and the YANG modules it supports.\n- `get-config -x /native/hostname` reads the **running** datastore, filtered by an XPath. `get` also includes operational state such as `interfaces-state`.\n- `edit-config <config>...</config>` changes it. The XML says *where* by its shape and *which model* by its `xmlns`: `<native xmlns=\"http://cisco.com/ns/yang/Cisco-IOS-XE-native\">`.\n- An `nc:operation` attribute changes what happens to one element: `merge` (the default), `replace`, `create` (fails with `data-exists` if it's there), `delete` (fails with `data-missing` if it isn't) and `remove`. Declare the prefix once: `xmlns:nc=\"urn:ietf:params:xml:ns:netconf:base:1.0\"`.\n- A successful edit answers `<ok/>`; a failed one an `<rpc-error>` with an `error-tag`. `close-session` ends the session.\n\nWhile you're connected, `show netconf-yang sessions` on CSR1 lists your session.",
+  "devices": [
+   {
+    "name": "WS",
+    "type": "pc",
+    "os": "linux",
+    "x": 120,
+    "y": 200
+   },
+   {
+    "name": "CSR1",
+    "type": "router",
+    "model": "csr",
+    "x": 400,
+    "y": 200
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 680,
+    "y": 200
+   }
+  ],
+  "links": [
+   [
+    "WS",
+    "eth0",
+    "CSR1",
+    "GigabitEthernet1"
+   ],
+   [
+    "CSR1",
+    "GigabitEthernet2",
+    "R2",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "CSR1": [
+    "hostname CSR1",
+    "interface g1",
+    "ip address 10.0.0.1 255.255.255.0",
+    "no shutdown",
+    "interface g2",
+    "ip address 10.12.0.1 255.255.255.0",
+    "no shutdown",
+    "interface loopback99",
+    "description old test loopback",
+    "ip address 9.9.9.9 255.255.255.255"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.12.0.2 255.255.255.0",
+    "no shutdown",
+    "interface loopback0",
+    "ip address 2.2.2.2 255.255.255.255"
+   ],
+   "WS": [
+    "ip addr add 10.0.0.10/24 dev eth0",
+    "ip route add default via 10.0.0.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Turn NETCONF on",
+    "text": "On CSR1, enable AAA with local login and exec authorization, create the privilege 15 user `admin` (secret `Cisco123`), and enable NETCONF-YANG.",
+    "hint": "`aaa new-model`, `aaa authentication login default local`, `aaa authorization exec default local`, `username admin privilege 15 secret Cisco123`, `netconf-yang`.",
+    "checks": [
+     {
+      "type": "netconf-ready",
+      "device": "CSR1"
+     }
+    ]
+   },
+   {
+    "title": "get-config",
+    "text": "From WS, open a NETCONF session and read CSR1's hostname from the running datastore.",
+    "hint": "`netconf-console --host 10.0.0.1 -u admin -p Cisco123 -i`, then `get-config -x /native/hostname`.",
+    "checks": [
+     {
+      "type": "netconf-rpc",
+      "from": "WS",
+      "op": "get-config"
+     }
+    ]
+   },
+   {
+    "title": "edit-config: merge",
+    "text": "In one edit-config, rename the router `CSR-EDGE` and give GigabitEthernet2 the description `link to R2`.",
+    "hint": "`edit-config <config><native xmlns=\"http://cisco.com/ns/yang/Cisco-IOS-XE-native\"><hostname>CSR-EDGE</hostname><interface><GigabitEthernet><name>2</name><description>link to R2</description></GigabitEthernet></interface></native></config>`",
+    "checks": [
+     {
+      "type": "hostname",
+      "device": "CSR1",
+      "value": "CSR-EDGE"
+     },
+     {
+      "type": "config",
+      "device": "CSR1",
+      "match": "^ description link to R2$"
+     },
+     {
+      "type": "netconf-rpc",
+      "from": "WS",
+      "op": "edit-config"
+     }
+    ]
+   },
+   {
+    "title": "edit-config: delete",
+    "text": "Loopback99 is left over from testing. Delete it with an `nc:operation=\"delete\"` edit, then close the session.",
+    "hint": "`edit-config <config xmlns:nc=\"urn:ietf:params:xml:ns:netconf:base:1.0\"><native xmlns=\"http://cisco.com/ns/yang/Cisco-IOS-XE-native\"><interface><Loopback nc:operation=\"delete\"><name>99</name></Loopback></interface></native></config>`",
+    "checks": [
+     {
+      "type": "noconfig",
+      "device": "CSR1",
+      "match": "^interface Loopback99$"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "CSR1": [
+    "aaa new-model",
+    "aaa authentication login default local",
+    "aaa authorization exec default local",
+    "username admin privilege 15 secret Cisco123",
+    "netconf-yang"
+   ],
+   "WS": [
+    "netconf-console --host 10.0.0.1 -u admin -p Cisco123 -i",
+    "get-config -x /native/hostname",
+    "edit-config <config><native xmlns=\"http://cisco.com/ns/yang/Cisco-IOS-XE-native\"><hostname>CSR-EDGE</hostname><interface><GigabitEthernet><name>2</name><description>link to R2</description></GigabitEthernet></interface></native></config>",
+    "edit-config <config xmlns:nc=\"urn:ietf:params:xml:ns:netconf:base:1.0\"><native xmlns=\"http://cisco.com/ns/yang/Cisco-IOS-XE-native\"><interface><Loopback nc:operation=\"delete\"><name>99</name></Loopback></interface></native></config>",
+    "close-session"
+   ]
+  }
+ },
+ {
   "id": "sandbox",
   "title": "Sandbox",
   "topic": "Free play",

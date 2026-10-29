@@ -88,6 +88,8 @@ const PORTS = {
   router: ["GigabitEthernet0/0", "GigabitEthernet0/1", "GigabitEthernet0/2", "GigabitEthernet0/3"],
   switch: [...Array(24)].map((_, i) => "FastEthernet0/" + (i + 1)).concat(["GigabitEthernet0/1", "GigabitEthernet0/2"]),
   pc: ["eth0"],
+  // An IOS-XE router (CSR1000v / Catalyst 8000V): same router model, IOS-XE interface names.
+  csr: ["GigabitEthernet1", "GigabitEthernet2", "GigabitEthernet3", "GigabitEthernet4"],
 };
 const IF_TYPES = { router: ["GigabitEthernet", "Loopback", "Tunnel"], switch: ["FastEthernet", "GigabitEthernet", "Port-channel", "Vlan"] };
 const IF_HELP = {
@@ -134,7 +136,7 @@ export function parseIfName(devType, toks, k) {
   const ok = t === "Loopback" || t === "Tunnel" ? /^\d{1,9}$/.test(num)
     : t === "Vlan" ? /^\d{1,4}$/.test(num) && +num >= 1 && +num <= 4094
       : t === "Port-channel" ? /^\d{1,2}$/.test(num) && +num >= 1 && +num <= 48
-        : /^\d+\/\d+(\.\d{1,9})?$/.test(num);
+        : /^\d+(\/\d+)?(\.\d{1,9})?$/.test(num); // 0/1 on IOS, 1 on IOS-XE
   return ok ? { name: t + num, used } : null;
 }
 
@@ -175,7 +177,7 @@ const dotted = (h) => h.slice(0, 4) + "." + h.slice(4, 8) + "." + h.slice(8, 12)
 function newIntf(type, name) {
   const base = { desc: "", shut: false, ip: null, mask: null, cdp: true, bw: null, speed: null, duplex: null, svc: newSvcIf() };
   if (type === "router") {
-    return { ...base, shut: PORTS.router.includes(name), secondary: [], helpers: [], aclIn: null, aclOut: null, ospf: {}, encap: null,
+    return { ...base, shut: PORTS.router.includes(name) || PORTS.csr.includes(name), secondary: [], helpers: [], aclIn: null, aclOut: null, ospf: {}, encap: null,
       delay: null, nat: null, standby: {}, hsrpVer: 1, ipv6: { addrs: [], ll: null, enable: false, auto: false }, ospf6: {} };
   }
   if (name.startsWith("Vlan")) return { ...base, shut: name === "Vlan1" };
@@ -185,7 +187,7 @@ function newIntf(type, name) {
 
 const newLine = (vty) => ({ password: null, login: vty ? "line" : null, transport: "all", timeout: null, sync: false, authList: null });
 
-function defaultCfg(type, name) {
+function defaultCfg(type, name, ports = PORTS[type]) {
   if (type === "pc") return { hostname: name, ip: null, mask: null, gw: null, dns: null, dhcp: false, dhcpServer: null, ip6: null };
   const cfg = {
     hostname: type === "router" ? "Router" : "Switch",
@@ -194,7 +196,7 @@ function defaultCfg(type, name) {
     lines: { con: newLine(false), vty0: newLine(true) },
     tz: null, svc: newSvc(),
   };
-  for (const p of PORTS[type]) cfg.intfs[p] = newIntf(type, p);
+  for (const p of ports) cfg.intfs[p] = newIntf(type, p);
   if (type === "router") {
     Object.assign(cfg, { routes: [], ospf: null, acls: {}, dhcp: { excluded: [], pools: {} },
       nat: { statics: [], dyn: [], pools: {} }, eigrp: null, tracks: {}, ipv6Routing: false, routes6: [], ospf6: null });
@@ -208,8 +210,8 @@ function defaultCfg(type, name) {
 }
 
 // Fill in settings added since a state was saved, so older saves load and compare cleanly.
-function normCfg(type, name, cfg) {
-  const out = Object.assign(defaultCfg(type, name), cfg);
+function normCfg(type, name, cfg, ports) {
+  const out = Object.assign(defaultCfg(type, name, ports), cfg);
   if (type === "pc") return out;
   if (!cfg.svc) { delete out.svc; svcMigrate(out); }
   for (const l of Object.values(out.lines)) if (l.authList === undefined) l.authList = null;
@@ -229,9 +231,11 @@ export class Network {
     spec.devices.forEach((d, i) => {
       if (!PORTS[d.type]) throw new Error("unknown device type " + d.type);
       this.devs[d.name] = {
-        name: d.name, type: d.type, idx: i, ports: PORTS[d.type],
-        cfg: defaultCfg(d.type, d.name), startup: null, rt: newRuntime(),
+        name: d.name, type: d.type, idx: i, ports: d.model === "csr" ? PORTS.csr : PORTS[d.type],
+        // model "csr": an IOS-XE router; os "linux": a PC that is a Linux workstation rather than VPCS.
+        model: d.model || null, os: d.os || null, cfg: null, startup: null, rt: newRuntime(),
       };
+      this.devs[d.name].cfg = defaultCfg(d.type, d.name, this.devs[d.name].ports);
     });
     this.peers = {};
     for (const [a, ap, b, bp] of spec.links) {
@@ -246,9 +250,9 @@ export class Network {
       for (const [name, s] of Object.entries(saved.devices)) {
         const d = this.devs[name];
         if (!d) continue;
-        d.cfg = normCfg(d.type, name, s.cfg);
+        d.cfg = normCfg(d.type, name, s.cfg, d.ports);
         for (const p of d.ports) if (d.type !== "pc" && !d.cfg.intfs[p]) d.cfg.intfs[p] = newIntf(d.type, p);
-        d.startup = s.startup ? normCfg(d.type, name, s.startup) : null;
+        d.startup = s.startup ? normCfg(d.type, name, s.startup, d.ports) : null;
         d.rt = Object.assign(newRuntime(), s.rt);
       }
     }
@@ -1844,6 +1848,7 @@ export class Network {
         if (BGP_CHECKS.has(c.type)) return Boolean(this.bgpCheck(d, c));
         if (VPN_CHECKS.has(c.type)) return Boolean(this.vpnCheck(c, d, intf));
         if (ROUTING_CHECKS.has(c.type)) return Boolean(this.checkRouting(c));
+        if (AUTO_CHECKS.has(c.type)) return Boolean(this.autoCheck(c, d, intf));
         throw new Error("unknown check type " + c.type);
       }
     }
@@ -3880,6 +3885,7 @@ export function runningConfig(net, dn, onlyIf) {
   L.push("!");
   L.push(...svcConfig(d, "tail"));
   L.push(...tailLines(d));
+  L.push(...autoConfig(d));
   L.push("end");
   return wrap(L);
 }
@@ -4580,6 +4586,7 @@ function showSsh(net, dn) {
 
 function showVersion(net, dn) {
   const d = net.devs[dn];
+  if (d.model === "csr") return csrVersion(net, d);
   const model = d.type === "router" ? "IOSv (router)" : "WS-C2960-24TT-L (switch)";
   return [`Cisco IOS Software, NetLab simulated ${model}, Version 15.9`, "Technical Support: this is a study simulator, not real Cisco software.", "",
     `${d.cfg.hostname} uptime is 1 hour, 12 minutes`, `System image file is "flash:netlab-${d.type}"`, "",
@@ -5770,7 +5777,7 @@ function walk(root, toks, ctx) {
   for (let k = 0; k < toks.length;) {
     const w = toks[k].t.toLowerCase();
     let next = null, used = 1, val;
-    const kws = node.kids.filter((c) => c.kw && c.kw.startsWith(w));
+    const kws = node.kids.filter((c) => c.kw && c.kw.startsWith(w) && kidOk(c, ctx && ctx.d));
     const exact = kws.find((c) => c.kw === w);
     if (exact) next = exact;
     else if (kws.length === 1) next = kws[0];
@@ -11550,7 +11557,7 @@ export class Session {
   // What the console shows when it is first opened.
   greeting() {
     const d = this.d;
-    if (d.type === "pc") return "Welcome to the NetLab virtual PC (VPCS commands). Type '?' for help.";
+    if (d.type === "pc") return d.os === "linux" ? LINUX_GREETING : "Welcome to the NetLab virtual PC (VPCS commands). Type '?' for help.";
     if (d.cfg.lines.con.login) {
       this.loggedOut = true;
       return "Press RETURN to get started.";
@@ -11562,7 +11569,7 @@ export class Session {
     if (this.pending) return this.pending.prompt;
     if (this.loggedOut) return "";
     const d = this.d;
-    if (d.type === "pc") return d.cfg.hostname + "> ";
+    if (d.type === "pc") return d.os === "linux" ? this.linuxPrompt() : d.cfg.hostname + "> ";
     return d.cfg.hostname + MODES[this.f.mode];
   }
 
@@ -11584,7 +11591,7 @@ export class Session {
       this.pending = null;
       p.fn(line);
     } else if (this.loggedOut) this.login();
-    else if (this.d.type === "pc") this.vpcs(line);
+    else if (this.d.type === "pc") (this.d.os === "linux" ? this.linux(line) : this.vpcs(line));
     else if (/\?$/.test(line) && !/^\s*!/.test(line)) {
       // IOS never runs a line ending in "?": it lists the options and gives the text back to edit.
       const text = line.slice(0, -1);
@@ -11727,7 +11734,7 @@ export class Session {
     const node = r.node;
     if (!ends) {
       const part = toks[toks.length - 1].t.toLowerCase();
-      const words = node.kids.filter((k) => k.kw && k.kw.startsWith(part)).map((k) => k.label);
+      const words = node.kids.filter((k) => k.kw && k.kw.startsWith(part) && kidOk(k, d)).map((k) => k.label);
       if (node.kids.some((k) => k.param && k.param.intf)) {
         for (const t of IF_TYPES[d.type]) if (t.toLowerCase().startsWith(part)) words.push(t);
       }
@@ -11736,6 +11743,7 @@ export class Session {
     if (node.param && node.param.rest) return "  <cr>";
     const params = [], kws = [];
     for (const k of node.kids) {
+      if (!kidOk(k, d)) continue;
       if (k.kw) kws.push([k.label, k.help]);
       else if (k.param.intf) for (const t of IF_TYPES[d.type]) params.push([t, IF_HELP[t]]);
       else params.push([k.param.fmt, k.param.help]);
@@ -11763,7 +11771,7 @@ export class Session {
     const r = walk(tree, toks.slice(0, -1), this.ctx(line, toks));
     if (r.err) return line;
     const last = toks[toks.length - 1], part = last.t.toLowerCase();
-    let cands = r.node.kids.filter((k) => k.kw && k.kw.startsWith(part)).map((k) => k.label + " ");
+    let cands = r.node.kids.filter((k) => k.kw && k.kw.startsWith(part) && kidOk(k, this.d)).map((k) => k.label + " ");
     const im = /^([A-Za-z-]+)([\d/.]*)$/.exec(last.t);
     if (!cands.length && im && r.node.kids.some((k) => k.param && k.param.intf)) {
       cands = IF_TYPES[this.d.type].filter((t) => t.toLowerCase().startsWith(im[1].toLowerCase())).map((t) => t + im[2]);
@@ -11854,7 +11862,7 @@ export class Session {
     const d = this.d;
     const go = () => this.ask("Proceed with reload? [confirm]", {}, (ans) => {
       if (ans.trim() && !/^y/i.test(ans.trim())) return;
-      d.cfg = d.startup ? clone(d.startup) : defaultCfg(d.type, d.name);
+      d.cfg = d.startup ? clone(d.startup) : defaultCfg(d.type, d.name, d.ports);
       d.rt = newRuntime();
       this.net.touch();
       if (this.frames.length > 1) {
@@ -11867,7 +11875,7 @@ export class Session {
       if (d.cfg.lines.con.login) { this.loggedOut = true; this.print("Press RETURN to get started.", ""); }
       else if (d.cfg.banner) this.print(d.cfg.banner);
     });
-    const unsaved = !sameData(d.cfg, d.startup ?? defaultCfg(d.type, d.name));
+    const unsaved = !sameData(d.cfg, d.startup ?? defaultCfg(d.type, d.name, d.ports));
     if (!unsaved) { go(); return; }
     this.ask("System configuration has been modified. Save? [yes/no]: ", {}, (ans) => {
       const a = ans.trim().toLowerCase();
@@ -14025,7 +14033,7 @@ export function applyConfig(net, devName, lines) {
   for (const line of lines) {
     const out = s.input(line);
     const notes = /^%\s?(Access VLAN does not exist|Login disabled|OSPF: Reference|OSPFv3: Reference|The key modulus|Generating|Warning: portfast|Warning: this command enables portfast|Portfast has been configured|Only classful|OSPFv3-4-NORTRID|This simulator doesn't summarise|Interface \S+ IPv[46] disabled and address|NOTE: This new crypto map|AAA: Warning|Voice VLAN does not exist|Warning: VLAN \d+ is not configured as a remote-span|Warning: UplinkFast)/;
-    if (out.split("\n").some((l) => (l.startsWith("%") && !notes.test(l)) || /^(Bad mask|Bad command|Invalid address|Command rejected)/.test(l))) {
+    if (out.split("\n").some((l) => (l.startsWith("%") && !notes.test(l)) || /^(Bad mask|Bad command|Invalid address|Command rejected|Error: |curl: \(\d+\)|\S+: command not found)/.test(l))) {
       throw new Error(`${devName}: "${line}" -> ${out}`);
     }
   }
@@ -14714,7 +14722,7 @@ function kwPath(tree, toks, ctx) {
   const out = [];
   for (let k = 0; k < toks.length;) {
     const w = toks[k].t.toLowerCase();
-    const kws = node.kids.filter((c) => c.kw && c.kw.startsWith(w));
+    const kws = node.kids.filter((c) => c.kw && c.kw.startsWith(w) && kidOk(c, ctx && ctx.d));
     let next = kws.find((c) => c.kw === w) || (kws.length === 1 ? kws[0] : null), used = 1;
     if (!next) {
       for (const c of node.kids) {
@@ -15131,7 +15139,8 @@ def(R_S, "config", "ip http server", (c) => { svcOf(c.d).http.server = true; });
 def(R_S, "config", "no ip http server", (c) => { svcOf(c.d).http.server = false; });
 def(R_S, "config", "ip http secure-server", (c) => { svcOf(c.d).http.secure = true; });
 def(R_S, "config", "no ip http secure-server", (c) => { svcOf(c.d).http.secure = false; });
-def(R_S, "config", "ip http authentication local", () => {});
+def(R_S, "config", "ip http authentication local", (c) => { svcOf(c.d).http.authLocal = true; });
+def(R_S, "config", "no ip http authentication local", (c) => { svcOf(c.d).http.authLocal = false; });
 def(R_S, ["user", "priv"], "ping <word|Ping destination address or hostname>", (c, [name]) => {
   const ip = svcOf(c.d).hosts[name];
   if (ip === undefined) {
@@ -16088,6 +16097,7 @@ function svcConfig(d, where) {
     }
     case "late": {
       L.push(s.http.server ? "ip http server" : "no ip http server", s.http.secure ? "ip http secure-server" : "no ip http secure-server");
+      if (s.http.authLocal) L.push("ip http authentication local");
       const f = s.flow;
       if (f.exportVer) L.push("ip flow-export version " + f.exportVer);
       if (f.exportSrc) L.push("ip flow-export source " + f.exportSrc);
@@ -16296,3 +16306,1147 @@ const L3SW_PATHS = {
   }
   for (const p of L3SW_PATHS.priv) graft("priv", p, same);
 }
+
+// ======== Automation (NETCONF/RESTCONF) ========
+//
+// An IOS-XE router (device model "csr") serves its configuration as YANG data: RESTCONF over HTTPS
+// (`restconf` + `ip http secure-server`) and NETCONF over SSH port 830 (`netconf-yang`). The data is
+// never stored twice: a read builds the YANG tree from the live config, and a write diffs the new tree
+// against it and runs the matching CLI on the router, so `show run` and the network change exactly as
+// if the commands had been typed. A PC with os "linux" is a workstation with `ip`, `ping`, `curl` and
+// `netconf-console` to drive it.
+
+// Commands only an IOS-XE image has: hidden from ?, Tab and parsing on other routers.
+function kidOk(k, d) { return !k.only || (!!d && d.model === k.only); }
+
+function defCsr(modes, spec, fn) {
+  const before = new Set();
+  const collect = (n) => { before.add(n); n.kids.forEach(collect); };
+  for (const m of [].concat(modes)) if (TREES.router[m]) collect(TREES.router[m]);
+  def("R", modes, spec, (c, a) => (c.d.model === "csr" ? fn(c, a) : c.invalid(0)));
+  for (const m of [].concat(modes)) {
+    for (const toks of expand(spec)) {
+      let node = TREES.router[m];
+      for (const tok of toks) {
+        node = node.kids.find((k) => (tok.startsWith("<") ? k.key === tok : k.kw === tok.replace(/^~/, "").toLowerCase()));
+        if (!before.has(node)) { node.only = "csr"; break; }
+      }
+    }
+  }
+}
+
+const autoOf = (cfg) => cfg.auto || { restconf: false, netconf: false };
+const setAuto = (c, k, v) => { c.cfg.auto = { ...autoOf(c.cfg), [k]: v }; };
+const restconfOn = (d) => d.model === "csr" && autoOf(d.cfg).restconf;
+const netconfOn = (d) => d.model === "csr" && autoOf(d.cfg).netconf;
+const priv15 = (d) => Object.values(d.cfg.users).some((u) => +(u.priv ?? 1) === 15);
+const apiUser = (d, user, pass) => {
+  const u = d.cfg.users[user];
+  return u && (u.secret ?? u.password) === pass ? u : null;
+};
+
+function autoConfig(d) {
+  if (d.model !== "csr") return [];
+  const a = autoOf(d.cfg), L = [];
+  if (a.netconf) L.push("netconf-yang");
+  if (a.restconf) L.push("restconf");
+  return L;
+}
+
+function csrVersion(net, d) {
+  return ["Cisco IOS XE Software, Version 17.09.04a",
+    "Cisco IOS Software [Cupertino], NetLab simulated Virtual XE Software (X86_64_LINUX_IOSD-UNIVERSALK9-M), Version 17.9.4a",
+    "Technical Support: this is a study simulator, not real Cisco software.", "",
+    `${d.cfg.hostname} uptime is 1 hour, 12 minutes`, 'System image file is "bootflash:packages.conf"', "",
+    "cisco C8000V (VXE) processor (revision VXE) with 1987654K/3075K bytes of memory.",
+    `${d.ports.length} Gigabit Ethernet interfaces`, "Configuration register is 0x2102"].join("\n");
+}
+
+Object.assign(HELP_PATH, {
+  "show platform": "Show platform information", "platform software": "Show software information",
+  "software yang-management": "YANG management commands", "yang-management process": "YANG management processes",
+  "show netconf-yang": "netconf-yang information", "netconf-yang sessions": "NETCONF-YANG session information",
+  "netconf-yang status": "NETCONF-YANG status",
+});
+HELP_MODE.config = { ...(HELP_MODE.config || {}), restconf: "Enable RESTCONF", "netconf-yang": "Enable NETCONF-YANG" };
+
+defCsr("config", "restconf", (c) => setAuto(c, "restconf", true));
+defCsr("config", "no restconf", (c) => setAuto(c, "restconf", false));
+defCsr("config", "netconf-yang", (c) => setAuto(c, "netconf", true));
+defCsr("config", "no netconf-yang", (c) => setAuto(c, "netconf", false));
+
+function yangProcesses(net, d) {
+  const a = autoOf(d.cfg), on = a.netconf || a.restconf, http = svcOf(d).http;
+  const st = (x) => (x ? "Running" : "Not Running");
+  return [["confd", on], ["nesd", on], ["syncfd", on], ["ncsshd", a.netconf], ["dmiauthd", on],
+    ["nginx", a.restconf && (http.secure || http.server)], ["ndbmand", on], ["pubd", on], ["gnmib", false]]
+    .map(([n, x]) => `${n.padEnd(17)}: ${st(x)}`).join("\n");
+}
+function ncSessionsOf(net, dn) { return ((net.auto || {}).nc || {})[dn] || {}; }
+for (const m of ["user", "priv"]) {
+  defCsr(m, "show platform software yang-management process", (c) => c.print(yangProcesses(c.net, c.d)));
+  defCsr(m, "show netconf-yang sessions", (c) => {
+    const ss = Object.entries(ncSessionsOf(c.net, c.d.name));
+    c.print("R: Global-lock on running datastore", "C: Global-lock on candidate datastore", "S: Global-lock on startup datastore", "",
+      `Number of sessions : ${ss.length}`);
+    if (!ss.length) return;
+    c.print("", "session-id  transport    username             source-host           global-lock", "-".repeat(80));
+    for (const [id, x] of ss) c.print(`${id.padEnd(12)}netconf-ssh  ${x.user.padEnd(21)}${x.src.padEnd(22)}${x.lock ? "R" : "None"}`);
+  });
+  defCsr(m, "show netconf-yang status", (c) => {
+    const on = autoOf(c.cfg).netconf;
+    c.print(`netconf-yang: ${on ? "enabled" : "disabled"}`, "netconf-yang candidate-datastore: disabled",
+      "netconf-yang side-effect-sync: enabled", "netconf-yang ssh port: 830");
+  });
+}
+
+// ---- YANG modules -------------------------------------------------------------------------------
+// Schema nodes: "leaf", "empty" (a presence leaf, [null] in JSON), {c: children}, {list: [keys], c}.
+const YANG_NS = {
+  "Cisco-IOS-XE-native": "http://cisco.com/ns/yang/Cisco-IOS-XE-native",
+  "Cisco-IOS-XE-ospf": "http://cisco.com/ns/yang/Cisco-IOS-XE-ospf",
+  "ietf-interfaces": "urn:ietf:params:xml:ns:yang:ietf-interfaces",
+  "ietf-ip": "urn:ietf:params:xml:ns:yang:ietf-ip",
+  "iana-if-type": "urn:ietf:params:xml:ns:yang:iana-if-type",
+  "ietf-restconf": "urn:ietf:params:xml:ns:yang:ietf-restconf",
+};
+const NATIVE_IF = { c: { name: "leaf", description: "leaf", shutdown: "empty",
+  ip: { c: { address: { c: { primary: { c: { address: "leaf", mask: "leaf" } } } } } } } };
+const YANG = {
+  "Cisco-IOS-XE-native:native": { c: {
+    version: "leaf", hostname: "leaf",
+    interface: { c: { GigabitEthernet: { list: ["name"], ...NATIVE_IF }, Loopback: { list: ["name"], ...NATIVE_IF } } },
+    ip: { c: { route: { c: { "ip-route-interface-forwarding-list": { list: ["prefix", "mask"], c: {
+      prefix: "leaf", mask: "leaf", "fwd-list": { list: ["fwd"], c: { fwd: "leaf" } } } } } } } },
+    router: { c: { "Cisco-IOS-XE-ospf:router-ospf": { c: { ospf: { c: { "process-id": { list: ["id"], c: {
+      id: "leaf", "router-id": "leaf", network: { list: ["ip", "wildcard"], c: { ip: "leaf", wildcard: "leaf", area: "leaf" } } } } } } } } } },
+  } },
+  "ietf-interfaces:interfaces": { c: { interface: { list: ["name"], c: {
+    name: "leaf", description: "leaf", type: "leaf", enabled: "leaf",
+    "ietf-ip:ipv4": { c: { address: { list: ["ip"], c: { ip: "leaf", netmask: "leaf" } } } }, "ietf-ip:ipv6": { c: {} } } } } },
+  "ietf-interfaces:interfaces-state": { ro: true, c: { interface: { list: ["name"], c: {
+    name: "leaf", type: "leaf", "admin-status": "leaf", "oper-status": "leaf", "phys-address": "leaf", speed: "leaf" } } } },
+};
+
+const yIfs = (d) => Object.keys(d.cfg.intfs).filter((n) => /^(GigabitEthernet\d+|Loopback\d+)$/.test(n)).sort(ifSort);
+const ifTypeYang = (n) => (n.startsWith("Loopback") ? "iana-if-type:softwareLoopback" : "iana-if-type:ethernetCsmacd");
+
+// The live config as a YANG tree for one top-level node.
+function yangRead(net, d, top) {
+  const c = d.cfg;
+  if (top === "Cisco-IOS-XE-native:native") {
+    const out = { version: "17.9", hostname: c.hostname, interface: {} };
+    for (const n of yIfs(d)) {
+      const i = c.intfs[n], t = ifType(n), e = { name: t === "Loopback" ? +n.slice(8) : n.slice(t.length) };
+      if (i.desc) e.description = i.desc;
+      if (i.ip !== null) e.ip = { address: { primary: { address: n2ip(i.ip), mask: n2ip(i.mask) } } };
+      if (i.shut) e.shutdown = [null];
+      (out.interface[t] = out.interface[t] || []).push(e);
+    }
+    const routes = (c.routes || []).filter((r) => r.nh !== null && !r.ifn && r.ad === 1 && !r.track && !r.vrf);
+    if (routes.length) {
+      const list = [];
+      for (const r of routes) {
+        const k = [n2ip(r.net), n2ip(lenMask(r.len))];
+        let e = list.find((x) => x.prefix === k[0] && x.mask === k[1]);
+        if (!e) list.push(e = { prefix: k[0], mask: k[1], "fwd-list": [] });
+        e["fwd-list"].push({ fwd: n2ip(r.nh) });
+      }
+      out.ip = { route: { "ip-route-interface-forwarding-list": list } };
+    }
+    const procs = ospfProcs(c).filter((o) => !(c.ospfVrf && c.ospfVrf[o.pid]));
+    if (procs.length) {
+      out.router = { "Cisco-IOS-XE-ospf:router-ospf": { ospf: { "process-id": procs.map((o) => {
+        const e = { id: o.pid };
+        if (o.rid !== null && o.rid !== undefined) e["router-id"] = n2ip(o.rid);
+        if (o.networks.length) e.network = o.networks.map((x) => ({ ip: n2ip(x.addr), wildcard: n2ip(x.wild), area: x.area }));
+        return e;
+      }) } } };
+    }
+    return out;
+  }
+  if (top === "ietf-interfaces:interfaces") {
+    return { interface: yIfs(d).map((n) => {
+      const i = c.intfs[n], e = { name: n };
+      if (i.desc) e.description = i.desc;
+      e.type = ifTypeYang(n);
+      e.enabled = !i.shut;
+      e["ietf-ip:ipv4"] = i.ip === null ? {} : { address: [{ ip: n2ip(i.ip), netmask: n2ip(i.mask) }] };
+      e["ietf-ip:ipv6"] = {};
+      return e;
+    }) };
+  }
+  return { interface: yIfs(d).map((n) => ({ name: n, type: ifTypeYang(n), "admin-status": c.intfs[n].shut ? "down" : "up",
+    "oper-status": net.ifUp(d.name, n) ? "up" : "down", "phys-address": colonMac(net.mac(d.name, n)), speed: 1000000000 })) };
+}
+
+// A YANG error, as RESTCONF and NETCONF both report it.
+class YangError extends Error {
+  constructor(status, tag, msg, type = "application") { super(msg); Object.assign(this, { status, tag, type }); }
+}
+const yErr = (status, tag, msg, type) => { throw new YangError(status, tag, msg, type); };
+
+// Check a value against its schema and normalise it (a single list entry becomes an array).
+function yangCheck(sch, v, where) {
+  if (sch === "empty") {
+    if (!(Array.isArray(v) && v.length === 1 && v[0] === null) && v !== "" && v !== null) yErr(400, "invalid-value", `invalid value for: ${where}`, "protocol");
+    return [null];
+  }
+  if (sch === "leaf") {
+    if (v === null || typeof v === "object") yErr(400, "invalid-value", `invalid value for: ${where}`, "protocol");
+    return v;
+  }
+  if (sch.list) return (Array.isArray(v) ? v : [v]).map((e) => yangCheck({ c: sch.c }, e, where));
+  if (v === null || typeof v !== "object" || Array.isArray(v)) yErr(400, "invalid-value", `invalid value for: ${where}`, "protocol");
+  const out = {};
+  for (const [k, x] of Object.entries(v)) {
+    const key = childKey(sch, k);
+    if (!key) yErr(400, "unknown-element", `unknown element: ${k} in ${where}`, "protocol");
+    out[key] = yangCheck(sch.c[key], x, where + "/" + localOf(key));
+  }
+  return out;
+}
+
+// A child's schema key from its name with or without a module prefix ("router-ospf" finds
+// "Cisco-IOS-XE-ospf:router-ospf").
+function childKey(sch, name) {
+  if (!sch || typeof sch !== "object" || !sch.c) return null;
+  if (sch.c[name] !== undefined) return name;
+  const local = name.includes(":") ? name.split(":")[1] : name;
+  return Object.keys(sch.c).find((k) => k === local || k.split(":")[1] === local) || null;
+}
+
+// The module that qualifies a node's name: the closest prefixed key on its path.
+const modOf = (top, keys) => [top, ...keys].reduce((m, k) => (k.includes(":") ? k.split(":")[0] : m), "");
+const localOf = (k) => (k.includes(":") ? k.split(":")[1] : k);
+const sameKey = (e, sch, keys) => sch.list.every((k, i) => String(e[k]) === String(keys[i]));
+
+// Walk a tree along steps [{key, keys?}]; with `create`, missing containers and list entries are made.
+// Returns {val, sch, holder, field, index} for the target, or null when it isn't there.
+function yangLocate(root, rootSch, steps, create) {
+  let val = root, sch = rootSch, holder = null, field = null, index = -1;
+  for (const st of steps) {
+    if (val === undefined || val === null || typeof val !== "object") {
+      if (!create) return null;
+      val = holder[field] = {};
+    }
+    const csch = sch.c[st.key];
+    if (csch.list && st.keys) {
+      if (!val[st.key]) { if (!create) return null; val[st.key] = []; }
+      const arr = val[st.key];
+      index = arr.findIndex((e) => sameKey(e, csch, st.keys));
+      if (index === -1) {
+        if (!create) return null;
+        const e = {};
+        csch.list.forEach((k, i) => { e[k] = st.keys[i]; });
+        arr.push(e);
+        index = arr.length - 1;
+      }
+      holder = arr; field = index; val = arr[index]; sch = { c: csch.c };
+    } else {
+      holder = val; field = st.key; index = -1; val = val[st.key]; sch = csch;
+    }
+  }
+  // A container that holds no data still exists in the schema; creating writes it out.
+  if (create && val === undefined && typeof sch === "object" && !sch.list) val = holder[field] = {};
+  return { val, sch, holder, field, index };
+}
+
+// Deep merge (PATCH and NETCONF merge): containers merge, list entries merge by key.
+function yangMerge(sch, a, b) {
+  if (typeof sch !== "object" || b === undefined) return b === undefined ? a : b;
+  if (sch.list) {
+    const out = (a || []).map((e) => ({ ...e }));
+    for (const e of b) {
+      const i = out.findIndex((x) => sameKey(x, sch, sch.list.map((k) => e[k])));
+      if (i === -1) out.push(e); else out[i] = yangMerge({ c: sch.c }, out[i], e);
+    }
+    return out;
+  }
+  const out = { ...(a || {}) };
+  for (const [k, v] of Object.entries(b)) out[k] = yangMerge(sch.c[k], out[k], v);
+  return out;
+}
+
+// Turn the change between two trees into CLI for the router.
+function yangCommit(top, oldT, newT) {
+  const L = [];
+  const refused = () => yErr(400, "invalid-value", "inconsistent value: Device refused one or more commands");
+  const ifsOf = (t) => {
+    const out = {};
+    if (top === "Cisco-IOS-XE-native:native") {
+      for (const [type, list] of Object.entries(t.interface || {})) {
+        for (const e of list) {
+          const p = ((e.ip || {}).address || {}).primary || null;
+          out[type + e.name] = { desc: e.description || "", ip: p ? [p.address, p.mask] : null, shut: !!e.shutdown };
+        }
+      }
+    } else {
+      for (const e of t.interface || []) {
+        const a = ((e["ietf-ip:ipv4"] || {}).address || [])[0];
+        out[e.name] = { desc: e.description || "", ip: a ? [a.ip, a.netmask] : null, shut: String(e.enabled) === "false", type: e.type };
+      }
+    }
+    return out;
+  };
+  const before = ifsOf(oldT), after = ifsOf(newT);
+  for (const n of Object.keys(before)) {
+    if (after[n]) continue;
+    if (!n.startsWith("Loopback")) refused();
+    L.push("no interface " + n);
+  }
+  for (const [n, x] of Object.entries(after)) {
+    const o = before[n];
+    if (!o) {
+      if (!/^Loopback\d+$/.test(n)) refused();
+      if (top === "ietf-interfaces:interfaces" && !x.type) {
+        yErr(400, "missing-element", `missing element: type in /ietf-interfaces:interfaces/interface=${n}`, "protocol");
+      }
+    }
+    const was = o || { desc: "", ip: null, shut: false }, body = [];
+    if (x.desc !== was.desc) body.push(x.desc ? " description " + x.desc : " no description");
+    if (JSON.stringify(x.ip) !== JSON.stringify(was.ip)) body.push(x.ip ? ` ip address ${x.ip[0]} ${x.ip[1]}` : " no ip address");
+    if (x.shut !== was.shut) body.push(x.shut ? " shutdown" : " no shutdown");
+    if (body.length || !o) L.push("interface " + n, ...body);
+  }
+  if (top === "Cisco-IOS-XE-native:native") {
+    if (newT.hostname !== oldT.hostname) L.push("hostname " + (newT.hostname || "Router"));
+    const routes = (t) => new Set((((t.ip || {}).route || {})["ip-route-interface-forwarding-list"] || [])
+      .flatMap((e) => (e["fwd-list"] || []).map((f) => `${e.prefix} ${e.mask} ${f.fwd}`)));
+    const r0 = routes(oldT), r1 = routes(newT);
+    for (const r of r0) if (!r1.has(r)) L.push("no ip route " + r);
+    for (const r of r1) if (!r0.has(r)) L.push("ip route " + r);
+    const procs = (t) => Object.fromEntries(((((t.router || {})["Cisco-IOS-XE-ospf:router-ospf"] || {}).ospf || {})["process-id"] || [])
+      .map((p) => [String(p.id), p]));
+    const p0 = procs(oldT), p1 = procs(newT);
+    for (const id of Object.keys(p0)) if (!p1[id]) L.push("no router ospf " + id);
+    for (const [id, p] of Object.entries(p1)) {
+      const o = p0[id] || {}, body = [];
+      if ((p["router-id"] || null) !== (o["router-id"] || null)) body.push(p["router-id"] ? " router-id " + p["router-id"] : " no router-id");
+      const nets = (x) => new Set((x.network || []).map((n) => `${n.ip} ${n.wildcard} area ${n.area}`));
+      const n0 = nets(o), n1 = nets(p);
+      for (const n of n0) if (!n1.has(n)) body.push(" no network " + n);
+      for (const n of n1) if (!n0.has(n)) body.push(" network " + n);
+      if (body.length || !p0[id]) L.push("router ospf " + id, ...body);
+    }
+  }
+  return L;
+}
+
+// Run CLI on the router the way an API change does: all of it or none of it.
+function yangApply(net, d, lines, who, via) {
+  if (!lines.length) return;
+  const saved = clone(d.cfg);
+  const s = new Session(net, d.name);
+  s.loggedOut = false;
+  s.frames[0].mode = "config";
+  const notes = /^%\s?(Generating|The key modulus|Interface \S+ IPv[46] disabled)/;
+  for (const line of lines) {
+    s.out = [];
+    s.exec(line);
+    if (s.out.some((l) => (l.startsWith("%") && !notes.test(l)) || /^(Bad mask|Invalid address|Command rejected)/.test(l))) {
+      d.cfg = saved;
+      net.touch();
+      yErr(400, "invalid-value", "inconsistent value: Device refused one or more commands");
+    }
+  }
+  net.touch();
+  net.auto = net.auto || {};
+  net.auto.tx = (net.auto.tx || 0) + 1;
+  net.note(d.name, `%DMI-5-CONFIG_I: R0/0: nesd: Configured from ${via} by ${who}, transaction-id ${100 + net.auto.tx}`);
+}
+
+// ---- encodings --------------------------------------------------------------------------------------
+const xmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// A tree as XML; `mod` is the enclosing element's module, so a namespace is only written where it changes.
+function toXml(key, v, mod, ind) {
+  const pad = "  ".repeat(ind), name = localOf(key), m = key.includes(":") ? key.split(":")[0] : mod;
+  const ns = m !== mod ? ` xmlns="${YANG_NS[m] || m}"` : "";
+  if (Array.isArray(v) && !(v.length === 1 && v[0] === null)) return v.map((e) => toXml(key, e, mod, ind)).join("\n");
+  if (Array.isArray(v) || v === null) return `${pad}<${name}${ns}/>`;
+  if (typeof v === "object") {
+    const kids = Object.entries(v).map(([k, x]) => toXml(k, x, m, ind + 1)).filter(Boolean);
+    return kids.length ? `${pad}<${name}${ns}>\n${kids.join("\n")}\n${pad}</${name}>` : `${pad}<${name}${ns}/>`;
+  }
+  const t = String(v);
+  if (/^iana-if-type:/.test(t)) return `${pad}<${name}${ns} xmlns:ianaift="${YANG_NS["iana-if-type"]}">ianaift:${t.split(":")[1]}</${name}>`;
+  return `${pad}<${name}${ns}>${xmlEsc(t)}</${name}>`;
+}
+
+// A small XML parser: elements, attributes, text. Enough for NETCONF and RESTCONF payloads.
+function parseXml(src) {
+  let i = 0;
+  const err = () => yErr(400, "malformed-message", "malformed XML", "rpc");
+  const skip = () => {
+    for (;;) {
+      while (i < src.length && /\s/.test(src[i])) i++;
+      if (src.startsWith("<?", i)) { const e = src.indexOf("?>", i); if (e === -1) err(); i = e + 2; continue; }
+      if (src.startsWith("<!--", i)) { const e = src.indexOf("-->", i); if (e === -1) err(); i = e + 3; continue; }
+      return;
+    }
+  };
+  const el = () => {
+    skip();
+    const m = src[i] === "<" ? /^<([\w:.-]+)/.exec(src.slice(i)) : null;
+    if (!m) err();
+    i += m[0].length;
+    const node = { name: m[1], attrs: {}, kids: [], text: "" };
+    for (;;) {
+      while (i < src.length && /\s/.test(src[i])) i++;
+      if (src.startsWith("/>", i)) { i += 2; return node; }
+      if (src[i] === ">") { i++; break; }
+      const a = /^([\w:.-]+)\s*=\s*("([^"]*)"|'([^']*)')/.exec(src.slice(i));
+      if (!a) err();
+      node.attrs[a[1]] = a[3] ?? a[4];
+      i += a[0].length;
+    }
+    for (;;) {
+      const lt = src.indexOf("<", i);
+      if (lt === -1) err();
+      node.text += src.slice(i, lt);
+      i = lt;
+      if (src.startsWith("</", i)) {
+        const end = src.indexOf(">", i);
+        if (end === -1 || src.slice(i + 2, end).trim() !== node.name) err();
+        i = end + 1;
+        node.text = node.text.trim().replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+        return node;
+      }
+      if (src.startsWith("<!--", i)) { const e = src.indexOf("-->", i); if (e === -1) err(); i = e + 3; continue; }
+      node.kids.push(el());
+    }
+  };
+  const root = el();
+  skip();
+  if (i < src.length) err();
+  return root;
+}
+
+// Which module an element belongs to, from its xmlns.
+const nsMod = (ns) => Object.keys(YANG_NS).find((m) => YANG_NS[m] === ns) || null;
+
+// An XML element's children as a YANG tree (keyed like the JSON encoding), noting NETCONF operations.
+function fromXml(node, sch, mod, ops, path) {
+  if (sch === "empty") return [null];
+  if (sch === "leaf") return node.text.replace(/^ianaift:/, "iana-if-type:");
+  const out = {};
+  for (const k of node.kids) {
+    const m = k.attrs.xmlns ? nsMod(k.attrs.xmlns) || mod : mod;
+    const local = k.name.includes(":") ? k.name.split(":")[1] : k.name;
+    const key = childKey(sch, m !== mod ? `${m}:${local}` : local);
+    if (!key) yErr(400, "unknown-element", `unknown element: ${local}`, "application");
+    const csch = sch.c[key];
+    const val = fromXml(k, csch.list ? { c: csch.c } : csch, m, ops, path + "/" + local);
+    const op = Object.entries(k.attrs).find(([a]) => a === "operation" || a.endsWith(":operation"));
+    if (op) ops.push({ path: path + "/" + local, op: op[1], val, keys: csch.list ? csch.list.map((x) => val[x]) : null });
+    if (csch.list) (out[key] = out[key] || []).push(val); else out[key] = val;
+  }
+  return out;
+}
+
+// ---- RESTCONF ------------------------------------------------------------------------------------
+const HTTP_TEXT = { 200: "OK", 201: "Created", 204: "No Content", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden",
+  404: "Not Found", 405: "Method Not Allowed", 409: "Conflict", 415: "Unsupported Media Type" };
+
+function errBody(e, json) {
+  const one = { "error-type": e.type, "error-tag": e.tag, "error-message": e.message };
+  if (json) return JSON.stringify({ "ietf-restconf:errors": { error: [one] } }, null, 2);
+  return `<errors xmlns="${YANG_NS["ietf-restconf"]}">\n  <error>\n    <error-type>${one["error-type"]}</error-type>\n`
+    + `    <error-tag>${one["error-tag"]}</error-tag>\n    <error-message>${xmlEsc(one["error-message"])}</error-message>\n  </error>\n</errors>`;
+}
+
+// "/mod:top/a/b=k1,k2" -> the top node and its steps (schema keys, list keys).
+function restPath(rest) {
+  const segs = rest.split("/").filter(Boolean);
+  const top = decodeURIComponent(segs[0] || "");
+  if (!YANG[top]) yErr(404, "invalid-value", "uri keypath not found");
+  let sch = YANG[top];
+  const steps = [];
+  for (const seg of segs.slice(1)) {
+    const eq = seg.indexOf("=");
+    const key = childKey(sch, decodeURIComponent(eq === -1 ? seg : seg.slice(0, eq)));
+    if (!key) yErr(404, "invalid-value", "uri keypath not found");
+    const csch = sch.c[key], st = { key };
+    if (eq !== -1) {
+      if (!csch.list) yErr(404, "invalid-value", "uri keypath not found");
+      st.keys = seg.slice(eq + 1).split(",").map(decodeURIComponent);
+      if (st.keys.length !== csch.list.length) yErr(400, "invalid-value", "wrong number of key values", "protocol");
+      sch = { c: csch.c };
+    } else {
+      if (csch.list) { steps.push(st); sch = { c: {} }; continue; }
+      sch = csch;
+    }
+    steps.push(st);
+  }
+  return { top, steps };
+}
+
+// One HTTPS request to a router. Returns {status, headers, body}.
+Network.prototype.restconf = function (dn, req) {
+  const d = this.devs[dn];
+  const json = /yang-data\+json|application\/json/.test(req.accept || "");
+  const res = (status, body, extra = {}) => ({ status, body: body || "", headers: { ...extra,
+    ...(body ? { "Content-Type": json ? "application/yang-data+json" : "application/yang-data+xml" } : {}) } });
+  try {
+    const path = req.path.split("?")[0];
+    if (path === "/.well-known/host-meta") {
+      return { status: 200, headers: { "Content-Type": "application/xrd+xml" },
+        body: "<XRD xmlns='http://docs.oasis-open.org/ns/xri/xrd-1.0'>\n    <Link rel='restconf' href='/restconf'/>\n</XRD>" };
+    }
+    if (!path.startsWith("/restconf") || !restconfOn(d)) yErr(404, "invalid-value", "uri keypath not found");
+    // Authentication: a local user (ip http authentication local) at privilege 15.
+    const u = svcOf(d).http.authLocal ? apiUser(d, req.user, req.pass) : null;
+    if (!u) yErr(401, "access-denied", "access denied", "protocol");
+    if (+(u.priv ?? 1) !== 15) yErr(403, "access-denied", "access denied", "protocol");
+    const method = req.method.toUpperCase();
+    const noWrite = () => yErr(405, "operation-not-supported", "method not allowed", "protocol");
+    if (path === "/restconf" || path === "/restconf/") {
+      if (method !== "GET") noWrite();
+      const r = { "ietf-restconf:restconf": { data: {}, operations: {}, "yang-library-version": "2016-06-21" } };
+      return res(200, json ? JSON.stringify(r, null, 2) : toXml("ietf-restconf:restconf", r["ietf-restconf:restconf"], "", 0));
+    }
+    if (!path.startsWith("/restconf/data")) yErr(404, "invalid-value", "uri keypath not found");
+    if (!["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"].includes(method)) noWrite();
+    const rest = path.slice("/restconf/data".length);
+    if (!rest.replace(/\//g, "")) {
+      if (method !== "GET") noWrite();
+      const all = Object.fromEntries(Object.keys(YANG).map((t) => [t, yangRead(this, d, t)]));
+      return res(200, json ? JSON.stringify({ "ietf-restconf:data": all }, null, 2) : toXml("ietf-restconf:data", all, "", 0));
+    }
+    const { top, steps } = restPath(rest);
+    const tree = yangRead(this, d, top);
+    const keys = steps.map((s) => s.key), last = keys.length ? keys[keys.length - 1] : top;
+    const qname = `${modOf(top, keys)}:${localOf(last)}`;
+    const lastStep = steps[steps.length - 1];
+    const targetSch = steps.reduce((s, st) => (st.keys ? { c: s.c[st.key].c } : s.c[st.key]), YANG[top]);
+    if (method === "GET" || method === "HEAD") {
+      const at = steps.length ? yangLocate(tree, YANG[top], steps, false) : { val: tree };
+      if (!at) yErr(404, "invalid-value", "uri keypath not found");
+      if (at.val === undefined) {
+        if (lastStep && lastStep.keys) yErr(404, "invalid-value", "uri keypath not found");
+        return res(204);
+      }
+      const empty = typeof at.val === "object" && !Array.isArray(at.val) && !Object.keys(at.val).length;
+      if (empty) return res(204);
+      const out = targetSch.list && !(lastStep && lastStep.keys) ? at.val : at.val;
+      return res(200, method === "HEAD" ? "" : json ? JSON.stringify({ [qname]: out }, null, 2) : toXml(qname, out, "", 0));
+    }
+    if (YANG[top].ro) noWrite();
+    // The body: one member named after the target (PUT/PATCH) or after the child being created (POST).
+    let member = null, raw = null, xmlNode = null;
+    if (method !== "DELETE") {
+      const ct = req.contentType || "";
+      if (!/application\/yang-data\+(json|xml)/.test(ct)) yErr(415, "invalid-value", "unsupported media type", "protocol");
+      if (/xml/.test(ct)) {
+        xmlNode = parseXml(req.data || "");
+        const m = xmlNode.attrs.xmlns ? nsMod(xmlNode.attrs.xmlns) : null;
+        member = (m ? m + ":" : "") + xmlNode.name;
+      } else {
+        try { raw = JSON.parse(req.data || ""); } catch (e) { yErr(400, "malformed-message", "malformed JSON in request body", "protocol"); }
+        if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).length !== 1) {
+          yErr(400, "malformed-message", "the request body must hold exactly one member", "protocol");
+        }
+        member = Object.keys(raw)[0];
+        raw = raw[member];
+      }
+    }
+    const decode = (sch, key) => (xmlNode
+      ? fromXml({ kids: [xmlNode] }, { c: { [key]: sch } }, modOf(top, keys), [], "")[key]
+      : yangCheck(sch, raw, "/" + localOf(key)));
+    const work = clone(tree);
+    let status = 204, location = null;
+    if (method === "POST") {
+      if (targetSch === "leaf" || targetSch === "empty" || (targetSch.list && !(lastStep && lastStep.keys))) noWrite();
+      // A list entry must already exist to POST under it; empty containers are created on the way.
+      if (lastStep && lastStep.keys && !yangLocate(work, YANG[top], steps, false)) yErr(404, "invalid-value", "uri keypath not found");
+      const at = steps.length ? yangLocate(work, YANG[top], steps, true) : { val: work, sch: YANG[top] };
+      const key = childKey(targetSch, member);
+      if (!key) yErr(400, "unknown-element", `unknown element: ${member}`, "protocol");
+      const csch = targetSch.c[key];
+      if (typeof csch !== "object") noWrite();
+      const v = decode(csch, key);
+      if (csch.list) {
+        const arr = at.val[key] = at.val[key] || [];
+        for (const e of v) {
+          const kv = csch.list.map((k) => e[k]);
+          if (kv.some((x) => x === undefined)) yErr(400, "missing-element", `missing key: ${csch.list.join(",")}`, "protocol");
+          if (arr.some((x) => sameKey(x, csch, kv))) yErr(409, "data-exists", `object already exists: ${path}/${localOf(key)}=${kv.join(",")}`);
+          arr.push(e);
+        }
+        location = `${path}/${localOf(key)}=${csch.list.map((k) => encodeURIComponent(v[0][k])).join(",")}`;
+      } else {
+        if (at.val[key] !== undefined) yErr(409, "data-exists", `object already exists: ${path}/${localOf(key)}`);
+        at.val[key] = v;
+        location = `${path}/${localOf(key)}`;
+      }
+      status = 201;
+    } else {
+      if (!steps.length) noWrite();
+      const exists = yangLocate(work, YANG[top], steps, false);
+      const found = !!exists && exists.val !== undefined;
+      if (method === "DELETE") {
+        if (!found) yErr(404, "invalid-value", "uri keypath not found");
+        if (Array.isArray(exists.holder)) exists.holder.splice(exists.index, 1); else delete exists.holder[exists.field];
+      } else {
+        if (localOf(member) !== localOf(lastStep.key)) yErr(400, "invalid-value", `the body names ${member}, not ${localOf(lastStep.key)}`, "protocol");
+        const listSch = lastStep.keys ? YANG_SCH_AT(top, steps) : null;
+        let v = decode(listSch || targetSch, lastStep.key);
+        if (listSch) {
+          if (v.length !== 1 || !sameKey(v[0], listSch, lastStep.keys)) yErr(400, "invalid-value", "key values in the body don't match the URI", "protocol");
+          v = v[0];
+        }
+        if (method === "PATCH") {
+          if (!found) yErr(404, "invalid-value", "uri keypath not found");
+          const merged = yangMerge(targetSch, exists.val, v);
+          exists.holder[exists.field] = merged;
+        } else {
+          const at = yangLocate(work, YANG[top], steps, true);
+          at.holder[at.field] = v;
+          status = found ? 204 : 201;
+        }
+      }
+    }
+    yangApply(this, d, yangCommit(top, tree, work), req.user, "NETCONF/RESTCONF");
+    return res(status, null, location ? { Location: `https://${req.host}${location}` } : {});
+  } catch (e) {
+    if (!(e instanceof YangError)) throw e;
+    return res(e.status, errBody(e, json));
+  }
+};
+
+// The list schema a keyed step ends on.
+function YANG_SCH_AT(top, steps) {
+  let s = YANG[top];
+  for (let i = 0; i < steps.length; i++) {
+    const cs = s.c[steps[i].key];
+    if (i === steps.length - 1) return cs;
+    s = steps[i].keys ? { c: cs.c } : cs;
+  }
+  return null;
+}
+
+// One TCP connection attempt from a host to ip:port. Returns {ok, dev, links} or {err, links}.
+Network.prototype.tcpConnect = function (dn, dst, port) {
+  const src = this.sourceIp(dn, dst);
+  if (src === null) return { err: "unreachable", links: [] };
+  const there = this.deliver(dn, { src, dst, proto: "tcp", port, ttl: 64, id: port }, { natTmp: {} });
+  if (!there.ok) {
+    const local = there.failAt === dn || there.failAt === undefined;
+    const err = local && (there.fail === "nogw" || there.fail === "noip") ? "unreachable"
+      : local || there.fail === "acl" || there.fail === "arp" ? "noroute" : "timeout";
+    return { err, links: there.links, failAt: there.failAt };
+  }
+  const back = this.deliver(there.at, { src: there.pkt.dst, dst: there.pkt.src, proto: "tcp", port: 49152 + (port % 1000), sport: port, ttl: 255, id: port },
+    { natTmp: {} });
+  if (!back.ok || back.at !== dn) return { err: "timeout", links: there.links.concat(back.links), failAt: back.failAt };
+  return { ok: true, dev: there.at, links: there.links.concat(back.links) };
+};
+
+// Is something listening on that TCP port of that device?
+function listening(d, port) {
+  if (d.type === "pc") return false;
+  const http = svcOf(d).http;
+  if (port === 443) return !!http.secure;
+  if (port === 80) return !!http.server;
+  if (port === 830) return netconfOn(d);
+  if (port === 22) return d.cfg.rsa > 0;
+  return false;
+}
+
+// ---- NETCONF ---------------------------------------------------------------------------------------
+const NC_BASE = "urn:ietf:params:xml:ns:netconf:base:1.0";
+const ncReply = (id, inner) => `<?xml version="1.0" encoding="UTF-8"?>\n<rpc-reply xmlns="${NC_BASE}" message-id="${id}">\n${inner}\n</rpc-reply>`;
+const ncError = (id, e) => ncReply(id, `  <rpc-error>\n    <error-type>${e.type}</error-type>\n    <error-tag>${e.tag}</error-tag>\n`
+  + `    <error-severity>error</error-severity>\n    <error-message xml:lang="en">${xmlEsc(e.message)}</error-message>\n  </rpc-error>`);
+function ncHello(sid) {
+  const caps = ["urn:ietf:params:netconf:base:1.0", "urn:ietf:params:netconf:base:1.1", "urn:ietf:params:netconf:capability:writable-running:1.0",
+    "urn:ietf:params:netconf:capability:rollback-on-error:1.0", "urn:ietf:params:netconf:capability:validate:1.0",
+    "urn:ietf:params:netconf:capability:xpath:1.0", "urn:ietf:params:netconf:capability:with-defaults:1.0?basic-mode=explicit",
+    "http://cisco.com/ns/yang/Cisco-IOS-XE-native?module=Cisco-IOS-XE-native&amp;revision=2022-11-01",
+    "http://cisco.com/ns/yang/Cisco-IOS-XE-ospf?module=Cisco-IOS-XE-ospf&amp;revision=2022-11-01",
+    "urn:ietf:params:xml:ns:yang:ietf-interfaces?module=ietf-interfaces&amp;revision=2014-05-08",
+    "urn:ietf:params:xml:ns:yang:ietf-ip?module=ietf-ip&amp;revision=2014-06-16"];
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<hello xmlns="${NC_BASE}">\n  <capabilities>\n`
+    + `${caps.map((c) => `    <capability>${c}</capability>`).join("\n")}\n  </capabilities>\n  <session-id>${sid}</session-id>\n</hello>`;
+}
+
+// Every top-level node for get-config (configuration) or get (configuration and state).
+function ncData(net, d, withState) {
+  return Object.fromEntries(Object.keys(YANG).filter((t) => withState || !YANG[t].ro).map((t) => [t, yangRead(net, d, t)]));
+}
+
+// A small XPath subset for -x: /native/hostname, /interfaces/interface[name='Loopback0']/description.
+function ncFilter(data, xpath) {
+  const steps = xpath.split("/").filter(Boolean).map((s) => {
+    const m = /^(?:[\w-]+:)?([\w-]+)((?:\[[^\]]+\])*)$/.exec(s);
+    if (!m) yErr(400, "invalid-value", "invalid XPath expression", "protocol");
+    return { name: m[1], preds: [...m[2].matchAll(/\[\s*(?:[\w-]+:)?([\w-]+)\s*=\s*['"]([^'"]*)['"]\s*\]/g)].map((p) => [p[1], p[2]]) };
+  });
+  if (!steps.length) return data;
+  const topKey = Object.keys(data).find((t) => localOf(t) === steps[0].name);
+  if (!topKey) return {};
+  // Keep the selected nodes with their ancestors (and list keys), like a NETCONF subtree.
+  const pick = (val, sch, rest) => {
+    if (!rest.length) return val;
+    const st = rest[0], key = childKey(sch, st.name);
+    if (!key || val === undefined || val === null || typeof val !== "object") return undefined;
+    const csch = sch.c[key], v = val[key];
+    if (v === undefined) return undefined;
+    if (csch.list) {
+      const hits = v.filter((e) => st.preds.every(([k, x]) => String(e[k]) === x)).map((e) => {
+        const sub = pick(e, { c: csch.c }, rest.slice(1));
+        if (sub === undefined) return undefined;
+        return rest.length > 1 ? { ...Object.fromEntries(csch.list.map((k) => [k, e[k]])), ...sub } : sub;
+      }).filter((e) => e !== undefined);
+      return hits.length ? { [key]: hits } : undefined;
+    }
+    const sub = pick(v, csch, rest.slice(1));
+    return sub === undefined ? undefined : { [key]: sub };
+  };
+  const out = steps.length === 1 ? data[topKey] : pick(data[topKey], YANG[topKey], steps.slice(1));
+  return out === undefined ? {} : { [topKey]: out };
+}
+const ncDataXml = (id, data) => ncReply(id, Object.keys(data).length
+  ? `  <data>\n${Object.entries(data).map(([t, v]) => toXml(t, v, "", 2)).join("\n")}\n  </data>` : "  <data/>");
+
+// Find where an operation's element sits in a tree: {found, holder, field|index, list}.
+function ncFind(tree, sch, o, base) {
+  const parts = o.path.slice(base.length).split("/").filter(Boolean);
+  let val = tree, s = sch;
+  for (let i = 0; i < parts.length; i++) {
+    const key = childKey(s, parts[i]);
+    if (!key || val === undefined || val === null) return { found: false };
+    const cs = s.c[key], last = i === parts.length - 1;
+    if (cs.list) {
+      const arr = val[key] || [];
+      if (last) {
+        const idx = arr.findIndex((e) => sameKey(e, cs, o.keys));
+        return { found: idx !== -1, holder: arr, index: idx, list: true };
+      }
+      // Under a list, follow the entry the edit names (its keys are in the edit tree).
+      const want = o.parentKeys && o.parentKeys[i];
+      const e = want ? arr.find((x) => sameKey(x, cs, want)) : arr.length === 1 ? arr[0] : undefined;
+      if (!e) return { found: false };
+      val = e; s = { c: cs.c };
+      continue;
+    }
+    if (last) return { found: val[key] !== undefined, holder: val, field: key };
+    val = val[key]; s = cs;
+  }
+  return { found: false };
+}
+
+// The edit without the parts that delete or remove something (those are applied on their own).
+function stripOps(val, sch, removals, path) {
+  if (typeof sch !== "object" || val === null || typeof val !== "object") return val;
+  if (sch.list) {
+    return val.filter((e) => !removals.some((o) => o.path === path && o.keys && sameKey(e, sch, o.keys)))
+      .map((e) => stripOps(e, { c: sch.c }, removals, path));
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(val)) {
+    const p = path + "/" + localOf(k), cs = sch.c[k];
+    if (!cs.list && removals.some((o) => o.path === p)) continue;
+    out[k] = stripOps(v, cs, removals, p);
+  }
+  return out;
+}
+
+// Record, for each operation under a list entry, the keys of the entries above it.
+function opParents(edit, sch, ops, path, trail) {
+  if (typeof sch !== "object" || edit === null || typeof edit !== "object") return;
+  for (const [k, v] of Object.entries(edit)) {
+    const cs = sch.c[k], p = path + "/" + localOf(k);
+    if (cs.list) {
+      for (const e of v) {
+        const keys = cs.list.map((x) => e[x]), next = [...trail, keys];
+        for (const o of ops) if (o.path.startsWith(p + "/") && o.parentKeys === undefined) o.parentKeys = Object.assign([], { [trail.length]: keys });
+        opParents(e, { c: cs.c }, ops, p, next);
+      }
+    } else {
+      trail.push(null);
+      opParents(v, cs, ops, p, trail);
+      trail.pop();
+    }
+  }
+}
+
+// edit-config on the running datastore: <config> holding top elements, with nc:operation attributes.
+Network.prototype.ncEdit = function (dn, xml, who) {
+  const d = this.devs[dn];
+  const root = parseXml(xml);
+  const tops = root.name.replace(/^\w+:/, "") === "config" ? root.kids : [root];
+  if (!tops.length) yErr(400, "missing-element", "missing element: config", "protocol");
+  const plan = [];
+  for (const top of tops) {
+    const m = top.attrs.xmlns ? nsMod(top.attrs.xmlns) : null;
+    const topKey = Object.keys(YANG).find((t) => t.split(":")[0] === m && localOf(t) === top.name.replace(/^\w+:/, ""));
+    if (!topKey || YANG[topKey].ro) yErr(400, "unknown-element", `unknown element: ${top.name}`, "application");
+    const ops = [], base = "/" + localOf(topKey);
+    const edit = fromXml(top, YANG[topKey], m, ops, base);
+    opParents(edit, YANG[topKey], ops, base, []);
+    const tree = yangRead(this, d, topKey);
+    let work = clone(tree);
+    for (const o of ops) {
+      if (o.op === "create" && ncFind(tree, YANG[topKey], o, base).found) yErr(409, "data-exists", `data already exists: ${o.path}`);
+      if (o.op === "delete" && !ncFind(tree, YANG[topKey], o, base).found) yErr(409, "data-missing", `data is missing: ${o.path}`);
+    }
+    const removals = ops.filter((o) => o.op === "delete" || o.op === "remove");
+    for (const o of removals) {
+      const f = ncFind(work, YANG[topKey], o, base);
+      if (!f.found) continue;
+      if (f.list) f.holder.splice(f.index, 1); else delete f.holder[f.field];
+    }
+    work = yangMerge(YANG[topKey], work, stripOps(edit, YANG[topKey], removals, base));
+    for (const o of ops.filter((x) => x.op === "replace")) {
+      const f = ncFind(work, YANG[topKey], o, base);
+      if (f.list) { if (f.index === -1) f.holder.push(o.val); else f.holder[f.index] = o.val; } else if (f.holder) f.holder[f.field] = o.val;
+    }
+    plan.push([topKey, tree, work]);
+  }
+  for (const [topKey, tree, work] of plan) yangApply(this, d, yangCommit(topKey, tree, work), who, "NETCONF");
+};
+
+// ---- checks --------------------------------------------------------------------------------------
+const AUTO_CHECKS = new Set(["restconf-ready", "netconf-ready", "restconf-call", "netconf-rpc"]);
+Network.prototype.autoCheck = function (c, d) {
+  const calls = (d.rt.auto || {}).calls || [];
+  switch (c.type) {
+    case "restconf-ready": return restconfOn(d) && svcOf(d).http.secure && !!svcOf(d).http.authLocal && priv15(d);
+    case "netconf-ready": return netconfOn(d) && svcOf(d).aaa.on && priv15(d);
+    case "restconf-call":
+      return calls.some((x) => x.proto === "restconf" && (!c.device || x.dev === c.device) && x.method === c.method.toUpperCase()
+        && (c.status === undefined || x.status === c.status) && (!c.path || x.path.includes(c.path)));
+    case "netconf-rpc":
+      return calls.some((x) => x.proto === "netconf" && (!c.device || x.dev === c.device) && x.op === c.op && x.ok === (c.ok ?? true));
+    default: return false;
+  }
+};
+const recordCall = (d, call) => {
+  d.rt.auto = d.rt.auto || { calls: [] };
+  d.rt.auto.calls.push(call);
+  if (d.rt.auto.calls.length > 40) d.rt.auto.calls.shift();
+};
+
+// ---- the Linux workstation -------------------------------------------------------------------------
+const LINUX_GREETING = "Welcome to Ubuntu 22.04.4 LTS (NetLab simulated workstation)\n\n"
+  + "Commands: ip, ping, traceroute, dhclient, curl, netconf-console, hostname. Type 'help' for usage.";
+const LINUX_HELP = [
+  "ip addr [show]                         show addresses",
+  "ip addr add A.B.C.D/LEN dev eth0       set the address (ip addr del ... removes it)",
+  "ip route [show]                        show routes",
+  "ip route add default via A.B.C.D       set the default gateway (ip route del default removes it)",
+  "dhclient eth0                          get an address by DHCP",
+  "ping [-c COUNT] A.B.C.D                ping (4 packets unless -c says otherwise)",
+  "traceroute A.B.C.D                     trace the path",
+  "curl [-k] [-i] [-v] [-u USER:PASS] [-H 'Header: value'] [-X METHOD] [-d DATA] URL",
+  "netconf-console --host A.B.C.D [--port 830] -u USER -p PASS (--hello | --get-config [-x XPATH] | --get [-x XPATH] | -i)",
+].join("\n");
+
+// Shell words: quotes group, backslash escapes. null when a quote is left open.
+function shellWords(line) {
+  const out = [];
+  let cur = null, q = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) {
+      if (ch === q) q = null;
+      else if (ch === "\\" && q === '"' && i + 1 < line.length) cur += line[++i];
+      else cur += ch;
+    } else if (ch === "'" || ch === '"') {
+      q = ch;
+      cur = cur ?? "";
+    } else if (ch === "\\" && i + 1 < line.length) {
+      cur = (cur ?? "") + line[++i];
+    } else if (/\s/.test(ch)) {
+      if (cur !== null) { out.push(cur); cur = null; }
+    } else cur = (cur ?? "") + ch;
+  }
+  if (q) return null;
+  if (cur !== null) out.push(cur);
+  return out;
+}
+
+Object.assign(Session.prototype, {
+  linuxPrompt() {
+    return this.nc ? "netconf> " : `student@${this.d.cfg.hostname}:~$ `;
+  },
+
+  linux(line) {
+    if (this.nc) { this.ncLine(line); return; }
+    const w = shellWords(line.trim());
+    if (w === null) { this.print("bash: unexpected EOF while looking for matching quote"); return; }
+    if (!w.length) return;
+    this.history.push(line.trim());
+    const cmd = w[0], c = this.d.cfg;
+    if (cmd === "help") this.print(LINUX_HELP);
+    else if (cmd === "hostname") this.print(c.hostname);
+    else if (cmd === "ip") this.linuxIp(w.slice(1));
+    else if (cmd === "dhclient") {
+      const r = this.net.dhcp(this.d.name);
+      if (!r.ok) this.print("No DHCPOFFERS received.", "No working leases in persistent database - sleeping.");
+    } else if (cmd === "ping") this.linuxPing(w.slice(1));
+    else if (cmd === "traceroute") this.linuxTrace(w.slice(1));
+    else if (cmd === "curl") this.curl(w.slice(1));
+    else if (cmd === "netconf-console") this.netconfConsole(w.slice(1));
+    else if (!["clear", "exit", "logout"].includes(cmd)) this.print(`${cmd}: command not found`);
+  },
+
+  linuxIp(a) {
+    const c = this.d.cfg, dn = this.d.name;
+    const obj = a[0] || "", verb = a[1] || "show";
+    const is = (w, full) => w.length > 0 && full.startsWith(w);
+    if (!obj) { this.print("Usage: ip [ OPTIONS ] OBJECT { COMMAND | help }", "where  OBJECT := { address | link | route }"); return; }
+    if (is(obj, "address")) {
+      if (is(verb, "show") || verb === "list") {
+        this.print("1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000",
+          "    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00", "    inet 127.0.0.1/8 scope host lo",
+          "2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000",
+          `    link/ether ${colonMac(this.net.mac(dn, "eth0"))} brd ff:ff:ff:ff:ff:ff`);
+        if (c.ip !== null) {
+          const brd = ((c.ip & c.mask) | (~c.mask >>> 0)) >>> 0;
+          this.print(`    inet ${n2ip(c.ip)}/${maskLen(c.mask)} brd ${n2ip(brd)} scope global ${c.dhcp ? "dynamic " : ""}eth0`);
+        }
+        return;
+      }
+      if (verb === "flush") { Object.assign(c, { ip: null, mask: null, gw: null, dhcp: false }); return; }
+      const m = /^(\d+\.\d+\.\d+\.\d+)\/(\d{1,2})$/.exec(a[2] || "");
+      if (!m || !isIp(m[1]) || +m[2] > 32) { this.print(`Error: inet prefix is expected rather than "${a[2] || ""}".`); return; }
+      if (a[3] !== "dev" || a[4] !== "eth0") { this.print(`Error: either "dev" is duplicate, or "${a[4] || "eth0"}" is a garbage.`); return; }
+      const ip = ip2n(m[1]), mask = lenMask(+m[2]);
+      if (verb === "add") {
+        if (c.ip === ip) { this.print("RTNETLINK answers: File exists"); return; }
+        Object.assign(c, { ip, mask, dhcp: false });
+      } else if (verb === "del" || verb === "delete") {
+        if (c.ip !== ip) { this.print("RTNETLINK answers: Cannot assign requested address"); return; }
+        Object.assign(c, { ip: null, mask: null, gw: null });
+      } else this.print(`Command "${verb}" is unknown, try "ip address help".`);
+      return;
+    }
+    if (is(obj, "route")) {
+      if (is(verb, "show") || verb === "list") {
+        if (c.gw !== null) this.print(`default via ${n2ip(c.gw)} dev eth0 proto static`);
+        if (c.ip !== null) this.print(`${n2ip((c.ip & c.mask) >>> 0)}/${maskLen(c.mask)} dev eth0 proto kernel scope link src ${n2ip(c.ip)}`);
+        return;
+      }
+      if (a[2] !== "default") { this.print(`Error: inet prefix is expected rather than "${a[2] || ""}".`); return; }
+      if (verb === "add") {
+        if (a[3] !== "via" || !isIp(a[4] || "")) { this.print(`Error: inet address is expected rather than "${a[4] || ""}".`); return; }
+        if (c.gw !== null) { this.print("RTNETLINK answers: File exists"); return; }
+        const gw = ip2n(a[4]);
+        if (c.ip === null || !sameNet(gw, c.ip, c.mask)) { this.print("Error: Nexthop has invalid gateway."); return; }
+        c.gw = gw;
+      } else if (verb === "del" || verb === "delete") {
+        if (c.gw === null) { this.print("RTNETLINK answers: No such process"); return; }
+        c.gw = null;
+      } else this.print(`Command "${verb}" is unknown, try "ip route help".`);
+      return;
+    }
+    if (is(obj, "link")) return;
+    this.print(`Object "${obj}" is unknown, try "ip help".`);
+  },
+
+  linuxPing(a) {
+    const net = this.net, dn = this.d.name;
+    const ci = a.indexOf("-c");
+    const count = ci === -1 ? 4 : +a[ci + 1];
+    const host = a.filter((x, i) => !x.startsWith("-") && (ci === -1 || i !== ci + 1)).pop();
+    if (!host) { this.print("ping: usage error: Destination address required"); return; }
+    if (!isIp(host)) { this.print(`ping: ${host}: Temporary failure in name resolution`); return; }
+    if (!Number.isInteger(count) || count < 1 || count > 100) { this.print(`ping: invalid argument: '${a[ci + 1]}'`); return; }
+    const dst = ip2n(host);
+    this.print(`PING ${host} (${host}) 56(84) bytes of data.`);
+    let got = 0, first = null;
+    for (let i = 1; i <= count; i++) {
+      const r = net.ping(dn, dst, { record: true, size: 84, seq: i - 1 });
+      first = first || r;
+      if (r.ok && !(i === 1 && r.arpMiss)) { got++; this.print(`64 bytes from ${host}: icmp_seq=${i} ttl=${r.ttl} time=${ms()} ms`); continue; }
+      if (!r.ok && (r.fail === "nogw" || r.fail === "noip")) { this.print("ping: connect: Network is unreachable"); return; }
+      if (!r.ok && r.by !== null && r.by !== undefined && r.failAt !== dn && (r.fail === "noroute" || r.fail === "acl")) {
+        this.print(`From ${n2ip(r.by)} icmp_seq=${i} ${r.fail === "acl" ? "Packet filtered" : "Destination Net Unreachable"}`);
+      }
+    }
+    this.print("", `--- ${host} ping statistics ---`,
+      `${count} packets transmitted, ${got} received, ${Math.round((100 * (count - got)) / count)}% packet loss, time ${(count - 1) * 1001}ms`);
+    this.anim = { from: dn, links: first.links, ok: first.ok, failAt: first.failAt };
+  },
+
+  linuxTrace(a) {
+    const net = this.net, dn = this.d.name, host = a[0];
+    if (!host) { this.print("Usage: traceroute host"); return; }
+    if (!isIp(host)) { this.print(`${host}: Name or service not known`); return; }
+    const dst = ip2n(host);
+    this.print(`traceroute to ${host} (${host}), 30 hops max, 60 byte packets`);
+    const hops = net.trace(dn, dst, 30);
+    if (!hops.length) { this.print("connect: Network is unreachable"); return; }
+    hops.forEach((h, i) => {
+      const n = String(i + 1).padStart(2);
+      if (h.ip === null) this.print(`${n}  * * *`);
+      else this.print(`${n}  ${n2ip(h.ip)} (${n2ip(h.ip)})  ${ms()} ms  ${ms()} ms  ${ms()} ms${h.code === "A" ? " !X" : h.code ? " !H" : ""}`);
+    });
+    const r = net.ping(dn, dst);
+    this.anim = { from: dn, links: r.links, ok: r.ok, failAt: r.failAt };
+  },
+
+  curl(a) {
+    const opt = { method: null, headers: [], data: null, insecure: false, include: false, verbose: false, user: null, url: null };
+    const takes = { "-u": "user", "--user": "user", "-X": "method", "--request": "method", "-H": "header", "--header": "header",
+      "-d": "data", "--data": "data", "--data-raw": "data", "--data-binary": "data" };
+    const more = "curl: try 'curl --help' or 'curl --manual' for more information";
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i];
+      if (takes[x]) {
+        if (i + 1 >= a.length) { this.print(`curl: option ${x}: requires parameter`, more); return; }
+        const v = a[++i];
+        if (takes[x] === "header") opt.headers.push(v); else opt[takes[x]] = v;
+      } else if (x === "-k" || x === "--insecure") opt.insecure = true;
+      else if (x === "-i" || x === "--include") opt.include = true;
+      else if (x === "-v" || x === "--verbose") { opt.verbose = true; opt.include = true; } else if (["-s", "--silent", "-L", "--location"].includes(x)) {
+        // accepted, no effect here
+      } else if (/^-[kisvL]{2,}$/.test(x)) {
+        for (const f of x.slice(1)) {
+          if (f === "k") opt.insecure = true;
+          if (f === "i") opt.include = true;
+          if (f === "v") { opt.verbose = true; opt.include = true; }
+        }
+      } else if (x.startsWith("-")) { this.print(`curl: option ${x}: is unknown`, more); return; } else opt.url = x;
+    }
+    if (!opt.url) { this.print("curl: no URL specified!", more); return; }
+    const m = /^(https?):\/\/([^/:?#]+)(?::(\d+))?(\/[^#]*)?$/.exec(opt.url);
+    if (!m) { this.print("curl: (3) URL using bad/illegal format or missing URL"); return; }
+    const [, scheme, host, portStr, pathPart] = m;
+    const port = portStr ? +portStr : scheme === "https" ? 443 : 80, path = pathPart || "/";
+    if (!isIp(host)) { this.print(`curl: (6) Could not resolve host: ${host}`); return; }
+    const method = (opt.method || (opt.data !== null ? "POST" : "GET")).toUpperCase();
+    const hdr = (name) => {
+      const h = opt.headers.find((x) => x.toLowerCase().startsWith(name.toLowerCase() + ":"));
+      return h ? h.slice(name.length + 1).trim() : null;
+    };
+    const user = opt.user ? opt.user.split(":")[0] : null, pass = opt.user ? opt.user.split(":").slice(1).join(":") : null;
+    const net = this.net, dn = this.d.name;
+    const conn = net.tcpConnect(dn, ip2n(host), port);
+    this.anim = { from: dn, links: conn.links, ok: !!conn.ok, failAt: conn.failAt };
+    const fail = (code, why) => this.print(`curl: (${code}) Failed to connect to ${host} port ${port} after ${code === 28 ? 130009 : 3} ms: ${why}`);
+    if (!conn.ok) {
+      if (conn.err === "unreachable") fail(7, "Network is unreachable");
+      else if (conn.err === "noroute") fail(7, "No route to host");
+      else fail(28, "Connection timed out");
+      return;
+    }
+    const srv = net.devs[conn.dev];
+    if (!listening(srv, port)) { fail(7, "Connection refused"); return; }
+    if (scheme === "http" && port === 443) { this.print("curl: (52) Empty reply from server"); return; }
+    if (scheme === "https" && port !== 443) { this.print("curl: (35) error:0A00010B:SSL routines::wrong version number"); return; }
+    if (scheme === "https" && !opt.insecure) {
+      this.print("curl: (60) SSL certificate problem: self-signed certificate", "More details here: https://curl.se/docs/sslcerts.html", "",
+        "curl failed to verify the legitimacy of the server and therefore could not",
+        "establish a secure connection to it. To learn more about this situation and",
+        "how to fix it, please visit the web page mentioned above.");
+      return;
+    }
+    const res = scheme === "http" || srv.model !== "csr"
+      ? { status: 404, headers: { "Content-Type": "text/html" }, body: "<html><body><h1>404 Not Found</h1></body></html>" }
+      : net.restconf(conn.dev, { method, path, user, pass, host, data: opt.data, accept: hdr("Accept"),
+        contentType: hdr("Content-Type") ?? (opt.data !== null ? "application/x-www-form-urlencoded" : null) });
+    recordCall(this.d, { proto: "restconf", dev: conn.dev, method, path, status: res.status });
+    if (opt.verbose) {
+      this.print(`*   Trying ${host}:${port}...`, `* Connected to ${host} (${host}) port ${port} (#0)`, `> ${method} ${path} HTTP/1.1`, `> Host: ${host}`,
+        ...(user !== null ? [`> Authorization: Basic ${btoa(`${user}:${pass}`)}`] : []), "> User-Agent: curl/7.81.0", ...opt.headers.map((h) => "> " + h), ">");
+    }
+    if (opt.include) {
+      const lines = [`HTTP/1.1 ${res.status} ${HTTP_TEXT[res.status] || ""}`, "Server: openresty", `Date: ${new Date().toUTCString()}`,
+        ...Object.entries(res.headers).map(([k, v]) => `${k}: ${v}`), ...(res.body ? ["Transfer-Encoding: chunked"] : []), "Connection: keep-alive",
+        "Cache-Control: private, no-cache, must-revalidate, proxy-revalidate", "Pragma: no-cache", ""];
+      this.print(...(opt.verbose ? lines.map((l) => "< " + l) : lines));
+    }
+    if (res.body && method !== "HEAD") this.print(res.body);
+  },
+
+  netconfConsole(a) {
+    const o = { host: null, port: 830, user: null, pass: null, action: null, xpath: null };
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i], eq = x.indexOf("="), k = x.startsWith("--") && eq > 0 ? x.slice(0, eq) : x;
+      const val = () => (k !== x ? x.slice(eq + 1) : a[++i]);
+      if (k === "--host") o.host = val();
+      else if (k === "--port") o.port = +val();
+      else if (k === "-u" || k === "--user") o.user = val();
+      else if (k === "-p" || k === "--password") o.pass = val();
+      else if (k === "-x" || k === "--xpath") o.xpath = val();
+      else if (["--hello", "--get-config", "--get", "-i", "--interactive"].includes(k)) o.action = k === "--interactive" ? "-i" : k;
+      else { this.print(`netconf-console: error: unrecognized arguments: ${x}`); return; }
+    }
+    if (!o.host || !isIp(o.host)) { this.print("netconf-console: error: --host A.B.C.D is required"); return; }
+    if (!o.action) { this.print("netconf-console: error: one of --hello, --get-config, --get or -i is required"); return; }
+    const net = this.net, dn = this.d.name;
+    const conn = net.tcpConnect(dn, ip2n(o.host), o.port);
+    this.anim = { from: dn, links: conn.links, ok: !!conn.ok, failAt: conn.failAt };
+    if (!conn.ok) { this.print(`Failed to connect to ${o.host}:${o.port}: ${conn.err === "timeout" ? "timed out" : "[Errno 113] No route to host"}`); return; }
+    const srv = net.devs[conn.dev];
+    if (o.port !== 830 || !listening(srv, 830)) { this.print(`Failed to connect to ${o.host}:${o.port}: [Errno 111] Connection refused`); return; }
+    const u = svcOf(srv).aaa.on && o.user ? apiUser(srv, o.user, o.pass) : null;
+    if (!u || +(u.priv ?? 1) !== 15) { this.print("Authentication failed."); return; }
+    net.auto = net.auto || {};
+    net.auto.sid = (net.auto.sid || 20) + 1;
+    const sid = String(net.auto.sid), src = this.d.cfg.ip === null ? "0.0.0.0" : n2ip(this.d.cfg.ip);
+    this.nc = { dev: conn.dev, sid, user: o.user, msg: 0 };
+    net.auto.nc = net.auto.nc || {};
+    (net.auto.nc[conn.dev] = net.auto.nc[conn.dev] || {})[sid] = { user: o.user, src, lock: false };
+    if (o.action === "-i") return;
+    this.ncLine(o.action === "--hello" ? "hello" : `${o.action.slice(2)}${o.xpath ? " -x " + o.xpath : ""}`);
+    this.ncClose();
+  },
+
+  ncClose() {
+    const x = this.nc;
+    if (!x) return;
+    delete ((this.net.auto.nc || {})[x.dev] || {})[x.sid];
+    this.nc = null;
+  },
+
+  ncLine(line) {
+    const x = this.nc, net = this.net, srv = net.devs[x.dev], me = this.d;
+    const t = line.trim();
+    if (!t) return;
+    this.history.push(t);
+    const verb = t.split(/\s+/)[0], rest = t.split(/\s+/).slice(1);
+    const record = (op, ok) => recordCall(me, { proto: "netconf", dev: x.dev, op, ok });
+    // The session ends when the router stops serving NETCONF.
+    if (!netconfOn(srv)) { this.print("Error: the NETCONF session was closed by the server."); this.ncClose(); return; }
+    if (verb === "help") {
+      this.print("hello | get-config [running] [-x XPATH] | get [-x XPATH] | edit-config <config>...</config> | lock | unlock | close-session");
+      return;
+    }
+    if (verb === "hello") { this.print(ncHello(x.sid)); return; }
+    const known = ["get-config", "get", "edit-config", "lock", "unlock", "close-session", "exit", "quit"];
+    if (!known.includes(verb)) { this.print(`Unknown command: ${verb}. Type 'help'.`); return; }
+    if (verb === "exit" || verb === "quit") { this.ncClose(); return; }
+    const id = ++x.msg;
+    try {
+      if (verb === "get-config" || verb === "get") {
+        const xi = rest.indexOf("-x");
+        const ds = rest.find((w, i) => !w.startsWith("-") && (xi === -1 || i !== xi + 1)) || "running";
+        if (verb === "get-config" && ds !== "running") yErr(400, "invalid-value", `the ${ds} datastore is not supported`, "protocol");
+        const data = ncData(net, srv, verb === "get");
+        this.print(ncDataXml(id, xi === -1 ? data : ncFilter(data, rest[xi + 1] || "/")));
+      } else if (verb === "edit-config") {
+        const xml = t.slice("edit-config".length).trim();
+        if (!xml) yErr(400, "missing-element", "missing element: config", "protocol");
+        net.ncEdit(x.dev, xml, x.user);
+        this.print(ncReply(id, "  <ok/>"));
+      } else if (verb === "lock" || verb === "unlock") {
+        const s = ((net.auto.nc || {})[x.dev] || {})[x.sid];
+        if (s) s.lock = verb === "lock";
+        this.print(ncReply(id, "  <ok/>"));
+      } else {
+        this.print(ncReply(id, "  <ok/>"));
+        this.ncClose();
+      }
+      record(verb, true);
+    } catch (e) {
+      if (!(e instanceof YangError)) throw e;
+      this.print(ncError(id, e));
+      record(verb, false);
+    }
+  },
+});

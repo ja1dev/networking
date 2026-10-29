@@ -2519,4 +2519,160 @@ test("multilayer switch: OSPF, EIGRP and RIP on routed ports and SVIs once ip ro
   assert.doesNotMatch(nb.slice(nb.indexOf("Neighbor ID")), /9\.9\.9\.9/);
 });
 
+// ---- automation: IOS-XE, RESTCONF, NETCONF and the Linux workstation
+const XE = (name) => ({ name, type: "router", model: "csr" });
+const WS = (name) => ({ name, type: "pc", os: "linux" });
+function xeLab() {
+  const net = new Network({ devices: [XE("CSR1"), WS("WS"), R("R2")],
+    links: [["CSR1", "GigabitEthernet1", "WS", "eth0"], ["CSR1", "GigabitEthernet2", "R2", "GigabitEthernet0/0"]] });
+  applyConfig(net, "CSR1", ["interface g1", "ip address 10.0.0.1 255.255.255.0", "no shutdown", "interface g2", "ip address 10.12.0.1 255.255.255.0"]);
+  applyConfig(net, "R2", ["interface g0/0", "ip address 10.12.0.2 255.255.255.0", "no shutdown"]);
+  applyConfig(net, "WS", ["ip addr add 10.0.0.10/24 dev eth0", "ip route add default via 10.0.0.1"]);
+  return net;
+}
+const restOn = ["username admin privilege 15 secret Cisco123", "ip http secure-server", "ip http authentication local", "restconf"];
+const J = "-H 'Accept: application/yang-data+json'", CT = "-H 'Content-Type: application/yang-data+json'";
+
+test("IOS-XE routers: GigabitEthernet1-4, IOS-XE show version, and commands IOSv doesn't have", () => {
+  const net = xeLab();
+  const x = new Session(net, "CSR1");
+  x.input("en");
+  assert.match(x.input("show ip interface brief"), /^GigabitEthernet1 +10\.0\.0\.1 +YES manual up +up$/m);
+  assert.match(x.input("show version"), /^Cisco IOS XE Software, Version 17\./);
+  x.input("conf t");
+  assert.match(x.help(""), /^ {2}restconf +Enable RESTCONF$/m);
+  assert.match(x.help("netconf"), /netconf-yang/);
+  assert.equal(x.input("interface g0/0").includes("% Invalid input"), true, "IOS-XE names its ports GigabitEthernet1..4");
+  // The same commands don't exist on an IOSv router.
+  const r = new Session(net, "R2");
+  r.input("en");
+  r.input("conf t");
+  assert.doesNotMatch(r.help(""), /restconf|netconf-yang/);
+  assert.match(r.input("restconf"), /% Invalid input detected/);
+  assert.equal(r.complete("netc"), "netc");
+  r.input("end");
+  assert.doesNotMatch(r.help("show "), /platform/);
+  r.input("conf t");
+  assert.match(r.input("interface g1"), /% Invalid input/, "IOSv has no GigabitEthernet1");
+  // running-config lists the API settings last, and replays.
+  applyConfig(net, "CSR1", [...restOn, "netconf-yang"]);
+  const run = runningConfig(net, "CSR1");
+  assert.match(run, /\nip http authentication local\n[\s\S]*\nnetconf-yang\nrestconf\nend\n?$/);
+});
+
+test("RESTCONF writes are real configuration, and a refused change rolls back completely", () => {
+  const net = xeLab();
+  applyConfig(net, "CSR1", restOn);
+  const ws = new Session(net, "WS");
+  const base = "https://10.0.0.1/restconf/data";
+  let out = ws.input(`curl -k -i -u admin:Cisco123 -X PATCH ${CT} -d '{"ietf-interfaces:interface": {"name": "GigabitEthernet2", "description": "to R2", "enabled": true}}' ${base}/ietf-interfaces:interfaces/interface=GigabitEthernet2`);
+  assert.match(out, /^HTTP\/1\.1 204 No Content$/m);
+  assert.ok(net.ifUp("CSR1", "GigabitEthernet2"), "enabling over RESTCONF brings the link up");
+  assert.ok(net.ping("CSR1", "10.12.0.2").ok);
+  assert.match(runningConfig(net, "CSR1"), /interface GigabitEthernet2\n description to R2\n ip address 10\.12\.0\.1 255\.255\.255\.0\n/);
+  // The router logs who changed it, and the console of CSR1 shows the link coming up.
+  const x = new Session(net, "CSR1");
+  assert.match(x.input(""), /%DMI-5-CONFIG_I: R0\/0: nesd: Configured from NETCONF\/RESTCONF by admin, transaction-id \d+/);
+  // A bad mask is refused by the router: 400, and nothing at all changes.
+  const before = runningConfig(net, "CSR1");
+  out = ws.input(`curl -k -i -u admin:Cisco123 -X PATCH ${CT} ${J} -d '{"ietf-interfaces:interface": {"name": "GigabitEthernet2", "description": "half done", "ietf-ip:ipv4": {"address": [{"ip": "10.12.0.1", "netmask": "255.0.255.0"}]}}}' ${base}/ietf-interfaces:interfaces/interface=GigabitEthernet2`);
+  assert.match(out, /^HTTP\/1\.1 400 Bad Request$/m);
+  assert.match(out, /"error-message": "inconsistent value: Device refused one or more commands"/);
+  assert.equal(runningConfig(net, "CSR1"), before);
+  // Physical interfaces can't be deleted; loopbacks can.
+  assert.match(ws.input(`curl -k -i -u admin:Cisco123 -X DELETE ${base}/ietf-interfaces:interfaces/interface=GigabitEthernet3`), /^HTTP\/1\.1 400/m);
+  applyConfig(net, "CSR1", ["interface loopback 7"]);
+  assert.match(ws.input(`curl -k -i -u admin:Cisco123 -X DELETE ${base}/ietf-interfaces:interfaces/interface=Loopback7`), /^HTTP\/1\.1 204/m);
+  assert.ok(!net.devs.CSR1.cfg.intfs.Loopback7);
+  // Static routes and OSPF through the native model.
+  out = ws.input(`curl -k -i -u admin:Cisco123 -X POST ${CT} -d '{"Cisco-IOS-XE-native:ip-route-interface-forwarding-list": {"prefix": "192.168.9.0", "mask": "255.255.255.0", "fwd-list": [{"fwd": "10.12.0.2"}]}}' ${base}/Cisco-IOS-XE-native:native/ip/route`);
+  assert.match(out, /^HTTP\/1\.1 201 Created$/m);
+  assert.ok(net.check({ type: "route", device: "CSR1", prefix: "192.168.9.0/24", code: "S", via: "10.12.0.2" }));
+  out = ws.input(`curl -k -i -u admin:Cisco123 -X PUT ${CT} -d '{"Cisco-IOS-XE-ospf:process-id": {"id": 1, "router-id": "1.1.1.1", "network": [{"ip": "10.12.0.0", "wildcard": "0.0.0.255", "area": 0}]}}' ${base}/Cisco-IOS-XE-native:native/router/router-ospf/ospf/process-id=1`);
+  assert.match(out, /^HTTP\/1\.1 201 Created$/m);
+  assert.match(runningConfig(net, "CSR1"), /router ospf 1\n router-id 1\.1\.1\.1\n network 10\.12\.0\.0 0\.0\.0\.255 area 0/);
+  const get = ws.input(`curl -k -u admin:Cisco123 ${J} ${base}/Cisco-IOS-XE-native:native/router`);
+  assert.deepEqual(JSON.parse(get)["Cisco-IOS-XE-native:router"]["Cisco-IOS-XE-ospf:router-ospf"].ospf["process-id"][0]["router-id"], "1.1.1.1");
+});
+
+test("RESTCONF access: credentials, privilege 15, local authentication and the path to TCP 443", () => {
+  const net = xeLab();
+  const ws = new Session(net, "WS");
+  const url = "https://10.0.0.1/restconf/data/Cisco-IOS-XE-native:native/hostname";
+  assert.match(ws.input(`curl -k ${url}`), /curl: \(7\) .*Connection refused/);
+  applyConfig(net, "CSR1", ["username ro privilege 1 secret Cisco123", "ip http secure-server", "restconf"]);
+  assert.match(ws.input(`curl -k -i -u ro:Cisco123 ${url}`), /^HTTP\/1\.1 401/m, "no ip http authentication local: nobody gets in");
+  applyConfig(net, "CSR1", ["ip http authentication local"]);
+  assert.match(ws.input(`curl -k -i -u ro:Cisco123 ${url}`), /^HTTP\/1\.1 403 Forbidden/m, "privilege 1 isn't enough");
+  applyConfig(net, "CSR1", ["username admin privilege 15 secret Cisco123"]);
+  assert.match(ws.input(`curl -k -u admin:Cisco123 ${url}`), /<hostname xmlns="http:\/\/cisco\.com\/ns\/yang\/Cisco-IOS-XE-native">Router<\/hostname>/);
+  // An ACL that drops HTTPS on the way in: the client never hears back.
+  applyConfig(net, "CSR1", ["access-list 101 deny tcp any any eq 443", "access-list 101 permit ip any any", "interface g1", "ip access-group 101 in"]);
+  assert.match(ws.input(`curl -k -u admin:Cisco123 ${url}`), /curl: \(7\) Failed to connect to 10\.0\.0\.1 port 443 after \d+ ms: No route to host/);
+  assert.ok(net.ping("WS", "10.0.0.1").ok, "pings still pass: only TCP 443 is blocked");
+  // The call log feeds the lab checks.
+  assert.ok(net.check({ type: "restconf-call", from: "WS", method: "GET", status: 403 }));
+  assert.ok(!net.check({ type: "restconf-call", from: "WS", method: "GET", status: 500 }));
+  assert.ok(net.check({ type: "restconf-ready", device: "CSR1" }));
+});
+
+test("NETCONF: AAA and privilege 15 to log in, interactive sessions, edit-config operations", () => {
+  const net = xeLab();
+  applyConfig(net, "CSR1", ["username admin privilege 15 secret Cisco123", "netconf-yang"]);
+  const ws = new Session(net, "WS");
+  const nc = "netconf-console --host 10.0.0.1 -u admin -p Cisco123";
+  assert.equal(ws.input(`${nc} --hello`), "Authentication failed.", "IOS-XE NETCONF logins go through AAA");
+  applyConfig(net, "CSR1", ["aaa new-model", "aaa authentication login default local", "aaa authorization exec default local"]);
+  assert.ok(net.check({ type: "netconf-ready", device: "CSR1" }));
+  assert.match(ws.input(`${nc} --get -x /interfaces-state/interface[name='GigabitEthernet1']/oper-status`), /<oper-status>up<\/oper-status>/);
+  ws.input(`${nc} -i`);
+  assert.equal(ws.prompt(), "netconf> ");
+  const x = new Session(net, "CSR1");
+  x.input("en");
+  assert.match(x.input("show netconf-yang sessions"), /Number of sessions : 1/);
+  const native = 'xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-native"';
+  assert.match(ws.input(`edit-config <config><native ${native}><interface><Loopback><name>8</name><description>api</description></Loopback></interface></native></config>`), /<ok\/>/);
+  assert.match(runningConfig(net, "CSR1"), /interface Loopback8\n description api\n no ip address\n/);
+  assert.match(ws.input(`edit-config <config xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><native ${native}><interface><Loopback nc:operation="replace"><name>8</name></Loopback></interface></native></config>`), /<ok\/>/);
+  assert.doesNotMatch(runningConfig(net, "CSR1"), /description api/, "replace drops what the new subtree leaves out");
+  assert.match(ws.input(`edit-config <config xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"><native ${native}><interface><Loopback nc:operation="remove"><name>99</name></Loopback></interface></native></config>`), /<ok\/>/, "remove doesn't mind if it's missing");
+  assert.match(ws.input("edit-config <config><native"), /<error-tag>malformed-message<\/error-tag>/);
+  assert.match(ws.input(`edit-config <config><native ${native}><bogus>1</bogus></native></config>`), /<error-tag>unknown-element<\/error-tag>/);
+  assert.match(ws.input("get-config candidate"), /<error-tag>invalid-value<\/error-tag>/, "IOS-XE has no candidate datastore by default");
+  assert.ok(net.check({ type: "netconf-rpc", from: "WS", op: "edit-config" }));
+  assert.ok(net.check({ type: "netconf-rpc", from: "WS", op: "get-config", ok: false }));
+  ws.input("close-session");
+  assert.equal(ws.prompt(), "student@WS:~$ ");
+  assert.match(x.input("show netconf-yang sessions"), /Number of sessions : 0/);
+  // Turning NETCONF off ends a live session.
+  ws.input(`${nc} -i`);
+  applyConfig(net, "CSR1", ["no netconf-yang"]);
+  assert.match(ws.input("get-config"), /closed by the server/);
+  assert.equal(ws.prompt(), "student@WS:~$ ");
+});
+
+test("the Linux workstation: ip, ping and traceroute behave like Ubuntu", () => {
+  const net = xeLab();
+  const ws = new Session(net, "WS");
+  assert.match(ws.greeting(), /Ubuntu 22\.04/);
+  assert.equal(ws.prompt(), "student@WS:~$ ");
+  assert.match(ws.input("ip addr"), /inet 10\.0\.0\.10\/24 brd 10\.0\.0\.255 scope global eth0/);
+  assert.equal(ws.input("ip route"), "default via 10.0.0.1 dev eth0 proto static\n10.0.0.0/24 dev eth0 proto kernel scope link src 10.0.0.10");
+  assert.equal(ws.input("ip route add default via 10.0.0.1"), "RTNETLINK answers: File exists");
+  assert.equal(ws.input("ip addr add 10.0.0.300/24 dev eth0"), 'Error: inet prefix is expected rather than "10.0.0.300/24".');
+  assert.equal(ws.input("ip route del default"), "");
+  assert.equal(ws.input("ip route add default via 192.168.1.1"), "Error: Nexthop has invalid gateway.");
+  ws.input("ip route add default via 10.0.0.1");
+  const p = ws.input("ping -c 2 10.0.0.1");
+  assert.match(p, /^PING 10\.0\.0\.1 \(10\.0\.0\.1\) 56\(84\) bytes of data\.\n64 bytes from 10\.0\.0\.1: icmp_seq=1 ttl=255/);
+  assert.match(p, /2 packets transmitted, 2 received, 0% packet loss/);
+  assert.match(ws.input("traceroute 10.12.0.1"), /^traceroute to 10\.12\.0\.1 \(10\.12\.0\.1\), 30 hops max, 60 byte packets\n 1 {2}10\.0\.0\.1 \(10\.0\.0\.1\)/);
+  assert.equal(ws.input("show ip"), "show: command not found");
+  assert.equal(ws.input("curl"), "curl: no URL specified!\ncurl: try 'curl --help' or 'curl --manual' for more information");
+  assert.equal(ws.input("curl -k https://csr1/restconf"), "curl: (6) Could not resolve host: csr1");
+  assert.equal(ws.help("ip ad"), null, "? is an ordinary character in a shell");
+  ws.input("ip addr flush dev eth0");
+  assert.equal(ws.input("ping -c 1 10.0.0.1"), "PING 10.0.0.1 (10.0.0.1) 56(84) bytes of data.\nping: connect: Network is unreachable");
+});
+
 console.log(`ios: ${passed} tests passed`);
