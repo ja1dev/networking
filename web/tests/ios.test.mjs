@@ -345,7 +345,7 @@ test("ACLs: standard, extended, counters, undefined ACL permits", () => {
   assert.ok(net.ping("B", "10.9.0.10").ok);
   const s = new Session(net, "A");
   assert.match(s.input("ping 10.9.0.10"), /\*10\.1\.0\.1 icmp_seq=1 ttl=255 .*code:13, Communication administratively prohibited/);
-  assert.match(console_(net, "R1", "en", "show access-lists"), /10 deny {3}10\.1\.0\.0 0\.0\.0\.255 \(5 matches\)/);
+  assert.match(console_(net, "R1", "en", "show access-lists"), /10 deny {3}10\.1\.0\.0, wildcard bits 0\.0\.0\.255 \(5 matches\)/);
   applyConfig(net, "R1", ["interface g0/2", "no ip access-group 5 out", "ip access-list extended NOECHO",
     "deny icmp any host 10.9.0.10 echo", "permit ip any any", "interface g0/0", "ip access-group NOECHO in"]);
   assert.ok(!net.ping("A", "10.9.0.10").ok);
@@ -369,7 +369,7 @@ test("DHCP: local pool, exclusions, relay, failure", () => {
   applyConfig(net, "R2", ["int g0/1", "ip helper-address 10.0.0.1"]);
   assert.match(console_(net, "B", "dhcp"), /DDORA IP 192\.168\.2\.2\/24 GW 192\.168\.2\.1/);
   assert.ok(net.ping("B", "192.168.1.10").ok);
-  assert.match(console_(net, "R1", "en", "show ip dhcp binding"), /192\.168\.1\.10 +0100507966/);
+  assert.match(console_(net, "R1", "en", "show ip dhcp binding"), /192\.168\.1\.10 +0100\.5079\.6668\.\d\d/);
   assert.match(console_(net, "A", "ip dhcp"), /192\.168\.1\.10\/24/, "a client gets its old lease back");
 });
 
@@ -759,7 +759,7 @@ test("abbreviations are as ambiguous as on IOS", () => {
   assert.match(console_(net, "SW1", "en", "conf t", "int f0/1", "s"), /% Ambiguous command:  "s"/);
   const sw = new Session(net, "SW1");
   for (const l of ["en", "conf t", "int f0/1"]) sw.input(l);
-  assert.equal(sw.help("s"), "shutdown  spanning-tree  speed  switchport");
+  assert.equal(sw.help("s"), "service-policy  shutdown  spanning-tree  speed  switchport");
   for (const cmd of ["sh run", "sh ip int br", "sh vlan br", "sh int trunk", "sh ip ro", "sh cdp nei", "sh mac add", "sh ver", "sh int status",
     "sh spanning-tree", "sh etherchannel sum", "sh port-security", "sh start", "terminal length 0", "wr"]) {
     assert.doesNotMatch(console_(net, "SW1", "en", cmd), /% (Invalid|Ambiguous|Incomplete)/, cmd);
