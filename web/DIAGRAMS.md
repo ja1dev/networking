@@ -77,7 +77,8 @@ Use these choices everywhere they apply:
 * **Steps** (two or more) turn the diagram into a step-through with Back and Next.
   * `nodes` (a `badge` of up to 14 characters, a `tone`, and a `state` of `active`, `down` or
     `dim`) and `links` (`active`, `blocked`, `down` or `dim`) **carry forward** to later steps
-    until changed; `null` clears them.
+    until changed. `"R1": null` clears all of a node's state, `"R1": {"badge": null}` clears just
+    its badge, and `"A-B": null` clears a link's state.
   * `focus` and `packets` belong to one step only. Focus dims everything else.
   * A packet's `path` must follow links. When two nodes have more than one link between them,
     name the link per hop in `via`, using `null` for hops that have only one link.

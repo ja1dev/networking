@@ -143,7 +143,7 @@ const topo = {
   steps: [
     { nodes: { A: { badge: "DR" } }, links: { "A-B": "blocked" }, focus: ["A"], packets: [{ path: ["A", "B", "C"], via: [null, "p2"] }] },
     { nodes: { B: { badge: "BDR" } }, links: { t1: "active" } },
-    { nodes: { A: null }, links: { "B-A": null }, focus: ["t1"] },
+    { nodes: { A: null, B: { badge: null } }, links: { "B-A": null }, focus: ["t1"] },
   ],
 };
 let st = L.topologyState(topo, 0);
@@ -155,7 +155,8 @@ assert.equal(st.nodes.A.badge, "DR", "badges carry forward");
 assert.equal(st.links[1], "active");
 assert.equal(st.focus.size, 0, "focus belongs to one step");
 st = L.topologyState(topo, 2);
-assert.ok(!("A" in st.nodes), "null clears a badge");
+assert.ok(!("A" in st.nodes), "null clears a node's state");
+assert.deepEqual(st.nodes.B, {}, "a null field clears just that field");
 assert.ok(!(0 in st.links), "null clears a link state");
 assert.ok(st.focus.has("link:1"));
 const seq = { messages: [{ states: { R1: "Idle" } }, {}, { states: { R1: "Up", R2: "Up" } }] };

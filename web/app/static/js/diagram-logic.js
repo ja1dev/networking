@@ -38,7 +38,11 @@ export function topologyState(spec, i) {
   for (let k = 0; k <= i && k < steps.length; k++) {
     for (const [id, st] of Object.entries(steps[k].nodes || {})) {
       if (st === null) delete nodes[id];
-      else nodes[id] = { ...nodes[id], ...st };
+      else {
+        // A null field clears just that field (say, the badge) and keeps the rest.
+        nodes[id] = { ...nodes[id], ...st };
+        for (const [k, v] of Object.entries(st)) if (v === null) delete nodes[id][k];
+      }
     }
     for (const [ref, st] of Object.entries(steps[k].links || {})) {
       const li = index.get(ref);

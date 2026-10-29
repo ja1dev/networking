@@ -155,6 +155,8 @@ def _topology(spec):
             if st is None:
                 continue
             _keys(st, "%s node %s" % (where, nid), (), ("badge", "tone", "state"))
+            # null clears one carried-forward field; null for the whole node clears all of them.
+            st = {k: v for k, v in st.items() if v is not None}
             if "badge" in st:
                 _need(isinstance(st["badge"], str) and 0 < len(st["badge"]) <= 14,
                       "%s node %s badge must be 1-14 characters" % (where, nid))

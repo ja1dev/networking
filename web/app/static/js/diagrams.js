@@ -160,7 +160,9 @@ function drawTopology(svg, spec, onPick) {
     const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
     const endLabel = (text, from) => {
       if (!text) return null;
-      const t = Math.min(0.32, 46 / len);
+      // Sit just clear of the device's icon at that end, however short the link.
+      const kind = pos[from === "a" ? l.a : l.b].n.kind || "router";
+      const t = Math.min(0.45, Math.max(46, WIDTH[kind] + 22) / len);
       const pt = at(from === "a" ? t : 1 - t);
       const el = svgEl("text", { x: pt.x + nx * 11, y: pt.y + ny * 11 + 4, class: "dg-port" }, gLabels);
       el.textContent = text;
