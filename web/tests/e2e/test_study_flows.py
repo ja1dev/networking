@@ -53,7 +53,7 @@ def test_reader_section_completes_through_its_questions(user_page, server):
 
 def test_reader_section_without_questions_completes_at_the_end(user_page, server):
     page = user_page
-    page.goto(server.base + "/read/ccna/1-3")
+    page.goto(server.base + "/read/ccnp/glossary-quick-definitions-overview")  # nothing to quiz: reading it completes it
     section = page.locator("#section-status")
     expect(section).to_contain_text("This section completes when you reach the end of it.")
     # Pressing Space to scroll mustn't flip anything; only reaching the end completes the section.

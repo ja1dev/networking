@@ -634,7 +634,7 @@ function mountPath(fig, spec) {
   });
   const pick = (id, sel) => h("select", { "aria-label": id },
     spec.nodes.map((n) => h("option", { value: n.id, selected: n.id === sel }, n.label ?? n.id)));
-  const from = pick("From", spec.from), to = pick("To", spec.to);
+  const from = pick("Path from", spec.from), to = pick("Path to", spec.to);
   const ends = h("div", { class: "dg-ends" }, h("label", {}, "From ", from), h("label", {}, "To ", to));
   const metric = spec.metric || "Cost";
   const editors = h("div", { class: "dg-costs" });

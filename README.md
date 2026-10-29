@@ -70,7 +70,7 @@ structured content, and the app tracks your progress in Postgres.
 
 | Area | What it does |
 | --- | --- |
-| **Read** | Both guides, the Study Tips and the DevNet companion, page by page, with a contents sidebar. Each page can be marked done and has a notes box. Every exam-style question is a live widget: pick, check, see why. Answers are graded on the server, so they never appear in the page source. Click any diagram to open it full size |
+| **Read** | Both guides, the Study Tips and the DevNet companion, page by page, with a contents sidebar and a notes box. Every exam-style question is a live widget: pick, check, see why. Answers are graded on the server, so they never appear in the page source. A section completes by itself once every question in it is answered correctly (or, with no questions, when read to the end). **Interactive diagrams** sit in the text: step-throughs of processes on a topology (DMVPN redirects, STP, packet walks), message ladders for protocol exchanges (the BGP FSM, DHCP, TCP), clickable maps, and try-it widgets for elections (root bridge, DR/BDR, BGP best path), shortest paths, address and DSCP bits, and ACL and prefix-list matching. Click any picture to open it full size |
 | **Terminal** | 68 guided CLI labs (20 CCNA, 48 CCNP: ENCOR and ENARSI) plus a sandbox, run on a Cisco IOS-style simulator in the browser (`web/app/static/js/ios.js`). Each lab has a live topology diagram (links go green when up, amber when spanning tree blocks them, thick when bundled, tunnels as arcs with a lock when encrypted; pings animate along their path) and a console per router, switch and VPCS PC, with `?` help (including a trailing `?`), Tab completion, abbreviations with IOS's ambiguity errors, `no` and `do`, `\| include/section`, extended ping and real IOS messages. Tasks are checked against what the simulated network actually does. CCNA: VLANs, trunks, STP, EtherChannel, port security, OSPF, ACLs, DHCP, NAT, HSRP, IPv6, SSH. CCNP: MST, VTP, VRRP/GLBP, SPAN, DHCP snooping/DAI/PVLANs, L3 switching, OSPF areas/stub/NSSA/virtual links, EIGRP named/stub/IPv6, RIP, redistribution and route-maps, PBR and IP SLA, BGP and MP-BGP, MPLS LDP and L3VPN, VRF-lite, GRE, IPsec, DMVPN, multicast (PIM, IGMP, Auto-RP, BSR), QoS, NTP, syslog, SNMPv3, NetFlow, AAA, EEM, and RESTCONF/NETCONF against IOS-XE routers from a Linux workstation. The simulator's fidelity to real IOS output is pinned by `web/tests/ios_conformance.test.mjs`. Progress saves to the server |
 | **Quiz** | Builds sets from the 152 CCNA bank and 814 CCNP questions by topic (or all of ENCOR / ENARSI), filtered to all, unseen or missed. **Practice** explains each answer as you go; **Exam** is timed (72s a question by default), lets you flag and change answers, and grades at the end with a per-topic breakdown |
 | **Flashcards** | 874 cards (299 CCNA, 575 CCNP) with Anki-style spaced repetition (learning steps, ease, lapses), a daily new-card limit, per-deck study, cram mode and a browser |
@@ -118,6 +118,7 @@ python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 node tests/subnet_math.test.mjs && node tests/subnet_gen.test.mjs
 node tests/ios.test.mjs                        # simulator, and every terminal lab's solution
 node tests/ios_conformance.test.mjs            # simulator output against real IOS behaviour
+node tests/diagrams.test.mjs                   # diagram logic, and every diagram in the built content
 .venv/bin/python -m pytest tests/e2e -m e2e    # browser end-to-end suite (Chrome, ~3 min)
 ```
 
@@ -133,6 +134,10 @@ Schema changes go through Alembic: edit `app/models.py`, then
 `alembic revision --autogenerate -m "..."` and review the file in
 `migrations/versions/`. The content build fails loudly if a question block in
 the markdown stops parsing, which stops a broken deploy at build time.
+
+Interactive diagrams are ```` ```diagram ```` JSON blocks in the guides' markdown; `web/DIAGRAMS.md`
+documents every type and field. The content build validates each one and names the
+diagram and the problem when one is wrong.
 
 ## Layout
 
