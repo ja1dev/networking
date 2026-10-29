@@ -100,7 +100,9 @@ mark { background: #ffe58a; color: #1a1a1a; border-radius: 2px; padding: 0 1px; 
 .nav a:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
 .nav a.active { background: var(--accent-soft); color: var(--accent); }
 .nav svg { width: 18px; height: 18px; flex: none; }
-.sidebar-foot { margin-top: auto; display: flex; gap: 6px; padding: 0 4px; }
+.sidebar-foot { margin-top: auto; display: flex; gap: 6px; padding: 0 4px; align-items: center; }
+.sidebar-foot .who { margin-right: auto; padding-left: 6px; font-size: .85rem; color: var(--muted);
+                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .main { flex: 1; min-width: 0; }
 .content { max-width: 980px; margin: 0 auto; padding: 32px 32px 80px; }
 .content.narrow { max-width: 780px; }
@@ -133,6 +135,8 @@ mark { background: #ffe58a; color: #1a1a1a; border-radius: 2px; padding: 0 1px; 
 .btn-good { background: var(--good); border-color: var(--good); color: #fff; }
 .btn-bad { background: var(--bad); border-color: var(--bad); color: #fff; }
 .btn-ghost { background: transparent; border-color: transparent; }
+.btn-danger { color: var(--bad); }
+.btn-danger:hover { background: var(--bad-soft); }
 .btn-sm { padding: 5px 10px; font-size: .85rem; }
 .btn-lg { padding: 12px 20px; font-size: 1rem; }
 .icon-btn { background: none; border: 0; padding: 6px; border-radius: 8px; color: var(--muted); cursor: pointer;
@@ -421,9 +425,13 @@ kbd { font-family: var(--mono); font-size: .75rem; border: 1px solid var(--borde
 .topo-link { stroke: var(--bad); stroke-width: 3; stroke-dasharray: 7 6; }
 .topo-link.up { stroke: var(--good); stroke-dasharray: none; }
 .topo-link.trunk { stroke-width: 6; }
+.topo-link.up.blocked { stroke: var(--warn); stroke-dasharray: 3 6; }
+.topo-link.up.partial { stroke: var(--warn); stroke-dasharray: 14 5; }
+.topo-link.up.bundled { stroke-width: 7; }
 .topo-port { font: 600 11px var(--mono); fill: var(--muted); text-anchor: middle;
   paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 .topo-port.shut { fill: var(--bad); }
+.topo-port.err { font-weight: 700; }
 .topo-dev { cursor: pointer; outline: none; }
 .dev-ring { fill: transparent; stroke: transparent; stroke-width: 3; }
 .topo-dev:hover .dev-ring, .topo-dev:focus-visible .dev-ring { stroke: var(--border); }
@@ -447,6 +455,8 @@ kbd { font-family: var(--mono); font-size: .75rem; border: 1px solid var(--borde
 .lg { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--good); }
 .lg-down { border-top: 3px dashed var(--bad); }
 .lg-trunk { border-top-width: 6px; }
+.lg-blocked { border-top: 3px dotted var(--warn); }
+.lg-partial { border-top: 3px dashed var(--warn); }
 
 .console-card { padding: 0; overflow: hidden; }
 .console-tabs { display: flex; gap: 2px; padding: 6px 6px 0; background: var(--surface-2); border-bottom: 1px solid var(--border);
@@ -496,3 +506,18 @@ kbd { font-family: var(--mono); font-size: .75rem; border: 1px solid var(--borde
 .lightbox img { max-width: min(1400px, 100%); max-height: 100%; width: auto; height: auto; border-radius: 8px; background: #fff;
   padding: 8px; box-shadow: 0 10px 40px rgba(0, 0, 0, .5); }
 .lightbox-cap { position: fixed; bottom: 14px; left: 0; right: 0; text-align: center; color: #e6edf3; font-size: .9rem; padding: 0 16px; }
+
+/* ---------- users ---------- */
+.user-form { display: grid; grid-template-columns: 1fr 1fr 140px auto; gap: 10px; align-items: start; }
+.user-form > :last-child { align-self: end; }
+@media (max-width: 720px) { .user-form { grid-template-columns: 1fr; } }
+.users-table td { vertical-align: middle; }
+.users-table .actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.users-table select { width: auto; padding: 4px 8px; }
+@media (max-width: 720px) {
+  .users-table thead { display: none; }
+  .users-table tr { display: block; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .users-table td { display: block; border: 0; padding: 4px 10px; }
+  .users-table td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
+  .users-table .actions { justify-content: flex-start; }
+}

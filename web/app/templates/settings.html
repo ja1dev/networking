@@ -2,7 +2,7 @@
 {% block title %}Settings{% endblock %}
 {% block content_class %}narrow{% endblock %}
 {% block content %}
-<div class="page-head"><h1>Settings</h1></div>
+<div class="page-head"><h1>Settings</h1><p>These are your own settings; other users have theirs.</p></div>
 <form id="settings" class="card stack">
   <div>
     <label class="field" for="new_cards_per_day">New flashcards per day</label>
@@ -24,6 +24,22 @@
   </div>
   <div><button class="btn btn-primary" type="submit">Save settings</button></div>
 </form>
+{% if AUTH_ENABLED %}
+<form id="password-form" class="card stack" style="margin-top:16px" autocomplete="off">
+  <h3 style="margin:0">Your password</h3>
+  <p class="small muted" style="margin:0">Signed in as <strong>{{ user.username }}</strong>{% if user.is_admin %} (admin){% endif %}. Changing your password signs you out on your other devices.</p>
+  <div>
+    <label class="field" for="pw-current">Current password</label>
+    <input type="password" id="pw-current" name="current" required autocomplete="current-password">
+  </div>
+  <div>
+    <label class="field" for="pw-new">New password</label>
+    <input type="password" id="pw-new" name="password" required minlength="{{ min_password }}" autocomplete="new-password">
+    <div class="muted tiny">At least {{ min_password }} characters.</div>
+  </div>
+  <div><button class="btn btn-primary" type="submit">Change password</button></div>
+</form>
+{% endif %}
 <div class="card" style="margin-top:16px">
   <h3>Content</h3>
   <p class="small muted" style="margin:0">Built from the markdown in the repo at deploy time: {{ stats.pages }} reading pages, {{ stats.ccna_bank }} CCNA bank questions, {{ stats.ccnp }} CCNP questions, {{ stats.cards }} flashcards, {{ stats.drills }} worked drills and {{ stats.labs }} lab sections. Edit the markdown and redeploy to update it; your progress is kept.</p>
@@ -44,6 +60,13 @@
       timezone: form.timezone.value.trim(),
     });
     toast("Settings saved");
+  });
+  const pw = document.getElementById("password-form");
+  pw?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await api("PUT", "/api/account/password", { current: pw.current.value, password: pw.password.value });
+    pw.reset();
+    toast("Password changed");
   });
 </script>
 {% endblock %}

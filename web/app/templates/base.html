@@ -29,8 +29,10 @@
       <a href="/labs" class="{{ 'active' if nav == 'labs' }}">{{ icon("lab") }} Labs</a>
       <a href="/search" class="{{ 'active' if nav == 'search' }}">{{ icon("search") }} Search</a>
       <a href="/settings" class="{{ 'active' if nav == 'settings' }}">{{ icon("settings") }} Settings</a>
+      {% if user and user.is_admin %}<a href="/users" class="{{ 'active' if nav == 'users' }}">{{ icon("users") }} Users</a>{% endif %}
     </nav>
     <div class="sidebar-foot">
+      {% if AUTH_ENABLED and user %}<span class="who" title="Signed in as {{ user.username }}">{{ user.username }}</span>{% endif %}
       <button class="icon-btn" type="button" data-theme-toggle title="Toggle dark mode" aria-label="Toggle dark mode">{{ icon("theme") }}</button>
       {% if AUTH_ENABLED %}
       <form method="post" action="/logout"><button class="icon-btn" type="submit" title="Sign out" aria-label="Sign out">{{ icon("logout") }}</button></form>

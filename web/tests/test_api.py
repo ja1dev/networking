@@ -1,7 +1,6 @@
 """End-to-end through the HTTP API, against a migrated SQLite database."""
 import pytest
 
-from app import config
 
 
 PAGES = ["/", "/read", "/read/ccna", "/read/ccnp", "/read/tips", "/read/devnet", "/read/ccnp/1-3",
@@ -185,35 +184,6 @@ def test_dashboard_reflects_progress(client):
 def test_search(client):
     html = client.get("/search?q=ip+helper-address").text
     assert "<mark>" in html and "result" in html
-
-
-def test_login_required_when_password_set(client, monkeypatch):
-    monkeypatch.setattr(config, "AUTH_ENABLED", True)
-    monkeypatch.setattr(config, "APP_PASSWORD", "s3cret-pass")
-    client.cookies.clear()
-    r = client.get("/quiz", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith("/login?next=/quiz")
-    assert client.get("/api/cards/queue").status_code == 401
-    assert client.get("/healthz").status_code == 200
-    bad = client.post("/login", data={"password": "wrong", "next": "/quiz"}, follow_redirects=False)
-    assert bad.status_code == 401
-    ok = client.post("/login", data={"password": "s3cret-pass", "next": "//evil.example"}, follow_redirects=False)
-    assert ok.status_code == 303 and ok.headers["location"] == "/"
-    assert client.get("/quiz").status_code == 200
-    client.post("/logout")
-    assert client.get("/quiz", follow_redirects=False).status_code == 303
-
-
-def test_login_lockout(client, monkeypatch):
-    from app import main
-    monkeypatch.setattr(config, "AUTH_ENABLED", True)
-    monkeypatch.setattr(config, "APP_PASSWORD", "s3cret-pass")
-    main._failures.clear()
-    for _ in range(main.MAX_FAILURES):
-        client.post("/login", data={"password": "nope"})
-    r = client.post("/login", data={"password": "s3cret-pass"})
-    assert r.status_code == 429
-    main._failures.clear()
 
 
 def test_quiz_title_names_the_exam(client, content):

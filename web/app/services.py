@@ -1,6 +1,7 @@
 """Progress tracking: everything that reads or writes the database."""
 import json
 import random
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -12,8 +13,9 @@ from . import srs
 from .content import DOC_ORDER, SOURCE_TITLES, Content
 from .db import as_utc, utcnow
 from .models import (CardReview, CardState, DrillAttempt, LabItemCheck, LabProgress,
-                     PageProgress, QuestionAttempt, QuizSession, Setting, TerminalProgress,
-                     TerminalTaskPass)
+                     PageProgress, QuestionAttempt, QuizSession, ROLES, Setting, TerminalProgress,
+                     TerminalTaskPass, User)
+from .passwords import DUMMY_HASH, hash_password, verify_password
 
 SETTINGS = {
     "timezone": {"default": "UTC", "type": str},
@@ -23,6 +25,9 @@ SETTINGS = {
 QUIZ_FILTERS = ("all", "unseen", "missed")
 EXAM_GRACE_SECONDS = 5
 MAX_TERMINAL_STATE = 2_000_000
+USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
+MIN_PASSWORD = 8
+MAX_PASSWORD = 128
 
 
 class ServiceError(ValueError):
@@ -30,11 +35,109 @@ class ServiceError(ValueError):
 
 
 # ---------------------------------------------------------------------------
+# users
+# ---------------------------------------------------------------------------
+
+def _clean_username(username: str) -> str:
+    name = (username or "").strip().lower()
+    if not USERNAME_RE.match(name):
+        raise ServiceError("Usernames are 3 to 32 characters: letters, digits, dots, dashes or "
+                           "underscores, starting with a letter or digit.")
+    return name
+
+
+def _check_password(password: str):
+    if not isinstance(password, str) or not MIN_PASSWORD <= len(password) <= MAX_PASSWORD:
+        raise ServiceError("Passwords are %d to %d characters." % (MIN_PASSWORD, MAX_PASSWORD))
+
+
+def authenticate(db: Session, username: str, password: str) -> User | None:
+    user = db.scalars(select(User).where(User.username == (username or "").strip().lower())).first()
+    if user is None or not user.password_hash:
+        verify_password(password, DUMMY_HASH)
+        return None
+    if not verify_password(password, user.password_hash):
+        return None
+    user.last_login_at = utcnow()
+    db.commit()
+    return user
+
+
+def list_users(db: Session) -> list:
+    return list(db.scalars(select(User).order_by(User.username)))
+
+
+def get_user(db: Session, user_id: int) -> User:
+    user = db.get(User, user_id)
+    if user is None:
+        raise ServiceError("user not found")
+    return user
+
+
+def create_user(db: Session, username: str, password: str, role: str) -> User:
+    name = _clean_username(username)
+    _check_password(password)
+    if role not in ROLES:
+        raise ServiceError("unknown role")
+    if db.scalars(select(User).where(User.username == name)).first() is not None:
+        raise ServiceError("There's already a user called %s." % name)
+    user = User(username=name, password_hash=hash_password(password), role=role)
+    db.add(user)
+    db.commit()
+    return user
+
+
+def set_password(db: Session, user: User, password: str):
+    """Sets a new password and signs the user out everywhere else."""
+    _check_password(password)
+    user.password_hash = hash_password(password)
+    user.session_version += 1
+    db.commit()
+
+
+def change_own_password(db: Session, user: User, current: str, new: str):
+    if not verify_password(current, user.password_hash):
+        raise ServiceError("Your current password isn't right.")
+    set_password(db, user, new)
+
+
+def set_role(db: Session, actor: User, user: User, role: str):
+    if role not in ROLES:
+        raise ServiceError("unknown role")
+    if user.id == actor.id:
+        # Keeps at least one admin: the only way to lose admin is another admin's choice.
+        raise ServiceError("You can't change your own role.")
+    user.role = role
+    db.commit()
+
+
+def delete_user(db: Session, actor: User, user: User):
+    if user.id == actor.id:
+        raise ServiceError("You can't delete your own account.")
+    # The database cascades the delete to every progress row the user owns.
+    db.execute(delete(User).where(User.id == user.id))
+    db.commit()
+
+
+def ensure_admin_password(db: Session, password: str) -> bool:
+    """Gives the first admin APP_PASSWORD if it has no password yet. True when it set one."""
+    admin = db.scalars(select(User).where(User.role == "admin").order_by(User.id)).first()
+    if admin is None:
+        admin = User(username="admin", role="admin")
+        db.add(admin)
+    elif admin.password_hash:
+        return False
+    admin.password_hash = hash_password(password)
+    db.commit()
+    return True
+
+
+# ---------------------------------------------------------------------------
 # settings and local time
 # ---------------------------------------------------------------------------
 
-def get_settings(db: Session) -> dict:
-    stored = {s.key: s.value for s in db.scalars(select(Setting))}
+def get_settings(db: Session, uid: int) -> dict:
+    stored = {s.key: s.value for s in db.scalars(select(Setting).where(Setting.user_id == uid))}
     out = {}
     for key, spec in SETTINGS.items():
         raw = stored.get(key)
@@ -45,7 +148,7 @@ def get_settings(db: Session) -> dict:
     return out
 
 
-def update_settings(db: Session, values: dict) -> dict:
+def update_settings(db: Session, uid: int, values: dict) -> dict:
     for key, value in values.items():
         spec = SETTINGS.get(key)
         if spec is None:
@@ -62,17 +165,17 @@ def update_settings(db: Session, values: dict) -> dict:
                 ZoneInfo(str(value))
             except (ZoneInfoNotFoundError, ValueError):
                 raise ServiceError("unknown timezone %s" % value)
-        row = db.get(Setting, key)
+        row = db.get(Setting, (uid, key))
         if row is None:
-            db.add(Setting(key=key, value=str(value)))
+            db.add(Setting(user_id=uid, key=key, value=str(value)))
         else:
             row.value = str(value)
     db.commit()
-    return get_settings(db)
+    return get_settings(db, uid)
 
 
-def local_tz(db: Session):
-    return ZoneInfo(get_settings(db)["timezone"])
+def local_tz(db: Session, uid: int):
+    return ZoneInfo(get_settings(db, uid)["timezone"])
 
 
 def start_of_local_day(tz, now=None):
@@ -84,41 +187,39 @@ def start_of_local_day(tz, now=None):
 # reading
 # ---------------------------------------------------------------------------
 
-def page_progress(db: Session, doc_id: str) -> dict:
-    rows = db.scalars(select(PageProgress).where(PageProgress.doc_id == doc_id))
+def page_progress(db: Session, uid: int, doc_id: str) -> dict:
+    rows = db.scalars(select(PageProgress).where(PageProgress.user_id == uid, PageProgress.doc_id == doc_id))
     return {r.page_id: r for r in rows}
 
 
-def visit_page(db: Session, doc_id: str, page_id: str) -> PageProgress:
-    row = db.get(PageProgress, (doc_id, page_id))
+def _page_row(db: Session, uid: int, doc_id: str, page_id: str) -> PageProgress:
+    row = db.get(PageProgress, (uid, doc_id, page_id))
     if row is None:
-        row = PageProgress(doc_id=doc_id, page_id=page_id, note="")
+        row = PageProgress(user_id=uid, doc_id=doc_id, page_id=page_id, note="")
         db.add(row)
+    return row
+
+
+def visit_page(db: Session, uid: int, doc_id: str, page_id: str) -> PageProgress:
+    row = _page_row(db, uid, doc_id, page_id)
     row.last_visited_at = utcnow()
     db.commit()
     return row
 
 
-def set_page_complete(db: Session, doc_id: str, page_id: str, done: bool):
-    row = db.get(PageProgress, (doc_id, page_id))
-    if row is None:
-        row = PageProgress(doc_id=doc_id, page_id=page_id, note="")
-        db.add(row)
-    row.completed_at = utcnow() if done else None
+def set_page_complete(db: Session, uid: int, doc_id: str, page_id: str, done: bool):
+    _page_row(db, uid, doc_id, page_id).completed_at = utcnow() if done else None
     db.commit()
 
 
-def set_page_note(db: Session, doc_id: str, page_id: str, note: str):
-    row = db.get(PageProgress, (doc_id, page_id))
-    if row is None:
-        row = PageProgress(doc_id=doc_id, page_id=page_id, note="")
-        db.add(row)
-    row.note = note
+def set_page_note(db: Session, uid: int, doc_id: str, page_id: str, note: str):
+    _page_row(db, uid, doc_id, page_id).note = note
     db.commit()
 
 
-def last_visited(db: Session):
-    return db.scalars(select(PageProgress).where(PageProgress.last_visited_at.is_not(None))
+def last_visited(db: Session, uid: int):
+    return db.scalars(select(PageProgress).where(PageProgress.user_id == uid,
+                                                 PageProgress.last_visited_at.is_not(None))
                       .order_by(PageProgress.last_visited_at.desc()).limit(1)).first()
 
 
@@ -147,19 +248,19 @@ def answer_payload(content: Content, q: dict) -> dict:
             "link": content.question_link(q)}
 
 
-def record_reader_answer(db: Session, content: Content, qid: str, selected) -> dict:
+def record_reader_answer(db: Session, uid: int, content: Content, qid: str, selected) -> dict:
     q = content.questions.get(qid)
     if q is None:
         raise ServiceError("unknown question")
     sel = normalize_selection(q, selected)
     correct = grade(q, sel)
-    db.add(QuestionAttempt(question_id=qid, selected=",".join(sel), correct=correct,
+    db.add(QuestionAttempt(user_id=uid, question_id=qid, selected=",".join(sel), correct=correct,
                            context="reader"))
     db.commit()
     return dict(answer_payload(content, q), correct=correct, selected=sel)
 
 
-def latest_results(db: Session) -> dict:
+def latest_results(db: Session, uid: int) -> dict:
     """question id -> (correct on the latest attempt, attempt count).
 
     Unfinished exam answers don't count: the result isn't known yet.
@@ -168,6 +269,7 @@ def latest_results(db: Session) -> dict:
         select(QuestionAttempt.question_id, QuestionAttempt.correct, QuestionAttempt.context,
                QuizSession.finished_at)
         .outerjoin(QuizSession, QuestionAttempt.session_id == QuizSession.id)
+        .where(QuestionAttempt.user_id == uid)
         .order_by(QuestionAttempt.created_at, QuestionAttempt.id))
     out = {}
     for qid, correct, context, finished in rows:
@@ -178,8 +280,8 @@ def latest_results(db: Session) -> dict:
     return out
 
 
-def page_question_status(db: Session, qids: list) -> dict:
-    results = latest_results(db)
+def page_question_status(db: Session, uid: int, qids: list) -> dict:
+    results = latest_results(db, uid)
     return {qid: results[qid][0] for qid in qids if qid in results}
 
 
@@ -187,7 +289,7 @@ def page_question_status(db: Session, qids: list) -> dict:
 # quizzes
 # ---------------------------------------------------------------------------
 
-def create_quiz(db: Session, content: Content, source: str, groups: list, qfilter: str,
+def create_quiz(db: Session, uid: int, content: Content, source: str, groups: list, qfilter: str,
                 count: int, mode: str) -> QuizSession:
     if source not in SOURCE_TITLES:
         raise ServiceError("unknown question source")
@@ -200,7 +302,7 @@ def create_quiz(db: Session, content: Content, source: str, groups: list, qfilte
     if groups and len(chosen) != len(set(groups)):
         raise ServiceError("unknown group")
     pool = [qid for _, _, ids in chosen for qid in ids]
-    results = latest_results(db)
+    results = latest_results(db, uid)
     if qfilter == "unseen":
         pool = [q for q in pool if q not in results]
     elif qfilter == "missed":
@@ -228,16 +330,16 @@ def create_quiz(db: Session, content: Content, source: str, groups: list, qfilte
         title += " (%s)" % qfilter
     limit = None
     if mode == "exam":
-        limit = get_settings(db)["exam_seconds_per_question"] * count
-    quiz = QuizSession(title=title, mode=mode, question_ids=picked, time_limit_seconds=limit)
+        limit = get_settings(db, uid)["exam_seconds_per_question"] * count
+    quiz = QuizSession(user_id=uid, title=title, mode=mode, question_ids=picked, time_limit_seconds=limit)
     db.add(quiz)
     db.commit()
     return quiz
 
 
-def get_quiz(db: Session, quiz_id: int) -> QuizSession:
+def get_quiz(db: Session, uid: int, quiz_id: int) -> QuizSession:
     quiz = db.get(QuizSession, quiz_id)
-    if quiz is None:
+    if quiz is None or quiz.user_id != uid:
         raise ServiceError("quiz not found")
     if quiz.finished_at is None and quiz.mode == "exam" and quiz.time_limit_seconds:
         deadline = as_utc(quiz.created_at) + timedelta(seconds=quiz.time_limit_seconds)
@@ -301,14 +403,14 @@ def answer_quiz(db: Session, content: Content, quiz: QuizSession, qid: str, sele
     if quiz.mode == "practice":
         if existing is not None:
             raise ServiceError("already answered")
-        db.add(QuestionAttempt(question_id=qid, session_id=quiz.id, selected=",".join(sel),
-                               correct=correct, context="practice"))
+        db.add(QuestionAttempt(user_id=quiz.user_id, question_id=qid, session_id=quiz.id,
+                               selected=",".join(sel), correct=correct, context="practice"))
         db.commit()
         return dict(answer_payload(content, q), correct=correct, selected=sel)
     # Exam: answers can change until the exam is submitted; nothing is revealed.
     if existing is None:
-        db.add(QuestionAttempt(question_id=qid, session_id=quiz.id, selected=",".join(sel),
-                               correct=correct, context="exam"))
+        db.add(QuestionAttempt(user_id=quiz.user_id, question_id=qid, session_id=quiz.id,
+                               selected=",".join(sel), correct=correct, context="exam"))
     else:
         existing.selected, existing.correct, existing.created_at = ",".join(sel), correct, utcnow()
     db.commit()
@@ -324,13 +426,13 @@ def finish_quiz(db: Session, quiz: QuizSession) -> QuizSession:
     return quiz
 
 
-def recent_quizzes(db: Session, limit=10):
-    return list(db.scalars(select(QuizSession).order_by(QuizSession.created_at.desc()).limit(limit)))
+def recent_quizzes(db: Session, uid: int, limit=10):
+    return list(db.scalars(select(QuizSession).where(QuizSession.user_id == uid).order_by(QuizSession.created_at.desc()).limit(limit)))
 
 
-def delete_quiz(db: Session, quiz_id: int):
-    db.execute(delete(QuestionAttempt).where(QuestionAttempt.session_id == quiz_id))
-    db.execute(delete(QuizSession).where(QuizSession.id == quiz_id))
+def delete_quiz(db: Session, quiz: QuizSession):
+    db.execute(delete(QuestionAttempt).where(QuestionAttempt.session_id == quiz.id))
+    db.execute(delete(QuizSession).where(QuizSession.id == quiz.id))
     db.commit()
 
 
@@ -356,16 +458,17 @@ def _schedule_of(row: CardState | None) -> srs.Schedule:
                         as_utc(row.due_at))
 
 
-def new_cards_introduced_today(db: Session, tz) -> int:
+def new_cards_introduced_today(db: Session, uid: int, tz) -> int:
     since = start_of_local_day(tz)
     return db.scalar(select(func.count(func.distinct(CardReview.card_id)))
-                     .where(CardReview.state_before == "new", CardReview.reviewed_at >= since)) or 0
+                     .where(CardReview.user_id == uid, CardReview.state_before == "new",
+                            CardReview.reviewed_at >= since)) or 0
 
 
-def card_counts(db: Session, content: Content) -> dict:
+def card_counts(db: Session, uid: int, content: Content) -> dict:
     """Per deck: new (never studied), learning due, review due, total."""
     now = utcnow()
-    states = {r.card_id: r for r in db.scalars(select(CardState))}
+    states = card_states(db, uid)
     per = defaultdict(lambda: {"new": 0, "learning": 0, "due": 0, "total": 0, "mature": 0})
     for c in content.cards:
         d = per[c["deck"]]
@@ -381,15 +484,15 @@ def card_counts(db: Session, content: Content) -> dict:
     return per
 
 
-def card_queue(db: Session, content: Content, deck: str | None) -> dict:
+def card_queue(db: Session, uid: int, content: Content, deck: str | None) -> dict:
     """Cards to study now: due learning + due reviews, then today's new cards."""
     if deck and deck not in content.deck_by_id:
         raise ServiceError("unknown deck")
     now = utcnow()
-    tz = local_tz(db)
-    settings = get_settings(db)
+    tz = local_tz(db, uid)
+    settings = get_settings(db, uid)
     cards = [c for c in content.cards if not deck or c["deck"] == deck]
-    states = {r.card_id: r for r in db.scalars(select(CardState))}
+    states = card_states(db, uid)
     # Learn ahead: learning steps due in the next 20 minutes count as due now.
     horizon = now + timedelta(minutes=20)
     due, learning, new = [], [], []
@@ -401,7 +504,7 @@ def card_queue(db: Session, content: Content, deck: str | None) -> dict:
             learning.append((as_utc(row.due_at), c))
         elif row.state == "review" and as_utc(row.due_at) <= now:
             due.append((as_utc(row.due_at), c))
-    new_left = max(0, settings["new_cards_per_day"] - new_cards_introduced_today(db, tz))
+    new_left = max(0, settings["new_cards_per_day"] - new_cards_introduced_today(db, uid, tz))
     learning.sort(key=lambda x: x[0])
     due.sort(key=lambda x: x[0])
     queue = [c for _, c in learning] + [c for _, c in due] + new[:new_left]
@@ -419,23 +522,23 @@ def _card_payload(card: dict, row: CardState | None, now: datetime) -> dict:
             "preview": srs.preview(sched, now)}
 
 
-def review_card(db: Session, content: Content, card_id: str, rating: int) -> dict:
+def review_card(db: Session, uid: int, content: Content, card_id: str, rating: int) -> dict:
     card = content.cards_by_id.get(card_id)
     if card is None:
         raise ServiceError("unknown card")
     now = utcnow()
-    row = db.get(CardState, card_id)
+    row = db.get(CardState, (uid, card_id))
     before = _schedule_of(row)
     try:
         nxt = srs.next_schedule(before, int(rating), now)
     except ValueError as e:
         raise ServiceError(str(e))
     if row is None:
-        row = CardState(card_id=card_id)
+        row = CardState(user_id=uid, card_id=card_id)
         db.add(row)
     row.state, row.step, row.interval_days, row.ease = nxt.state, nxt.step, nxt.interval_days, nxt.ease
     row.reps, row.lapses, row.due_at, row.last_reviewed_at = nxt.reps, nxt.lapses, nxt.due_at, now
-    db.add(CardReview(card_id=card_id, rating=int(rating), state_before=before.state,
+    db.add(CardReview(user_id=uid, card_id=card_id, rating=int(rating), state_before=before.state,
                       interval_days=nxt.interval_days, reviewed_at=now))
     db.commit()
     return {"id": card_id, "state": nxt.state, "due_at": nxt.due_at.isoformat(),
@@ -443,8 +546,8 @@ def review_card(db: Session, content: Content, card_id: str, rating: int) -> dic
             "preview": srs.preview(nxt, now)}
 
 
-def card_states(db: Session) -> dict:
-    return {r.card_id: r for r in db.scalars(select(CardState))}
+def card_states(db: Session, uid: int) -> dict:
+    return {r.card_id: r for r in db.scalars(select(CardState).where(CardState.user_id == uid))}
 
 
 # ---------------------------------------------------------------------------
@@ -455,7 +558,7 @@ DRILL_KINDS = {"mask", "network", "hosts-range", "host-count", "prefix-for-hosts
                "same-subnet", "wildcard", "full", "ipv6-compress", "ipv6-expand", "sheet"}
 
 
-def record_drill(db: Session, content: Content, kind: str, correct: bool, duration_ms,
+def record_drill(db: Session, uid: int, content: Content, kind: str, correct: bool, duration_ms,
                  item_id=None):
     if kind not in DRILL_KINDS:
         raise ServiceError("unknown drill kind")
@@ -463,14 +566,15 @@ def record_drill(db: Session, content: Content, kind: str, correct: bool, durati
         raise ServiceError("unknown drill")
     if duration_ms is not None:
         duration_ms = max(0, min(int(duration_ms), 3_600_000))
-    db.add(DrillAttempt(kind=kind, item_id=item_id, correct=bool(correct), duration_ms=duration_ms))
+    db.add(DrillAttempt(user_id=uid, kind=kind, item_id=item_id, correct=bool(correct), duration_ms=duration_ms))
     db.commit()
 
 
-def drill_stats(db: Session, days=30) -> dict:
+def drill_stats(db: Session, uid: int, days=30) -> dict:
     since = utcnow() - timedelta(days=days)
     rows = db.execute(select(DrillAttempt.kind, DrillAttempt.correct, DrillAttempt.duration_ms)
-                      .where(DrillAttempt.created_at >= since, DrillAttempt.item_id.is_(None)))
+                      .where(DrillAttempt.user_id == uid, DrillAttempt.created_at >= since,
+                             DrillAttempt.item_id.is_(None)))
     per = defaultdict(lambda: {"n": 0, "correct": 0, "ms": []})
     for kind, correct, ms in rows:
         p = per[kind]
@@ -489,53 +593,53 @@ def drill_stats(db: Session, days=30) -> dict:
             "avg_seconds": (sum(times) / len(times) / 1000) if times else None}
 
 
-def sheet_results(db: Session) -> dict:
+def sheet_results(db: Session, uid: int) -> dict:
     """Latest self-graded result per worked drill from the drill sheet."""
     rows = db.execute(select(DrillAttempt.item_id, DrillAttempt.correct)
-                      .where(DrillAttempt.item_id.is_not(None))
+                      .where(DrillAttempt.user_id == uid, DrillAttempt.item_id.is_not(None))
                       .order_by(DrillAttempt.created_at, DrillAttempt.id))
     return {item: correct for item, correct in rows}
 
 
-def lab_status(db: Session) -> tuple[dict, dict]:
-    progress = {r.lab_id: r for r in db.scalars(select(LabProgress))}
+def lab_status(db: Session, uid: int) -> tuple[dict, dict]:
+    progress = {r.lab_id: r for r in db.scalars(select(LabProgress).where(LabProgress.user_id == uid))}
     checks = defaultdict(set)
-    for r in db.scalars(select(LabItemCheck)):
+    for r in db.scalars(select(LabItemCheck).where(LabItemCheck.user_id == uid)):
         checks[r.lab_id].add(r.item_id)
     return progress, checks
 
 
-def set_lab_item(db: Session, content: Content, lab_id: str, item_id: str, checked: bool):
+def set_lab_item(db: Session, uid: int, content: Content, lab_id: str, item_id: str, checked: bool):
     lab = content.labs_by_id.get(lab_id)
     if lab is None or item_id not in lab["items"]:
         raise ServiceError("unknown lab item")
-    row = db.get(LabItemCheck, item_id)
+    row = db.get(LabItemCheck, (uid, item_id))
     if checked and row is None:
-        db.add(LabItemCheck(item_id=item_id, lab_id=lab_id))
+        db.add(LabItemCheck(user_id=uid, item_id=item_id, lab_id=lab_id))
     elif not checked and row is not None:
         db.delete(row)
     db.commit()
 
 
-def _lab_row(db: Session, lab_id: str) -> LabProgress:
-    row = db.get(LabProgress, lab_id)
+def _lab_row(db: Session, uid: int, lab_id: str) -> LabProgress:
+    row = db.get(LabProgress, (uid, lab_id))
     if row is None:
-        row = LabProgress(lab_id=lab_id, note="")
+        row = LabProgress(user_id=uid, lab_id=lab_id, note="")
         db.add(row)
     return row
 
 
-def set_lab_complete(db: Session, content: Content, lab_id: str, done: bool):
+def set_lab_complete(db: Session, uid: int, content: Content, lab_id: str, done: bool):
     if lab_id not in content.labs_by_id:
         raise ServiceError("unknown lab")
-    _lab_row(db, lab_id).completed_at = utcnow() if done else None
+    _lab_row(db, uid, lab_id).completed_at = utcnow() if done else None
     db.commit()
 
 
-def set_lab_note(db: Session, content: Content, lab_id: str, note: str):
+def set_lab_note(db: Session, uid: int, content: Content, lab_id: str, note: str):
     if lab_id not in content.labs_by_id:
         raise ServiceError("unknown lab")
-    _lab_row(db, lab_id).note = note
+    _lab_row(db, uid, lab_id).note = note
     db.commit()
 
 
@@ -543,8 +647,8 @@ def set_lab_note(db: Session, content: Content, lab_id: str, note: str):
 # terminal labs
 # ---------------------------------------------------------------------------
 
-def terminal_status(db: Session) -> dict:
-    return {r.lab_id: r for r in db.scalars(select(TerminalProgress))}
+def terminal_status(db: Session, uid: int) -> dict:
+    return {r.lab_id: r for r in db.scalars(select(TerminalProgress).where(TerminalProgress.user_id == uid))}
 
 
 def _terminal_lab(content: Content, lab_id: str) -> dict:
@@ -554,7 +658,8 @@ def _terminal_lab(content: Content, lab_id: str) -> dict:
     return lab
 
 
-def save_terminal(db: Session, content: Content, lab_id: str, state: dict, passing: list) -> dict:
+def save_terminal(db: Session, uid: int, content: Content, lab_id: str, state: dict,
+                  passing: list) -> dict:
     """Store the simulated network and which tasks pass; record first passes and completion."""
     lab = _terminal_lab(content, lab_id)
     total = len(lab["tasks"])
@@ -567,14 +672,14 @@ def save_terminal(db: Session, content: Content, lab_id: str, state: dict, passi
     if len(text) > MAX_TERMINAL_STATE:
         raise ServiceError("lab state is too large to save")
     now = utcnow()
-    row = db.get(TerminalProgress, lab_id)
+    row = db.get(TerminalProgress, (uid, lab_id))
     if row is None:
-        row = TerminalProgress(lab_id=lab_id)
+        row = TerminalProgress(user_id=uid, lab_id=lab_id)
         db.add(row)
     row.state, row.passing, row.updated_at = text, passing, now
     for i in passing:
-        if db.get(TerminalTaskPass, (lab_id, i)) is None:
-            db.add(TerminalTaskPass(lab_id=lab_id, task_no=i, passed_at=now))
+        if db.get(TerminalTaskPass, (uid, lab_id, i)) is None:
+            db.add(TerminalTaskPass(user_id=uid, lab_id=lab_id, task_no=i, passed_at=now))
     newly_completed = bool(total) and len(passing) == total and row.completed_at is None
     if newly_completed:
         row.completed_at = now
@@ -582,10 +687,10 @@ def save_terminal(db: Session, content: Content, lab_id: str, state: dict, passi
     return {"completed": row.completed_at is not None, "newly_completed": newly_completed}
 
 
-def reset_terminal(db: Session, content: Content, lab_id: str):
+def reset_terminal(db: Session, uid: int, content: Content, lab_id: str):
     """Back to the lab's starting network. Completion and first-pass history are kept."""
     _terminal_lab(content, lab_id)
-    row = db.get(TerminalProgress, lab_id)
+    row = db.get(TerminalProgress, (uid, lab_id))
     if row is not None:
         row.state, row.passing, row.updated_at = "", [], utcnow()
         db.commit()
@@ -595,15 +700,13 @@ def reset_terminal(db: Session, content: Content, lab_id: str):
 # dashboard
 # ---------------------------------------------------------------------------
 
-def activity_by_day(db: Session, tz, days=112) -> Counter:
+def activity_by_day(db: Session, uid: int, tz, days=112) -> Counter:
     since = utcnow() - timedelta(days=days + 1)
     stamps = []
-    stamps += db.scalars(select(QuestionAttempt.created_at).where(QuestionAttempt.created_at >= since))
-    stamps += db.scalars(select(CardReview.reviewed_at).where(CardReview.reviewed_at >= since))
-    stamps += db.scalars(select(DrillAttempt.created_at).where(DrillAttempt.created_at >= since))
-    stamps += db.scalars(select(PageProgress.completed_at).where(PageProgress.completed_at >= since))
-    stamps += db.scalars(select(LabItemCheck.checked_at).where(LabItemCheck.checked_at >= since))
-    stamps += db.scalars(select(TerminalTaskPass.passed_at).where(TerminalTaskPass.passed_at >= since))
+    for model, column in ((QuestionAttempt, QuestionAttempt.created_at), (CardReview, CardReview.reviewed_at),
+                          (DrillAttempt, DrillAttempt.created_at), (PageProgress, PageProgress.completed_at),
+                          (LabItemCheck, LabItemCheck.checked_at), (TerminalTaskPass, TerminalTaskPass.passed_at)):
+        stamps += db.scalars(select(column).where(model.user_id == uid, column >= since))
     return Counter(as_utc(s).astimezone(tz).date() for s in stamps)
 
 
@@ -633,17 +736,17 @@ def heatmap(activity: Counter, today, weeks=16) -> list:
     return cols
 
 
-def dashboard(db: Session, content: Content) -> dict:
-    tz = local_tz(db)
+def dashboard(db: Session, uid: int, content: Content) -> dict:
+    tz = local_tz(db, uid)
     today = utcnow().astimezone(tz).date()
     reading = []
     for doc_id in DOC_ORDER:
         doc = content.docs[doc_id]
-        prog = page_progress(db, doc_id)
+        prog = page_progress(db, uid, doc_id)
         done = sum(1 for pid in doc["order"] if prog.get(pid) and prog[pid].completed_at)
         reading.append({"id": doc_id, "title": doc["title"], "done": done,
                         "total": len(doc["order"])})
-    results = latest_results(db)
+    results = latest_results(db, uid)
     sources = []
     weak = []
     for source in ("bank", "ccnp"):
@@ -657,15 +760,15 @@ def dashboard(db: Session, content: Content) -> dict:
             if g["answered"] >= 3 and g["accuracy"] < 0.85:
                 weak.append(dict(g, source=source))
     weak.sort(key=lambda g: g["accuracy"])
-    counts = card_counts(db, content)
-    settings = get_settings(db)
-    new_left = max(0, settings["new_cards_per_day"] - new_cards_introduced_today(db, tz))
+    counts = card_counts(db, uid, content)
+    settings = get_settings(db, uid)
+    new_left = max(0, settings["new_cards_per_day"] - new_cards_introduced_today(db, uid, tz))
     total_new = sum(d["new"] for d in counts.values())
     since = start_of_local_day(tz)
     reviews_today = db.scalar(select(func.count(CardReview.id))
-                              .where(CardReview.reviewed_at >= since)) or 0
+                              .where(CardReview.user_id == uid, CardReview.reviewed_at >= since)) or 0
     month = utcnow() - timedelta(days=30)
-    recall = db.execute(select(CardReview.rating).where(CardReview.reviewed_at >= month,
+    recall = db.execute(select(CardReview.rating).where(CardReview.user_id == uid, CardReview.reviewed_at >= month,
                                                         CardReview.state_before == "review")).all()
     retention = (sum(1 for (r,) in recall if r > 1) / len(recall)) if recall else None
     cards = {"due": sum(d["due"] + d["learning"] for d in counts.values()),
@@ -674,25 +777,25 @@ def dashboard(db: Session, content: Content) -> dict:
              "mature": sum(d["mature"] for d in counts.values()),
              "total": len(content.cards), "reviews_today": reviews_today,
              "retention": retention}
-    progress, checks = lab_status(db)
+    progress, checks = lab_status(db, uid)
     labs_done = sum(1 for l in content.labs if progress.get(l["id"]) and progress[l["id"]].completed_at)
-    terminal = terminal_status(db)
+    terminal = terminal_status(db, uid)
     graded = [l for l in content.terminal_labs if l["tasks"]]
-    activity = activity_by_day(db, tz)
-    lv = last_visited(db)
+    activity = activity_by_day(db, uid, tz)
+    lv = last_visited(db, uid)
     resume = None
     if lv and content.page(lv.doc_id, lv.page_id):
         resume = {"doc": lv.doc_id, "doc_title": content.docs[lv.doc_id]["title"],
                   "page": content.page(lv.doc_id, lv.page_id)}
     return {
         "reading": reading, "sources": sources, "weak": weak[:6], "cards": cards,
-        "subnetting": drill_stats(db, days=7),
+        "subnetting": drill_stats(db, uid, days=7),
         "labs": {"done": labs_done, "total": sum(1 for l in content.labs if l["items"]),
                  "items_checked": sum(len(v) for v in checks.values())},
         "terminal": {"done": sum(1 for l in graded if terminal.get(l["id"]) and terminal[l["id"]].completed_at),
                      "total": len(graded)},
         "streak": streak(activity, today), "today_count": activity.get(today, 0),
         "heatmap": heatmap(activity, today), "resume": resume,
-        "quizzes": recent_quizzes(db, 5),
-        "tz_is_default": db.get(Setting, "timezone") is None,
+        "quizzes": recent_quizzes(db, uid, 5),
+        "tz_is_default": db.get(Setting, (uid, "timezone")) is None,
     }

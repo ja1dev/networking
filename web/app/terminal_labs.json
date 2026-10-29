@@ -1,977 +1,4471 @@
 [
-  {
-    "id": "device-basics",
-    "title": "Secure a brand-new router",
-    "topic": "Device management",
-    "minutes": 10,
-    "summary": "Name it, lock privileged mode and the console, add a warning banner, encrypt passwords, save.",
-    "intro": "A router fresh out of the box has **no passwords at all**: anyone with a console cable gets full control. These are the first commands you type on every new device.\n\nClick **R1** in the diagram (or its tab) and you're on its console. Type `?` at any point to see what's allowed next, and press **Tab** to finish a keyword. IOS accepts abbreviations, so `conf t` means `configure terminal`.",
-    "height": 220,
-    "devices": [
-      {"name": "R1", "type": "router", "x": 400, "y": 110}
-    ],
-    "links": [],
-    "initial": {},
-    "tasks": [
-      {
-        "title": "Give the router a name",
-        "text": "Set the hostname to `HQ-R1`. The prompt changes straight away, so you always know which box you're on.",
-        "hint": "`enable`, `configure terminal`, `hostname HQ-R1`",
-        "checks": [{"type": "hostname", "device": "R1", "value": "HQ-R1"}]
-      },
-      {
-        "title": "Protect privileged mode",
-        "text": "Require the secret `Cisc0!Enable` to get from `>` to `#`. Use `enable secret`, not `enable password`: the secret is stored as a one-way hash.",
-        "hint": "`enable secret Cisc0!Enable`",
-        "checks": [{"type": "secret", "device": "R1", "value": "Cisc0!Enable"}]
-      },
-      {
-        "title": "Lock the console",
-        "text": "Make the console line ask for the password `C0nsole`. A password alone does nothing until you also tell the line to `login`.",
-        "hint": "`line con 0`, then `password C0nsole` and `login`",
-        "checks": [{"type": "line", "device": "R1", "line": "con", "login": "line", "password": "C0nsole"}]
-      },
-      {
-        "title": "Warn people off",
-        "text": "Add a message-of-the-day banner that says `Authorized access only`. Pick a delimiter character that isn't in the message, such as `#`.",
-        "hint": "`banner motd #Authorized access only#`",
-        "checks": [{"type": "config", "device": "R1", "match": "^banner motd \\^C.*Authorized access only"}]
-      },
-      {
-        "title": "Tidy up two classic annoyances",
-        "text": "Encrypt the plain-text passwords in the config (type 7 is weak, but it stops shoulder-surfing). Then stop IOS treating every typo as a hostname to look up in DNS.",
-        "hint": "`service password-encryption` and `no ip domain-lookup`. Try typing a typo like `shwo` in privileged mode before and after to see the difference.",
-        "checks": [
-          {"type": "config", "device": "R1", "match": "^service password-encryption$"},
-          {"type": "config", "device": "R1", "match": "^no ip domain lookup$"}
-        ]
-      },
-      {
-        "title": "Save it",
-        "text": "Everything so far lives in RAM (running-config). Copy it to NVRAM so it survives a reload. Want proof? Save, `reload`, and log back in.",
-        "hint": "`end`, then `copy running-config startup-config` (or `write memory`)",
-        "checks": [{"type": "saved", "device": "R1"}]
-      }
-    ],
-    "solution": {
-      "R1": ["hostname HQ-R1", "enable secret Cisc0!Enable", "line con 0", "password C0nsole", "login", "exit",
-             "banner motd #Authorized access only#", "service password-encryption", "no ip domain-lookup", "end", "write memory"]
-    }
-  },
-  {
-    "id": "first-lan",
-    "title": "Your first LAN",
-    "topic": "IPv4 addressing",
-    "minutes": 12,
-    "summary": "Address a router interface and two PCs, check the default gateway, give the switch a management IP.",
-    "intro": "Two PCs, one switch, one router. The switch already forwards frames out of the box, so the PCs only need IP addresses. To reach anything *off* their subnet, they also need a **default gateway**: the router's interface.\n\nThe PCs run VPCS, the tiny virtual PC used in EVE-NG and GNS3. Set an address with `ip 192.168.10.11/24 192.168.10.1` (address/prefix, then gateway), check it with `show ip`, and test with `ping`.",
-    "height": 340,
-    "devices": [
-      {"name": "R1", "type": "router", "x": 130, "y": 170},
-      {"name": "SW1", "type": "switch", "x": 400, "y": 170},
-      {"name": "PC1", "type": "pc", "x": 670, "y": 80},
-      {"name": "PC2", "type": "pc", "x": 670, "y": 260}
-    ],
-    "links": [
-      ["R1", "GigabitEthernet0/0", "SW1", "GigabitEthernet0/1"],
-      ["SW1", "FastEthernet0/1", "PC1", "eth0"],
-      ["SW1", "FastEthernet0/2", "PC2", "eth0"]
-    ],
-    "initial": {
-      "R1": ["hostname R1"],
-      "SW1": ["hostname SW1"]
-    },
-    "tasks": [
-      {
-        "title": "Bring up the router's LAN interface",
-        "text": "Give R1 `Gi0/0` the address `192.168.10.1/24`. Router interfaces start **administratively down**, so remember to enable it. Watch the link in the diagram turn green.",
-        "hint": "`interface g0/0`, `ip address 192.168.10.1 255.255.255.0`, `no shutdown`",
-        "checks": [
-          {"type": "ifip", "device": "R1", "intf": "Gi0/0", "ip": "192.168.10.1/24"},
-          {"type": "ifup", "device": "R1", "intf": "Gi0/0"}
-        ]
-      },
-      {
-        "title": "Address both PCs",
-        "text": "PC1 gets `192.168.10.11/24` and PC2 gets `192.168.10.12/24`, both with gateway `192.168.10.1`. Then ping the gateway and each other.",
-        "hint": "On PC1: `ip 192.168.10.11/24 192.168.10.1`, then `ping 192.168.10.1` and `ping 192.168.10.12`",
-        "checks": [
-          {"type": "ping", "from": "PC1", "to": "192.168.10.1"},
-          {"type": "ping", "from": "PC2", "to": "192.168.10.1"},
-          {"type": "ping", "from": "PC1", "to": "192.168.10.12"}
-        ]
-      },
-      {
-        "title": "Give the switch a management address",
-        "text": "A layer 2 switch has no IP for forwarding, but you still want to SSH to it. Put `192.168.10.2/24` on `interface vlan 1` (it starts shut down) and point the switch at its default gateway so you can manage it from other subnets.",
-        "hint": "`interface vlan 1`, `ip address 192.168.10.2 255.255.255.0`, `no shutdown`, `exit`, `ip default-gateway 192.168.10.1`",
-        "checks": [
-          {"type": "ping", "from": "PC1", "to": "192.168.10.2"},
-          {"type": "config", "device": "SW1", "match": "^ip default-gateway 192\\.168\\.10\\.1$"}
-        ]
-      },
-      {
-        "title": "Save both devices",
-        "text": "Save the router and the switch.",
-        "hint": "`write memory` in privileged mode on each one",
-        "checks": [{"type": "saved", "device": "R1"}, {"type": "saved", "device": "SW1"}]
-      }
-    ],
-    "solution": {
-      "R1": ["interface g0/0", "ip address 192.168.10.1 255.255.255.0", "no shutdown", "end", "write memory"],
-      "SW1": ["interface vlan 1", "ip address 192.168.10.2 255.255.255.0", "no shutdown", "exit", "ip default-gateway 192.168.10.1", "end", "write memory"],
-      "PC1": ["ip 192.168.10.11/24 192.168.10.1"],
-      "PC2": ["ip 192.168.10.12/24 192.168.10.1"]
-    }
-  },
-  {
-    "id": "vlans",
-    "title": "Split a switch with VLANs",
-    "topic": "VLANs",
-    "minutes": 12,
-    "summary": "Create two VLANs, assign access ports, prove the broadcast domains are separate, shut unused ports.",
-    "intro": "All four PCs share the subnet `10.0.0.0/24` and right now they can all ping each other, because every port starts in VLAN 1.\n\nYou'll put Sales (PC1, PC2) in VLAN 10 and Engineering (PC3, PC4) in VLAN 20. The IP addresses don't change, yet PC1 will no longer reach PC3: a VLAN is its own broadcast domain, so ARP can't cross between them.",
-    "height": 360,
-    "devices": [
-      {"name": "SW1", "type": "switch", "x": 400, "y": 180},
-      {"name": "PC1", "type": "pc", "x": 120, "y": 70},
-      {"name": "PC2", "type": "pc", "x": 120, "y": 290},
-      {"name": "PC3", "type": "pc", "x": 680, "y": 70},
-      {"name": "PC4", "type": "pc", "x": 680, "y": 290}
-    ],
-    "links": [
-      ["SW1", "FastEthernet0/1", "PC1", "eth0"],
-      ["SW1", "FastEthernet0/2", "PC2", "eth0"],
-      ["SW1", "FastEthernet0/3", "PC3", "eth0"],
-      ["SW1", "FastEthernet0/4", "PC4", "eth0"]
-    ],
-    "initial": {
-      "SW1": ["hostname SW1"],
-      "PC1": ["ip 10.0.0.11/24"],
-      "PC2": ["ip 10.0.0.12/24"],
-      "PC3": ["ip 10.0.0.13/24"],
-      "PC4": ["ip 10.0.0.14/24"]
-    },
-    "tasks": [
-      {
-        "title": "Create the VLANs",
-        "text": "Create VLAN 10 named `SALES` and VLAN 20 named `ENGINEERING`. Check with `show vlan brief`.",
-        "hint": "`vlan 10`, `name SALES`, `vlan 20`, `name ENGINEERING`",
-        "checks": [
-          {"type": "vlan", "device": "SW1", "vlan": 10, "name": "SALES"},
-          {"type": "vlan", "device": "SW1", "vlan": 20, "name": "ENGINEERING"}
-        ]
-      },
-      {
-        "title": "Assign the access ports",
-        "text": "Fa0/1-2 go in VLAN 10, Fa0/3-4 in VLAN 20. Hard-code them as access ports so they never try to negotiate a trunk. `interface range` saves typing.",
-        "hint": "`interface range f0/1 - 2`, `switchport mode access`, `switchport access vlan 10`; same for `f0/3 - 4` with VLAN 20",
-        "checks": [
-          {"type": "access", "device": "SW1", "intf": "Fa0/1", "vlan": 10},
-          {"type": "access", "device": "SW1", "intf": "Fa0/2", "vlan": 10},
-          {"type": "access", "device": "SW1", "intf": "Fa0/3", "vlan": 20},
-          {"type": "access", "device": "SW1", "intf": "Fa0/4", "vlan": 20},
-          {"type": "swmode", "device": "SW1", "intf": "Fa0/1", "mode": "access"},
-          {"type": "swmode", "device": "SW1", "intf": "Fa0/3", "mode": "access"}
-        ]
-      },
-      {
-        "title": "Prove the separation",
-        "text": "PC1 should still reach PC2, PC3 should still reach PC4, but PC1 must **not** reach PC3, even though they're on the same subnet.",
-        "hint": "From PC1: `ping 10.0.0.12` works, `ping 10.0.0.13` fails with 'not reachable' because the ARP broadcast never reaches VLAN 20.",
-        "checks": [
-          {"type": "ping", "from": "PC1", "to": "10.0.0.12"},
-          {"type": "ping", "from": "PC3", "to": "10.0.0.14"},
-          {"type": "noping", "from": "PC1", "to": "10.0.0.13"}
-        ]
-      },
-      {
-        "title": "Shut the unused ports",
-        "text": "Good practice: unused ports are disabled so nobody can plug in and join a VLAN. Shut Fa0/5-24 and Gi0/1-2.",
-        "hint": "`interface range f0/5 - 24, g0/1 - 2`, `shutdown`",
-        "checks": [
-          {"type": "shut", "device": "SW1", "intf": "Fa0/5"},
-          {"type": "shut", "device": "SW1", "intf": "Fa0/24"},
-          {"type": "shut", "device": "SW1", "intf": "Gi0/1"},
-          {"type": "shut", "device": "SW1", "intf": "Gi0/2"}
-        ]
-      }
-    ],
-    "solution": {
-      "SW1": ["vlan 10", "name SALES", "vlan 20", "name ENGINEERING", "exit", "interface range f0/1 - 2", "switchport mode access",
-              "switchport access vlan 10", "interface range f0/3 - 4", "switchport mode access", "switchport access vlan 20",
-              "interface range f0/5 - 24, g0/1 - 2", "shutdown", "end"]
-    }
-  },
-  {
-    "id": "trunks",
-    "title": "Carry VLANs between switches",
-    "topic": "802.1Q trunking",
-    "minutes": 15,
-    "summary": "Build a trunk, move the native VLAN, prune the allowed list, turn off DTP.",
-    "intro": "Both switches already have VLAN 10 (Sales) and VLAN 20 (Engineering), with a PC from each on every switch. The link between them is still a plain access port in VLAN 1, so nothing crosses it.\n\nA **trunk** carries every VLAN over one cable by adding an 802.1Q tag to each frame. The exception is the **native VLAN**, which crosses untagged, so both ends must agree on it.",
-    "height": 360,
-    "devices": [
-      {"name": "SW1", "type": "switch", "x": 270, "y": 180},
-      {"name": "SW2", "type": "switch", "x": 530, "y": 180},
-      {"name": "PC1", "type": "pc", "x": 90, "y": 70},
-      {"name": "PC2", "type": "pc", "x": 90, "y": 290},
-      {"name": "PC3", "type": "pc", "x": 710, "y": 70},
-      {"name": "PC4", "type": "pc", "x": 710, "y": 290}
-    ],
-    "links": [
-      ["SW1", "GigabitEthernet0/1", "SW2", "GigabitEthernet0/1"],
-      ["SW1", "FastEthernet0/1", "PC1", "eth0"],
-      ["SW1", "FastEthernet0/2", "PC2", "eth0"],
-      ["SW2", "FastEthernet0/1", "PC3", "eth0"],
-      ["SW2", "FastEthernet0/2", "PC4", "eth0"]
-    ],
-    "initial": {
-      "SW1": ["hostname SW1", "vlan 10", "name SALES", "vlan 20", "name ENGINEERING", "exit",
-              "interface f0/1", "switchport mode access", "switchport access vlan 10",
-              "interface f0/2", "switchport mode access", "switchport access vlan 20", "end"],
-      "SW2": ["hostname SW2", "vlan 10", "name SALES", "vlan 20", "name ENGINEERING", "exit",
-              "interface f0/1", "switchport mode access", "switchport access vlan 10",
-              "interface f0/2", "switchport mode access", "switchport access vlan 20", "end"],
-      "PC1": ["ip 10.1.10.11/24"],
-      "PC2": ["ip 10.1.20.12/24"],
-      "PC3": ["ip 10.1.10.13/24"],
-      "PC4": ["ip 10.1.20.14/24"]
-    },
-    "tasks": [
-      {
-        "title": "Build the trunk",
-        "text": "Make Gi0/1 a trunk on **both** switches, then ping across: PC1 to PC3 (VLAN 10) and PC2 to PC4 (VLAN 20). Try `show interfaces trunk` before and after.",
-        "hint": "On each switch: `interface g0/1`, `switchport mode trunk`. (Setting just one side would also come up, because the other side's default `dynamic auto` answers DTP. Hard-coding both is the safe habit.)",
-        "checks": [
-          {"type": "swmode", "device": "SW1", "intf": "Gi0/1", "mode": "trunk"},
-          {"type": "swmode", "device": "SW2", "intf": "Gi0/1", "mode": "trunk"},
-          {"type": "ping", "from": "PC1", "to": "10.1.10.13"},
-          {"type": "ping", "from": "PC2", "to": "10.1.20.14"}
-        ]
-      },
-      {
-        "title": "Move the native VLAN off VLAN 1",
-        "text": "Create VLAN 99 named `NATIVE` on both switches and make it the trunk's native VLAN on both ends. A mismatch would quietly leak frames between VLANs, so do both sides.",
-        "hint": "`vlan 99`, `name NATIVE`, then on Gi0/1: `switchport trunk native vlan 99`",
-        "checks": [
-          {"type": "vlan", "device": "SW1", "vlan": 99, "name": "NATIVE"},
-          {"type": "vlan", "device": "SW2", "vlan": 99, "name": "NATIVE"},
-          {"type": "trunk", "device": "SW1", "intf": "Gi0/1", "native": 99},
-          {"type": "trunk", "device": "SW2", "intf": "Gi0/1", "native": 99}
-        ]
-      },
-      {
-        "title": "Allow only what's needed, and stop DTP",
-        "text": "Restrict the trunk to VLANs 10, 20 and 99, and stop the ports sending DTP frames. VLANs 10 and 20 must still work end to end.",
-        "hint": "`switchport trunk allowed vlan 10,20,99` and `switchport nonegotiate`, on both switches",
-        "checks": [
-          {"type": "trunk", "device": "SW1", "intf": "Gi0/1", "allowed": [10, 20, 99], "native": 99},
-          {"type": "trunk", "device": "SW2", "intf": "Gi0/1", "allowed": [10, 20, 99], "native": 99},
-          {"type": "config", "device": "SW1", "match": "^ switchport nonegotiate$"},
-          {"type": "config", "device": "SW2", "match": "^ switchport nonegotiate$"},
-          {"type": "ping", "from": "PC1", "to": "10.1.10.13"},
-          {"type": "ping", "from": "PC2", "to": "10.1.20.14"}
-        ]
-      }
-    ],
-    "solution": {
-      "SW1": ["vlan 99", "name NATIVE", "exit", "interface g0/1", "switchport mode trunk", "switchport trunk native vlan 99",
-              "switchport trunk allowed vlan 10,20,99", "switchport nonegotiate", "end"],
-      "SW2": ["vlan 99", "name NATIVE", "exit", "interface g0/1", "switchport mode trunk", "switchport trunk native vlan 99",
-              "switchport trunk allowed vlan 10,20,99", "switchport nonegotiate", "end"]
-    }
-  },
-  {
-    "id": "router-on-a-stick",
-    "title": "Route between VLANs (router on a stick)",
-    "topic": "Inter-VLAN routing",
-    "minutes": 15,
-    "summary": "One trunk to the router, one subinterface per VLAN, each acting as that VLAN's gateway.",
-    "intro": "VLAN 10 and VLAN 20 are separate subnets, so traffic between them needs a router. Instead of one router port per VLAN, you trunk a single port to the router and split it into **subinterfaces**. Each subinterface is tagged for one VLAN and becomes that VLAN's default gateway.\n\nThe switch side is ready (VLANs and access ports). The PCs already point at `.1` as their gateway.",
-    "height": 420,
-    "devices": [
-      {"name": "R1", "type": "router", "x": 400, "y": 70},
-      {"name": "SW1", "type": "switch", "x": 400, "y": 220},
-      {"name": "PC1", "type": "pc", "x": 210, "y": 350},
-      {"name": "PC2", "type": "pc", "x": 590, "y": 350}
-    ],
-    "links": [
-      ["R1", "GigabitEthernet0/0", "SW1", "GigabitEthernet0/1"],
-      ["SW1", "FastEthernet0/1", "PC1", "eth0"],
-      ["SW1", "FastEthernet0/2", "PC2", "eth0"]
-    ],
-    "initial": {
-      "R1": ["hostname R1"],
-      "SW1": ["hostname SW1", "vlan 10", "name SALES", "vlan 20", "name ENGINEERING", "exit",
-              "interface f0/1", "switchport mode access", "switchport access vlan 10",
-              "interface f0/2", "switchport mode access", "switchport access vlan 20", "end"],
-      "PC1": ["ip 192.168.10.10/24 192.168.10.1"],
-      "PC2": ["ip 192.168.20.10/24 192.168.20.1"]
-    },
-    "tasks": [
-      {
-        "title": "Trunk the switch port facing the router",
-        "text": "Make SW1 Gi0/1 a trunk so frames for both VLANs reach R1, tagged.",
-        "hint": "`interface g0/1`, `switchport mode trunk`",
-        "checks": [{"type": "swmode", "device": "SW1", "intf": "Gi0/1", "mode": "trunk"}]
-      },
-      {
-        "title": "Gateway for VLAN 10",
-        "text": "Enable R1 Gi0/0 (no IP on the physical port). Create `Gi0/0.10`, tag it for VLAN 10 with `encapsulation dot1Q 10`, and give it `192.168.10.1/24`. PC1 should now ping its gateway.",
-        "hint": "`interface g0/0`, `no shutdown`, `interface g0/0.10`, `encapsulation dot1Q 10`, `ip address 192.168.10.1 255.255.255.0`. The encapsulation must come first: IOS refuses an IP on an untagged subinterface.",
-        "checks": [
-          {"type": "ifip", "device": "R1", "intf": "Gi0/0.10", "ip": "192.168.10.1/24"},
-          {"type": "ifup", "device": "R1", "intf": "Gi0/0.10"},
-          {"type": "ping", "from": "PC1", "to": "192.168.10.1"}
-        ]
-      },
-      {
-        "title": "Gateway for VLAN 20",
-        "text": "Same again for VLAN 20 on `Gi0/0.20` with `192.168.20.1/24`.",
-        "hint": "`interface g0/0.20`, `encapsulation dot1Q 20`, `ip address 192.168.20.1 255.255.255.0`",
-        "checks": [
-          {"type": "ifip", "device": "R1", "intf": "Gi0/0.20", "ip": "192.168.20.1/24"},
-          {"type": "ping", "from": "PC2", "to": "192.168.20.1"}
-        ]
-      },
-      {
-        "title": "Route between the VLANs",
-        "text": "PC1 and PC2 should now reach each other through R1. Run `trace 192.168.20.10` on PC1 and watch the first hop.",
-        "hint": "Nothing new to configure. `show ip route` on R1 shows both subnets as connected routes.",
-        "checks": [
-          {"type": "ping", "from": "PC1", "to": "192.168.20.10"},
-          {"type": "ping", "from": "PC2", "to": "192.168.10.10"}
-        ]
-      }
-    ],
-    "solution": {
-      "SW1": ["interface g0/1", "switchport mode trunk", "end"],
-      "R1": ["interface g0/0", "no shutdown", "interface g0/0.10", "encapsulation dot1Q 10", "ip address 192.168.10.1 255.255.255.0",
-             "interface g0/0.20", "encapsulation dot1Q 20", "ip address 192.168.20.1 255.255.255.0", "end"]
-    }
-  },
-  {
-    "id": "static-routes",
-    "title": "Static and default routes",
-    "topic": "IPv4 routing",
-    "minutes": 18,
-    "summary": "Hand-build routing across three routers, use a default route, add a floating static backup.",
-    "intro": "Every interface is already addressed and up, but each router only knows its **connected** networks. A packet from PC1 to PC3 dies at R1, which has no route to `192.168.3.0/24`.\n\nRemember that a ping needs a path **there and back**. Fix one direction and it still fails until the reply has a route home too.\n\n| Link | Subnet |\n|---|---|\n| R1-R2 | 10.0.12.0/30 |\n| R2-R3 | 10.0.23.0/30 |\n| R1-R3 (backup) | 10.0.13.0/30 |\n| PC1 LAN | 192.168.1.0/24 |\n| PC3 LAN | 192.168.3.0/24 |",
-    "height": 400,
-    "devices": [
-      {"name": "R2", "type": "router", "x": 400, "y": 60},
-      {"name": "R1", "type": "router", "x": 160, "y": 190},
-      {"name": "R3", "type": "router", "x": 640, "y": 190},
-      {"name": "PC1", "type": "pc", "x": 160, "y": 340},
-      {"name": "PC3", "type": "pc", "x": 640, "y": 340}
-    ],
-    "links": [
-      ["R1", "GigabitEthernet0/0", "R2", "GigabitEthernet0/0"],
-      ["R2", "GigabitEthernet0/1", "R3", "GigabitEthernet0/0"],
-      ["R1", "GigabitEthernet0/2", "R3", "GigabitEthernet0/2"],
-      ["R1", "GigabitEthernet0/1", "PC1", "eth0"],
-      ["R3", "GigabitEthernet0/1", "PC3", "eth0"]
-    ],
-    "initial": {
-      "R1": ["hostname R1", "interface g0/0", "ip address 10.0.12.1 255.255.255.252", "no shutdown",
-             "interface g0/1", "ip address 192.168.1.1 255.255.255.0", "no shutdown",
-             "interface g0/2", "ip address 10.0.13.1 255.255.255.252", "no shutdown", "end"],
-      "R2": ["hostname R2", "interface g0/0", "ip address 10.0.12.2 255.255.255.252", "no shutdown",
-             "interface g0/1", "ip address 10.0.23.1 255.255.255.252", "no shutdown", "end"],
-      "R3": ["hostname R3", "interface g0/0", "ip address 10.0.23.2 255.255.255.252", "no shutdown",
-             "interface g0/1", "ip address 192.168.3.1 255.255.255.0", "no shutdown",
-             "interface g0/2", "ip address 10.0.13.2 255.255.255.252", "no shutdown", "end"],
-      "PC1": ["ip 192.168.1.10/24 192.168.1.1"],
-      "PC3": ["ip 192.168.3.10/24 192.168.3.1"]
-    },
-    "tasks": [
-      {
-        "title": "Teach R1 the way to PC3's LAN",
-        "text": "On R1, add a static route to `192.168.3.0/24` through R2 (`10.0.12.2`).",
-        "hint": "`ip route 192.168.3.0 255.255.255.0 10.0.12.2`",
-        "checks": [{"type": "route", "device": "R1", "prefix": "192.168.3.0/24", "code": "S", "via": "10.0.12.2"}]
-      },
-      {
-        "title": "R2 needs both LANs",
-        "text": "R2 sits in the middle, so it needs a route to each LAN: `192.168.1.0/24` towards R1 and `192.168.3.0/24` towards R3.",
-        "hint": "`ip route 192.168.1.0 255.255.255.0 10.0.12.1` and `ip route 192.168.3.0 255.255.255.0 10.0.23.2`",
-        "checks": [
-          {"type": "route", "device": "R2", "prefix": "192.168.1.0/24", "code": "S"},
-          {"type": "route", "device": "R2", "prefix": "192.168.3.0/24", "code": "S"}
-        ]
-      },
-      {
-        "title": "Give R3 a default route",
-        "text": "R3 is a branch router: everything that isn't local goes to R2. One default route (`0.0.0.0/0`) covers it. Look for `S*` and the 'Gateway of last resort' line in `show ip route`.",
-        "hint": "`ip route 0.0.0.0 0.0.0.0 10.0.23.1`",
-        "checks": [{"type": "route", "device": "R3", "prefix": "0.0.0.0/0", "code": "S*", "via": "10.0.23.1"}]
-      },
-      {
-        "title": "Test end to end",
-        "text": "PC1 and PC3 should now reach each other. `trace` shows the path through R2.",
-        "hint": "If one direction fails, check the routes on the return path.",
-        "checks": [
-          {"type": "ping", "from": "PC1", "to": "192.168.3.10"},
-          {"type": "ping", "from": "PC3", "to": "192.168.1.10"}
-        ]
-      },
-      {
-        "title": "Add a floating static backup",
-        "text": "Add a second route on R1 to `192.168.3.0/24`, this time over the direct backup link via `10.0.13.2`, with an administrative distance of 200. Because 200 is worse than the primary's 1, it stays out of the routing table until the primary fails. Test it: shut R1 Gi0/0 and check `show ip route`.",
-        "hint": "`ip route 192.168.3.0 255.255.255.0 10.0.13.2 200`. Bring Gi0/0 back up afterwards so the primary returns.",
-        "checks": [
-          {"type": "config", "device": "R1", "match": "^ip route 192\\.168\\.3\\.0 255\\.255\\.255\\.0 10\\.0\\.13\\.2 ([2-9]|[1-9]\\d+)$"},
-          {"type": "route", "device": "R1", "prefix": "192.168.3.0/24", "code": "S", "via": "10.0.12.2"}
-        ]
-      }
-    ],
-    "solution": {
-      "R1": ["ip route 192.168.3.0 255.255.255.0 10.0.12.2", "ip route 192.168.3.0 255.255.255.0 10.0.13.2 200"],
-      "R2": ["ip route 192.168.1.0 255.255.255.0 10.0.12.1", "ip route 192.168.3.0 255.255.255.0 10.0.23.2"],
-      "R3": ["ip route 0.0.0.0 0.0.0.0 10.0.23.1"]
-    }
-  },
-  {
-    "id": "ospf",
-    "title": "Single-area OSPF",
-    "topic": "OSPFv2",
-    "minutes": 20,
-    "summary": "Router IDs, network statements, neighbours, passive LAN interfaces, routes appearing by themselves.",
-    "intro": "Same idea as static routing, but the routers work it out themselves. Each router finds neighbours on its OSPF-enabled links, they swap link-state information, and every router runs SPF to choose best paths.\n\nEvery interface is addressed and up, and each router has a loopback (`1.1.1.1`, `2.2.2.2`, `3.3.3.3`). Watch for `%OSPF-5-ADJCHG` messages as neighbours come up.\n\n| Link | Subnet |\n|---|---|\n| R1-R2 | 10.0.12.0/30 |\n| R2-R3 | 10.0.23.0/30 |\n| R1-R3 | 10.0.13.0/30 |\n| PC1 LAN (R1 Gi0/2) | 192.168.1.0/24 |\n| PC3 LAN (R3 Gi0/2) | 192.168.3.0/24 |",
-    "height": 420,
-    "devices": [
-      {"name": "R1", "type": "router", "x": 200, "y": 90},
-      {"name": "R2", "type": "router", "x": 600, "y": 90},
-      {"name": "R3", "type": "router", "x": 400, "y": 270},
-      {"name": "PC1", "type": "pc", "x": 70, "y": 250},
-      {"name": "PC3", "type": "pc", "x": 640, "y": 360}
-    ],
-    "links": [
-      ["R1", "GigabitEthernet0/0", "R2", "GigabitEthernet0/0"],
-      ["R2", "GigabitEthernet0/1", "R3", "GigabitEthernet0/0"],
-      ["R3", "GigabitEthernet0/1", "R1", "GigabitEthernet0/1"],
-      ["R1", "GigabitEthernet0/2", "PC1", "eth0"],
-      ["R3", "GigabitEthernet0/2", "PC3", "eth0"]
-    ],
-    "initial": {
-      "R1": ["hostname R1", "interface g0/0", "ip address 10.0.12.1 255.255.255.252", "no shutdown",
-             "interface g0/1", "ip address 10.0.13.1 255.255.255.252", "no shutdown",
-             "interface g0/2", "ip address 192.168.1.1 255.255.255.0", "no shutdown",
-             "interface loopback 0", "ip address 1.1.1.1 255.255.255.255", "end"],
-      "R2": ["hostname R2", "interface g0/0", "ip address 10.0.12.2 255.255.255.252", "no shutdown",
-             "interface g0/1", "ip address 10.0.23.1 255.255.255.252", "no shutdown",
-             "interface loopback 0", "ip address 2.2.2.2 255.255.255.255", "end"],
-      "R3": ["hostname R3", "interface g0/0", "ip address 10.0.23.2 255.255.255.252", "no shutdown",
-             "interface g0/1", "ip address 10.0.13.2 255.255.255.252", "no shutdown",
-             "interface g0/2", "ip address 192.168.3.1 255.255.255.0", "no shutdown",
-             "interface loopback 0", "ip address 3.3.3.3 255.255.255.255", "end"],
-      "PC1": ["ip 192.168.1.10/24 192.168.1.1"],
-      "PC3": ["ip 192.168.3.10/24 192.168.3.1"]
-    },
-    "tasks": [
-      {
-        "title": "Start OSPF with fixed router IDs",
-        "text": "On each router, start `router ospf 1` and set the router ID by hand: R1 `1.1.1.1`, R2 `2.2.2.2`, R3 `3.3.3.3`. Do it **before** neighbours form. Changing the ID afterwards needs `clear ip ospf process` to take effect.",
-        "hint": "`router ospf 1`, `router-id 1.1.1.1`",
-        "checks": [
-          {"type": "config", "device": "R1", "match": "^ router-id 1\\.1\\.1\\.1$"},
-          {"type": "config", "device": "R2", "match": "^ router-id 2\\.2\\.2\\.2$"},
-          {"type": "config", "device": "R3", "match": "^ router-id 3\\.3\\.3\\.3$"},
-          {"type": "rid", "device": "R1", "value": "1.1.1.1"},
-          {"type": "rid", "device": "R2", "value": "2.2.2.2"},
-          {"type": "rid", "device": "R3", "value": "3.3.3.3"}
-        ]
-      },
-      {
-        "title": "Advertise every network in area 0",
-        "text": "Add `network` statements so that every interface, including the loopbacks and LANs, is in area 0. Each router should end up with two FULL neighbours (`show ip ospf neighbor`) and learn the far networks as `O` routes.",
-        "hint": "A wildcard mask is the inverse of the subnet mask: `network 10.0.12.0 0.0.0.3 area 0`, `network 192.168.1.0 0.0.0.255 area 0`, `network 1.1.1.1 0.0.0.0 area 0`",
-        "checks": [
-          {"type": "ospf-nbrs", "device": "R1", "count": 2},
-          {"type": "ospf-nbrs", "device": "R2", "count": 2},
-          {"type": "ospf-nbrs", "device": "R3", "count": 2},
-          {"type": "route", "device": "R1", "prefix": "192.168.3.0/24", "code": "O"},
-          {"type": "route", "device": "R2", "prefix": "3.3.3.3/32", "code": "O"}
-        ]
-      },
-      {
-        "title": "Keep hellos off the LANs",
-        "text": "No router lives on the PC LANs, so stop sending hellos there with `passive-interface`. The LAN subnets must still be advertised.",
-        "hint": "On R1 and R3: `router ospf 1`, `passive-interface g0/2`",
-        "checks": [
-          {"type": "passive", "device": "R1", "intf": "Gi0/2"},
-          {"type": "passive", "device": "R3", "intf": "Gi0/2"},
-          {"type": "route", "device": "R2", "prefix": "192.168.1.0/24", "code": "O"}
-        ]
-      },
-      {
-        "title": "Test",
-        "text": "PC1 should reach PC3 and R2's loopback. Shut the R1-R3 link and watch OSPF reroute through R2.",
-        "hint": "`ping 192.168.3.10` and `ping 2.2.2.2` from PC1",
-        "checks": [
-          {"type": "ping", "from": "PC1", "to": "192.168.3.10"},
-          {"type": "ping", "from": "PC1", "to": "2.2.2.2"}
-        ]
-      }
-    ],
-    "solution": {
-      "R1": ["router ospf 1", "router-id 1.1.1.1", "network 10.0.12.0 0.0.0.3 area 0", "network 10.0.13.0 0.0.0.3 area 0",
-             "network 192.168.1.0 0.0.0.255 area 0", "network 1.1.1.1 0.0.0.0 area 0", "passive-interface g0/2", "end"],
-      "R2": ["router ospf 1", "router-id 2.2.2.2", "network 10.0.12.0 0.0.0.3 area 0", "network 10.0.23.0 0.0.0.3 area 0",
-             "network 2.2.2.2 0.0.0.0 area 0", "end"],
-      "R3": ["router ospf 1", "router-id 3.3.3.3", "network 10.0.23.0 0.0.0.3 area 0", "network 10.0.13.0 0.0.0.3 area 0",
-             "network 192.168.3.0 0.0.0.255 area 0", "network 3.3.3.3 0.0.0.0 area 0", "passive-interface g0/2", "end"]
-    }
-  },
-  {
-    "id": "ospf-troubleshooting",
-    "title": "Fix a broken OSPF network",
-    "topic": "OSPF troubleshooting",
-    "minutes": 20,
-    "summary": "Three routers, three different reasons they won't become neighbours. Find and fix each.",
-    "intro": "Someone has configured OSPF on all three routers, but there are no neighbours at all and PC1 can't reach PC3. Each link has its own problem.\n\nUseful commands: `show ip ospf neighbor`, `show ip ospf interface brief`, `show ip ospf interface g0/0` (timers, area, passive), `show ip protocols` and `show running-config | section ospf`.\n\nTwo routers only become neighbours if they agree on **area, subnet, hello and dead timers**, and neither side is passive on that link.",
-    "height": 420,
-    "devices": [
-      {"name": "R1", "type": "router", "x": 200, "y": 90},
-      {"name": "R2", "type": "router", "x": 600, "y": 90},
-      {"name": "R3", "type": "router", "x": 400, "y": 270},
-      {"name": "PC1", "type": "pc", "x": 70, "y": 250},
-      {"name": "PC3", "type": "pc", "x": 640, "y": 360}
-    ],
-    "links": [
-      ["R1", "GigabitEthernet0/0", "R2", "GigabitEthernet0/0"],
-      ["R2", "GigabitEthernet0/1", "R3", "GigabitEthernet0/0"],
-      ["R3", "GigabitEthernet0/1", "R1", "GigabitEthernet0/1"],
-      ["R1", "GigabitEthernet0/2", "PC1", "eth0"],
-      ["R3", "GigabitEthernet0/2", "PC3", "eth0"]
-    ],
-    "initial": {
-      "R1": ["hostname R1", "interface g0/0", "ip address 10.0.12.1 255.255.255.252", "no shutdown",
-             "interface g0/1", "ip address 10.0.13.1 255.255.255.252", "no shutdown",
-             "interface g0/2", "ip address 192.168.1.1 255.255.255.0", "no shutdown",
-             "interface loopback 0", "ip address 1.1.1.1 255.255.255.255",
-             "router ospf 1", "router-id 1.1.1.1", "passive-interface g0/0", "passive-interface g0/2",
-             "network 10.0.12.0 0.0.0.3 area 0", "network 10.0.13.0 0.0.0.3 area 0",
-             "network 192.168.1.0 0.0.0.255 area 0", "network 1.1.1.1 0.0.0.0 area 0", "end"],
-      "R2": ["hostname R2", "interface g0/0", "ip address 10.0.12.2 255.255.255.252", "no shutdown",
-             "interface g0/1", "ip address 10.0.23.1 255.255.255.252", "ip ospf hello-interval 5", "no shutdown",
-             "interface loopback 0", "ip address 2.2.2.2 255.255.255.255",
-             "router ospf 1", "router-id 2.2.2.2", "network 10.0.12.0 0.0.0.3 area 0", "network 10.0.23.0 0.0.0.3 area 0",
-             "network 2.2.2.2 0.0.0.0 area 0", "end"],
-      "R3": ["hostname R3", "interface g0/0", "ip address 10.0.23.2 255.255.255.252", "no shutdown",
-             "interface g0/1", "ip address 10.0.13.2 255.255.255.252", "no shutdown",
-             "interface g0/2", "ip address 192.168.3.1 255.255.255.0", "no shutdown",
-             "interface loopback 0", "ip address 3.3.3.3 255.255.255.255",
-             "router ospf 1", "router-id 3.3.3.3", "passive-interface g0/2", "network 10.0.23.0 0.0.0.3 area 0",
-             "network 10.0.13.0 0.0.0.3 area 1", "network 192.168.3.0 0.0.0.255 area 0", "network 3.3.3.3 0.0.0.0 area 0", "end"],
-      "PC1": ["ip 192.168.1.10/24 192.168.1.1"],
-      "PC3": ["ip 192.168.3.10/24 192.168.3.1"]
-    },
-    "tasks": [
-      {
-        "title": "R1 and R2 aren't neighbours",
-        "text": "Find out why R1 and R2 never exchange hellos on the 10.0.12.0/30 link, and fix it.",
-        "hint": "`show ip ospf interface g0/0` on R1 says 'No Hellos (Passive interface)'. Under `router ospf 1`: `no passive-interface g0/0`.",
-        "checks": [
-          {"type": "ospf-nbr", "device": "R1", "neighbor": "2.2.2.2"},
-          {"type": "ospf-nbr", "device": "R2", "neighbor": "1.1.1.1"}
-        ]
-      },
-      {
-        "title": "R2 and R3 aren't neighbours",
-        "text": "Both routers send hellos on 10.0.23.0/30, but they ignore each other. Compare the timers on both ends.",
-        "hint": "`show ip ospf interface g0/1` on R2 shows Hello 5, Dead 20, but R3 uses 10/40. On R2: `interface g0/1`, `no ip ospf hello-interval`.",
-        "checks": [
-          {"type": "ospf-nbr", "device": "R2", "neighbor": "3.3.3.3"},
-          {"type": "ospf-nbr", "device": "R3", "neighbor": "2.2.2.2"}
-        ]
-      },
-      {
-        "title": "R1 and R3 aren't neighbours",
-        "text": "Same subnet, same timers, still nothing on 10.0.13.0/30. Check which area each side puts the link in.",
-        "hint": "`show ip ospf interface brief` on R3 shows Gi0/1 in area 1. Under `router ospf 1`: `no network 10.0.13.0 0.0.0.3 area 1`, then `network 10.0.13.0 0.0.0.3 area 0`.",
-        "checks": [
-          {"type": "ospf-nbr", "device": "R1", "neighbor": "3.3.3.3"},
-          {"type": "ospf-nbr", "device": "R3", "neighbor": "1.1.1.1"}
-        ]
-      },
-      {
-        "title": "Full reachability",
-        "text": "PC1 should reach PC3, and every router should see every loopback as an `O` route.",
-        "hint": "`show ip route ospf` on each router",
-        "checks": [
-          {"type": "ping", "from": "PC1", "to": "192.168.3.10"},
-          {"type": "route", "device": "R1", "prefix": "3.3.3.3/32", "code": "O"},
-          {"type": "route", "device": "R3", "prefix": "2.2.2.2/32", "code": "O"}
-        ]
-      }
-    ],
-    "solution": {
-      "R1": ["router ospf 1", "no passive-interface g0/0", "end"],
-      "R2": ["interface g0/1", "no ip ospf hello-interval", "end"],
-      "R3": ["router ospf 1", "no network 10.0.13.0 0.0.0.3 area 1", "network 10.0.13.0 0.0.0.3 area 0", "end"]
-    }
-  },
-  {
-    "id": "acl-standard",
-    "title": "Standard ACL: keep one host off the server LAN",
-    "topic": "Access control lists",
-    "minutes": 12,
-    "summary": "Write a standard ACL, place it near the destination, read the match counters.",
-    "intro": "PC2 (`192.168.1.20`) must not reach anything on the server LAN. Everyone else must, and PC2 must keep working on its own LAN and with its gateway.\n\nA **standard** ACL matches only the **source** address. Put it on the interface closest to the destination, outbound, so it doesn't block PC2 from everything else.\n\nEvery ACL ends with an invisible `deny any`, so you need a `permit any` after your deny.",
-    "height": 360,
-    "devices": [
-      {"name": "SW1", "type": "switch", "x": 230, "y": 180},
-      {"name": "PC1", "type": "pc", "x": 70, "y": 70},
-      {"name": "PC2", "type": "pc", "x": 70, "y": 290},
-      {"name": "R1", "type": "router", "x": 470, "y": 180},
-      {"name": "SRV", "type": "pc", "x": 710, "y": 180}
-    ],
-    "links": [
-      ["SW1", "FastEthernet0/1", "PC1", "eth0"],
-      ["SW1", "FastEthernet0/2", "PC2", "eth0"],
-      ["SW1", "GigabitEthernet0/1", "R1", "GigabitEthernet0/0"],
-      ["R1", "GigabitEthernet0/1", "SRV", "eth0"]
-    ],
-    "initial": {
-      "SW1": ["hostname SW1"],
-      "R1": ["hostname R1", "interface g0/0", "ip address 192.168.1.1 255.255.255.0", "no shutdown",
-             "interface g0/1", "ip address 192.168.100.1 255.255.255.0", "no shutdown", "end"],
-      "PC1": ["ip 192.168.1.10/24 192.168.1.1"],
-      "PC2": ["ip 192.168.1.20/24 192.168.1.1"],
-      "SRV": ["ip 192.168.100.100/24 192.168.100.1"]
-    },
-    "tasks": [
-      {
-        "title": "Write the ACL",
-        "text": "Create a standard ACL (number 10 is fine) that denies host `192.168.1.20` and permits everything else.",
-        "hint": "`access-list 10 deny host 192.168.1.20`, then `access-list 10 permit any`",
-        "checks": [
-          {"type": "config", "device": "R1", "match": "deny +192\\.168\\.1\\.20$"},
-          {"type": "config", "device": "R1", "match": "permit any$"}
-        ]
-      },
-      {
-        "title": "Apply it close to the destination",
-        "text": "Apply the ACL **outbound** on R1 Gi0/1, the interface facing the server LAN.",
-        "hint": "`interface g0/1`, `ip access-group 10 out`",
-        "checks": [{"type": "acl-applied", "device": "R1", "intf": "Gi0/1", "dir": "out", "acltype": "standard"}]
-      },
-      {
-        "title": "Verify, and read the counters",
-        "text": "PC2 can't reach the server but can still reach its gateway, and PC1 reaches the server. Then run `show access-lists` on R1 and look at the match counts.",
-        "hint": "PC2's ping shows 'Communication administratively prohibited': R1 is telling it an ACL dropped the packet.",
-        "checks": [
-          {"type": "noping", "from": "PC2", "to": "192.168.100.100"},
-          {"type": "ping", "from": "PC2", "to": "192.168.1.1"},
-          {"type": "ping", "from": "PC1", "to": "192.168.100.100"}
-        ]
-      }
-    ],
-    "solution": {
-      "R1": ["access-list 10 deny host 192.168.1.20", "access-list 10 permit any", "interface g0/1", "ip access-group 10 out", "end"]
-    }
-  },
-  {
-    "id": "acl-extended",
-    "title": "Extended ACL: guests can't ping the server",
-    "topic": "Access control lists",
-    "minutes": 15,
-    "summary": "Named extended ACL matching protocol, source and destination, placed near the source.",
-    "intro": "Three networks hang off R1: corporate (PC1), guest Wi-Fi (PC2) and servers (SRV). Guests may not send ICMP to the server, but can reach everything else, including corporate.\n\nAn **extended** ACL can match the protocol, the source and the destination, so it can sit close to the **source** without catching other traffic.",
-    "height": 360,
-    "devices": [
-      {"name": "R1", "type": "router", "x": 400, "y": 180},
-      {"name": "PC1", "type": "pc", "x": 130, "y": 70},
-      {"name": "PC2", "type": "pc", "x": 130, "y": 290},
-      {"name": "SRV", "type": "pc", "x": 680, "y": 180}
-    ],
-    "links": [
-      ["R1", "GigabitEthernet0/0", "PC1", "eth0"],
-      ["R1", "GigabitEthernet0/1", "PC2", "eth0"],
-      ["R1", "GigabitEthernet0/2", "SRV", "eth0"]
-    ],
-    "initial": {
-      "R1": ["hostname R1", "interface g0/0", "description Corporate", "ip address 192.168.10.1 255.255.255.0", "no shutdown",
-             "interface g0/1", "description Guest", "ip address 192.168.20.1 255.255.255.0", "no shutdown",
-             "interface g0/2", "description Servers", "ip address 192.168.100.1 255.255.255.0", "no shutdown", "end"],
-      "PC1": ["ip 192.168.10.10/24 192.168.10.1"],
-      "PC2": ["ip 192.168.20.10/24 192.168.20.1"],
-      "SRV": ["ip 192.168.100.100/24 192.168.100.1"]
-    },
-    "tasks": [
-      {
-        "title": "Write a named extended ACL",
-        "text": "Create `ip access-list extended GUEST-IN` that denies ICMP from the guest subnet `192.168.20.0/24` to host `192.168.100.100`, then permits all other IP traffic.",
-        "hint": "`ip access-list extended GUEST-IN`, `deny icmp 192.168.20.0 0.0.0.255 host 192.168.100.100`, `permit ip any any`",
-        "checks": [
-          {"type": "config", "device": "R1", "match": "deny icmp 192\\.168\\.20\\.0 0\\.0\\.0\\.255 host 192\\.168\\.100\\.100"},
-          {"type": "config", "device": "R1", "match": "permit ip any any$"}
-        ]
-      },
-      {
-        "title": "Apply it near the source",
-        "text": "Apply it **inbound** on the guest interface, Gi0/1, so guest packets are checked the moment they arrive.",
-        "hint": "`interface g0/1`, `ip access-group GUEST-IN in`",
-        "checks": [{"type": "acl-applied", "device": "R1", "intf": "Gi0/1", "dir": "in", "acltype": "extended"}]
-      },
-      {
-        "title": "Verify",
-        "text": "PC2 can't ping SRV but can ping PC1. PC1 still pings SRV.",
-        "hint": "`show access-lists` shows which line each packet hit.",
-        "checks": [
-          {"type": "noping", "from": "PC2", "to": "192.168.100.100"},
-          {"type": "ping", "from": "PC2", "to": "192.168.10.10"},
-          {"type": "ping", "from": "PC1", "to": "192.168.100.100"}
-        ]
-      }
-    ],
-    "solution": {
-      "R1": ["ip access-list extended GUEST-IN", "deny icmp 192.168.20.0 0.0.0.255 host 192.168.100.100", "permit ip any any",
-             "interface g0/1", "ip access-group GUEST-IN in", "end"]
-    }
-  },
-  {
-    "id": "dhcp",
-    "title": "DHCP server and relay",
-    "topic": "DHCP",
-    "minutes": 15,
-    "summary": "Run a DHCP server on a router for two LANs, one of them through ip helper-address.",
-    "intro": "R1 will hand out addresses to its own LAN and to R2's LAN. DHCP Discover is a **broadcast**, and routers don't forward broadcasts, so R2 needs `ip helper-address` to relay the request to R1 as unicast.\n\nThe PCs start with no address. On a PC, `ip dhcp` runs the four-step DORA exchange (Discover, Offer, Request, Ack). Routing between the routers is already in place.",
-    "height": 380,
-    "devices": [
-      {"name": "SW1", "type": "switch", "x": 220, "y": 150},
-      {"name": "PC1", "type": "pc", "x": 70, "y": 60},
-      {"name": "PC2", "type": "pc", "x": 70, "y": 260},
-      {"name": "R1", "type": "router", "x": 440, "y": 150},
-      {"name": "R2", "type": "router", "x": 660, "y": 150},
-      {"name": "PC3", "type": "pc", "x": 660, "y": 320}
-    ],
-    "links": [
-      ["SW1", "FastEthernet0/1", "PC1", "eth0"],
-      ["SW1", "FastEthernet0/2", "PC2", "eth0"],
-      ["SW1", "GigabitEthernet0/1", "R1", "GigabitEthernet0/0"],
-      ["R1", "GigabitEthernet0/1", "R2", "GigabitEthernet0/0"],
-      ["R2", "GigabitEthernet0/1", "PC3", "eth0"]
-    ],
-    "initial": {
-      "SW1": ["hostname SW1"],
-      "R1": ["hostname R1", "interface g0/0", "ip address 192.168.10.1 255.255.255.0", "no shutdown",
-             "interface g0/1", "ip address 10.0.12.1 255.255.255.252", "no shutdown", "exit",
-             "ip route 192.168.20.0 255.255.255.0 10.0.12.2", "end"],
-      "R2": ["hostname R2", "interface g0/0", "ip address 10.0.12.2 255.255.255.252", "no shutdown",
-             "interface g0/1", "ip address 192.168.20.1 255.255.255.0", "no shutdown", "exit",
-             "ip route 192.168.10.0 255.255.255.0 10.0.12.1", "end"]
-    },
-    "tasks": [
-      {
-        "title": "Reserve addresses for infrastructure",
-        "text": "Stop R1 handing out `.1` to `.10` in both LANs (`192.168.10.0/24` and `192.168.20.0/24`). Those are kept for routers, switches and printers.",
-        "hint": "`ip dhcp excluded-address 192.168.10.1 192.168.10.10`, and the same for 192.168.20",
-        "checks": [
-          {"type": "config", "device": "R1", "match": "^ip dhcp excluded-address 192\\.168\\.10\\.1 192\\.168\\.10\\.10$"},
-          {"type": "config", "device": "R1", "match": "^ip dhcp excluded-address 192\\.168\\.20\\.1 192\\.168\\.20\\.10$"}
-        ]
-      },
-      {
-        "title": "Serve the local LAN",
-        "text": "Create a pool for `192.168.10.0/24` with default router `192.168.10.1` and DNS server `8.8.8.8`. Then run `ip dhcp` on PC1 and PC2.",
-        "hint": "`ip dhcp pool LAN10`, `network 192.168.10.0 255.255.255.0`, `default-router 192.168.10.1`, `dns-server 8.8.8.8`. Check leases with `show ip dhcp binding`.",
-        "checks": [
-          {"type": "dhcp", "device": "PC1"},
-          {"type": "dhcp", "device": "PC2"},
-          {"type": "ip-range", "device": "PC1", "from": "192.168.10.11", "to": "192.168.10.254"},
-          {"type": "ping", "from": "PC1", "to": "192.168.10.1"}
-        ]
-      },
-      {
-        "title": "Serve the remote LAN through a relay",
-        "text": "Add a second pool on R1 for `192.168.20.0/24` (default router `192.168.20.1`). On R2, relay DHCP from its LAN interface to R1's `10.0.12.1`. Then `ip dhcp` on PC3.",
-        "hint": "On R1: `ip dhcp pool LAN20`, `network 192.168.20.0 255.255.255.0`, `default-router 192.168.20.1`. On R2: `interface g0/1`, `ip helper-address 10.0.12.1`",
-        "checks": [
-          {"type": "config", "device": "R2", "match": "^ ip helper-address 10\\.0\\.12\\.1$"},
-          {"type": "dhcp", "device": "PC3"},
-          {"type": "ip-range", "device": "PC3", "from": "192.168.20.11", "to": "192.168.20.254"},
-          {"type": "ping", "from": "PC3", "to": "192.168.10.1"}
-        ]
-      }
-    ],
-    "solution": {
-      "R1": ["ip dhcp excluded-address 192.168.10.1 192.168.10.10", "ip dhcp excluded-address 192.168.20.1 192.168.20.10",
-             "ip dhcp pool LAN10", "network 192.168.10.0 255.255.255.0", "default-router 192.168.10.1", "dns-server 8.8.8.8",
-             "ip dhcp pool LAN20", "network 192.168.20.0 255.255.255.0", "default-router 192.168.20.1", "dns-server 8.8.8.8", "end"],
-      "R2": ["interface g0/1", "ip helper-address 10.0.12.1", "end"],
-      "PC1": ["ip dhcp"],
-      "PC2": ["ip dhcp"],
-      "PC3": ["ip dhcp"]
-    }
-  },
-  {
-    "id": "ssh",
-    "title": "SSH-only management on a switch",
-    "topic": "Device security",
-    "minutes": 15,
-    "summary": "Management IP, RSA keys, local users, SSH v2 only on the VTY lines, then log in from the router.",
-    "intro": "Telnet sends everything, passwords included, in clear text. You'll make SW1 manageable **only** over SSH.\n\nSSH needs four things: a hostname that isn't the default, a domain name (together they name the RSA key), an RSA key pair, and a way to authenticate users (here a local username). Finally the VTY lines must accept SSH and nothing else.",
-    "height": 340,
-    "devices": [
-      {"name": "R1", "type": "router", "x": 520, "y": 80},
-      {"name": "SW1", "type": "switch", "x": 520, "y": 250},
-      {"name": "PC1", "type": "pc", "x": 200, "y": 250}
-    ],
-    "links": [
-      ["SW1", "GigabitEthernet0/1", "R1", "GigabitEthernet0/0"],
-      ["SW1", "FastEthernet0/1", "PC1", "eth0"]
-    ],
-    "initial": {
-      "R1": ["hostname R1", "interface g0/0", "ip address 192.168.1.1 255.255.255.0", "no shutdown", "end"],
-      "SW1": ["hostname SW1"],
-      "PC1": ["ip 192.168.1.10/24 192.168.1.1"]
-    },
-    "tasks": [
-      {
-        "title": "Give SW1 a management address",
-        "text": "`192.168.1.2/24` on `interface vlan 1`, plus a default gateway of `192.168.1.1`.",
-        "hint": "`interface vlan 1`, `ip address 192.168.1.2 255.255.255.0`, `no shutdown`, `exit`, `ip default-gateway 192.168.1.1`",
-        "checks": [
-          {"type": "ping", "from": "PC1", "to": "192.168.1.2"},
-          {"type": "config", "device": "SW1", "match": "^ip default-gateway 192\\.168\\.1\\.1$"}
-        ]
-      },
-      {
-        "title": "Create the keys",
-        "text": "Set the domain name `netlab.local`, generate a 2048-bit RSA key pair, and force SSH version 2.",
-        "hint": "`ip domain-name netlab.local`, `crypto key generate rsa modulus 2048` (or answer the modulus prompt), `ip ssh version 2`. Then `show ip ssh`.",
-        "checks": [
-          {"type": "config", "device": "SW1", "match": "^ip domain name netlab\\.local$"},
-          {"type": "rsa", "device": "SW1", "bits": 2048},
-          {"type": "config", "device": "SW1", "match": "^ip ssh version 2$"}
-        ]
-      },
-      {
-        "title": "Users and VTY lines",
-        "text": "Create user `admin` with secret `Sw1tchAdm!n`. On **all 16** VTY lines (0-15), authenticate against local users and allow SSH only.",
-        "hint": "`username admin secret Sw1tchAdm!n`, `line vty 0 15`, `login local`, `transport input ssh`",
-        "checks": [
-          {"type": "ssh", "device": "SW1"},
-          {"type": "config", "device": "SW1", "match": "^line vty 5 15\\n login local\\n transport input ssh$"}
-        ]
-      },
-      {
-        "title": "Log in from R1",
-        "text": "From R1's privileged prompt, SSH to the switch as `admin`, then type `exit` to come back. Try `telnet 192.168.1.2` too: it should be refused.",
-        "hint": "`ssh -l admin 192.168.1.2`",
-        "checks": [{"type": "login-seen", "device": "SW1", "proto": "ssh", "user": "admin"}]
-      }
-    ],
-    "solution": {
-      "SW1": ["interface vlan 1", "ip address 192.168.1.2 255.255.255.0", "no shutdown", "exit", "ip default-gateway 192.168.1.1",
-              "ip domain-name netlab.local", "crypto key generate rsa modulus 2048", "ip ssh version 2",
-              "username admin secret Sw1tchAdm!n", "line vty 0 15", "login local", "transport input ssh", "end"],
-      "R1": ["end", "ssh -l admin 192.168.1.2", "Sw1tchAdm!n", "exit"]
-    }
-  },
-  {
-    "id": "troubleshooting",
-    "title": "Troubleshooting: Sales is down",
-    "topic": "Troubleshooting",
-    "minutes": 25,
-    "summary": "A ticket with three symptoms and four separate faults across a PC, a switch and a router.",
-    "intro": "**The ticket:** \"Nobody in Sales can reach the file server. PC2 can't even reach PC1 next to it.\"\n\nThe design: PC1 and PC2 are both in VLAN 10 (Sales, `192.168.10.0/24`, gateway `.1`). SW1 trunks to R1, which routes VLAN 10 on `Gi0/0.10`. The server is `172.16.0.100` behind R1 Gi0/1.\n\nWork through it layer by layer. On the PCs: `show ip`. On SW1: `show vlan brief` and `show interfaces trunk`. On R1: `show ip interface brief`.",
-    "height": 380,
-    "devices": [
-      {"name": "PC1", "type": "pc", "x": 80, "y": 80},
-      {"name": "PC2", "type": "pc", "x": 80, "y": 300},
-      {"name": "SW1", "type": "switch", "x": 270, "y": 190},
-      {"name": "R1", "type": "router", "x": 490, "y": 190},
-      {"name": "SRV", "type": "pc", "x": 710, "y": 190}
-    ],
-    "links": [
-      ["SW1", "FastEthernet0/1", "PC1", "eth0"],
-      ["SW1", "FastEthernet0/2", "PC2", "eth0"],
-      ["SW1", "GigabitEthernet0/1", "R1", "GigabitEthernet0/0"],
-      ["R1", "GigabitEthernet0/1", "SRV", "eth0"]
-    ],
-    "initial": {
-      "SW1": ["hostname SW1", "vlan 10", "name SALES", "vlan 20", "name ENGINEERING", "vlan 30", "name VOICE", "exit",
-              "interface f0/1", "switchport mode access", "switchport access vlan 10",
-              "interface f0/2", "switchport mode access", "switchport access vlan 20",
-              "interface g0/1", "switchport mode trunk", "switchport trunk allowed vlan 20,30", "end"],
-      "R1": ["hostname R1", "interface g0/0", "no shutdown",
-             "interface g0/0.10", "encapsulation dot1Q 10", "ip address 192.168.10.1 255.255.255.0",
-             "interface g0/0.20", "encapsulation dot1Q 20", "ip address 192.168.20.1 255.255.255.0",
-             "interface g0/1", "ip address 172.16.0.1 255.255.255.0", "end"],
-      "PC1": ["ip 192.168.10.11/24 192.168.10.254"],
-      "PC2": ["ip 192.168.10.12/24 192.168.10.1"],
-      "SRV": ["ip 172.16.0.100/24 172.16.0.1"]
-    },
-    "tasks": [
-      {
-        "title": "PC2 can't reach PC1",
-        "text": "Two PCs in the same VLAN on the same switch should always reach each other. Why don't they?",
-        "hint": "`show vlan brief` on SW1: Fa0/2 is in VLAN 20. Fix it with `interface f0/2`, `switchport access vlan 10`.",
-        "checks": [{"type": "ping", "from": "PC2", "to": "192.168.10.11"}]
-      },
-      {
-        "title": "Sales can't reach its gateway",
-        "text": "Neither PC can ping `192.168.10.1`, even though R1's subinterface is configured correctly.",
-        "hint": "`show interfaces trunk` on SW1: VLAN 10 isn't allowed on the trunk. `interface g0/1`, `switchport trunk allowed vlan add 10`.",
-        "checks": [
-          {"type": "ping", "from": "PC1", "to": "192.168.10.1"},
-          {"type": "ping", "from": "PC2", "to": "192.168.10.1"}
-        ]
-      },
-      {
-        "title": "Nobody can reach the server",
-        "text": "Both PCs must reach `172.16.0.100`. There are two more faults: one on R1 and one on a PC.",
-        "hint": "`show ip interface brief` on R1: Gi0/1 is administratively down, so `no shutdown` it. Then `show ip` on PC1: its gateway is `.254`. Fix it with `ip 192.168.10.11/24 192.168.10.1`.",
-        "checks": [
-          {"type": "ping", "from": "PC2", "to": "172.16.0.100"},
-          {"type": "ping", "from": "PC1", "to": "172.16.0.100"}
-        ]
-      }
-    ],
-    "solution": {
-      "SW1": ["interface f0/2", "switchport access vlan 10", "interface g0/1", "switchport trunk allowed vlan add 10", "end"],
-      "R1": ["interface g0/1", "no shutdown", "end"],
-      "PC1": ["ip 192.168.10.11/24 192.168.10.1"]
-    }
-  },
-  {
-    "id": "sandbox",
-    "title": "Sandbox",
-    "topic": "Free play",
-    "minutes": 0,
-    "summary": "Two routers, two switches, four PCs, blank configs. Build whatever you like.",
-    "intro": "No tasks and no checks: a blank network to practise on. The routers are cabled to each other and each has a switch with two PCs.\n\nSome ideas: put R1 and R2 on `10.0.12.0/30` and run OSPF between them; give each LAN its own VLANs with router-on-a-stick; lock both routers down with SSH and an ACL. **Reset** wipes everything back to blank.",
-    "height": 400,
-    "devices": [
-      {"name": "R1", "type": "router", "x": 270, "y": 70},
-      {"name": "R2", "type": "router", "x": 530, "y": 70},
-      {"name": "SW1", "type": "switch", "x": 270, "y": 210},
-      {"name": "SW2", "type": "switch", "x": 530, "y": 210},
-      {"name": "PC1", "type": "pc", "x": 120, "y": 340},
-      {"name": "PC2", "type": "pc", "x": 330, "y": 340},
-      {"name": "PC3", "type": "pc", "x": 470, "y": 340},
-      {"name": "PC4", "type": "pc", "x": 680, "y": 340}
-    ],
-    "links": [
-      ["R1", "GigabitEthernet0/1", "R2", "GigabitEthernet0/1"],
-      ["R1", "GigabitEthernet0/0", "SW1", "GigabitEthernet0/1"],
-      ["R2", "GigabitEthernet0/0", "SW2", "GigabitEthernet0/1"],
-      ["SW1", "FastEthernet0/1", "PC1", "eth0"],
-      ["SW1", "FastEthernet0/2", "PC2", "eth0"],
-      ["SW2", "FastEthernet0/1", "PC3", "eth0"],
-      ["SW2", "FastEthernet0/2", "PC4", "eth0"]
-    ],
-    "initial": {
-      "R1": ["hostname R1"],
-      "R2": ["hostname R2"],
-      "SW1": ["hostname SW1"],
-      "SW2": ["hostname SW2"]
-    },
-    "tasks": [],
-    "solution": {}
+ {
+  "id": "device-basics",
+  "title": "Secure a brand-new router",
+  "topic": "Device management",
+  "minutes": 10,
+  "summary": "Name it, lock privileged mode and the console, add a warning banner, encrypt passwords, save.",
+  "intro": "A router fresh out of the box has **no passwords at all**: anyone with a console cable gets full control. These are the first commands you type on every new device.\n\nClick **R1** in the diagram (or its tab) and you're on its console. Type `?` at any point to see what's allowed next, and press **Tab** to finish a keyword. IOS accepts abbreviations, so `conf t` means `configure terminal`.",
+  "height": 220,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 400,
+    "y": 110
+   }
+  ],
+  "links": [],
+  "initial": {},
+  "tasks": [
+   {
+    "title": "Give the router a name",
+    "text": "Set the hostname to `HQ-R1`. The prompt changes straight away, so you always know which box you're on.",
+    "hint": "`enable`, `configure terminal`, `hostname HQ-R1`",
+    "checks": [
+     {
+      "type": "hostname",
+      "device": "R1",
+      "value": "HQ-R1"
+     }
+    ]
+   },
+   {
+    "title": "Protect privileged mode",
+    "text": "Require the secret `Cisc0!Enable` to get from `>` to `#`. Use `enable secret`, not `enable password`: the secret is stored as a one-way hash.",
+    "hint": "`enable secret Cisc0!Enable`",
+    "checks": [
+     {
+      "type": "secret",
+      "device": "R1",
+      "value": "Cisc0!Enable"
+     }
+    ]
+   },
+   {
+    "title": "Lock the console",
+    "text": "Make the console line ask for the password `C0nsole`. A password alone does nothing until you also tell the line to `login`.",
+    "hint": "`line con 0`, then `password C0nsole` and `login`",
+    "checks": [
+     {
+      "type": "line",
+      "device": "R1",
+      "line": "con",
+      "login": "line",
+      "password": "C0nsole"
+     }
+    ]
+   },
+   {
+    "title": "Warn people off",
+    "text": "Add a message-of-the-day banner that says `Authorized access only`. Pick a delimiter character that isn't in the message, such as `#`.",
+    "hint": "`banner motd #Authorized access only#`",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^banner motd \\^C.*Authorized access only"
+     }
+    ]
+   },
+   {
+    "title": "Tidy up two classic annoyances",
+    "text": "Encrypt the plain-text passwords in the config (type 7 is weak, but it stops shoulder-surfing). Then stop IOS treating every typo as a hostname to look up in DNS.",
+    "hint": "`service password-encryption` and `no ip domain-lookup`. Try typing a typo like `shwo` in privileged mode before and after to see the difference.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^service password-encryption$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^no ip domain lookup$"
+     }
+    ]
+   },
+   {
+    "title": "Save it",
+    "text": "Everything so far lives in RAM (running-config). Copy it to NVRAM so it survives a reload. Want proof? Save, `reload`, and log back in.",
+    "hint": "`end`, then `copy running-config startup-config` (or `write memory`)",
+    "checks": [
+     {
+      "type": "saved",
+      "device": "R1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "hostname HQ-R1",
+    "enable secret Cisc0!Enable",
+    "line con 0",
+    "password C0nsole",
+    "login",
+    "exit",
+    "banner motd #Authorized access only#",
+    "service password-encryption",
+    "no ip domain-lookup",
+    "end",
+    "write memory"
+   ]
   }
+ },
+ {
+  "id": "first-lan",
+  "title": "Your first LAN",
+  "topic": "IPv4 addressing",
+  "minutes": 12,
+  "summary": "Address a router interface and two PCs, check the default gateway, give the switch a management IP.",
+  "intro": "Two PCs, one switch, one router. The switch already forwards frames out of the box, so the PCs only need IP addresses. To reach anything *off* their subnet, they also need a **default gateway**: the router's interface.\n\nThe PCs run VPCS, the tiny virtual PC used in EVE-NG and GNS3. Set an address with `ip 192.168.10.11/24 192.168.10.1` (address/prefix, then gateway), check it with `show ip`, and test with `ping`.",
+  "height": 340,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 130,
+    "y": 170
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 400,
+    "y": 170
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 670,
+    "y": 80
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 670,
+    "y": 260
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "SW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1"
+   ],
+   "SW1": [
+    "hostname SW1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Bring up the router's LAN interface",
+    "text": "Give R1 `Gi0/0` the address `192.168.10.1/24`. Router interfaces start **administratively down**, so remember to enable it. Watch the link in the diagram turn green.",
+    "hint": "`interface g0/0`, `ip address 192.168.10.1 255.255.255.0`, `no shutdown`",
+    "checks": [
+     {
+      "type": "ifip",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "ip": "192.168.10.1/24"
+     },
+     {
+      "type": "ifup",
+      "device": "R1",
+      "intf": "Gi0/0"
+     }
+    ]
+   },
+   {
+    "title": "Address both PCs",
+    "text": "PC1 gets `192.168.10.11/24` and PC2 gets `192.168.10.12/24`, both with gateway `192.168.10.1`. Then ping the gateway and each other.",
+    "hint": "On PC1: `ip 192.168.10.11/24 192.168.10.1`, then `ping 192.168.10.1` and `ping 192.168.10.12`",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.10.1"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "192.168.10.1"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.10.12"
+     }
+    ]
+   },
+   {
+    "title": "Give the switch a management address",
+    "text": "A layer 2 switch has no IP for forwarding, but you still want to SSH to it. Put `192.168.10.2/24` on `interface vlan 1` (it starts shut down) and point the switch at its default gateway so you can manage it from other subnets.",
+    "hint": "`interface vlan 1`, `ip address 192.168.10.2 255.255.255.0`, `no shutdown`, `exit`, `ip default-gateway 192.168.10.1`",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.10.2"
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^ip default-gateway 192\\.168\\.10\\.1$"
+     }
+    ]
+   },
+   {
+    "title": "Save both devices",
+    "text": "Save the router and the switch.",
+    "hint": "`write memory` in privileged mode on each one",
+    "checks": [
+     {
+      "type": "saved",
+      "device": "R1"
+     },
+     {
+      "type": "saved",
+      "device": "SW1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "interface g0/0",
+    "ip address 192.168.10.1 255.255.255.0",
+    "no shutdown",
+    "end",
+    "write memory"
+   ],
+   "SW1": [
+    "interface vlan 1",
+    "ip address 192.168.10.2 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip default-gateway 192.168.10.1",
+    "end",
+    "write memory"
+   ],
+   "PC1": [
+    "ip 192.168.10.11/24 192.168.10.1"
+   ],
+   "PC2": [
+    "ip 192.168.10.12/24 192.168.10.1"
+   ]
+  }
+ },
+ {
+  "id": "vlans",
+  "title": "Split a switch with VLANs",
+  "topic": "VLANs",
+  "minutes": 12,
+  "summary": "Create two VLANs, assign access ports, prove the broadcast domains are separate, shut unused ports.",
+  "intro": "All four PCs share the subnet `10.0.0.0/24` and right now they can all ping each other, because every port starts in VLAN 1.\n\nYou'll put Sales (PC1, PC2) in VLAN 10 and Engineering (PC3, PC4) in VLAN 20. The IP addresses don't change, yet PC1 will no longer reach PC3: a VLAN is its own broadcast domain, so ARP can't cross between them.",
+  "height": 360,
+  "devices": [
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 400,
+    "y": 180
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 120,
+    "y": 70
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 120,
+    "y": 290
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 680,
+    "y": 70
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 680,
+    "y": 290
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/3",
+    "PC3",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/4",
+    "PC4",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1"
+   ],
+   "PC1": [
+    "ip 10.0.0.11/24"
+   ],
+   "PC2": [
+    "ip 10.0.0.12/24"
+   ],
+   "PC3": [
+    "ip 10.0.0.13/24"
+   ],
+   "PC4": [
+    "ip 10.0.0.14/24"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Create the VLANs",
+    "text": "Create VLAN 10 named `SALES` and VLAN 20 named `ENGINEERING`. Check with `show vlan brief`.",
+    "hint": "`vlan 10`, `name SALES`, `vlan 20`, `name ENGINEERING`",
+    "checks": [
+     {
+      "type": "vlan",
+      "device": "SW1",
+      "vlan": 10,
+      "name": "SALES"
+     },
+     {
+      "type": "vlan",
+      "device": "SW1",
+      "vlan": 20,
+      "name": "ENGINEERING"
+     }
+    ]
+   },
+   {
+    "title": "Assign the access ports",
+    "text": "Fa0/1-2 go in VLAN 10, Fa0/3-4 in VLAN 20. Hard-code them as access ports so they never try to negotiate a trunk. `interface range` saves typing.",
+    "hint": "`interface range f0/1 - 2`, `switchport mode access`, `switchport access vlan 10`; same for `f0/3 - 4` with VLAN 20",
+    "checks": [
+     {
+      "type": "access",
+      "device": "SW1",
+      "intf": "Fa0/1",
+      "vlan": 10
+     },
+     {
+      "type": "access",
+      "device": "SW1",
+      "intf": "Fa0/2",
+      "vlan": 10
+     },
+     {
+      "type": "access",
+      "device": "SW1",
+      "intf": "Fa0/3",
+      "vlan": 20
+     },
+     {
+      "type": "access",
+      "device": "SW1",
+      "intf": "Fa0/4",
+      "vlan": 20
+     },
+     {
+      "type": "swmode",
+      "device": "SW1",
+      "intf": "Fa0/1",
+      "mode": "access"
+     },
+     {
+      "type": "swmode",
+      "device": "SW1",
+      "intf": "Fa0/3",
+      "mode": "access"
+     }
+    ]
+   },
+   {
+    "title": "Prove the separation",
+    "text": "PC1 should still reach PC2, PC3 should still reach PC4, but PC1 must **not** reach PC3, even though they're on the same subnet.",
+    "hint": "From PC1: `ping 10.0.0.12` works, `ping 10.0.0.13` fails with 'not reachable' because the ARP broadcast never reaches VLAN 20.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.0.0.12"
+     },
+     {
+      "type": "ping",
+      "from": "PC3",
+      "to": "10.0.0.14"
+     },
+     {
+      "type": "noping",
+      "from": "PC1",
+      "to": "10.0.0.13"
+     }
+    ]
+   },
+   {
+    "title": "Shut the unused ports",
+    "text": "Good practice: unused ports are disabled so nobody can plug in and join a VLAN. Shut Fa0/5-24 and Gi0/1-2.",
+    "hint": "`interface range f0/5 - 24, g0/1 - 2`, `shutdown`",
+    "checks": [
+     {
+      "type": "shut",
+      "device": "SW1",
+      "intf": "Fa0/5"
+     },
+     {
+      "type": "shut",
+      "device": "SW1",
+      "intf": "Fa0/24"
+     },
+     {
+      "type": "shut",
+      "device": "SW1",
+      "intf": "Gi0/1"
+     },
+     {
+      "type": "shut",
+      "device": "SW1",
+      "intf": "Gi0/2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "vlan 10",
+    "name SALES",
+    "vlan 20",
+    "name ENGINEERING",
+    "exit",
+    "interface range f0/1 - 2",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "interface range f0/3 - 4",
+    "switchport mode access",
+    "switchport access vlan 20",
+    "interface range f0/5 - 24, g0/1 - 2",
+    "shutdown",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "trunks",
+  "title": "Carry VLANs between switches",
+  "topic": "802.1Q trunking",
+  "minutes": 15,
+  "summary": "Build a trunk, move the native VLAN, prune the allowed list, turn off DTP.",
+  "intro": "Both switches already have VLAN 10 (Sales) and VLAN 20 (Engineering), with a PC from each on every switch. The link between them is still a plain access port in VLAN 1, so nothing crosses it.\n\nA **trunk** carries every VLAN over one cable by adding an 802.1Q tag to each frame. The exception is the **native VLAN**, which crosses untagged, so both ends must agree on it.",
+  "height": 360,
+  "devices": [
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 270,
+    "y": 180
+   },
+   {
+    "name": "SW2",
+    "type": "switch",
+    "x": 530,
+    "y": 180
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 70
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 90,
+    "y": 290
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 710,
+    "y": 70
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 710,
+    "y": 290
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "SW2",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW2",
+    "FastEthernet0/1",
+    "PC3",
+    "eth0"
+   ],
+   [
+    "SW2",
+    "FastEthernet0/2",
+    "PC4",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1",
+    "vlan 10",
+    "name SALES",
+    "vlan 20",
+    "name ENGINEERING",
+    "exit",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "interface f0/2",
+    "switchport mode access",
+    "switchport access vlan 20",
+    "end"
+   ],
+   "SW2": [
+    "hostname SW2",
+    "vlan 10",
+    "name SALES",
+    "vlan 20",
+    "name ENGINEERING",
+    "exit",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "interface f0/2",
+    "switchport mode access",
+    "switchport access vlan 20",
+    "end"
+   ],
+   "PC1": [
+    "ip 10.1.10.11/24"
+   ],
+   "PC2": [
+    "ip 10.1.20.12/24"
+   ],
+   "PC3": [
+    "ip 10.1.10.13/24"
+   ],
+   "PC4": [
+    "ip 10.1.20.14/24"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Build the trunk",
+    "text": "Make Gi0/1 a trunk on **both** switches, then ping across: PC1 to PC3 (VLAN 10) and PC2 to PC4 (VLAN 20). Try `show interfaces trunk` before and after.",
+    "hint": "On each switch: `interface g0/1`, `switchport mode trunk`. (Setting just one side would also come up, because the other side's default `dynamic auto` answers DTP. Hard-coding both is the safe habit.)",
+    "checks": [
+     {
+      "type": "swmode",
+      "device": "SW1",
+      "intf": "Gi0/1",
+      "mode": "trunk"
+     },
+     {
+      "type": "swmode",
+      "device": "SW2",
+      "intf": "Gi0/1",
+      "mode": "trunk"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.1.10.13"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "10.1.20.14"
+     }
+    ]
+   },
+   {
+    "title": "Move the native VLAN off VLAN 1",
+    "text": "Create VLAN 99 named `NATIVE` on both switches and make it the trunk's native VLAN on both ends. A mismatch would quietly leak frames between VLANs, so do both sides.",
+    "hint": "`vlan 99`, `name NATIVE`, then on Gi0/1: `switchport trunk native vlan 99`",
+    "checks": [
+     {
+      "type": "vlan",
+      "device": "SW1",
+      "vlan": 99,
+      "name": "NATIVE"
+     },
+     {
+      "type": "vlan",
+      "device": "SW2",
+      "vlan": 99,
+      "name": "NATIVE"
+     },
+     {
+      "type": "trunk",
+      "device": "SW1",
+      "intf": "Gi0/1",
+      "native": 99
+     },
+     {
+      "type": "trunk",
+      "device": "SW2",
+      "intf": "Gi0/1",
+      "native": 99
+     }
+    ]
+   },
+   {
+    "title": "Allow only what's needed, and stop DTP",
+    "text": "Restrict the trunk to VLANs 10, 20 and 99, and stop the ports sending DTP frames. VLANs 10 and 20 must still work end to end.",
+    "hint": "`switchport trunk allowed vlan 10,20,99` and `switchport nonegotiate`, on both switches",
+    "checks": [
+     {
+      "type": "trunk",
+      "device": "SW1",
+      "intf": "Gi0/1",
+      "allowed": [
+       10,
+       20,
+       99
+      ],
+      "native": 99
+     },
+     {
+      "type": "trunk",
+      "device": "SW2",
+      "intf": "Gi0/1",
+      "allowed": [
+       10,
+       20,
+       99
+      ],
+      "native": 99
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^ switchport nonegotiate$"
+     },
+     {
+      "type": "config",
+      "device": "SW2",
+      "match": "^ switchport nonegotiate$"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.1.10.13"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "10.1.20.14"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "vlan 99",
+    "name NATIVE",
+    "exit",
+    "interface g0/1",
+    "switchport mode trunk",
+    "switchport trunk native vlan 99",
+    "switchport trunk allowed vlan 10,20,99",
+    "switchport nonegotiate",
+    "end"
+   ],
+   "SW2": [
+    "vlan 99",
+    "name NATIVE",
+    "exit",
+    "interface g0/1",
+    "switchport mode trunk",
+    "switchport trunk native vlan 99",
+    "switchport trunk allowed vlan 10,20,99",
+    "switchport nonegotiate",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "router-on-a-stick",
+  "title": "Route between VLANs (router on a stick)",
+  "topic": "Inter-VLAN routing",
+  "minutes": 15,
+  "summary": "One trunk to the router, one subinterface per VLAN, each acting as that VLAN's gateway.",
+  "intro": "VLAN 10 and VLAN 20 are separate subnets, so traffic between them needs a router. Instead of one router port per VLAN, you trunk a single port to the router and split it into **subinterfaces**. Each subinterface is tagged for one VLAN and becomes that VLAN's default gateway.\n\nThe switch side is ready (VLANs and access ports). The PCs already point at `.1` as their gateway.",
+  "height": 420,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 400,
+    "y": 70
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 400,
+    "y": 220
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 210,
+    "y": 350
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 590,
+    "y": 350
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "SW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1"
+   ],
+   "SW1": [
+    "hostname SW1",
+    "vlan 10",
+    "name SALES",
+    "vlan 20",
+    "name ENGINEERING",
+    "exit",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "interface f0/2",
+    "switchport mode access",
+    "switchport access vlan 20",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.10.10/24 192.168.10.1"
+   ],
+   "PC2": [
+    "ip 192.168.20.10/24 192.168.20.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Trunk the switch port facing the router",
+    "text": "Make SW1 Gi0/1 a trunk so frames for both VLANs reach R1, tagged.",
+    "hint": "`interface g0/1`, `switchport mode trunk`",
+    "checks": [
+     {
+      "type": "swmode",
+      "device": "SW1",
+      "intf": "Gi0/1",
+      "mode": "trunk"
+     }
+    ]
+   },
+   {
+    "title": "Gateway for VLAN 10",
+    "text": "Enable R1 Gi0/0 (no IP on the physical port). Create `Gi0/0.10`, tag it for VLAN 10 with `encapsulation dot1Q 10`, and give it `192.168.10.1/24`. PC1 should now ping its gateway.",
+    "hint": "`interface g0/0`, `no shutdown`, `interface g0/0.10`, `encapsulation dot1Q 10`, `ip address 192.168.10.1 255.255.255.0`. The encapsulation must come first: IOS refuses an IP on an untagged subinterface.",
+    "checks": [
+     {
+      "type": "ifip",
+      "device": "R1",
+      "intf": "Gi0/0.10",
+      "ip": "192.168.10.1/24"
+     },
+     {
+      "type": "ifup",
+      "device": "R1",
+      "intf": "Gi0/0.10"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.10.1"
+     }
+    ]
+   },
+   {
+    "title": "Gateway for VLAN 20",
+    "text": "Same again for VLAN 20 on `Gi0/0.20` with `192.168.20.1/24`.",
+    "hint": "`interface g0/0.20`, `encapsulation dot1Q 20`, `ip address 192.168.20.1 255.255.255.0`",
+    "checks": [
+     {
+      "type": "ifip",
+      "device": "R1",
+      "intf": "Gi0/0.20",
+      "ip": "192.168.20.1/24"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "192.168.20.1"
+     }
+    ]
+   },
+   {
+    "title": "Route between the VLANs",
+    "text": "PC1 and PC2 should now reach each other through R1. Run `trace 192.168.20.10` on PC1 and watch the first hop.",
+    "hint": "Nothing new to configure. `show ip route` on R1 shows both subnets as connected routes.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.20.10"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "192.168.10.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "interface g0/1",
+    "switchport mode trunk",
+    "end"
+   ],
+   "R1": [
+    "interface g0/0",
+    "no shutdown",
+    "interface g0/0.10",
+    "encapsulation dot1Q 10",
+    "ip address 192.168.10.1 255.255.255.0",
+    "interface g0/0.20",
+    "encapsulation dot1Q 20",
+    "ip address 192.168.20.1 255.255.255.0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "static-routes",
+  "title": "Static and default routes",
+  "topic": "IPv4 routing",
+  "minutes": 18,
+  "summary": "Hand-build routing across three routers, use a default route, add a floating static backup.",
+  "intro": "Every interface is already addressed and up, but each router only knows its **connected** networks. A packet from PC1 to PC3 dies at R1, which has no route to `192.168.3.0/24`.\n\nRemember that a ping needs a path **there and back**. Fix one direction and it still fails until the reply has a route home too.\n\n| Link | Subnet |\n|---|---|\n| R1-R2 | 10.0.12.0/30 |\n| R2-R3 | 10.0.23.0/30 |\n| R1-R3 (backup) | 10.0.13.0/30 |\n| PC1 LAN | 192.168.1.0/24 |\n| PC3 LAN | 192.168.3.0/24 |",
+  "height": 400,
+  "devices": [
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 400,
+    "y": 60
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 160,
+    "y": 190
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 640,
+    "y": 190
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 160,
+    "y": 340
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 640,
+    "y": 340
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "R3",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.0.12.1 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/2",
+    "ip address 10.0.13.1 255.255.255.252",
+    "no shutdown",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.0.12.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.23.1 255.255.255.252",
+    "no shutdown",
+    "end"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    "ip address 10.0.23.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.3.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/2",
+    "ip address 10.0.13.2 255.255.255.252",
+    "no shutdown",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC3": [
+    "ip 192.168.3.10/24 192.168.3.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Teach R1 the way to PC3's LAN",
+    "text": "On R1, add a static route to `192.168.3.0/24` through R2 (`10.0.12.2`).",
+    "hint": "`ip route 192.168.3.0 255.255.255.0 10.0.12.2`",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.3.0/24",
+      "code": "S",
+      "via": "10.0.12.2"
+     }
+    ]
+   },
+   {
+    "title": "R2 needs both LANs",
+    "text": "R2 sits in the middle, so it needs a route to each LAN: `192.168.1.0/24` towards R1 and `192.168.3.0/24` towards R3.",
+    "hint": "`ip route 192.168.1.0 255.255.255.0 10.0.12.1` and `ip route 192.168.3.0 255.255.255.0 10.0.23.2`",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R2",
+      "prefix": "192.168.1.0/24",
+      "code": "S"
+     },
+     {
+      "type": "route",
+      "device": "R2",
+      "prefix": "192.168.3.0/24",
+      "code": "S"
+     }
+    ]
+   },
+   {
+    "title": "Give R3 a default route",
+    "text": "R3 is a branch router: everything that isn't local goes to R2. One default route (`0.0.0.0/0`) covers it. Look for `S*` and the 'Gateway of last resort' line in `show ip route`.",
+    "hint": "`ip route 0.0.0.0 0.0.0.0 10.0.23.1`",
+    "checks": [
+     {
+      "type": "route",
+      "device": "R3",
+      "prefix": "0.0.0.0/0",
+      "code": "S*",
+      "via": "10.0.23.1"
+     }
+    ]
+   },
+   {
+    "title": "Test end to end",
+    "text": "PC1 and PC3 should now reach each other. `trace` shows the path through R2.",
+    "hint": "If one direction fails, check the routes on the return path.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.3.10"
+     },
+     {
+      "type": "ping",
+      "from": "PC3",
+      "to": "192.168.1.10"
+     }
+    ]
+   },
+   {
+    "title": "Add a floating static backup",
+    "text": "Add a second route on R1 to `192.168.3.0/24`, this time over the direct backup link via `10.0.13.2`, with an administrative distance of 200. Because 200 is worse than the primary's 1, it stays out of the routing table until the primary fails. Test it: shut R1 Gi0/0 and check `show ip route`.",
+    "hint": "`ip route 192.168.3.0 255.255.255.0 10.0.13.2 200`. Bring Gi0/0 back up afterwards so the primary returns.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ip route 192\\.168\\.3\\.0 255\\.255\\.255\\.0 10\\.0\\.13\\.2 ([2-9]|[1-9]\\d+)$"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.3.0/24",
+      "code": "S",
+      "via": "10.0.12.2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "ip route 192.168.3.0 255.255.255.0 10.0.12.2",
+    "ip route 192.168.3.0 255.255.255.0 10.0.13.2 200"
+   ],
+   "R2": [
+    "ip route 192.168.1.0 255.255.255.0 10.0.12.1",
+    "ip route 192.168.3.0 255.255.255.0 10.0.23.2"
+   ],
+   "R3": [
+    "ip route 0.0.0.0 0.0.0.0 10.0.23.1"
+   ]
+  }
+ },
+ {
+  "id": "ospf",
+  "title": "Single-area OSPF",
+  "topic": "OSPFv2",
+  "minutes": 20,
+  "summary": "Router IDs, network statements, neighbours, passive LAN interfaces, routes appearing by themselves.",
+  "intro": "Same idea as static routing, but the routers work it out themselves. Each router finds neighbours on its OSPF-enabled links, they swap link-state information, and every router runs SPF to choose best paths.\n\nEvery interface is addressed and up, and each router has a loopback (`1.1.1.1`, `2.2.2.2`, `3.3.3.3`). Watch for `%OSPF-5-ADJCHG` messages as neighbours come up.\n\n| Link | Subnet |\n|---|---|\n| R1-R2 | 10.0.12.0/30 |\n| R2-R3 | 10.0.23.0/30 |\n| R1-R3 | 10.0.13.0/30 |\n| PC1 LAN (R1 Gi0/2) | 192.168.1.0/24 |\n| PC3 LAN (R3 Gi0/2) | 192.168.3.0/24 |",
+  "height": 420,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 200,
+    "y": 90
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 600,
+    "y": 90
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 400,
+    "y": 270
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 70,
+    "y": 250
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 640,
+    "y": 360
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "R1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/2",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.0.12.1 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.13.1 255.255.255.252",
+    "no shutdown",
+    "interface g0/2",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface loopback 0",
+    "ip address 1.1.1.1 255.255.255.255",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.0.12.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.23.1 255.255.255.252",
+    "no shutdown",
+    "interface loopback 0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "end"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    "ip address 10.0.23.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.13.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/2",
+    "ip address 192.168.3.1 255.255.255.0",
+    "no shutdown",
+    "interface loopback 0",
+    "ip address 3.3.3.3 255.255.255.255",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC3": [
+    "ip 192.168.3.10/24 192.168.3.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Start OSPF with fixed router IDs",
+    "text": "On each router, start `router ospf 1` and set the router ID by hand: R1 `1.1.1.1`, R2 `2.2.2.2`, R3 `3.3.3.3`. Do it **before** neighbours form. Changing the ID afterwards needs `clear ip ospf process` to take effect.",
+    "hint": "`router ospf 1`, `router-id 1.1.1.1`",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ router-id 1\\.1\\.1\\.1$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ router-id 2\\.2\\.2\\.2$"
+     },
+     {
+      "type": "config",
+      "device": "R3",
+      "match": "^ router-id 3\\.3\\.3\\.3$"
+     },
+     {
+      "type": "rid",
+      "device": "R1",
+      "value": "1.1.1.1"
+     },
+     {
+      "type": "rid",
+      "device": "R2",
+      "value": "2.2.2.2"
+     },
+     {
+      "type": "rid",
+      "device": "R3",
+      "value": "3.3.3.3"
+     }
+    ]
+   },
+   {
+    "title": "Advertise every network in area 0",
+    "text": "Add `network` statements so that every interface, including the loopbacks and LANs, is in area 0. Each router should end up with two FULL neighbours (`show ip ospf neighbor`) and learn the far networks as `O` routes.",
+    "hint": "A wildcard mask is the inverse of the subnet mask: `network 10.0.12.0 0.0.0.3 area 0`, `network 192.168.1.0 0.0.0.255 area 0`, `network 1.1.1.1 0.0.0.0 area 0`",
+    "checks": [
+     {
+      "type": "ospf-nbrs",
+      "device": "R1",
+      "count": 2
+     },
+     {
+      "type": "ospf-nbrs",
+      "device": "R2",
+      "count": 2
+     },
+     {
+      "type": "ospf-nbrs",
+      "device": "R3",
+      "count": 2
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.3.0/24",
+      "code": "O"
+     },
+     {
+      "type": "route",
+      "device": "R2",
+      "prefix": "3.3.3.3/32",
+      "code": "O"
+     }
+    ]
+   },
+   {
+    "title": "Keep hellos off the LANs",
+    "text": "No router lives on the PC LANs, so stop sending hellos there with `passive-interface`. The LAN subnets must still be advertised.",
+    "hint": "On R1 and R3: `router ospf 1`, `passive-interface g0/2`",
+    "checks": [
+     {
+      "type": "passive",
+      "device": "R1",
+      "intf": "Gi0/2"
+     },
+     {
+      "type": "passive",
+      "device": "R3",
+      "intf": "Gi0/2"
+     },
+     {
+      "type": "route",
+      "device": "R2",
+      "prefix": "192.168.1.0/24",
+      "code": "O"
+     }
+    ]
+   },
+   {
+    "title": "Test",
+    "text": "PC1 should reach PC3 and R2's loopback. Shut the R1-R3 link and watch OSPF reroute through R2.",
+    "hint": "`ping 192.168.3.10` and `ping 2.2.2.2` from PC1",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.3.10"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "2.2.2.2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "router ospf 1",
+    "router-id 1.1.1.1",
+    "network 10.0.12.0 0.0.0.3 area 0",
+    "network 10.0.13.0 0.0.0.3 area 0",
+    "network 192.168.1.0 0.0.0.255 area 0",
+    "network 1.1.1.1 0.0.0.0 area 0",
+    "passive-interface g0/2",
+    "end"
+   ],
+   "R2": [
+    "router ospf 1",
+    "router-id 2.2.2.2",
+    "network 10.0.12.0 0.0.0.3 area 0",
+    "network 10.0.23.0 0.0.0.3 area 0",
+    "network 2.2.2.2 0.0.0.0 area 0",
+    "end"
+   ],
+   "R3": [
+    "router ospf 1",
+    "router-id 3.3.3.3",
+    "network 10.0.23.0 0.0.0.3 area 0",
+    "network 10.0.13.0 0.0.0.3 area 0",
+    "network 192.168.3.0 0.0.0.255 area 0",
+    "network 3.3.3.3 0.0.0.0 area 0",
+    "passive-interface g0/2",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ospf-troubleshooting",
+  "title": "Fix a broken OSPF network",
+  "topic": "OSPF troubleshooting",
+  "minutes": 20,
+  "summary": "Three routers, three different reasons they won't become neighbours. Find and fix each.",
+  "intro": "Someone has configured OSPF on all three routers, but there are no neighbours at all and PC1 can't reach PC3. Each link has its own problem.\n\nUseful commands: `show ip ospf neighbor`, `show ip ospf interface brief`, `show ip ospf interface g0/0` (timers, area, passive), `show ip protocols` and `show running-config | section ospf`.\n\nTwo routers only become neighbours if they agree on **area, subnet, hello and dead timers**, and neither side is passive on that link.",
+  "height": 420,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 200,
+    "y": 90
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 600,
+    "y": 90
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 400,
+    "y": 270
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 70,
+    "y": 250
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 640,
+    "y": 360
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/1",
+    "R1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/2",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.0.12.1 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.13.1 255.255.255.252",
+    "no shutdown",
+    "interface g0/2",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface loopback 0",
+    "ip address 1.1.1.1 255.255.255.255",
+    "router ospf 1",
+    "router-id 1.1.1.1",
+    "passive-interface g0/0",
+    "passive-interface g0/2",
+    "network 10.0.12.0 0.0.0.3 area 0",
+    "network 10.0.13.0 0.0.0.3 area 0",
+    "network 192.168.1.0 0.0.0.255 area 0",
+    "network 1.1.1.1 0.0.0.0 area 0",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.0.12.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.23.1 255.255.255.252",
+    "ip ospf hello-interval 5",
+    "no shutdown",
+    "interface loopback 0",
+    "ip address 2.2.2.2 255.255.255.255",
+    "router ospf 1",
+    "router-id 2.2.2.2",
+    "network 10.0.12.0 0.0.0.3 area 0",
+    "network 10.0.23.0 0.0.0.3 area 0",
+    "network 2.2.2.2 0.0.0.0 area 0",
+    "end"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    "ip address 10.0.23.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.13.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/2",
+    "ip address 192.168.3.1 255.255.255.0",
+    "no shutdown",
+    "interface loopback 0",
+    "ip address 3.3.3.3 255.255.255.255",
+    "router ospf 1",
+    "router-id 3.3.3.3",
+    "passive-interface g0/2",
+    "network 10.0.23.0 0.0.0.3 area 0",
+    "network 10.0.13.0 0.0.0.3 area 1",
+    "network 192.168.3.0 0.0.0.255 area 0",
+    "network 3.3.3.3 0.0.0.0 area 0",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC3": [
+    "ip 192.168.3.10/24 192.168.3.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "R1 and R2 aren't neighbours",
+    "text": "Find out why R1 and R2 never exchange hellos on the 10.0.12.0/30 link, and fix it.",
+    "hint": "`show ip ospf interface g0/0` on R1 says 'No Hellos (Passive interface)'. Under `router ospf 1`: `no passive-interface g0/0`.",
+    "checks": [
+     {
+      "type": "ospf-nbr",
+      "device": "R1",
+      "neighbor": "2.2.2.2"
+     },
+     {
+      "type": "ospf-nbr",
+      "device": "R2",
+      "neighbor": "1.1.1.1"
+     }
+    ]
+   },
+   {
+    "title": "R2 and R3 aren't neighbours",
+    "text": "Both routers send hellos on 10.0.23.0/30, but they ignore each other. Compare the timers on both ends.",
+    "hint": "`show ip ospf interface g0/1` on R2 shows Hello 5, Dead 20, but R3 uses 10/40. On R2: `interface g0/1`, `no ip ospf hello-interval`.",
+    "checks": [
+     {
+      "type": "ospf-nbr",
+      "device": "R2",
+      "neighbor": "3.3.3.3"
+     },
+     {
+      "type": "ospf-nbr",
+      "device": "R3",
+      "neighbor": "2.2.2.2"
+     }
+    ]
+   },
+   {
+    "title": "R1 and R3 aren't neighbours",
+    "text": "Same subnet, same timers, still nothing on 10.0.13.0/30. Check which area each side puts the link in.",
+    "hint": "`show ip ospf interface brief` on R3 shows Gi0/1 in area 1. Under `router ospf 1`: `no network 10.0.13.0 0.0.0.3 area 1`, then `network 10.0.13.0 0.0.0.3 area 0`.",
+    "checks": [
+     {
+      "type": "ospf-nbr",
+      "device": "R1",
+      "neighbor": "3.3.3.3"
+     },
+     {
+      "type": "ospf-nbr",
+      "device": "R3",
+      "neighbor": "1.1.1.1"
+     }
+    ]
+   },
+   {
+    "title": "Full reachability",
+    "text": "PC1 should reach PC3, and every router should see every loopback as an `O` route.",
+    "hint": "`show ip route ospf` on each router",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.3.10"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "3.3.3.3/32",
+      "code": "O"
+     },
+     {
+      "type": "route",
+      "device": "R3",
+      "prefix": "2.2.2.2/32",
+      "code": "O"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "router ospf 1",
+    "no passive-interface g0/0",
+    "end"
+   ],
+   "R2": [
+    "interface g0/1",
+    "no ip ospf hello-interval",
+    "end"
+   ],
+   "R3": [
+    "router ospf 1",
+    "no network 10.0.13.0 0.0.0.3 area 1",
+    "network 10.0.13.0 0.0.0.3 area 0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "acl-standard",
+  "title": "Standard ACL: keep one host off the server LAN",
+  "topic": "Access control lists",
+  "minutes": 12,
+  "summary": "Write a standard ACL, place it near the destination, read the match counters.",
+  "intro": "PC2 (`192.168.1.20`) must not reach anything on the server LAN. Everyone else must, and PC2 must keep working on its own LAN and with its gateway.\n\nA **standard** ACL matches only the **source** address. Put it on the interface closest to the destination, outbound, so it doesn't block PC2 from everything else.\n\nEvery ACL ends with an invisible `deny any`, so you need a `permit any` after your deny.",
+  "height": 360,
+  "devices": [
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 230,
+    "y": 180
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 70,
+    "y": 70
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 70,
+    "y": 290
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 470,
+    "y": 180
+   },
+   {
+    "name": "SRV",
+    "type": "pc",
+    "x": 710,
+    "y": 180
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "R1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "SRV",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.100.1 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC2": [
+    "ip 192.168.1.20/24 192.168.1.1"
+   ],
+   "SRV": [
+    "ip 192.168.100.100/24 192.168.100.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Write the ACL",
+    "text": "Create a standard ACL (number 10 is fine) that denies host `192.168.1.20` and permits everything else.",
+    "hint": "`access-list 10 deny host 192.168.1.20`, then `access-list 10 permit any`",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "deny +192\\.168\\.1\\.20$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "permit any$"
+     }
+    ]
+   },
+   {
+    "title": "Apply it close to the destination",
+    "text": "Apply the ACL **outbound** on R1 Gi0/1, the interface facing the server LAN.",
+    "hint": "`interface g0/1`, `ip access-group 10 out`",
+    "checks": [
+     {
+      "type": "acl-applied",
+      "device": "R1",
+      "intf": "Gi0/1",
+      "dir": "out",
+      "acltype": "standard"
+     }
+    ]
+   },
+   {
+    "title": "Verify, and read the counters",
+    "text": "PC2 can't reach the server but can still reach its gateway, and PC1 reaches the server. Then run `show access-lists` on R1 and look at the match counts.",
+    "hint": "PC2's ping shows 'Communication administratively prohibited': R1 is telling it an ACL dropped the packet.",
+    "checks": [
+     {
+      "type": "noping",
+      "from": "PC2",
+      "to": "192.168.100.100"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "192.168.1.1"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.100.100"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "access-list 10 deny host 192.168.1.20",
+    "access-list 10 permit any",
+    "interface g0/1",
+    "ip access-group 10 out",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "acl-extended",
+  "title": "Extended ACL: guests can't ping the server",
+  "topic": "Access control lists",
+  "minutes": 15,
+  "summary": "Named extended ACL matching protocol, source and destination, placed near the source.",
+  "intro": "Three networks hang off R1: corporate (PC1), guest Wi-Fi (PC2) and servers (SRV). Guests may not send ICMP to the server, but can reach everything else, including corporate.\n\nAn **extended** ACL can match the protocol, the source and the destination, so it can sit close to the **source** without catching other traffic.",
+  "height": 360,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 400,
+    "y": 180
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 130,
+    "y": 70
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 130,
+    "y": 290
+   },
+   {
+    "name": "SRV",
+    "type": "pc",
+    "x": 680,
+    "y": 180
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "SRV",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "description Corporate",
+    "ip address 192.168.10.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "description Guest",
+    "ip address 192.168.20.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/2",
+    "description Servers",
+    "ip address 192.168.100.1 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.10.10/24 192.168.10.1"
+   ],
+   "PC2": [
+    "ip 192.168.20.10/24 192.168.20.1"
+   ],
+   "SRV": [
+    "ip 192.168.100.100/24 192.168.100.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Write a named extended ACL",
+    "text": "Create `ip access-list extended GUEST-IN` that denies ICMP from the guest subnet `192.168.20.0/24` to host `192.168.100.100`, then permits all other IP traffic.",
+    "hint": "`ip access-list extended GUEST-IN`, `deny icmp 192.168.20.0 0.0.0.255 host 192.168.100.100`, `permit ip any any`",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "deny icmp 192\\.168\\.20\\.0 0\\.0\\.0\\.255 host 192\\.168\\.100\\.100"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "permit ip any any$"
+     }
+    ]
+   },
+   {
+    "title": "Apply it near the source",
+    "text": "Apply it **inbound** on the guest interface, Gi0/1, so guest packets are checked the moment they arrive.",
+    "hint": "`interface g0/1`, `ip access-group GUEST-IN in`",
+    "checks": [
+     {
+      "type": "acl-applied",
+      "device": "R1",
+      "intf": "Gi0/1",
+      "dir": "in",
+      "acltype": "extended"
+     }
+    ]
+   },
+   {
+    "title": "Verify",
+    "text": "PC2 can't ping SRV but can ping PC1. PC1 still pings SRV.",
+    "hint": "`show access-lists` shows which line each packet hit.",
+    "checks": [
+     {
+      "type": "noping",
+      "from": "PC2",
+      "to": "192.168.100.100"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "192.168.10.10"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.100.100"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "ip access-list extended GUEST-IN",
+    "deny icmp 192.168.20.0 0.0.0.255 host 192.168.100.100",
+    "permit ip any any",
+    "interface g0/1",
+    "ip access-group GUEST-IN in",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "dhcp",
+  "title": "DHCP server and relay",
+  "topic": "DHCP",
+  "minutes": 15,
+  "summary": "Run a DHCP server on a router for two LANs, one of them through ip helper-address.",
+  "intro": "R1 will hand out addresses to its own LAN and to R2's LAN. DHCP Discover is a **broadcast**, and routers don't forward broadcasts, so R2 needs `ip helper-address` to relay the request to R1 as unicast.\n\nThe PCs start with no address. On a PC, `ip dhcp` runs the four-step DORA exchange (Discover, Offer, Request, Ack). Routing between the routers is already in place.",
+  "height": 380,
+  "devices": [
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 220,
+    "y": 150
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 70,
+    "y": 60
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 70,
+    "y": 260
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 440,
+    "y": 150
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 660,
+    "y": 150
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 660,
+    "y": 320
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "R1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.10.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.12.1 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.20.0 255.255.255.0 10.0.12.2",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.0.12.2 255.255.255.252",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 192.168.20.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip route 192.168.10.0 255.255.255.0 10.0.12.1",
+    "end"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Reserve addresses for infrastructure",
+    "text": "Stop R1 handing out `.1` to `.10` in both LANs (`192.168.10.0/24` and `192.168.20.0/24`). Those are kept for routers, switches and printers.",
+    "hint": "`ip dhcp excluded-address 192.168.10.1 192.168.10.10`, and the same for 192.168.20",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ip dhcp excluded-address 192\\.168\\.10\\.1 192\\.168\\.10\\.10$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ip dhcp excluded-address 192\\.168\\.20\\.1 192\\.168\\.20\\.10$"
+     }
+    ]
+   },
+   {
+    "title": "Serve the local LAN",
+    "text": "Create a pool for `192.168.10.0/24` with default router `192.168.10.1` and DNS server `8.8.8.8`. Then run `ip dhcp` on PC1 and PC2.",
+    "hint": "`ip dhcp pool LAN10`, `network 192.168.10.0 255.255.255.0`, `default-router 192.168.10.1`, `dns-server 8.8.8.8`. Check leases with `show ip dhcp binding`.",
+    "checks": [
+     {
+      "type": "dhcp",
+      "device": "PC1"
+     },
+     {
+      "type": "dhcp",
+      "device": "PC2"
+     },
+     {
+      "type": "ip-range",
+      "device": "PC1",
+      "from": "192.168.10.11",
+      "to": "192.168.10.254"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.10.1"
+     }
+    ]
+   },
+   {
+    "title": "Serve the remote LAN through a relay",
+    "text": "Add a second pool on R1 for `192.168.20.0/24` (default router `192.168.20.1`). On R2, relay DHCP from its LAN interface to R1's `10.0.12.1`. Then `ip dhcp` on PC3.",
+    "hint": "On R1: `ip dhcp pool LAN20`, `network 192.168.20.0 255.255.255.0`, `default-router 192.168.20.1`. On R2: `interface g0/1`, `ip helper-address 10.0.12.1`",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ ip helper-address 10\\.0\\.12\\.1$"
+     },
+     {
+      "type": "dhcp",
+      "device": "PC3"
+     },
+     {
+      "type": "ip-range",
+      "device": "PC3",
+      "from": "192.168.20.11",
+      "to": "192.168.20.254"
+     },
+     {
+      "type": "ping",
+      "from": "PC3",
+      "to": "192.168.10.1"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "ip dhcp excluded-address 192.168.10.1 192.168.10.10",
+    "ip dhcp excluded-address 192.168.20.1 192.168.20.10",
+    "ip dhcp pool LAN10",
+    "network 192.168.10.0 255.255.255.0",
+    "default-router 192.168.10.1",
+    "dns-server 8.8.8.8",
+    "ip dhcp pool LAN20",
+    "network 192.168.20.0 255.255.255.0",
+    "default-router 192.168.20.1",
+    "dns-server 8.8.8.8",
+    "end"
+   ],
+   "R2": [
+    "interface g0/1",
+    "ip helper-address 10.0.12.1",
+    "end"
+   ],
+   "PC1": [
+    "ip dhcp"
+   ],
+   "PC2": [
+    "ip dhcp"
+   ],
+   "PC3": [
+    "ip dhcp"
+   ]
+  }
+ },
+ {
+  "id": "ssh",
+  "title": "SSH-only management on a switch",
+  "topic": "Device security",
+  "minutes": 15,
+  "summary": "Management IP, RSA keys, local users, SSH v2 only on the VTY lines, then log in from the router.",
+  "intro": "Telnet sends everything, passwords included, in clear text. You'll make SW1 manageable **only** over SSH.\n\nSSH needs four things: a hostname that isn't the default, a domain name (together they name the RSA key), an RSA key pair, and a way to authenticate users (here a local username). Finally the VTY lines must accept SSH and nothing else.",
+  "height": 340,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 520,
+    "y": 80
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 520,
+    "y": 250
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 200,
+    "y": 250
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "R1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "SW1": [
+    "hostname SW1"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Give SW1 a management address",
+    "text": "`192.168.1.2/24` on `interface vlan 1`, plus a default gateway of `192.168.1.1`.",
+    "hint": "`interface vlan 1`, `ip address 192.168.1.2 255.255.255.0`, `no shutdown`, `exit`, `ip default-gateway 192.168.1.1`",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.1.2"
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^ip default-gateway 192\\.168\\.1\\.1$"
+     }
+    ]
+   },
+   {
+    "title": "Create the keys",
+    "text": "Set the domain name `netlab.local`, generate a 2048-bit RSA key pair, and force SSH version 2.",
+    "hint": "`ip domain-name netlab.local`, `crypto key generate rsa modulus 2048` (or answer the modulus prompt), `ip ssh version 2`. Then `show ip ssh`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^ip domain name netlab\\.local$"
+     },
+     {
+      "type": "rsa",
+      "device": "SW1",
+      "bits": 2048
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^ip ssh version 2$"
+     }
+    ]
+   },
+   {
+    "title": "Users and VTY lines",
+    "text": "Create user `admin` with secret `Sw1tchAdm!n`. On **all 16** VTY lines (0-15), authenticate against local users and allow SSH only.",
+    "hint": "`username admin secret Sw1tchAdm!n`, `line vty 0 15`, `login local`, `transport input ssh`",
+    "checks": [
+     {
+      "type": "ssh",
+      "device": "SW1"
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^line vty 5 15\\n login local\\n transport input ssh$"
+     }
+    ]
+   },
+   {
+    "title": "Log in from R1",
+    "text": "From R1's privileged prompt, SSH to the switch as `admin`, then type `exit` to come back. Try `telnet 192.168.1.2` too: it should be refused.",
+    "hint": "`ssh -l admin 192.168.1.2`",
+    "checks": [
+     {
+      "type": "login-seen",
+      "device": "SW1",
+      "proto": "ssh",
+      "user": "admin"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "interface vlan 1",
+    "ip address 192.168.1.2 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "ip default-gateway 192.168.1.1",
+    "ip domain-name netlab.local",
+    "crypto key generate rsa modulus 2048",
+    "ip ssh version 2",
+    "username admin secret Sw1tchAdm!n",
+    "line vty 0 15",
+    "login local",
+    "transport input ssh",
+    "end"
+   ],
+   "R1": [
+    "end",
+    "ssh -l admin 192.168.1.2",
+    "Sw1tchAdm!n",
+    "exit"
+   ]
+  }
+ },
+ {
+  "id": "troubleshooting",
+  "title": "Troubleshooting: Sales is down",
+  "topic": "Troubleshooting",
+  "minutes": 25,
+  "summary": "A ticket with three symptoms and four separate faults across a PC, a switch and a router.",
+  "intro": "**The ticket:** \"Nobody in Sales can reach the file server. PC2 can't even reach PC1 next to it.\"\n\nThe design: PC1 and PC2 are both in VLAN 10 (Sales, `192.168.10.0/24`, gateway `.1`). SW1 trunks to R1, which routes VLAN 10 on `Gi0/0.10`. The server is `172.16.0.100` behind R1 Gi0/1.\n\nWork through it layer by layer. On the PCs: `show ip`. On SW1: `show vlan brief` and `show interfaces trunk`. On R1: `show ip interface brief`.",
+  "height": 380,
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 80,
+    "y": 80
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 80,
+    "y": 300
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 270,
+    "y": 190
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 490,
+    "y": 190
+   },
+   {
+    "name": "SRV",
+    "type": "pc",
+    "x": 710,
+    "y": 190
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "R1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "SRV",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1",
+    "vlan 10",
+    "name SALES",
+    "vlan 20",
+    "name ENGINEERING",
+    "vlan 30",
+    "name VOICE",
+    "exit",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "interface f0/2",
+    "switchport mode access",
+    "switchport access vlan 20",
+    "interface g0/1",
+    "switchport mode trunk",
+    "switchport trunk allowed vlan 20,30",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "no shutdown",
+    "interface g0/0.10",
+    "encapsulation dot1Q 10",
+    "ip address 192.168.10.1 255.255.255.0",
+    "interface g0/0.20",
+    "encapsulation dot1Q 20",
+    "ip address 192.168.20.1 255.255.255.0",
+    "interface g0/1",
+    "ip address 172.16.0.1 255.255.255.0",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.10.11/24 192.168.10.254"
+   ],
+   "PC2": [
+    "ip 192.168.10.12/24 192.168.10.1"
+   ],
+   "SRV": [
+    "ip 172.16.0.100/24 172.16.0.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "PC2 can't reach PC1",
+    "text": "Two PCs in the same VLAN on the same switch should always reach each other. Why don't they?",
+    "hint": "`show vlan brief` on SW1: Fa0/2 is in VLAN 20. Fix it with `interface f0/2`, `switchport access vlan 10`.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "192.168.10.11"
+     }
+    ]
+   },
+   {
+    "title": "Sales can't reach its gateway",
+    "text": "Neither PC can ping `192.168.10.1`, even though R1's subinterface is configured correctly.",
+    "hint": "`show interfaces trunk` on SW1: VLAN 10 isn't allowed on the trunk. `interface g0/1`, `switchport trunk allowed vlan add 10`.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.10.1"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "192.168.10.1"
+     }
+    ]
+   },
+   {
+    "title": "Nobody can reach the server",
+    "text": "Both PCs must reach `172.16.0.100`. There are two more faults: one on R1 and one on a PC.",
+    "hint": "`show ip interface brief` on R1: Gi0/1 is administratively down, so `no shutdown` it. Then `show ip` on PC1: its gateway is `.254`. Fix it with `ip 192.168.10.11/24 192.168.10.1`.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "172.16.0.100"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "172.16.0.100"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "interface f0/2",
+    "switchport access vlan 10",
+    "interface g0/1",
+    "switchport trunk allowed vlan add 10",
+    "end"
+   ],
+   "R1": [
+    "interface g0/1",
+    "no shutdown",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.10.11/24 192.168.10.1"
+   ]
+  }
+ },
+ {
+  "id": "stp",
+  "title": "Spanning tree: choose the root, steer the paths",
+  "topic": "Spanning tree (STP/RSTP)",
+  "minutes": 25,
+  "summary": "Root bridge election, root primary/secondary, port costs, Rapid PVST+, PortFast and BPDU guard catching a rogue switch.",
+  "intro": "Three switches in a triangle give VLAN 10 a redundant path, which would loop frames forever without spanning tree. STP elects one **root bridge** (lowest bridge ID: priority, then MAC), every other switch picks its cheapest **root port**, each link gets one **designated port**, and whatever is left is **blocked** as an alternate.\n\nRight now nobody has tuned anything, so the switch with the lowest MAC (SW1) is root, which is an accident rather than a design. Somebody has also plugged an unmanaged switch (ROGUE) into SW2 Fa0/2 under a desk.\n\nUse `show spanning-tree vlan 10` on each switch as you go. On the diagram a link that spanning tree blocks for some VLANs is drawn dashed amber (hover it to see which VLANs), and one blocked for every VLAN it carries is dotted amber.\n\n| Device | Port | Connects to |\n|---|---|---|\n| SW1 | Gi0/1 / Gi0/2 | SW2 / SW3 |\n| SW2 | Gi0/2 | SW3 |\n| SW2 | Fa0/1 / Fa0/2 | PC1 / ROGUE |\n| SW3 | Fa0/1 | PC2 |",
+  "height": 450,
+  "devices": [
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 400,
+    "y": 70
+   },
+   {
+    "name": "SW2",
+    "type": "switch",
+    "x": 220,
+    "y": 230
+   },
+   {
+    "name": "SW3",
+    "type": "switch",
+    "x": 580,
+    "y": 230
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 380
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 710,
+    "y": 380
+   },
+   {
+    "name": "ROGUE",
+    "type": "switch",
+    "x": 340,
+    "y": 390
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "SW2",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "GigabitEthernet0/2",
+    "SW3",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW2",
+    "GigabitEthernet0/2",
+    "SW3",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "SW2",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW3",
+    "FastEthernet0/1",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW2",
+    "FastEthernet0/2",
+    "ROGUE",
+    "FastEthernet0/24"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1",
+    "vlan 10",
+    "name USERS",
+    "exit",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "end"
+   ],
+   "SW2": [
+    "hostname SW2",
+    "vlan 10",
+    "name USERS",
+    "exit",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "end"
+   ],
+   "SW3": [
+    "hostname SW3",
+    "vlan 10",
+    "name USERS",
+    "exit",
+    "interface range g0/1 - 2",
+    "switchport mode trunk",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "end"
+   ],
+   "ROGUE": [
+    "hostname ROGUE"
+   ],
+   "PC1": [
+    "ip 10.10.10.11/24"
+   ],
+   "PC2": [
+    "ip 10.10.10.12/24"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Make SW3 the root for VLAN 10",
+    "text": "SW3 sits in the middle of the server room, so it should be root. Use the macro `spanning-tree vlan 10 root primary` on SW3, then check `show spanning-tree vlan 10`: SW3 should say *This bridge is the root*.",
+    "hint": "`spanning-tree vlan 10 root primary` sets the priority to 24576 (or 4096 below the current root). It is saved as `spanning-tree vlan 10 priority 24576`.",
+    "checks": [
+     {
+      "type": "stp-root",
+      "device": "SW3",
+      "vlan": 10
+     },
+     {
+      "type": "config",
+      "device": "SW3",
+      "match": "^spanning-tree vlan 10 priority 24576$"
+     }
+    ]
+   },
+   {
+    "title": "A backup root",
+    "text": "If SW3 fails, SW2 should take over rather than SW1. Make SW2 the secondary root for VLAN 10.",
+    "hint": "`spanning-tree vlan 10 root secondary` on SW2 (priority 28672).",
+    "checks": [
+     {
+      "type": "config",
+      "device": "SW2",
+      "match": "^spanning-tree vlan 10 priority 28672$"
+     },
+     {
+      "type": "stp-root",
+      "device": "SW3",
+      "vlan": 10
+     }
+    ]
+   },
+   {
+    "title": "Steer SW1 through SW2",
+    "text": "SW1's direct link to SW3 is going to be replaced, so for VLAN 10 SW1 should reach the root through SW2. Raise the VLAN 10 cost of SW1 Gi0/2 to 20. SW1 Gi0/1 becomes the root port and Gi0/2 blocks as an alternate.",
+    "hint": "On SW1: `interface g0/2`, `spanning-tree vlan 10 cost 20`. The path through SW2 costs 4 + 4 = 8, which beats 20.",
+    "checks": [
+     {
+      "type": "stp-port",
+      "device": "SW1",
+      "intf": "Gi0/1",
+      "vlan": 10,
+      "role": "Root"
+     },
+     {
+      "type": "stp-port",
+      "device": "SW1",
+      "intf": "Gi0/2",
+      "vlan": 10,
+      "role": "Altn",
+      "state": "BLK"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.10.10.12"
+     }
+    ]
+   },
+   {
+    "title": "Rapid PVST+ everywhere",
+    "text": "Classic 802.1D takes 30-50 seconds to recover from a failure. Switch all three switches to Rapid PVST+ (802.1w), which converges in a second or two.",
+    "hint": "`spanning-tree mode rapid-pvst` in global config on SW1, SW2 and SW3. `show spanning-tree` then says *protocol rstp*.",
+    "checks": [
+     {
+      "type": "stp-mode",
+      "device": "SW1",
+      "mode": "rapid-pvst"
+     },
+     {
+      "type": "stp-mode",
+      "device": "SW2",
+      "mode": "rapid-pvst"
+     },
+     {
+      "type": "stp-mode",
+      "device": "SW3",
+      "mode": "rapid-pvst"
+     }
+    ]
+   },
+   {
+    "title": "PortFast and BPDU guard catch the rogue switch",
+    "text": "On SW2 and SW3, turn on PortFast for every access port by default, and BPDU guard for every PortFast port. Host ports come up instantly, and any port that hears a BPDU (a switch!) is err-disabled. Watch SW2's console as ROGUE gets cut off, then confirm PC1 still reaches PC2.",
+    "hint": "`spanning-tree portfast default` and `spanning-tree portfast bpduguard default` on SW2 and SW3. `show interfaces status err-disabled` lists Fa0/2. To bring such a port back you'd remove the switch and do `shutdown` / `no shutdown`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "SW2",
+      "match": "^spanning-tree portfast bpduguard default$"
+     },
+     {
+      "type": "config",
+      "device": "SW3",
+      "match": "^spanning-tree portfast bpduguard default$"
+     },
+     {
+      "type": "config",
+      "device": "SW2",
+      "match": "^spanning-tree portfast default$"
+     },
+     {
+      "type": "errdisabled",
+      "device": "SW2",
+      "intf": "Fa0/2",
+      "reason": "bpduguard"
+     },
+     {
+      "type": "ifup",
+      "device": "SW2",
+      "intf": "Fa0/1"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.10.10.12"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW3": [
+    "spanning-tree mode rapid-pvst",
+    "spanning-tree vlan 10 root primary",
+    "spanning-tree portfast default",
+    "spanning-tree portfast bpduguard default",
+    "end"
+   ],
+   "SW2": [
+    "spanning-tree mode rapid-pvst",
+    "spanning-tree vlan 10 root secondary",
+    "spanning-tree portfast default",
+    "spanning-tree portfast bpduguard default",
+    "end"
+   ],
+   "SW1": [
+    "spanning-tree mode rapid-pvst",
+    "interface g0/2",
+    "spanning-tree vlan 10 cost 20",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "etherchannel",
+  "title": "EtherChannel with LACP",
+  "topic": "EtherChannel",
+  "minutes": 20,
+  "summary": "Bundle two links into one port-channel, negotiate with LACP, trunk the bundle, and survive a cable failure.",
+  "intro": "SW1 and SW2 are joined by two cables (Fa0/23 and Fa0/24). On their own, spanning tree would block one of them. Bundled into an **EtherChannel**, they become a single logical link, `Port-channel1`: STP sees one link, both cables carry traffic, and losing a cable doesn't change the topology.\n\n**LACP** (802.3ad) negotiates the bundle. `active` sends LACP, `passive` only answers, so passive + passive never forms a bundle. `on` forces a bundle with no negotiation and only works against `on`. (PAgP, Cisco's own, uses `desirable` and `auto` the same way.)\n\nSW2 is already set to `channel-group 1 mode passive`. The PCs are in VLAN 10, which can't cross yet. `show etherchannel summary` is your friend: `P` means bundled, `I` stand-alone, `s` suspended.",
+  "height": 380,
+  "devices": [
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 260,
+    "y": 160
+   },
+   {
+    "name": "SW2",
+    "type": "switch",
+    "x": 540,
+    "y": 160
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 100,
+    "y": 310
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 700,
+    "y": 310
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "FastEthernet0/23",
+    "SW2",
+    "FastEthernet0/23"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/24",
+    "SW2",
+    "FastEthernet0/24"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW2",
+    "FastEthernet0/1",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1",
+    "vlan 10",
+    "name STAFF",
+    "exit",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "end"
+   ],
+   "SW2": [
+    "hostname SW2",
+    "vlan 10",
+    "name STAFF",
+    "exit",
+    "interface f0/1",
+    "switchport mode access",
+    "switchport access vlan 10",
+    "interface range f0/23 - 24",
+    "channel-group 1 mode passive",
+    "end"
+   ],
+   "PC1": [
+    "ip 10.1.10.11/24"
+   ],
+   "PC2": [
+    "ip 10.1.10.12/24"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Bundle the links with LACP",
+    "text": "On SW1, put Fa0/23 and Fa0/24 in channel group 1 so LACP forms a bundle with SW2. `show etherchannel summary` on both switches should show `Po1(SU)` with both ports `(P)`.",
+    "hint": "`interface range f0/23 - 24`, `channel-group 1 mode active`. SW2 is passive, so SW1 must be active: passive + passive never bundles.",
+    "checks": [
+     {
+      "type": "etherchannel",
+      "device": "SW1",
+      "group": 1,
+      "protocol": "lacp"
+     },
+     {
+      "type": "etherchannel",
+      "device": "SW2",
+      "group": 1,
+      "protocol": "lacp"
+     }
+    ]
+   },
+   {
+    "title": "Trunk the bundle",
+    "text": "Configure `Port-channel1` as a trunk on both switches. Settings on the port-channel interface are copied to its members. PC1 should then reach PC2 over VLAN 10.",
+    "hint": "`interface port-channel 1`, `switchport mode trunk` on SW1 and SW2. Don't configure the members one by one: a member whose settings differ from its port-channel is suspended `(s)`.",
+    "checks": [
+     {
+      "type": "swmode",
+      "device": "SW1",
+      "intf": "Po1",
+      "mode": "trunk"
+     },
+     {
+      "type": "swmode",
+      "device": "SW2",
+      "intf": "Po1",
+      "mode": "trunk"
+     },
+     {
+      "type": "trunk",
+      "device": "SW1",
+      "intf": "Po1"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.1.10.12"
+     }
+    ]
+   },
+   {
+    "title": "Carry only VLAN 10",
+    "text": "Prune the trunk so only VLAN 10 crosses `Port-channel1`, on both switches. Both members must stay bundled.",
+    "hint": "`interface port-channel 1`, `switchport trunk allowed vlan 10`.",
+    "checks": [
+     {
+      "type": "trunk",
+      "device": "SW1",
+      "intf": "Po1",
+      "allowed": [
+       10
+      ]
+     },
+     {
+      "type": "trunk",
+      "device": "SW2",
+      "intf": "Po1",
+      "allowed": [
+       10
+      ]
+     },
+     {
+      "type": "etherchannel",
+      "device": "SW1",
+      "group": 1
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.1.10.12"
+     }
+    ]
+   },
+   {
+    "title": "Lose a cable, keep the link",
+    "text": "Shut SW1 Fa0/24 to simulate a cable failure. The port-channel stays up on one member, spanning tree doesn't reconverge, and PC1 still reaches PC2. Check `show etherchannel summary` and `show spanning-tree vlan 10`: STP only ever sees `Po1`.",
+    "hint": "`interface f0/24`, `shutdown` on SW1. The member shows `(D)`, the bundle stays `Po1(SU)`.",
+    "checks": [
+     {
+      "type": "shut",
+      "device": "SW1",
+      "intf": "Fa0/24"
+     },
+     {
+      "type": "etherchannel",
+      "device": "SW1",
+      "group": 1
+     },
+     {
+      "type": "stp-port",
+      "device": "SW2",
+      "intf": "Po1",
+      "vlan": 10,
+      "role": "Root"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.1.10.12"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "interface range f0/23 - 24",
+    "channel-group 1 mode active",
+    "interface port-channel 1",
+    "switchport mode trunk",
+    "switchport trunk allowed vlan 10",
+    "interface f0/24",
+    "shutdown",
+    "end"
+   ],
+   "SW2": [
+    "interface port-channel 1",
+    "switchport mode trunk",
+    "switchport trunk allowed vlan 10",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "port-security",
+  "title": "Port security",
+  "topic": "Switch security",
+  "minutes": 20,
+  "summary": "Sticky MAC learning, maximum addresses, restrict vs shutdown violations, and recovering an err-disabled port.",
+  "intro": "Port security limits which MAC addresses may use a switch port. You choose how many (`maximum`, default 1), which ones (static, or learned and saved with `sticky`), and what happens on a violation:\n\n| Mode | Drops the frame | Logs and counts | Port |\n|---|---|---|---|\n| protect | yes | no | stays up |\n| restrict | yes | yes | stays up |\n| shutdown (default) | yes | yes | err-disabled |\n\nSW1 serves three desks and a server. PC1 sits on Fa0/1. Fa0/3 goes to a small unmanaged switch (HUB) that someone used to connect two PCs. Fa0/2 was locked down last week, and PC2 hasn't worked since. The server is on Fa0/24 at `10.0.0.100`.",
+  "height": 440,
+  "devices": [
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 400,
+    "y": 170
+   },
+   {
+    "name": "HUB",
+    "type": "switch",
+    "x": 620,
+    "y": 300
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 130,
+    "y": 60
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 130,
+    "y": 300
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 520,
+    "y": 410
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 720,
+    "y": 410
+   },
+   {
+    "name": "SRV",
+    "type": "pc",
+    "x": 680,
+    "y": 60
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/3",
+    "HUB",
+    "FastEthernet0/24"
+   ],
+   [
+    "HUB",
+    "FastEthernet0/1",
+    "PC3",
+    "eth0"
+   ],
+   [
+    "HUB",
+    "FastEthernet0/2",
+    "PC4",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/24",
+    "SRV",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1",
+    "interface f0/2",
+    "switchport mode access",
+    "switchport port-security",
+    "switchport port-security mac-address 0050.7966.68ff",
+    "end"
+   ],
+   "HUB": [
+    "hostname HUB"
+   ],
+   "SRV": [
+    "ip 10.0.0.100/24"
+   ],
+   "PC1": [
+    "ip 10.0.0.11/24"
+   ],
+   "PC3": [
+    "ip 10.0.0.13/24"
+   ],
+   "PC4": [
+    "ip 10.0.0.14/24"
+   ],
+   "PC2": [
+    "ip 10.0.0.12/24",
+    "ping 10.0.0.100 -c 1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Lock Fa0/1 to PC1 with a sticky MAC",
+    "text": "Enable port security on Fa0/1 with sticky learning, then ping the server from PC1 so the switch learns PC1's MAC. The learned address is written into the running-config.",
+    "hint": "`interface f0/1`, `switchport mode access` (port security refuses a dynamic port), `switchport port-security`, `switchport port-security mac-address sticky`. Then `ping 10.0.0.100` on PC1 and look at `show running-config interface f0/1`.",
+    "checks": [
+     {
+      "type": "psec",
+      "device": "SW1",
+      "intf": "Fa0/1",
+      "sticky": true
+     },
+     {
+      "type": "psec-macs",
+      "device": "SW1",
+      "intf": "Fa0/1",
+      "count": 1,
+      "kind": "sticky"
+     },
+     {
+      "type": "config",
+      "device": "SW1",
+      "match": "^ switchport port-security mac-address sticky 0050\\.7966\\.6802$"
+     }
+    ]
+   },
+   {
+    "title": "One device per desk, without killing the port",
+    "text": "Fa0/3 should allow a single MAC address, but a violation must not take the port down. Use restrict mode. Then ping the server from PC3 and from PC4: the first one in wins, the other is dropped and counted.",
+    "hint": "`interface f0/3`, `switchport mode access`, `switchport port-security`, `switchport port-security violation restrict`. `show port-security` shows the violation count.",
+    "checks": [
+     {
+      "type": "psec",
+      "device": "SW1",
+      "intf": "Fa0/3",
+      "max": 1,
+      "violation": "restrict"
+     },
+     {
+      "type": "psec-violations",
+      "device": "SW1",
+      "intf": "Fa0/3",
+      "min": 1
+     },
+     {
+      "type": "ifup",
+      "device": "SW1",
+      "intf": "Fa0/3"
+     }
+    ]
+   },
+   {
+    "title": "Fix PC2's dead port",
+    "text": "PC2 can't reach anything. Find out why with `show interfaces status err-disabled` and `show port-security interface f0/2`, remove the wrong static MAC, and bring the port back. Keep port security on.",
+    "hint": "Somebody typed the wrong MAC: `no switchport port-security mac-address 0050.7966.68ff`. An err-disabled port stays down until you `shutdown` then `no shutdown` it.",
+    "checks": [
+     {
+      "type": "ifup",
+      "device": "SW1",
+      "intf": "Fa0/2"
+     },
+     {
+      "type": "psec",
+      "device": "SW1",
+      "intf": "Fa0/2"
+     },
+     {
+      "type": "noconfig",
+      "device": "SW1",
+      "match": "0050\\.7966\\.68ff"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "10.0.0.100"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "SW1": [
+    "interface f0/1",
+    "switchport mode access",
+    "switchport port-security",
+    "switchport port-security mac-address sticky",
+    "interface f0/3",
+    "switchport mode access",
+    "switchport port-security",
+    "switchport port-security violation restrict",
+    "interface f0/2",
+    "no switchport port-security mac-address 0050.7966.68ff",
+    "shutdown",
+    "no shutdown",
+    "end"
+   ],
+   "PC1": [
+    "ping 10.0.0.100 -c 1"
+   ],
+   "PC3": [
+    "ping 10.0.0.100 -c 1"
+   ],
+   "PC4": [
+    "ping 10.0.0.100 -c 1"
+   ]
+  }
+ },
+ {
+  "id": "nat",
+  "title": "NAT and PAT to the internet",
+  "topic": "NAT",
+  "minutes": 20,
+  "summary": "Inside and outside interfaces, static NAT for a server, PAT (overload) for the LAN, and reading the translation table.",
+  "intro": "The LAN uses private `192.168.1.0/24` addresses, which the internet won't route. R1 must translate them. The ISP gave you `203.0.113.2/30` on R1 Gi0/1 and routes the public block `198.51.100.0/29` to you. `8.8.8.8` on the ISP router stands in for the internet.\n\nNAT vocabulary: **inside local** is the real private address, **inside global** is what the internet sees. **Static NAT** maps one-to-one and permanently (good for a server people must reach). **PAT** (`overload`) lets the whole LAN share one public address by tracking port or ICMP ID numbers.\n\n| Device | Address |\n|---|---|\n| PC1 / PC2 | 192.168.1.10 / .11 |\n| SRV (web server) | 192.168.1.100 |\n| R1 Gi0/0 (inside) | 192.168.1.1 |\n| R1 Gi0/1 (outside) | 203.0.113.2/30 |",
+  "height": 420,
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 90
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 90,
+    "y": 300
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 260,
+    "y": 195
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 450,
+    "y": 195
+   },
+   {
+    "name": "ISP",
+    "type": "router",
+    "x": 680,
+    "y": 195
+   },
+   {
+    "name": "SRV",
+    "type": "pc",
+    "x": 260,
+    "y": 360
+   }
+  ],
+  "links": [
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/3",
+    "SRV",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "GigabitEthernet0/1",
+    "R1",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "ISP",
+    "GigabitEthernet0/0"
+   ]
+  ],
+  "initial": {
+   "SW1": [
+    "hostname SW1"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 203.0.113.2 255.255.255.252",
+    "no shutdown",
+    "exit",
+    "ip route 0.0.0.0 0.0.0.0 203.0.113.1",
+    "end"
+   ],
+   "ISP": [
+    "hostname ISP",
+    "interface g0/0",
+    "ip address 203.0.113.1 255.255.255.252",
+    "no shutdown",
+    "interface lo0",
+    "ip address 8.8.8.8 255.255.255.255",
+    "exit",
+    "ip route 198.51.100.0 255.255.255.248 203.0.113.2",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC2": [
+    "ip 192.168.1.11/24 192.168.1.1"
+   ],
+   "SRV": [
+    "ip 192.168.1.100/24 192.168.1.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Mark inside and outside",
+    "text": "Tell R1 which side is which: Gi0/0 faces the LAN (inside), Gi0/1 faces the ISP (outside). NAT only translates traffic that crosses from one to the other.",
+    "hint": "`interface g0/0`, `ip nat inside`, `interface g0/1`, `ip nat outside`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^interface GigabitEthernet0/0\\n(?: .*\\n)*? ip nat inside$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^interface GigabitEthernet0/1\\n(?: .*\\n)*? ip nat outside$"
+     }
+    ]
+   },
+   {
+    "title": "Publish the web server with static NAT",
+    "text": "Map SRV `192.168.1.100` permanently to the public address `198.51.100.5`, so the internet can reach it. Test from the ISP router: `ping 198.51.100.5`.",
+    "hint": "`ip nat inside source static 192.168.1.100 198.51.100.5`. The ISP already routes `198.51.100.0/29` to R1.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ip nat inside source static 192\\.168\\.1\\.100 198\\.51\\.100\\.5$"
+     },
+     {
+      "type": "ping",
+      "from": "ISP",
+      "to": "198.51.100.5"
+     }
+    ]
+   },
+   {
+    "title": "Let the LAN out with PAT",
+    "text": "Let every LAN host share R1's outside address. Match the LAN with standard ACL 1 and overload Gi0/1. PC1 and PC2 should both reach `8.8.8.8`.",
+    "hint": "`access-list 1 permit 192.168.1.0 0.0.0.255`, then `ip nat inside source list 1 interface g0/1 overload`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ip nat inside source list \\S+ interface GigabitEthernet0/1 overload$"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "8.8.8.8"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "8.8.8.8"
+     }
+    ]
+   },
+   {
+    "title": "Read the translation table",
+    "text": "Ping `8.8.8.8` from PC1, then run `show ip nat translations` and `show ip nat statistics` on R1. You'll see PC1's `192.168.1.10:1` translated to `203.0.113.2:1`. Ping from PC2 too and see PAT give it a different port.",
+    "hint": "The entry only exists once real traffic has passed, so ping from PC1 first.",
+    "checks": [
+     {
+      "type": "nat-entry",
+      "device": "R1",
+      "local": "192.168.1.10",
+      "global": "203.0.113.2"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "interface g0/0",
+    "ip nat inside",
+    "interface g0/1",
+    "ip nat outside",
+    "exit",
+    "ip nat inside source static 192.168.1.100 198.51.100.5",
+    "access-list 1 permit 192.168.1.0 0.0.0.255",
+    "ip nat inside source list 1 interface g0/1 overload",
+    "end"
+   ],
+   "PC1": [
+    "ping 8.8.8.8 -c 2"
+   ]
+  }
+ },
+ {
+  "id": "hsrp",
+  "title": "HSRP: a gateway that doesn't fail",
+  "topic": "First-hop redundancy (HSRP)",
+  "minutes": 25,
+  "summary": "A virtual gateway IP shared by two routers, priority and preempt, interface tracking and a real failover test.",
+  "intro": "PC1's default gateway is a single point of failure. With **HSRP**, R1 and R2 share a **virtual IP** (`192.168.10.1`) and a virtual MAC. One router is **active** and answers for it, the other is **standby** and takes over if the active router disappears. The PC never changes its gateway.\n\nElection: highest priority wins (default 100), then the highest interface IP. A router only takes the active role *from* another if it has `preempt`. **Tracking** lowers a router's priority when an interface it depends on (its uplink) goes down.\n\nOSPF already runs everywhere, and CORE has `10.10.10.10` on a loopback. PC1 is set to use `192.168.10.1` as its gateway, which doesn't exist yet. Watch for `%HSRP-5-STATECHANGE` messages.\n\n| Router | LAN (Gi0/0) | Uplink (Gi0/1) |\n|---|---|---|\n| R1 | 192.168.10.2 | 10.0.13.1 |\n| R2 | 192.168.10.3 | 10.0.23.2 |",
+  "height": 450,
+  "devices": [
+   {
+    "name": "CORE",
+    "type": "router",
+    "x": 400,
+    "y": 60
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 220,
+    "y": 190
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 580,
+    "y": 190
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 400,
+    "y": 300
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 400,
+    "y": 410
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "CORE",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "CORE",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "SW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "SW1",
+    "GigabitEthernet0/2"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "CORE": [
+    "hostname CORE",
+    "interface g0/0",
+    "ip address 10.0.13.3 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.23.3 255.255.255.0",
+    "no shutdown",
+    "interface lo0",
+    "ip address 10.10.10.10 255.255.255.255",
+    "exit",
+    "router ospf 1",
+    "network 0.0.0.0 255.255.255.255 area 0",
+    "exit",
+    "end"
+   ],
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 192.168.10.2 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.13.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "router ospf 1",
+    "network 0.0.0.0 255.255.255.255 area 0",
+    "exit",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 192.168.10.3 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.23.2 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "router ospf 1",
+    "network 0.0.0.0 255.255.255.255 area 0",
+    "exit",
+    "end"
+   ],
+   "SW1": [
+    "hostname SW1"
+   ],
+   "PC1": [
+    "ip 192.168.10.10/24 192.168.10.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Create the virtual gateway",
+    "text": "On the LAN interface of both routers, join HSRP group 10 with virtual IP `192.168.10.1`. PC1 should then reach `10.10.10.10`.",
+    "hint": "`interface g0/0`, `standby 10 ip 192.168.10.1` on R1 and R2. `show standby brief` shows who is active.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ standby 10 ip 192\\.168\\.10\\.1$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ standby 10 ip 192\\.168\\.10\\.1$"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.10.10.10"
+     }
+    ]
+   },
+   {
+    "title": "R1 should be the active router",
+    "text": "Give R1 priority 110 and let it preempt, so it takes the active role whenever it can. R2 stays standby.",
+    "hint": "`standby 10 priority 110` and `standby 10 preempt` on R1 Gi0/0. Without preempt, a router that is already active keeps the role even if a higher-priority one appears.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ standby 10 priority 110$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ standby 10 preempt$"
+     },
+     {
+      "type": "hsrp",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "group": 10,
+      "state": "Active"
+     },
+     {
+      "type": "hsrp",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "group": 10,
+      "state": "Standby"
+     }
+    ]
+   },
+   {
+    "title": "Fail over when R1 loses its uplink",
+    "text": "If R1 Gi0/1 goes down, R1 is a dead end even though its LAN side is fine. Make R1 track Gi0/1 and drop its priority by 20, and let R2 preempt. Then test it: shut R1 Gi0/1 (R2 becomes active, PC1 still reaches `10.10.10.10`), and bring it back (R1 takes over again).",
+    "hint": "R1: `standby 10 track g0/1 20` (IOS turns this into a `track 1 interface ... line-protocol` object). R2: `standby 10 preempt`. Then on R1 `interface g0/1`, `shutdown`, watch, `no shutdown`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^track \\d+ interface GigabitEthernet0/1 line-protocol$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ standby 10 track \\d+ decrement 20$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ standby 10 preempt$"
+     },
+     {
+      "type": "hsrp-seen",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "group": 10,
+      "state": "Active"
+     },
+     {
+      "type": "hsrp",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "group": 10,
+      "state": "Active"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "10.10.10.10"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R2": [
+    "interface g0/0",
+    "standby 10 ip 192.168.10.1",
+    "standby 10 preempt",
+    "end"
+   ],
+   "R1": [
+    "interface g0/0",
+    "standby 10 ip 192.168.10.1",
+    "standby 10 priority 110",
+    "standby 10 preempt",
+    "standby 10 track g0/1 20",
+    "interface g0/1",
+    "shutdown",
+    "no shutdown",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "ipv6",
+  "title": "IPv6 addressing, SLAAC and static routes",
+  "topic": "IPv6",
+  "minutes": 20,
+  "summary": "ipv6 unicast-routing, global and link-local addresses, hosts configuring themselves with SLAAC, and IPv6 static routes.",
+  "intro": "IPv6 addresses are 128 bits, written in hex with `::` standing for one run of zero groups. Every IPv6 interface also gets a **link-local** address (`FE80::/10`), made from its MAC with EUI-64. Routers use link-local addresses to talk to their neighbours.\n\nA router only forwards IPv6 and sends **router advertisements** (RAs) once you enable `ipv6 unicast-routing`. Hosts then use **SLAAC**: they take the advertised /64 prefix, add their own EUI-64 interface ID, and use the router's link-local address as their gateway. No DHCP needed.\n\n| Link | Prefix |\n|---|---|\n| PC1 LAN (R1 Gi0/0) | 2001:DB8:ACAD:1::/64 |\n| R1-R2 (Gi0/1) | 2001:DB8:ACAD:12::/64 |\n| PC2 LAN (R2 Gi0/0) | 2001:DB8:ACAD:2::/64 |\n\nUse `::1` for the routers on the LANs, and `::1`/`::2` for R1/R2 on the link between them.",
+  "height": 360,
+  "devices": [
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 90,
+    "y": 190
+   },
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 300,
+    "y": 190
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 500,
+    "y": 190
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 710,
+    "y": 190
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R2",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "PC2",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1"
+   ],
+   "R2": [
+    "hostname R2"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "IPv6 on R1",
+    "text": "Enable IPv6 routing on R1 and give Gi0/0 `2001:DB8:ACAD:1::1/64` and Gi0/1 `2001:DB8:ACAD:12::1/64`. Bring both interfaces up. `show ipv6 interface brief` shows the link-local address IOS made for each.",
+    "hint": "`ipv6 unicast-routing`, then on each interface `ipv6 address 2001:db8:acad:1::1/64` and `no shutdown`.",
+    "checks": [
+     {
+      "type": "ipv6-routing",
+      "device": "R1"
+     },
+     {
+      "type": "ipv6-addr",
+      "device": "R1",
+      "intf": "Gi0/0",
+      "prefix": "2001:DB8:ACAD:1::/64"
+     },
+     {
+      "type": "ipv6-addr",
+      "device": "R1",
+      "intf": "Gi0/1",
+      "prefix": "2001:DB8:ACAD:12::/64"
+     },
+     {
+      "type": "ifup",
+      "device": "R1",
+      "intf": "Gi0/0"
+     },
+     {
+      "type": "ifup",
+      "device": "R1",
+      "intf": "Gi0/1"
+     }
+    ]
+   },
+   {
+    "title": "IPv6 on R2",
+    "text": "Same on R2: Gi0/0 `2001:DB8:ACAD:2::1/64`, Gi0/1 `2001:DB8:ACAD:12::2/64`. R1 should now ping `2001:DB8:ACAD:12::2`.",
+    "hint": "`ipv6 unicast-routing`, `interface g0/0`, `ipv6 address 2001:db8:acad:2::1/64`, `no shutdown`, and the same for Gi0/1.",
+    "checks": [
+     {
+      "type": "ipv6-routing",
+      "device": "R2"
+     },
+     {
+      "type": "ipv6-addr",
+      "device": "R2",
+      "intf": "Gi0/0",
+      "prefix": "2001:DB8:ACAD:2::/64"
+     },
+     {
+      "type": "ping",
+      "from": "R1",
+      "to": "2001:DB8:ACAD:12::2"
+     }
+    ]
+   },
+   {
+    "title": "Let the PCs configure themselves",
+    "text": "On each PC run `ip auto` (SLAAC). Each PC builds its address from its router's /64 plus its own EUI-64 ID. Check with `show ipv6`.",
+    "hint": "Nothing to configure on the routers: `ipv6 unicast-routing` already makes them send router advertisements.",
+    "checks": [
+     {
+      "type": "ipv6-addr",
+      "device": "PC1",
+      "prefix": "2001:DB8:ACAD:1::/64",
+      "how": "auto"
+     },
+     {
+      "type": "ipv6-addr",
+      "device": "PC2",
+      "prefix": "2001:DB8:ACAD:2::/64",
+      "how": "auto"
+     }
+    ]
+   },
+   {
+    "title": "Static routes between the LANs",
+    "text": "Each router only knows its own LANs. Add an IPv6 static route on R1 for PC2's LAN and on R2 for PC1's LAN, using the other router's `12::` address as next hop. PC1 should then ping PC2 (`2001:db8:acad:2:250:79ff:fe66:6803`).",
+    "hint": "R1: `ipv6 route 2001:db8:acad:2::/64 2001:db8:acad:12::2`. R2: `ipv6 route 2001:db8:acad:1::/64 2001:db8:acad:12::1`.",
+    "checks": [
+     {
+      "type": "route6",
+      "device": "R1",
+      "prefix": "2001:DB8:ACAD:2::/64",
+      "code": "S"
+     },
+     {
+      "type": "route6",
+      "device": "R2",
+      "prefix": "2001:DB8:ACAD:1::/64",
+      "code": "S"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "2001:DB8:ACAD:2:250:79FF:FE66:6803"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "2001:DB8:ACAD:1:250:79FF:FE66:6800"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    "ipv6 address 2001:db8:acad:1::1/64",
+    "no shutdown",
+    "interface g0/1",
+    "ipv6 address 2001:db8:acad:12::1/64",
+    "no shutdown",
+    "exit",
+    "ipv6 route 2001:db8:acad:2::/64 2001:db8:acad:12::2",
+    "end"
+   ],
+   "R2": [
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    "ipv6 address 2001:db8:acad:2::1/64",
+    "no shutdown",
+    "interface g0/1",
+    "ipv6 address 2001:db8:acad:12::2/64",
+    "no shutdown",
+    "exit",
+    "ipv6 route 2001:db8:acad:1::/64 2001:db8:acad:12::1",
+    "end"
+   ],
+   "PC1": [
+    "ip auto"
+   ],
+   "PC2": [
+    "ip auto"
+   ]
+  }
+ },
+ {
+  "id": "ospfv3",
+  "title": "OSPFv3 for IPv6",
+  "topic": "IPv6 routing (OSPFv3)",
+  "minutes": 20,
+  "summary": "Router IDs on an IPv6-only network, enabling OSPFv3 per interface, link-local neighbours and passive LANs.",
+  "intro": "OSPFv3 is OSPF for IPv6. The ideas are the same as OSPFv2 (areas, DR/BDR, SPF, cost), with three differences that trip people up:\n\n1. It is enabled **on each interface** (`ipv6 ospf 1 area 0`), not with `network` statements.\n2. Neighbours talk using **link-local** addresses, so next hops in `show ipv6 route` are `FE80::` addresses.\n3. The router ID is still a 32-bit dotted number. It's taken from an IPv4 address if there is one. This network is IPv6-only, so you must set it by hand.\n\nAll addressing is done and `ipv6 unicast-routing` is on. The PCs have already taken SLAAC addresses. R1 has a loopback `2001:DB8:FFFF::1/128`.\n\n| Link | Prefix |\n|---|---|\n| R1-R2 | 2001:DB8:12::/64 |\n| R1-R3 | 2001:DB8:13::/64 |\n| R2-R3 | 2001:DB8:23::/64 |\n| PC2 LAN (R2 Gi0/2) | 2001:DB8:2::/64 |\n| PC3 LAN (R3 Gi0/2) | 2001:DB8:3::/64 |",
+  "height": 430,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 400,
+    "y": 70
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 220,
+    "y": 240
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 580,
+    "y": 240
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 120,
+    "y": 380
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 680,
+    "y": 380
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/2",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    "ipv6 address 2001:db8:12::1/64",
+    "no shutdown",
+    "interface g0/1",
+    "ipv6 address 2001:db8:13::1/64",
+    "no shutdown",
+    "interface lo0",
+    "ipv6 address 2001:db8:ffff::1/128",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    "ipv6 address 2001:db8:12::2/64",
+    "no shutdown",
+    "interface g0/1",
+    "ipv6 address 2001:db8:23::2/64",
+    "no shutdown",
+    "interface g0/2",
+    "ipv6 address 2001:db8:2::1/64",
+    "no shutdown",
+    "end"
+   ],
+   "R3": [
+    "hostname R3",
+    "ipv6 unicast-routing",
+    "interface g0/0",
+    "ipv6 address 2001:db8:13::3/64",
+    "no shutdown",
+    "interface g0/1",
+    "ipv6 address 2001:db8:23::3/64",
+    "no shutdown",
+    "interface g0/2",
+    "ipv6 address 2001:db8:3::1/64",
+    "no shutdown",
+    "end"
+   ],
+   "PC2": [
+    "ip auto"
+   ],
+   "PC3": [
+    "ip auto"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Start OSPFv3 with router IDs",
+    "text": "On each router create `ipv6 router ospf 1` and set its router ID: R1 `1.1.1.1`, R2 `2.2.2.2`, R3 `3.3.3.3`. There's no IPv4 here, so without one the process can't start (`%OSPFv3-4-NORTRID`).",
+    "hint": "`ipv6 router ospf 1`, `router-id 1.1.1.1`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ipv6 router ospf 1\\n router-id 1\\.1\\.1\\.1$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ipv6 router ospf 1\\n router-id 2\\.2\\.2\\.2$"
+     },
+     {
+      "type": "config",
+      "device": "R3",
+      "match": "^ipv6 router ospf 1\\n router-id 3\\.3\\.3\\.3$"
+     }
+    ]
+   },
+   {
+    "title": "Enable OSPFv3 on the interfaces",
+    "text": "Put every interface in area 0: the three router links, both LANs and R1's loopback. Each router should see two FULL neighbours in `show ipv6 ospf neighbor`.",
+    "hint": "On each interface: `ipv6 ospf 1 area 0`. `interface range g0/0 - 2` saves typing on R2 and R3.",
+    "checks": [
+     {
+      "type": "ospf6-nbr",
+      "device": "R1",
+      "neighbor": "2.2.2.2"
+     },
+     {
+      "type": "ospf6-nbr",
+      "device": "R1",
+      "neighbor": "3.3.3.3"
+     },
+     {
+      "type": "ospf6-nbr",
+      "device": "R2",
+      "neighbor": "3.3.3.3"
+     },
+     {
+      "type": "route6",
+      "device": "R2",
+      "prefix": "2001:DB8:FFFF::1/128",
+      "code": "O"
+     }
+    ]
+   },
+   {
+    "title": "Passive LAN interfaces",
+    "text": "No OSPF routers live on the PC LANs, so stop sending hellos there: make Gi0/2 passive on R2 and R3. The LAN prefixes must still be advertised.",
+    "hint": "Under `ipv6 router ospf 1`: `passive-interface g0/2`.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ipv6 router ospf 1\\n(?: .*\\n)*? passive-interface GigabitEthernet0/2$"
+     },
+     {
+      "type": "config",
+      "device": "R3",
+      "match": "^ipv6 router ospf 1\\n(?: .*\\n)*? passive-interface GigabitEthernet0/2$"
+     },
+     {
+      "type": "route6",
+      "device": "R1",
+      "prefix": "2001:DB8:2::/64",
+      "code": "O"
+     },
+     {
+      "type": "route6",
+      "device": "R1",
+      "prefix": "2001:DB8:3::/64",
+      "code": "O"
+     }
+    ]
+   },
+   {
+    "title": "End to end",
+    "text": "PC2 should reach PC3 (`2001:db8:3:0:250:79ff:fe66:6804`) and R1's loopback `2001:db8:ffff::1`. Look at `show ipv6 route ospf` on R2: the next hops are link-local addresses.",
+    "hint": "If a ping fails, check `show ipv6 ospf neighbor` and `show ipv6 route` on each router.",
+    "checks": [
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "2001:DB8:3:0:250:79FF:FE66:6804"
+     },
+     {
+      "type": "ping",
+      "from": "PC2",
+      "to": "2001:DB8:FFFF::1"
+     },
+     {
+      "type": "ping",
+      "from": "PC3",
+      "to": "2001:DB8:2:0:250:79FF:FE66:6803"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R1": [
+    "ipv6 router ospf 1",
+    "router-id 1.1.1.1",
+    "interface range g0/0 - 1",
+    "ipv6 ospf 1 area 0",
+    "interface lo0",
+    "ipv6 ospf 1 area 0",
+    "end"
+   ],
+   "R2": [
+    "ipv6 router ospf 1",
+    "router-id 2.2.2.2",
+    "passive-interface g0/2",
+    "interface range g0/0 - 2",
+    "ipv6 ospf 1 area 0",
+    "end"
+   ],
+   "R3": [
+    "ipv6 router ospf 1",
+    "router-id 3.3.3.3",
+    "passive-interface g0/2",
+    "interface range g0/0 - 2",
+    "ipv6 ospf 1 area 0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "eigrp",
+  "title": "EIGRP: neighbours, DUAL and load sharing",
+  "topic": "EIGRP",
+  "minutes": 25,
+  "summary": "Classic EIGRP, a K-value mismatch to fix, passive interfaces, feasible successors and unequal-cost load sharing with variance.",
+  "intro": "EIGRP is Cisco's advanced distance-vector protocol. Neighbours must share the same **AS number** and the same **K values** (the metric weights), and be on the same subnet. The metric uses the slowest **bandwidth** on the path plus the total **delay**.\n\n**DUAL** keeps a best path (the *successor*, whose metric is the **feasible distance**, FD) and, if possible, a ready-made backup: a **feasible successor**, a neighbour whose own distance to the network (its *reported distance*) is lower than your FD. That rule guarantees the backup isn't a loop through you.\n\nThe R1-R3 link is a slow 100 Mbps backup (`bandwidth 100000` on both ends). R3 is already running EIGRP AS 100, but something's wrong with it. (Named mode, `router eigrp NAME` then `address-family ipv4 unicast autonomous-system 100`, works here too.)\n\n| Link | Subnet |\n|---|---|\n| R1-R2 | 10.0.12.0/24 |\n| R2-R3 | 10.0.23.0/24 |\n| R1-R3 (slow) | 10.0.13.0/24 |\n| PC1 LAN (R1 Gi0/2) | 192.168.1.0/24 |\n| PC3 LAN (R3 Gi0/2) | 192.168.3.0/24 |",
+  "height": 460,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 230,
+    "y": 120
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 570,
+    "y": 120
+   },
+   {
+    "name": "R3",
+    "type": "router",
+    "x": 400,
+    "y": 300
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 80,
+    "y": 260
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 400,
+    "y": 420
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "R2",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/0"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R3",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/2",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "R3",
+    "GigabitEthernet0/2",
+    "PC3",
+    "eth0"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1",
+    "interface g0/0",
+    "ip address 10.0.12.1 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.13.1 255.255.255.0",
+    "bandwidth 100000",
+    "no shutdown",
+    "interface g0/2",
+    "ip address 192.168.1.1 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "R2": [
+    "hostname R2",
+    "interface g0/0",
+    "ip address 10.0.12.2 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.23.2 255.255.255.0",
+    "no shutdown",
+    "end"
+   ],
+   "R3": [
+    "hostname R3",
+    "interface g0/0",
+    "ip address 10.0.23.3 255.255.255.0",
+    "no shutdown",
+    "interface g0/1",
+    "ip address 10.0.13.3 255.255.255.0",
+    "bandwidth 100000",
+    "no shutdown",
+    "interface g0/2",
+    "ip address 192.168.3.1 255.255.255.0",
+    "no shutdown",
+    "exit",
+    "router eigrp 100",
+    "metric weights 0 1 1 1 0 0",
+    "network 10.0.0.0",
+    "network 192.168.3.0",
+    "eigrp router-id 3.3.3.3",
+    "end"
+   ],
+   "PC1": [
+    "ip 192.168.1.10/24 192.168.1.1"
+   ],
+   "PC3": [
+    "ip 192.168.3.10/24 192.168.3.1"
+   ]
+  },
+  "tasks": [
+   {
+    "title": "Run EIGRP on R1 and R2",
+    "text": "Start EIGRP AS 100 on R1 and R2 with router IDs `1.1.1.1` and `2.2.2.2`, and advertise every connected network (R1's LAN too). R1 and R2 should become neighbours.",
+    "hint": "`router eigrp 100`, `eigrp router-id 1.1.1.1`, `network 10.0.0.0` (classful) or `network 10.0.12.0 0.0.0.255` (exact), and `network 192.168.1.0` on R1. Look for `%DUAL-5-NBRCHANGE ... is up: new adjacency`.",
+    "checks": [
+     {
+      "type": "eigrp-nbr",
+      "device": "R1",
+      "neighbor": "10.0.12.2"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ eigrp router-id 1\\.1\\.1\\.1$"
+     },
+     {
+      "type": "config",
+      "device": "R2",
+      "match": "^ eigrp router-id 2\\.2\\.2\\.2$"
+     },
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ network 192\\.168\\.1\\.0"
+     }
+    ]
+   },
+   {
+    "title": "Why won't R3 peer?",
+    "text": "R3 runs AS 100 and covers the right networks, yet neither R1 nor R2 becomes its neighbour. Find the mismatch with `show ip protocols` on R3 and fix it.",
+    "hint": "Compare the *Metric weight* line on R3 with R1. K values must match. `no metric weights` restores the defaults (K1=1, K3=1).",
+    "checks": [
+     {
+      "type": "eigrp-nbrs",
+      "device": "R3",
+      "count": 2
+     },
+     {
+      "type": "noconfig",
+      "device": "R3",
+      "match": "metric weights"
+     }
+    ]
+   },
+   {
+    "title": "Keep hellos off the LANs",
+    "text": "Make the PC-facing interfaces passive on R1 and R3 (still advertised, but no hellos). PC1 should then ping PC3.",
+    "hint": "`passive-interface g0/2` under `router eigrp 100` on R1 and R3.",
+    "checks": [
+     {
+      "type": "config",
+      "device": "R1",
+      "match": "^ passive-interface GigabitEthernet0/2$"
+     },
+     {
+      "type": "config",
+      "device": "R3",
+      "match": "^ passive-interface GigabitEthernet0/2$"
+     },
+     {
+      "type": "ping",
+      "from": "PC1",
+      "to": "192.168.3.10"
+     }
+    ]
+   },
+   {
+    "title": "Use the feasible successor",
+    "text": "In `show ip eigrp topology` on R1, `192.168.3.0/24` has a successor through R2 and a feasible successor straight to R3 over the slow link (R3's reported distance is lower than R1's FD). Set `variance` on R1 so EIGRP installs both paths with unequal-cost load sharing.",
+    "hint": "The direct path's metric is about 7.8 times the FD, so `variance 8` under `router eigrp 100` is the smallest that works. Only feasible successors are ever used, so variance can't create a loop.",
+    "checks": [
+     {
+      "type": "eigrp-fs",
+      "device": "R1",
+      "prefix": "192.168.3.0/24",
+      "via": "10.0.13.3"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.3.0/24",
+      "code": "D",
+      "via": "10.0.12.2"
+     },
+     {
+      "type": "route",
+      "device": "R1",
+      "prefix": "192.168.3.0/24",
+      "code": "D",
+      "via": "10.0.13.3"
+     }
+    ]
+   }
+  ],
+  "solution": {
+   "R3": [
+    "router eigrp 100",
+    "no metric weights",
+    "passive-interface g0/2",
+    "end"
+   ],
+   "R1": [
+    "router eigrp 100",
+    "eigrp router-id 1.1.1.1",
+    "network 10.0.12.0 0.0.0.255",
+    "network 10.0.13.0 0.0.0.255",
+    "network 192.168.1.0",
+    "passive-interface g0/2",
+    "variance 8",
+    "end"
+   ],
+   "R2": [
+    "router eigrp 100",
+    "eigrp router-id 2.2.2.2",
+    "network 10.0.0.0",
+    "end"
+   ]
+  }
+ },
+ {
+  "id": "sandbox",
+  "title": "Sandbox",
+  "topic": "Free play",
+  "minutes": 0,
+  "summary": "Two routers, two switches, four PCs, blank configs. Build whatever you like.",
+  "intro": "No tasks and no checks: a blank network to practise on. The routers are cabled to each other and each has a switch with two PCs.\n\nSome ideas: put R1 and R2 on `10.0.12.0/30` and run OSPF between them; give each LAN its own VLANs with router-on-a-stick; lock both routers down with SSH and an ACL. **Reset** wipes everything back to blank.\n\nSW1 and SW2 are also joined by two cables (Fa0/23 and Fa0/24), so you can try spanning tree and EtherChannel.",
+  "height": 400,
+  "devices": [
+   {
+    "name": "R1",
+    "type": "router",
+    "x": 270,
+    "y": 70
+   },
+   {
+    "name": "R2",
+    "type": "router",
+    "x": 530,
+    "y": 70
+   },
+   {
+    "name": "SW1",
+    "type": "switch",
+    "x": 270,
+    "y": 210
+   },
+   {
+    "name": "SW2",
+    "type": "switch",
+    "x": 530,
+    "y": 210
+   },
+   {
+    "name": "PC1",
+    "type": "pc",
+    "x": 120,
+    "y": 340
+   },
+   {
+    "name": "PC2",
+    "type": "pc",
+    "x": 330,
+    "y": 340
+   },
+   {
+    "name": "PC3",
+    "type": "pc",
+    "x": 470,
+    "y": 340
+   },
+   {
+    "name": "PC4",
+    "type": "pc",
+    "x": 680,
+    "y": 340
+   }
+  ],
+  "links": [
+   [
+    "R1",
+    "GigabitEthernet0/1",
+    "R2",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R1",
+    "GigabitEthernet0/0",
+    "SW1",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "R2",
+    "GigabitEthernet0/0",
+    "SW2",
+    "GigabitEthernet0/1"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/1",
+    "PC1",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/2",
+    "PC2",
+    "eth0"
+   ],
+   [
+    "SW2",
+    "FastEthernet0/1",
+    "PC3",
+    "eth0"
+   ],
+   [
+    "SW2",
+    "FastEthernet0/2",
+    "PC4",
+    "eth0"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/23",
+    "SW2",
+    "FastEthernet0/23"
+   ],
+   [
+    "SW1",
+    "FastEthernet0/24",
+    "SW2",
+    "FastEthernet0/24"
+   ]
+  ],
+  "initial": {
+   "R1": [
+    "hostname R1"
+   ],
+   "R2": [
+    "hostname R2"
+   ],
+   "SW1": [
+    "hostname SW1"
+   ],
+   "SW2": [
+    "hostname SW2"
+   ]
+  },
+  "tasks": [],
+  "solution": {}
+ }
 ]

@@ -1,0 +1,113 @@
+{% from "_icons.html" import icon %}
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Users</h1>
+  <p>Everyone gets their own workspace: reading progress, quizzes, flashcards, drills and terminal labs are kept per user. Admins can also manage accounts here.</p>
+</div>
+
+<form class="card user-form" id="new-user" autocomplete="off">
+  <div>
+    <label class="field" for="nu-name">Username</label>
+    <input type="text" id="nu-name" name="username" required maxlength="32" autocapitalize="off" spellcheck="false" placeholder="e.g. jaidev">
+  </div>
+  <div>
+    <label class="field" for="nu-pass">Password</label>
+    <input type="password" id="nu-pass" name="password" required minlength="{{ min_password }}" autocomplete="new-password" placeholder="{{ min_password }}+ characters">
+  </div>
+  <div>
+    <label class="field" for="nu-role">Role</label>
+    <select id="nu-role" name="role">{% for r in roles %}<option value="{{ r }}"{% if r == 'user' %} selected{% endif %}>{{ r }}</option>{% endfor %}</select>
+  </div>
+  <div><button class="btn btn-primary" type="submit">Add user</button></div>
+</form>
+
+<div class="table-wrap" style="margin-top:16px">
+  <table class="users-table">
+    <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Last sign-in</th><th></th></tr></thead>
+    <tbody id="user-rows">
+      {% for u in users %}
+      <tr data-id="{{ u.id }}" data-name="{{ u.username }}">
+        <td><strong>{{ u.username }}</strong>{% if u.id == user.id %} <span class="pill pill-accent">you</span>{% endif %}</td>
+        <td>
+          {% if u.id == user.id %}<span class="pill">{{ u.role }}</span>
+          {% else %}<select class="role" aria-label="Role for {{ u.username }}">{% for r in roles %}<option value="{{ r }}"{% if r == u.role %} selected{% endif %}>{{ r }}</option>{% endfor %}</select>{% endif %}
+        </td>
+        <td class="small muted" data-label="Created"><time datetime="{{ u.created_at.isoformat() }}">{{ u.created_at.strftime("%Y-%m-%d") }}</time></td>
+        <td class="small muted" data-label="Last sign-in">{% if u.last_login_at %}<time datetime="{{ u.last_login_at.isoformat() }}">{{ u.last_login_at.strftime("%Y-%m-%d") }}</time>{% else %}never{% endif %}</td>
+        <td>
+          <div class="actions">
+            <button class="btn btn-sm" type="button" data-act="password">Set password</button>
+            {% if u.id != user.id %}<button class="btn btn-sm btn-danger" type="button" data-act="delete">Delete</button>{% endif %}
+          </div>
+          <form class="row pw-form" hidden style="margin-top:8px;flex-wrap:nowrap">
+            <input type="password" name="password" required minlength="{{ min_password }}" autocomplete="new-password" placeholder="New password" aria-label="New password for {{ u.username }}">
+            <button class="btn btn-sm btn-primary" type="submit">Save</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="small muted">Setting a new password signs that person out on their other devices. Deleting a user deletes all of their progress.</p>
+{% endblock %}
+{% block scripts %}
+<script type="module">
+  import { api, toast } from "netlab";
+
+  document.getElementById("new-user").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const u = await api("POST", "/api/users", {
+      username: f.username.value.trim(), password: f.password.value, role: f.role.value,
+    });
+    toast("Added " + u.username);
+    location.reload();
+  });
+
+  const rows = document.getElementById("user-rows");
+  rows.addEventListener("change", async (e) => {
+    if (!e.target.matches("select.role")) return;
+    const tr = e.target.closest("tr");
+    const u = await api("PUT", `/api/users/${tr.dataset.id}/role`, { role: e.target.value });
+    toast(`${u.username} is now ${u.role === "admin" ? "an admin" : "a user"}`);
+  });
+
+  let armed = null;
+  rows.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const tr = btn.closest("tr");
+    if (btn.dataset.act === "password") {
+      const form = tr.querySelector(".pw-form");
+      form.hidden = !form.hidden;
+      if (!form.hidden) form.password.focus();
+      return;
+    }
+    // Delete takes two clicks, so a stray click can't wipe someone's progress.
+    if (armed !== btn) {
+      if (armed) armed.textContent = "Delete";
+      armed = btn;
+      btn.textContent = "Click again to delete";
+      setTimeout(() => { if (armed === btn) { btn.textContent = "Delete"; armed = null; } }, 4000);
+      return;
+    }
+    await api("DELETE", `/api/users/${tr.dataset.id}`);
+    toast("Deleted " + tr.dataset.name);
+    tr.remove();
+    armed = null;
+  });
+
+  rows.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const tr = form.closest("tr");
+    await api("PUT", `/api/users/${tr.dataset.id}/password`, { password: form.password.value });
+    form.reset();
+    form.hidden = true;
+    toast("Password updated for " + tr.dataset.name);
+  });
+</script>
+{% endblock %}

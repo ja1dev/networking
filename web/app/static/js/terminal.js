@@ -1,12 +1,13 @@
 // Terminal lab page: topology diagram, one console per device, live task checks, autosave.
 import { api, debounce, toast } from "netlab";
-import { buildLab, clock, n2ip, maskLen, Session, shortIf } from "netlab/ios";
+import { buildLab, clock, fmt6, n2ip, maskLen, Session, shortIf } from "netlab/ios";
 
 const root = document.getElementById("term-lab");
 const labId = root.dataset.lab;
 const spec = JSON.parse(document.getElementById("term-spec").textContent);
 const saved = JSON.parse(document.getElementById("term-saved").textContent);
-const STORE = "netlab-term-" + labId;
+// Per user too: people sharing a browser each see only their own console history.
+const STORE = "netlab-term-" + root.dataset.user + "-" + labId;
 const MAX_LINES = 800;
 
 let net;
@@ -99,7 +100,8 @@ function run(line) {
   const h = history[current];
   if (!masked && line.trim() && h.list[h.list.length - 1] !== line) h.list.push(line);
   h.at = h.list.length;
-  input.value = "";
+  // A line ending in "?" shows help and hands the text back for editing, as IOS does.
+  input.value = s.retype ?? "";
   afterCommand(s);
 }
 
@@ -179,14 +181,32 @@ const gPorts = node("g", { class: "topo-ports" }, svg);
 const gDevs = node("g", { class: "topo-devs" }, svg);
 const gAnim = node("g", { class: "topo-anim" }, svg);
 
+// Cables between the same two devices (an EtherChannel's members, say) fan out side by side.
+const pairKey = (a, b) => [a, b].sort().join("|");
+const pairCount = {}, pairSeen = {};
+for (const [a, , b] of spec.links) pairCount[pairKey(a, b)] = (pairCount[pairKey(a, b)] || 0) + 1;
+
 const linkEls = spec.links.map(([a, ap, b, bp]) => {
-  const p = pos[a], q = pos[b];
+  const key = pairKey(a, b);
+  const nth = pairSeen[key] = (pairSeen[key] ?? -1) + 1;
+  // Offsets are measured along the normal of the pair's canonical direction, so both ends agree.
+  const [ca, cb] = [a, b].sort().map((n) => pos[n]);
+  const clen = Math.hypot(cb.x - ca.x, cb.y - ca.y) || 1;
+  const shift = (nth - (pairCount[key] - 1) / 2) * 14;
+  const nx = -(cb.y - ca.y) / clen * shift, ny = (cb.x - ca.x) / clen * shift;
+  const p = { x: pos[a].x + nx, y: pos[a].y + ny }, q = { x: pos[b].x + nx, y: pos[b].y + ny };
   const line = node("line", { x1: p.x, y1: p.y, x2: q.x, y2: q.y, class: "topo-link" }, gLinks);
+  node("title", {}, line);
   const len = Math.hypot(q.x - p.x, q.y - p.y) || 1;
   const label = (from, to, name) => {
-    const k = Math.min(0.42, 50 / len);
+    // Sit the label along the cable, clear of the device's own name and address below it.
+    let k = Math.min(0.42, 50 / len);
+    const below = (kk) => (to.y - from.y) * kk > 18 && Math.abs((to.x - from.x) * kk) < 48;
+    if (below(k)) k = Math.min(0.45, 84 / len);
     const t = node("text", { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k + 4, class: "topo-port" }, gPorts);
     t.textContent = name === "eth0" ? "e0" : shortIf(name);
+    t.dataset.name = t.textContent;
+    node("title", {}, t);
     return t;
   };
   return { line, a: label(p, q, ap), b: label(q, p, bp) };
@@ -211,7 +231,10 @@ const devEls = new Map();
 const labels = new Map();
 for (const d of spec.devices) {
   const g = node("g", { class: "topo-dev dev-" + d.type, transform: `translate(${d.x} ${d.y})`, tabindex: 0, role: "button" }, gDevs);
-  node("circle", { r: 34, class: "dev-ring" }, g);
+  // The selection ring follows the icon's shape so it sits centred on it.
+  if (d.type === "router") node("circle", { r: 34, class: "dev-ring" }, g);
+  else if (d.type === "switch") node("rect", { x: -38, y: -25, width: 76, height: 50, rx: 12, class: "dev-ring" }, g);
+  else node("rect", { x: -28, y: -26, width: 56, height: 50, rx: 10, class: "dev-ring" }, g);
   ICONS[d.type](g);
   const name = node("text", { y: d.type === "router" ? 42 : 36, class: "dev-name" }, g);
   const sub = node("text", { y: d.type === "router" ? 56 : 50, class: "dev-sub" }, g);
@@ -225,14 +248,28 @@ for (const d of spec.devices) {
 function refreshDiagram() {
   net.linkInfo().forEach((l, i) => {
     const el = linkEls[i];
-    el.line.setAttribute("class", "topo-link " + (l.up ? "up" : "down") + (l.trunk && l.up ? " trunk" : ""));
-    el.a.classList.toggle("shut", l.aDown);
-    el.b.classList.toggle("shut", l.bDown);
+    const partial = !l.blocked && l.blockedVlans.length > 0;
+    el.line.setAttribute("class", "topo-link " + (l.up ? "up" : "down") + (l.trunk && l.up ? " trunk" : "")
+      + (l.blocked ? " blocked" : partial ? " partial" : "") + (l.bundled ? " bundled" : ""));
+    el.line.firstChild.textContent = `${l.a} ${shortIf(l.ap)} - ${l.b} ${shortIf(l.bp)}: ` + (!l.up ? (l.aErr || l.bErr ? "err-disabled" : "down")
+      : l.blocked ? "blocked (spanning tree or suspended bundle member)" : (l.bundled ? "bundled in an EtherChannel, " : "") + (l.trunk ? "trunk" : "up")
+        + (partial ? `, blocked by spanning tree for VLAN ${l.blockedVlans.join(", ")}` : ""));
+    for (const [t, err] of [[el.a, l.aErr], [el.b, l.bErr]]) {
+      t.textContent = t.dataset.name + (err ? " err-disabled" : "");
+      t.appendChild(document.createElementNS(NS, "title")).textContent = t.dataset.name + (err ? ": err-disabled (shutdown, then no shutdown, to recover)" : "");
+    }
+    el.a.classList.toggle("shut", l.aDown || l.aErr);
+    el.b.classList.toggle("shut", l.bDown || l.bErr);
+    el.a.classList.toggle("err", l.aErr);
+    el.b.classList.toggle("err", l.bErr);
   });
   for (const d of spec.devices) {
     const dev = net.devs[d.name], { name, sub } = labels.get(d.name);
     name.textContent = dev.cfg.hostname;
-    if (d.type === "pc") sub.textContent = dev.cfg.ip === null ? "no IP" : `${n2ip(dev.cfg.ip)}/${maskLen(dev.cfg.mask)}`;
+    if (d.type === "pc") {
+      sub.textContent = dev.cfg.ip !== null ? `${n2ip(dev.cfg.ip)}/${maskLen(dev.cfg.mask)}`
+        : net.addrs6(d.name, "eth0").map((x) => `${fmt6(x.a).toLowerCase()}/${x.len}`)[0] || "no IP";
+    }
     else sub.textContent = dev.cfg.hostname !== d.name ? d.name : "";
   }
 }

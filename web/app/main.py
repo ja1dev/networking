@@ -1,5 +1,4 @@
 """NetLab: the interactive web edition of the CCNA and CCNP study kits."""
-import hmac
 import json
 import logging
 import time
@@ -12,13 +11,15 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import config, services
 from .content import DOC_BLURBS, DOC_ORDER, SOURCE_TITLES, get_content
 from .db import SessionLocal, as_utc, get_db, utcnow
+from .models import ROLES, User
 from .services import ServiceError
 
 log = logging.getLogger("netlab")
@@ -27,7 +28,11 @@ log = logging.getLogger("netlab")
 @asynccontextmanager
 async def lifespan(_app):
     content = get_content()
-    if not config.AUTH_ENABLED:
+    if config.AUTH_ENABLED:
+        with SessionLocal() as db:
+            if services.ensure_admin_password(db, config.APP_PASSWORD):
+                log.info("the admin account's password was set from APP_PASSWORD")
+    else:
         log.warning("APP_PASSWORD is not set: the site is open to anyone who can reach it.")
     log.info("content loaded: %s", content.stats)
     yield
@@ -71,11 +76,27 @@ def _locked_out(ip: str) -> bool:
     return len(q) >= MAX_FAILURES
 
 
+def _load_user(uid, version) -> User | None:
+    with SessionLocal() as db:
+        if not config.AUTH_ENABLED:
+            # No login locally: everything happens as the first admin.
+            return db.scalars(select(User).where(User.role == "admin").order_by(User.id)).first()
+        user = db.get(User, uid) if isinstance(uid, int) else None
+        if user is None or user.session_version != version or not user.password_hash:
+            return None
+        return user
+
+
 @app.middleware("http")
 async def require_login(request: Request, call_next):
     path = request.url.path
-    if (config.AUTH_ENABLED and not path.startswith(PUBLIC_PREFIXES)
-            and not request.session.get("auth")):
+    request.state.user = None
+    if not path.startswith(PUBLIC_PREFIXES):
+        request.state.user = await run_in_threadpool(
+            _load_user, request.session.get("uid"), request.session.get("ver"))
+    if request.state.user is None and not path.startswith(PUBLIC_PREFIXES):
+        # Signed out, or the account was deleted or its password changed since this session began.
+        request.session.clear()
         if path.startswith("/api/"):
             return JSONResponse({"error": "Your session has expired. Sign in again."}, status_code=401)
         nxt = path + ("?" + request.url.query if request.url.query else "")
@@ -101,30 +122,39 @@ def _safe_next(nxt: str | None) -> str:
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, next: str = "/"):
-    if not config.AUTH_ENABLED or request.session.get("auth"):
+    if not config.AUTH_ENABLED or _load_user(request.session.get("uid"), request.session.get("ver")):
         return RedirectResponse(_safe_next(next), status_code=303)
-    return templates.TemplateResponse(request, "login.html", {"next": _safe_next(next), "error": None})
+    return templates.TemplateResponse(request, "login.html",
+                                      {"next": _safe_next(next), "error": None, "username": ""})
 
 
 @app.post("/login", response_class=HTMLResponse)
 async def login_submit(request: Request):
     form = await request.form()
     nxt = _safe_next(str(form.get("next", "/")))
+    username = str(form.get("username", ""))[:64]
     ip = _client_ip(request)
     if _locked_out(ip):
         return templates.TemplateResponse(
             request, "login.html",
-            {"next": nxt, "error": "Too many attempts. Wait 15 minutes and try again."},
+            {"next": nxt, "username": username, "error": "Too many attempts. Wait 15 minutes and try again."},
             status_code=429)
-    password = str(form.get("password", ""))
-    if config.AUTH_ENABLED and hmac.compare_digest(password.encode(), config.APP_PASSWORD.encode()):
+    password = str(form.get("password", ""))[:services.MAX_PASSWORD]
+
+    def check():
+        with SessionLocal() as db:
+            return services.authenticate(db, username, password)
+
+    user = await run_in_threadpool(check) if config.AUTH_ENABLED else None
+    if user is not None:
         _failures.pop(ip, None)
         request.session.clear()
-        request.session["auth"] = True
+        request.session["uid"], request.session["ver"] = user.id, user.session_version
         return RedirectResponse(nxt, status_code=303)
     _failures[ip].append(time.time())
     return templates.TemplateResponse(request, "login.html",
-                                      {"next": nxt, "error": "That password isn't right."},
+                                      {"next": nxt, "username": username,
+                                       "error": "That username and password don't match."},
                                       status_code=401)
 
 
@@ -159,7 +189,19 @@ async def _validation_error(request: Request, exc: RequestValidationError):
 
 
 def render(request: Request, name: str, nav: str, **ctx):
-    return templates.TemplateResponse(request, name, dict(ctx, nav=nav))
+    return templates.TemplateResponse(request, name, dict(ctx, nav=nav, user=request.state.user,
+                                                          AUTH_ENABLED=config.AUTH_ENABLED))
+
+
+def current_user(request: Request) -> User:
+    return request.state.user
+
+
+def require_admin(request: Request) -> User:
+    user = request.state.user
+    if not user.is_admin:
+        raise HTTPException(status_code=404)
+    return user
 
 
 def not_found():
@@ -170,7 +212,9 @@ def not_found():
 async def _not_found(request: Request, exc):
     if request.url.path.startswith("/api/"):
         return JSONResponse({"error": "not found"}, status_code=404)
-    return templates.TemplateResponse(request, "404.html", {"nav": ""}, status_code=404)
+    return templates.TemplateResponse(request, "404.html",
+                                      {"nav": "", "user": getattr(request.state, "user", None)},
+                                      status_code=404)
 
 
 # ---------------------------------------------------------------------------
@@ -178,19 +222,19 @@ async def _not_found(request: Request, exc):
 # ---------------------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request, db: Session = Depends(get_db)):
+def home(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
     content = get_content()
-    return render(request, "dashboard.html", "home", d=services.dashboard(db, content),
+    return render(request, "dashboard.html", "home", d=services.dashboard(db, user.id, content),
                   content=content)
 
 
 @app.get("/read", response_class=HTMLResponse)
-def library(request: Request, db: Session = Depends(get_db)):
+def library(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
     content = get_content()
     docs = []
     for doc_id in DOC_ORDER:
         doc = content.docs[doc_id]
-        prog = services.page_progress(db, doc_id)
+        prog = services.page_progress(db, user.id, doc_id)
         done = sum(1 for p in doc["order"] if prog.get(p) and prog[p].completed_at)
         visited = [r for r in prog.values() if r.last_visited_at]
         last = max(visited, key=lambda r: as_utc(r.last_visited_at)) if visited else None
@@ -203,13 +247,14 @@ def library(request: Request, db: Session = Depends(get_db)):
 
 
 @app.get("/read/{doc_id}", response_class=HTMLResponse)
-def doc_index(request: Request, doc_id: str, db: Session = Depends(get_db)):
+def doc_index(request: Request, doc_id: str, db: Session = Depends(get_db),
+              user: User = Depends(current_user)):
     content = get_content()
     doc = content.doc(doc_id)
     if doc is None:
         not_found()
-    prog = services.page_progress(db, doc_id)
-    results = services.latest_results(db)
+    prog = services.page_progress(db, user.id, doc_id)
+    results = services.latest_results(db, user.id)
     chapters = []
     for c in doc["chapters"]:
         pages = [doc["pages"][p] for p in c["pages"]]
@@ -224,16 +269,17 @@ def doc_index(request: Request, doc_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/read/{doc_id}/{page_id}", response_class=HTMLResponse)
-def read_page(request: Request, doc_id: str, page_id: str, db: Session = Depends(get_db)):
+def read_page(request: Request, doc_id: str, page_id: str, db: Session = Depends(get_db),
+              user: User = Depends(current_user)):
     content = get_content()
     page = content.page(doc_id, page_id)
     if page is None:
         not_found()
     doc = content.docs[doc_id]
-    row = services.visit_page(db, doc_id, page_id)
-    prog = services.page_progress(db, doc_id)
+    row = services.visit_page(db, user.id, doc_id, page_id)
+    prog = services.page_progress(db, user.id, doc_id)
     chapter = content.chapter_of(doc_id, page_id)
-    status = services.page_question_status(db, page["questions"])
+    status = services.page_question_status(db, user.id, page["questions"])
     return render(request, "page.html", "read", doc=doc, page=page, chapter=chapter,
                   row=row, done={pid for pid, r in prog.items() if r.completed_at},
                   prev=doc["pages"].get(page["prev"]) if page["prev"] else None,
@@ -243,34 +289,36 @@ def read_page(request: Request, doc_id: str, page_id: str, db: Session = Depends
 
 @app.get("/quiz", response_class=HTMLResponse)
 def quiz_builder(request: Request, source: str = "bank", group: str | None = None,
-                 filter: str = "all", db: Session = Depends(get_db)):
+                 filter: str = "all", db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
     content = get_content()
     if source not in SOURCE_TITLES:
         source = "bank"
-    results = services.latest_results(db)
+    results = services.latest_results(db, user.id)
     sources = {s: services.group_accuracy(content, results, s) for s in SOURCE_TITLES}
     return render(request, "quiz_builder.html", "quiz", sources=sources, source=source,
                   preselect=group, qfilter=filter if filter in services.QUIZ_FILTERS else "all",
-                  parts=content.ccnp_parts, quizzes=services.recent_quizzes(db, 15),
-                  settings=services.get_settings(db))
+                  parts=content.ccnp_parts, quizzes=services.recent_quizzes(db, user.id, 15),
+                  settings=services.get_settings(db, user.id))
 
 
 @app.get("/quiz/{quiz_id}", response_class=HTMLResponse)
-def quiz_page(request: Request, quiz_id: int, db: Session = Depends(get_db)):
+def quiz_page(request: Request, quiz_id: int, db: Session = Depends(get_db),
+              user: User = Depends(current_user)):
     try:
-        quiz = services.get_quiz(db, quiz_id)
+        quiz = services.get_quiz(db, user.id, quiz_id)
     except ServiceError:
         not_found()
     return render(request, "quiz.html", "quiz", quiz=quiz)
 
 
 @app.get("/cards", response_class=HTMLResponse)
-def cards_home(request: Request, db: Session = Depends(get_db)):
+def cards_home(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
     content = get_content()
-    counts = services.card_counts(db, content)
-    settings = services.get_settings(db)
-    tz = services.local_tz(db)
-    new_left = max(0, settings["new_cards_per_day"] - services.new_cards_introduced_today(db, tz))
+    counts = services.card_counts(db, user.id, content)
+    settings = services.get_settings(db, user.id)
+    tz = services.local_tz(db, user.id)
+    new_left = max(0, settings["new_cards_per_day"] - services.new_cards_introduced_today(db, user.id, tz))
     return render(request, "cards.html", "cards", decks=content.decks, counts=counts,
                   new_left=new_left, settings=settings)
 
@@ -288,27 +336,28 @@ def cards_study(request: Request, deck: str | None = None, mode: str = "due"):
 
 
 @app.get("/cards/browse", response_class=HTMLResponse)
-def cards_browse(request: Request, deck: str | None = None, db: Session = Depends(get_db)):
+def cards_browse(request: Request, deck: str | None = None, db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
     content = get_content()
     if deck and deck not in content.deck_by_id:
         not_found()
-    states = services.card_states(db)
+    states = services.card_states(db, user.id)
     cards = [c for c in content.cards if not deck or c["deck"] == deck]
     return render(request, "cards_browse.html", "cards", deck=content.deck_by_id.get(deck),
                   decks=content.decks, cards=cards, states=states, now=utcnow(), as_utc=as_utc)
 
 
 @app.get("/subnetting", response_class=HTMLResponse)
-def subnetting(request: Request, db: Session = Depends(get_db)):
-    return render(request, "subnetting.html", "subnet", stats=services.drill_stats(db, days=30),
+def subnetting(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return render(request, "subnetting.html", "subnet", stats=services.drill_stats(db, user.id, days=30),
                   drill_count=len(get_content().drills["drills"]))
 
 
 @app.get("/subnetting/drills", response_class=HTMLResponse)
-def subnetting_drills(request: Request, db: Session = Depends(get_db)):
+def subnetting_drills(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
     content = get_content()
     return render(request, "drills.html", "subnet", drills=content.drills,
-                  results=services.sheet_results(db))
+                  results=services.sheet_results(db, user.id))
 
 
 @app.get("/subnetting/toolkit", response_class=HTMLResponse)
@@ -317,20 +366,21 @@ def subnetting_toolkit(request: Request):
 
 
 @app.get("/labs", response_class=HTMLResponse)
-def labs(request: Request, db: Session = Depends(get_db)):
+def labs(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
     content = get_content()
-    progress, checks = services.lab_status(db)
+    progress, checks = services.lab_status(db, user.id)
     return render(request, "labs.html", "labs", labs=content.labs, intro=content.labs_intro_html,
                   progress=progress, checks=checks)
 
 
 @app.get("/labs/{lab_id}", response_class=HTMLResponse)
-def lab_page(request: Request, lab_id: str, db: Session = Depends(get_db)):
+def lab_page(request: Request, lab_id: str, db: Session = Depends(get_db),
+             user: User = Depends(current_user)):
     content = get_content()
     lab = content.labs_by_id.get(lab_id)
     if lab is None:
         not_found()
-    progress, checks = services.lab_status(db)
+    progress, checks = services.lab_status(db, user.id)
     idx = content.labs.index(lab)
     return render(request, "lab.html", "labs", lab=lab, row=progress.get(lab_id),
                   checked=sorted(checks.get(lab_id, set())),
@@ -339,18 +389,19 @@ def lab_page(request: Request, lab_id: str, db: Session = Depends(get_db)):
 
 
 @app.get("/terminal", response_class=HTMLResponse)
-def terminal_labs(request: Request, db: Session = Depends(get_db)):
+def terminal_labs(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
     return render(request, "terminal.html", "terminal", labs=get_content().terminal_labs,
-                  progress=services.terminal_status(db))
+                  progress=services.terminal_status(db, user.id))
 
 
 @app.get("/terminal/{lab_id}", response_class=HTMLResponse)
-def terminal_lab(request: Request, lab_id: str, db: Session = Depends(get_db)):
+def terminal_lab(request: Request, lab_id: str, db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
     content = get_content()
     lab = content.terminal_by_id.get(lab_id)
     if lab is None:
         not_found()
-    row = services.terminal_status(db).get(lab_id)
+    row = services.terminal_status(db, user.id).get(lab_id)
     idx = content.terminal_labs.index(lab)
     spec = {k: lab[k] for k in ("id", "devices", "links", "initial", "height")}
     spec["tasks"] = [{"checks": t["checks"]} for t in lab["tasks"]]
@@ -358,6 +409,12 @@ def terminal_lab(request: Request, lab_id: str, db: Session = Depends(get_db)):
                   saved=json.loads(row.state) if row and row.state else None,
                   prev=content.terminal_labs[idx - 1] if idx else None,
                   next=content.terminal_labs[idx + 1] if idx + 1 < len(content.terminal_labs) else None)
+
+
+@app.get("/users", response_class=HTMLResponse)
+def users_page(request: Request, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    return render(request, "users.html", "users", users=services.list_users(db), roles=ROLES,
+                  min_password=services.MIN_PASSWORD)
 
 
 @app.get("/search", response_class=HTMLResponse)
@@ -368,9 +425,9 @@ def search(request: Request, q: str = ""):
 
 
 @app.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, db: Session = Depends(get_db)):
-    return render(request, "settings.html", "settings", settings=services.get_settings(db),
-                  stats=get_content().stats)
+def settings_page(request: Request, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return render(request, "settings.html", "settings", settings=services.get_settings(db, user.id),
+                  min_password=services.MIN_PASSWORD, stats=get_content().stats)
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +483,25 @@ class TerminalSave(BaseModel):
     passing: list[int] = Field(default_factory=list, max_length=100)
 
 
+class NewUser(BaseModel):
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=services.MAX_PASSWORD)
+    role: str = "user"
+
+
+class NewPassword(BaseModel):
+    password: str = Field(max_length=services.MAX_PASSWORD)
+
+
+class OwnPassword(BaseModel):
+    current: str = Field(max_length=services.MAX_PASSWORD)
+    password: str = Field(max_length=services.MAX_PASSWORD)
+
+
+class RoleChange(BaseModel):
+    role: str
+
+
 class LabFlag(BaseModel):
     completed: bool
 
@@ -440,106 +516,157 @@ def _require_page(doc: str, page: str):
 
 
 @app.post("/api/pages/complete")
-def api_page_complete(body: PageFlag, db: Session = Depends(get_db)):
+def api_page_complete(body: PageFlag, db: Session = Depends(get_db), user: User = Depends(current_user)):
     _require_page(body.doc, body.page)
-    services.set_page_complete(db, body.doc, body.page, body.completed)
+    services.set_page_complete(db, user.id, body.doc, body.page, body.completed)
     return {"ok": True}
 
 
 @app.put("/api/pages/note")
-def api_page_note(body: PageNote, db: Session = Depends(get_db)):
+def api_page_note(body: PageNote, db: Session = Depends(get_db), user: User = Depends(current_user)):
     _require_page(body.doc, body.page)
-    services.set_page_note(db, body.doc, body.page, body.note)
+    services.set_page_note(db, user.id, body.doc, body.page, body.note)
     return {"ok": True}
 
 
 @app.post("/api/questions/{qid}/answer")
-def api_answer(qid: str, body: Answer, db: Session = Depends(get_db)):
-    return services.record_reader_answer(db, get_content(), qid, body.selected)
+def api_answer(qid: str, body: Answer, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return services.record_reader_answer(db, user.id, get_content(), qid, body.selected)
 
 
 @app.post("/api/quiz")
-def api_new_quiz(body: NewQuiz, db: Session = Depends(get_db)):
-    quiz = services.create_quiz(db, get_content(), body.source, body.groups, body.filter,
+def api_new_quiz(body: NewQuiz, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    quiz = services.create_quiz(db, user.id, get_content(), body.source, body.groups, body.filter,
                                 body.count, body.mode)
     return {"id": quiz.id, "url": "/quiz/%d" % quiz.id}
 
 
 @app.get("/api/quiz/{quiz_id}")
-def api_quiz(quiz_id: int, db: Session = Depends(get_db)):
-    quiz = services.get_quiz(db, quiz_id)
+def api_quiz(quiz_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    quiz = services.get_quiz(db, user.id, quiz_id)
     return services.quiz_state(db, get_content(), quiz)
 
 
 @app.post("/api/quiz/{quiz_id}/answer")
-def api_quiz_answer(quiz_id: int, body: QuizAnswer, db: Session = Depends(get_db)):
-    quiz = services.get_quiz(db, quiz_id)
+def api_quiz_answer(quiz_id: int, body: QuizAnswer, db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    quiz = services.get_quiz(db, user.id, quiz_id)
     return services.answer_quiz(db, get_content(), quiz, body.question, body.selected)
 
 
 @app.post("/api/quiz/{quiz_id}/finish")
-def api_quiz_finish(quiz_id: int, db: Session = Depends(get_db)):
-    quiz = services.finish_quiz(db, services.get_quiz(db, quiz_id))
+def api_quiz_finish(quiz_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    quiz = services.finish_quiz(db, services.get_quiz(db, user.id, quiz_id))
     return services.quiz_state(db, get_content(), quiz)
 
 
 @app.delete("/api/quiz/{quiz_id}")
-def api_quiz_delete(quiz_id: int, db: Session = Depends(get_db)):
-    services.get_quiz(db, quiz_id)
-    services.delete_quiz(db, quiz_id)
+def api_quiz_delete(quiz_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    services.delete_quiz(db, services.get_quiz(db, user.id, quiz_id))
     return {"ok": True}
 
 
 @app.get("/api/cards/queue")
-def api_card_queue(deck: str | None = None, db: Session = Depends(get_db)):
-    return services.card_queue(db, get_content(), deck or None)
+def api_card_queue(deck: str | None = None, db: Session = Depends(get_db),
+                   user: User = Depends(current_user)):
+    return services.card_queue(db, user.id, get_content(), deck or None)
 
 
 @app.post("/api/cards/{card_id}/review")
-def api_card_review(card_id: str, body: Review, db: Session = Depends(get_db)):
-    return services.review_card(db, get_content(), card_id, body.rating)
+def api_card_review(card_id: str, body: Review, db: Session = Depends(get_db),
+                    user: User = Depends(current_user)):
+    return services.review_card(db, user.id, get_content(), card_id, body.rating)
 
 
 @app.post("/api/drills")
-def api_drill(body: Drill, db: Session = Depends(get_db)):
-    services.record_drill(db, get_content(), body.kind, body.correct, body.duration_ms, body.item_id)
+def api_drill(body: Drill, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    services.record_drill(db, user.id, get_content(), body.kind, body.correct, body.duration_ms, body.item_id)
     return {"ok": True}
 
 
 @app.get("/api/drills/stats")
-def api_drill_stats(db: Session = Depends(get_db)):
-    return services.drill_stats(db, days=30)
+def api_drill_stats(db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return services.drill_stats(db, user.id, days=30)
 
 
 @app.post("/api/labs/{lab_id}/items/{item_id}")
-def api_lab_item(lab_id: str, item_id: str, body: Check, db: Session = Depends(get_db)):
-    services.set_lab_item(db, get_content(), lab_id, item_id, body.checked)
+def api_lab_item(lab_id: str, item_id: str, body: Check, db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
+    services.set_lab_item(db, user.id, get_content(), lab_id, item_id, body.checked)
     return {"ok": True}
 
 
 @app.post("/api/labs/{lab_id}/complete")
-def api_lab_complete(lab_id: str, body: LabFlag, db: Session = Depends(get_db)):
-    services.set_lab_complete(db, get_content(), lab_id, body.completed)
+def api_lab_complete(lab_id: str, body: LabFlag, db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
+    services.set_lab_complete(db, user.id, get_content(), lab_id, body.completed)
     return {"ok": True}
 
 
 @app.put("/api/labs/{lab_id}/note")
-def api_lab_note(lab_id: str, body: LabNote, db: Session = Depends(get_db)):
-    services.set_lab_note(db, get_content(), lab_id, body.note)
+def api_lab_note(lab_id: str, body: LabNote, db: Session = Depends(get_db),
+                 user: User = Depends(current_user)):
+    services.set_lab_note(db, user.id, get_content(), lab_id, body.note)
     return {"ok": True}
 
 
 @app.put("/api/terminal/{lab_id}")
-def api_terminal_save(lab_id: str, body: TerminalSave, db: Session = Depends(get_db)):
-    return services.save_terminal(db, get_content(), lab_id, body.state, body.passing)
+def api_terminal_save(lab_id: str, body: TerminalSave, db: Session = Depends(get_db),
+                      user: User = Depends(current_user)):
+    return services.save_terminal(db, user.id, get_content(), lab_id, body.state, body.passing)
 
 
 @app.delete("/api/terminal/{lab_id}")
-def api_terminal_reset(lab_id: str, db: Session = Depends(get_db)):
-    services.reset_terminal(db, get_content(), lab_id)
+def api_terminal_reset(lab_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    services.reset_terminal(db, user.id, get_content(), lab_id)
     return {"ok": True}
 
 
 @app.post("/api/settings")
-def api_settings(body: dict, db: Session = Depends(get_db)):
-    return services.update_settings(db, body)
+def api_settings(body: dict, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    return services.update_settings(db, user.id, body)
+
+
+def _user_json(u: User) -> dict:
+    return {"id": u.id, "username": u.username, "role": u.role,
+            "created_at": as_utc(u.created_at).isoformat(),
+            "last_login_at": as_utc(u.last_login_at).isoformat() if u.last_login_at else None}
+
+
+@app.post("/api/users")
+def api_create_user(body: NewUser, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    return _user_json(services.create_user(db, body.username, body.password, body.role))
+
+
+@app.put("/api/users/{user_id}/password")
+def api_reset_password(request: Request, user_id: int, body: NewPassword, db: Session = Depends(get_db),
+                       admin: User = Depends(require_admin)):
+    user = services.get_user(db, user_id)
+    services.set_password(db, user, body.password)
+    if user.id == admin.id:
+        request.session["ver"] = user.session_version
+    return {"ok": True}
+
+
+@app.put("/api/users/{user_id}/role")
+def api_set_role(user_id: int, body: RoleChange, db: Session = Depends(get_db),
+                 admin: User = Depends(require_admin)):
+    user = services.get_user(db, user_id)
+    services.set_role(db, admin, user, body.role)
+    return _user_json(user)
+
+
+@app.delete("/api/users/{user_id}")
+def api_delete_user(user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    services.delete_user(db, admin, services.get_user(db, user_id))
+    return {"ok": True}
+
+
+@app.put("/api/account/password")
+def api_own_password(request: Request, body: OwnPassword, db: Session = Depends(get_db),
+                     user: User = Depends(current_user)):
+    me = services.get_user(db, user.id)
+    services.change_own_password(db, me, body.current, body.password)
+    # Keep this session signed in; every other one ends.
+    request.session["ver"] = me.session_version
+    return {"ok": True}

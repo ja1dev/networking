@@ -11,21 +11,30 @@ export async function api(method, url, body) {
     res = await fetch(url, opts);
   } catch (e) {
     toast("Can't reach the server. Check your connection.", true);
-    throw e;
+    throw reported(e);
   }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
     window.location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
-    throw new Error("signed out");
+    throw reported(new Error("signed out"));
   }
   if (!res.ok) {
     const msg = typeof data.error === "string" ? data.error
       : (data.detail && JSON.stringify(data.detail)) || "Something went wrong (" + res.status + ")";
     toast(msg, true);
-    throw new Error(msg);
+    throw reported(new Error(msg));
   }
   return data;
 }
+
+// api() has already told the user about these, so callers needn't catch them just to stay quiet.
+function reported(err) {
+  err.reported = true;
+  return err;
+}
+window.addEventListener("unhandledrejection", (e) => {
+  if (e.reason && e.reason.reported) e.preventDefault();
+});
 
 let toastTimer;
 export function toast(message, isError = false) {

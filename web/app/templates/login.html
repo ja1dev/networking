@@ -16,8 +16,12 @@
     {% if error %}<div class="error-msg" role="alert">{{ error }}</div>{% endif %}
     <input type="hidden" name="next" value="{{ next }}">
     <div>
+      <label class="field" for="username">Username</label>
+      <input id="username" type="text" name="username" value="{{ username }}" autocomplete="username" autocapitalize="off" spellcheck="false" required{% if not username %} autofocus{% endif %}>
+    </div>
+    <div>
       <label class="field" for="password">Password</label>
-      <input id="password" type="password" name="password" autocomplete="current-password" required autofocus>
+      <input id="password" type="password" name="password" autocomplete="current-password" required{% if username %} autofocus{% endif %}>
     </div>
     <button class="btn btn-primary btn-lg" type="submit" style="width:100%">Sign in</button>
   </form>

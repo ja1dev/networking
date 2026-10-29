@@ -2,7 +2,9 @@
 
 DATABASE_URL   Postgres on Railway (it injects this when a Postgres service is
                linked); defaults to a local SQLite file for development.
-APP_PASSWORD   The password that unlocks the site. Unset = no login (local only).
+APP_PASSWORD   Turns on sign-in, and is the first password of the "admin" account (used
+               only while that account has no password; change it later in Settings).
+               Unset = no login, everything runs as the admin (local only).
 SECRET_KEY     Signs the session cookie. Required whenever APP_PASSWORD is set,
                so sessions survive restarts and redeploys.
 CONTENT_PATH   Where build_content.py wrote content.json.

@@ -1,9 +1,14 @@
 from logging.config import fileConfig
 
 from alembic import context
+from sqlalchemy import create_engine
 
-from app import models  # noqa: F401  (registers the tables on Base.metadata)
-from app.db import Base, engine
+from app import config, models  # noqa: F401  (registers the tables on Base.metadata)
+from app.db import Base
+
+# Not the app's engine: that one turns SQLite foreign keys on, and batch mode rebuilds a table by
+# dropping it, which would cascade-delete the rows that point at it.
+engine = create_engine(config.DATABASE_URL)
 
 if context.config.config_file_name is not None:
     fileConfig(context.config.config_file_name)
