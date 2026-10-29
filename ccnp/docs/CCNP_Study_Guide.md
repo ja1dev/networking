@@ -19908,6 +19908,114 @@ R1(config-line)# access-class MGMT-HOSTS in ! only these sources may even attemp
 | 10.99.0.15 (management PC) | permitted by `10.99.0.0 0.0.0.255` | `admin` + correct password | Logged in |
 | 198.51.100.7 (internet) | no match → implicit deny | never reached | Connection closed; the attacker never even sees a `Username:` prompt to guess against |
 
+```diagram
+{
+  "type": "sequence",
+  "title": "Two SSH attempts meet R1's VTY lines",
+  "caption": "Click Next to follow both connections through the config above: the free VTY, `transport input`, `access-class`, `login local` and `exec-timeout`.",
+  "actors": [
+    {
+      "id": "ADM",
+      "kind": "host",
+      "label": "Admin 10.99.0.15"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1"
+    },
+    {
+      "id": "ATK",
+      "kind": "host",
+      "label": "Internet 198.51.100.7"
+    }
+  ],
+  "messages": [
+    {
+      "from": "ADM",
+      "to": "R1",
+      "label": "TCP SYN to port 22",
+      "detail": "10.99.0.15 → 10.255.0.1",
+      "text": "The admin's SSH client opens a TCP connection to port 22 on one of R1's addresses. It doesn't matter which interface it arrives on: every SSH session ends up on a VTY line."
+    },
+    {
+      "note": "vty 2, SSH allowed",
+      "over": [
+        "R1"
+      ],
+      "states": {
+        "R1": "vty 2 in use"
+      },
+      "text": "R1 grabs a free VTY slot (0–15). If all 16 were busy, the connection would be refused here. The line allows SSH, so the session carries on. A Telnet attempt to port 23 would stop at this point."
+    },
+    {
+      "note": "access-class: permit",
+      "over": [
+        "R1"
+      ],
+      "tone": "good",
+      "text": "The **source** address 10.99.0.15 is checked against `MGMT-HOSTS`. It matches `permit 10.99.0.0 0.0.0.255`, so R1 is willing to talk."
+    },
+    {
+      "from": "R1",
+      "to": "ADM",
+      "label": "SSH-2.0 version + key exchange",
+      "dashed": true,
+      "text": "`ip ssh version 2` and the 3072-bit RSA key pair let both sides agree session keys. From here on, everything (including the password) is encrypted."
+    },
+    {
+      "from": "ADM",
+      "to": "R1",
+      "label": "user auth: admin / ********",
+      "text": "`login local` checks the `username` lines. R1 takes the salt from the stored `$9$` hash, runs scrypt over salt + typed password, and compares hashes. The password itself is never stored."
+    },
+    {
+      "from": "R1",
+      "to": "ADM",
+      "label": "R1# prompt",
+      "tone": "good",
+      "dashed": true,
+      "states": {
+        "ADM": "logged in"
+      },
+      "text": "The password matched, and `admin` has privilege 15, so the session lands in privileged EXEC."
+    },
+    {
+      "from": "ATK",
+      "to": "R1",
+      "label": "TCP SYN to port 22",
+      "detail": "198.51.100.7 → 10.255.0.1",
+      "text": "Meanwhile a host on the internet tries the same thing. It also gets a VTY slot, briefly."
+    },
+    {
+      "note": "access-class: deny",
+      "over": [
+        "R1"
+      ],
+      "tone": "bad",
+      "text": "198.51.100.7 isn't inside 10.99.0.0/24, so the ACL's invisible final `deny any` catches it."
+    },
+    {
+      "from": "R1",
+      "to": "ATK",
+      "label": "connection closed",
+      "tone": "bad",
+      "text": "R1 closes the connection **before any login prompt**. The attacker never even sees `Username:`, so there's nothing to guess passwords against."
+    },
+    {
+      "from": "R1",
+      "to": "R1",
+      "label": "exec-timeout 10 0 expires",
+      "states": {
+        "R1": "vty 2 free",
+        "ADM": "logged out"
+      },
+      "text": "Later the admin walks away. After 10 idle minutes R1 logs the session out and frees vty 2, so an abandoned shell can't be used by whoever sits down next."
+    }
+  ]
+}
+```
+
 **Why `exec-timeout` matters for security, not just tidiness.** An abandoned privileged session on a console is a logged-in root shell for whoever walks past next. `exec-timeout 0 0` (never time out) is a lab convenience you should never see in production.
 
 ### Three ways a line can authenticate (before AAA)
@@ -20178,7 +20286,125 @@ privilege exec level 5 show running-config
 
 **Story Time 📖:** The router is a nightclub bouncer, and the AAA server is head office. When you arrive, the bouncer phones head office: "Is Jane on the list?" (authentication). Head office says yes, and that she's VIP (authorization: level 15). The bouncer writes in a book "Jane in at 22:04, out at 01:30" (accounting). If the phone line is dead, the bouncer falls back to a short paper list kept at the door (the **local** users). But if head office answers "Jane is banned", the bouncer does *not* then check the paper list. That last rule is ERROR vs FAIL, below, and it's the most-tested idea in this section.
 
-![AAA conversation between an admin, the router and a TACACS+ server](images/c17_aaa_flow.png)
+```diagram
+{
+  "type": "sequence",
+  "title": "AAA with TACACS+: three separate conversations over TCP 49",
+  "caption": "Authentication, authorization and accounting are three separate exchanges, which is why TACACS+ can authorize command by command (17.4). If ISE-1 never answers, that is an ERROR, and R1 moves on to the next method.",
+  "actors": [
+    {
+      "id": "ADM",
+      "kind": "host",
+      "label": "jsmith"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 (AAA client)"
+    },
+    {
+      "id": "ISE",
+      "kind": "server",
+      "label": "ISE-1 10.99.0.21"
+    }
+  ],
+  "messages": [
+    {
+      "from": "ADM",
+      "to": "R1",
+      "label": "SSH login as jsmith",
+      "text": "jsmith's session lands on a VTY, and the VTY uses the `default` login list: `group ADMIN-TACACS local`. The first method is the TACACS+ group, so R1 asks ISE-1."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "TCP 49 connect from Loopback0",
+      "detail": "10.255.0.1 → 10.99.0.21",
+      "text": "TACACS+ runs over **TCP 49**. The source is Loopback0 (10.255.0.1) because of `ip tacacs source-interface`, so ISE always sees the same device address. With `single-connection`, this one TCP session carries every later request."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "AUTHEN START (user jsmith)",
+      "text": "**Authentication** begins. The whole packet body is encrypted with the shared key, not just the password. That's one of the big differences from RADIUS."
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "AUTHEN REPLY: GETPASS",
+      "dashed": true,
+      "text": "ISE asks for the password."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "AUTHEN CONTINUE (password)",
+      "text": "R1 relays the password jsmith typed."
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "AUTHEN REPLY: PASS",
+      "tone": "good",
+      "dashed": true,
+      "text": "ISE checks its identity store and says **PASS**. Had it said **FAIL**, login would stop right here: a FAIL never falls through to `local`. Only *no answer at all* (an ERROR) makes R1 try the next method."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "AUTHOR REQUEST service=shell",
+      "detail": "aaa authorization exec default …",
+      "text": "Now a **separate** authorization conversation, because `aaa authorization exec` is configured: may jsmith have a shell, and at what level?"
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "AUTHOR RESPONSE: PASS_ADD priv-lvl=15",
+      "tone": "good",
+      "dashed": true,
+      "text": "ISE allows the shell and returns the attribute `priv-lvl=15`, so jsmith lands at level 15."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "ACCT REQUEST (START)",
+      "tone": "purple",
+      "text": "A third conversation: **accounting**. `aaa accounting exec default start-stop` makes R1 record the session start: who, from where, when."
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "ACCT REPLY: SUCCESS",
+      "tone": "purple",
+      "dashed": true,
+      "text": "ISE confirms it stored the record."
+    },
+    {
+      "from": "R1",
+      "to": "ADM",
+      "label": "R1# prompt",
+      "tone": "good",
+      "states": {
+        "ADM": "level 15"
+      },
+      "text": "Authenticated, authorized at level 15, and logged. jsmith is in."
+    },
+    {
+      "from": "ADM",
+      "to": "R1",
+      "label": "exit",
+      "text": "Later jsmith logs out."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "ACCT REQUEST (STOP), elapsed_time",
+      "tone": "purple",
+      "text": "The STOP record closes the session, with its duration. Together, START and STOP answer \"who was logged in to R1 at 03:12?\""
+    }
+  ]
+}
+```
 
 **How a TACACS+ login works, step by step** (admin `jsmith` SSHs to R1, which uses the config built below):
 
@@ -20283,6 +20509,226 @@ Methods are tried left to right, up to four, and the ERROR-vs-FAIL rule below de
 
 The 10-second pause in row 3 is normal and worth expecting: it's the timeout for each server in turn. That's also why the console in the example above uses a `local`-only list.
 
+```diagram
+{
+  "type": "topology",
+  "title": "One method list, three outcomes: PASS, FAIL and ERROR",
+  "caption": "Step through the worked example: the router moves to the next method only on an ERROR (no answer), never on a FAIL (a rejection).",
+  "nodes": [
+    {
+      "id": "ADM",
+      "x": 0,
+      "y": 1,
+      "kind": "host",
+      "label": "Admin PC",
+      "sub": "10.99.0.15"
+    },
+    {
+      "id": "R1",
+      "x": 2,
+      "y": 1,
+      "kind": "router",
+      "label": "R1",
+      "sub": "Lo0 10.255.0.1"
+    },
+    {
+      "id": "ISE1",
+      "x": 4.2,
+      "y": 0,
+      "kind": "server",
+      "label": "ISE-1",
+      "sub": "10.99.0.21"
+    },
+    {
+      "id": "ISE2",
+      "x": 4.2,
+      "y": 2,
+      "kind": "server",
+      "label": "ISE-2",
+      "sub": "10.99.0.22"
+    }
+  ],
+  "links": [
+    {
+      "a": "ADM",
+      "b": "R1",
+      "label": "SSH"
+    },
+    {
+      "a": "R1",
+      "b": "ISE1",
+      "label": "TCP 49"
+    },
+    {
+      "a": "R1",
+      "b": "ISE2",
+      "label": "TCP 49"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The method list",
+      "text": "R1's VTYs use `aaa authentication login default group ADMIN-TACACS local`: ask the TACACS+ group (ISE-1, then ISE-2), and use the local database **only if the group can't answer**. Local user `admin` exists as the break-glass account.",
+      "focus": [
+        "R1"
+      ],
+      "nodes": {
+        "R1": {
+          "badge": "group, local"
+        }
+      }
+    },
+    {
+      "title": "2. Right password: PASS",
+      "text": "ISE-1 is up and jsmith types the right password. ISE-1 replies PASS and jsmith is in. The local database is never consulted.",
+      "nodes": {
+        "R1": {
+          "badge": "PASS via ISE-1",
+          "tone": "good"
+        },
+        "ISE1": {
+          "badge": "PASS",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ADM",
+            "R1"
+          ],
+          "label": "SSH jsmith"
+        },
+        {
+          "path": [
+            "R1",
+            "ISE1"
+          ],
+          "label": "AUTHEN START"
+        },
+        {
+          "path": [
+            "ISE1",
+            "R1"
+          ],
+          "label": "PASS",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. Wrong password: FAIL ends it",
+      "text": "jsmith mistypes the password. ISE-1 **answers** with FAIL. That is a definite \"no\", so R1 denies the login and stops. It does **not** try `local`: if a rejection fell through to the local database, an account disabled centrally could still log in with a stale local password.",
+      "nodes": {
+        "R1": {
+          "badge": "denied",
+          "tone": "bad"
+        },
+        "ISE1": {
+          "badge": "FAIL",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISE1"
+          ],
+          "label": "AUTHEN START"
+        },
+        {
+          "path": [
+            "ISE1",
+            "R1"
+          ],
+          "label": "FAIL",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "R1",
+            "ADM"
+          ],
+          "label": "Login denied",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. WAN down: ISE-1 never answers",
+      "text": "Now the path to both servers fails. R1 sends its request to ISE-1 and waits. After the 5-second timeout there's still no reply. **No answer is an ERROR**, and an ERROR is exactly what fallback is for, so R1 moves on.",
+      "nodes": {
+        "R1": {
+          "badge": "ERROR (5 s)",
+          "tone": "warn"
+        },
+        "ISE1": {
+          "state": "down"
+        },
+        "ISE2": {
+          "state": "down"
+        }
+      },
+      "links": {
+        "R1-ISE1": "down",
+        "R1-ISE2": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISE1"
+          ],
+          "label": "AUTHEN START",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. ISE-2 is silent too",
+      "text": "R1 tries the second server in the group. Another 5 seconds, another ERROR. The group as a whole has failed to answer, so R1 moves to the next **method** in the list: `local`.",
+      "nodes": {
+        "R1": {
+          "badge": "ERROR (10 s)",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISE2"
+          ],
+          "label": "AUTHEN START",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "6. local: only local accounts work",
+      "text": "`admin` types the local password and gets in, after about a 10-second wait (one timeout per server). jsmith, who exists only on ISE, is denied: `local` has no `jsmith`. That's why the break-glass account needs a long, vaulted password, and why the console often uses a `local`-only list to skip the timeouts.",
+      "nodes": {
+        "R1": {
+          "badge": "local PASS",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ADM"
+          ],
+          "label": "R1# (admin)",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 > **Exam trap:** "The admin's TACACS+ account was disabled but they can still log in using the local account" is **impossible** while the TACACS+ server is reachable. If they can, the server must be unreachable (ERROR), so check reachability, keys and source interface (Chapter 31).
 
 **📝 Exam-style questions — 17.3**
@@ -20365,6 +20811,108 @@ R1(config)# aaa authorization config-commands
 2. ISE checks jsmith's **command set** (for example, "help desk: permit `show *`, permit `interface *`, permit `shutdown`, permit `no shutdown`, deny everything else") and replies **PASS** or **FAIL**.
 3. On PASS the command runs. On FAIL, R1 prints `Command authorization failed.` and nothing changes.
 4. The same check repeats for `shutdown`. With command accounting on, R1 also sends a record of each command that ran.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Command authorization: one question per command",
+  "caption": "Each command jsmith types becomes its own authorization request. Step through to see a permitted command, then a refused one.",
+  "actors": [
+    {
+      "id": "ADM",
+      "kind": "host",
+      "label": "jsmith"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1"
+    },
+    {
+      "id": "ISE",
+      "kind": "server",
+      "label": "ISE-1"
+    }
+  ],
+  "messages": [
+    {
+      "from": "ADM",
+      "to": "R1",
+      "label": "interface GigabitEthernet0/1",
+      "text": "jsmith is logged in at level 15 and types a configuration command. With `aaa authorization commands 15`, R1 won't run it until ISE says yes."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "AUTHOR REQUEST cmd=interface",
+      "detail": "cmd-arg=GigabitEthernet0/1",
+      "text": "R1 sends the command and its arguments to ISE, inside the existing TCP 49 session."
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "AUTHOR RESPONSE: PASS_ADD",
+      "tone": "good",
+      "dashed": true,
+      "text": "jsmith's **command set** on ISE permits `interface *`, so the answer is PASS and the command runs."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "ACCT REQUEST cmd=interface …",
+      "tone": "purple",
+      "text": "With command accounting on, R1 also records the command, the user and the time."
+    },
+    {
+      "from": "ADM",
+      "to": "R1",
+      "label": "shutdown",
+      "text": "The next command is checked the same way, on its own."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "AUTHOR REQUEST cmd=shutdown",
+      "text": "A fresh question for a fresh command. This is only possible because TACACS+ keeps authorization separate from authentication."
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "AUTHOR RESPONSE: PASS_ADD",
+      "tone": "good",
+      "dashed": true,
+      "text": "`shutdown` is in the help-desk command set, so it runs. The accounting record that follows is what solves \"who shut Gi0/1 at 03:12?\""
+    },
+    {
+      "from": "ADM",
+      "to": "R1",
+      "label": "reload",
+      "text": "jsmith now tries something outside the command set."
+    },
+    {
+      "from": "R1",
+      "to": "ISE",
+      "label": "AUTHOR REQUEST cmd=reload",
+      "text": "Same question, different command."
+    },
+    {
+      "from": "ISE",
+      "to": "R1",
+      "label": "AUTHOR RESPONSE: FAIL",
+      "tone": "bad",
+      "dashed": true,
+      "text": "`reload` isn't permitted for this group."
+    },
+    {
+      "from": "R1",
+      "to": "ADM",
+      "label": "Command authorization failed.",
+      "tone": "bad",
+      "text": "R1 refuses to run it, and nothing changes. RADIUS couldn't do any of this: it hands back all its attributes once at login and the conversation is over."
+    }
+  ]
+}
+```
 
 **Worked example — what the accounting server records:**
 
@@ -20506,6 +21054,75 @@ R1(config)# ip access-list resequence EDGE-IN 10 10                 ! renumber 1
 | TCP 198.51.100.7 → 203.0.113.10:22 | no | no | **match** | denied, logged |
 
 The third row is how you'd prove a change worked: clear the counters, test from outside, and see line 30's counter (and a `%SEC-6-IPACCESSLOGP` log message) increment for port 80.
+
+```diagram
+{
+  "type": "match",
+  "kind": "extended",
+  "name": "EDGE-IN",
+  "title": "Walk packets through EDGE-IN",
+  "prompt": "These are EDGE-IN's lines after adding 25 and removing 20: lines 1, 2 and 3 below are sequence numbers 10, 25 and 30. Pick a packet, or type your own, and see which line catches it. Try the web packet on port 80: line 20 is gone, so it now falls to the deny.",
+  "rules": [
+    {
+      "action": "permit",
+      "proto": "tcp",
+      "src": "any",
+      "dst": "host 203.0.113.10",
+      "port": "eq 443"
+    },
+    {
+      "action": "permit",
+      "proto": "udp",
+      "src": "any",
+      "dst": "host 203.0.113.53",
+      "port": "eq domain"
+    },
+    {
+      "action": "deny",
+      "proto": "ip",
+      "src": "any",
+      "dst": "any"
+    }
+  ],
+  "input": {
+    "proto": "tcp",
+    "src": "198.51.100.7",
+    "dst": "203.0.113.10",
+    "port": 443
+  },
+  "tries": [
+    {
+      "proto": "udp",
+      "src": "198.51.100.7",
+      "dst": "203.0.113.53",
+      "port": 53
+    },
+    {
+      "proto": "tcp",
+      "src": "198.51.100.7",
+      "dst": "203.0.113.10",
+      "port": 80
+    },
+    {
+      "proto": "tcp",
+      "src": "198.51.100.7",
+      "dst": "203.0.113.10",
+      "port": 22
+    },
+    {
+      "proto": "udp",
+      "src": "198.51.100.7",
+      "dst": "203.0.113.10",
+      "port": 53
+    },
+    {
+      "proto": "icmp",
+      "src": "198.51.100.7",
+      "dst": "203.0.113.10"
+    }
+  ]
+}
+```
 
 ### Object-groups — naming sets of things
 
@@ -20751,6 +21368,248 @@ So short bursts up to 2,000 bytes pass at once, and anything sustained above 64 
 
 The outsider isn't blocked by CoPP (that's the job of `access-class` and the iACL); they're just squeezed into the small shared pipe, so a flood from them can't starve the management class.
 
+```diagram
+{
+  "type": "topology",
+  "title": "CoPP: what reaches R1's CPU, and at what rate",
+  "caption": "Step through the punted traffic from 17.6's policy. Each class gets its own policer, so one flood can't starve the others.",
+  "nodes": [
+    {
+      "id": "NBR",
+      "x": 0,
+      "y": 0,
+      "kind": "router",
+      "label": "R2",
+      "sub": "OSPF neighbor"
+    },
+    {
+      "id": "NOC",
+      "x": 0,
+      "y": 1.3,
+      "kind": "host",
+      "label": "NOC PC",
+      "sub": "10.99.0.15"
+    },
+    {
+      "id": "ATK",
+      "x": 0,
+      "y": 2.6,
+      "kind": "host",
+      "label": "Attacker",
+      "sub": "198.51.100.7"
+    },
+    {
+      "id": "USR",
+      "x": 0,
+      "y": 3.9,
+      "kind": "host",
+      "label": "Users",
+      "sub": "transit traffic"
+    },
+    {
+      "id": "FWD",
+      "x": 2.2,
+      "y": 1.95,
+      "kind": "router",
+      "label": "R1 forwarding",
+      "sub": "CEF / ASIC"
+    },
+    {
+      "id": "CPU",
+      "x": 4.4,
+      "y": 0.6,
+      "kind": "server",
+      "label": "R1 CPU",
+      "sub": "route processor"
+    },
+    {
+      "id": "SRV",
+      "x": 4.4,
+      "y": 3.3,
+      "kind": "server",
+      "label": "Servers",
+      "sub": "beyond R1"
+    }
+  ],
+  "links": [
+    {
+      "a": "NBR",
+      "b": "FWD"
+    },
+    {
+      "a": "NOC",
+      "b": "FWD"
+    },
+    {
+      "a": "ATK",
+      "b": "FWD"
+    },
+    {
+      "a": "USR",
+      "b": "FWD"
+    },
+    {
+      "a": "FWD",
+      "b": "CPU",
+      "label": "PM-COPP",
+      "style": "thick"
+    },
+    {
+      "a": "FWD",
+      "b": "SRV"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Transit traffic stays in hardware",
+      "text": "User traffic **through** R1 is forwarded by the CEF hardware at line rate. It never touches the CPU, and CoPP never sees it.",
+      "nodes": {
+        "FWD": {
+          "badge": "hardware"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "USR",
+            "FWD",
+            "SRV"
+          ],
+          "label": "transit, line rate"
+        }
+      ]
+    },
+    {
+      "title": "2. OSPF hello: the routing class",
+      "text": "An OSPF hello is addressed to R1 itself, so it's **punted** up to the CPU. On the way it meets `PM-COPP`. It matches `COPP-ROUTING`, the first class, policed at 1 Mbps with `exceed-action transmit`, so routing is measured but never dropped.",
+      "nodes": {
+        "FWD": null,
+        "CPU": {
+          "badge": "ROUTING 1M",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "NBR",
+            "FWD",
+            "CPU"
+          ],
+          "label": "OSPF hello"
+        }
+      ]
+    },
+    {
+      "title": "3. SSH from the NOC: the management class",
+      "text": "A SYN to port 22 from 10.99.0.15 matches `COPP-MGMT` (source in 10.99.0.0/24), so it shares a 512 kbps budget with SNMP and NTP from known sources.",
+      "nodes": {
+        "CPU": {
+          "badge": "MGMT 512k",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "NOC",
+            "FWD",
+            "CPU"
+          ],
+          "label": "SSH SYN :22"
+        }
+      ]
+    },
+    {
+      "title": "4. A ping flood: the ICMP class",
+      "text": "The attacker sends 500 pings a second of 100 bytes: 400,000 bps. `COPP-ICMP` allows 64,000 bps, so only about 16% (80 pings a second) reach the CPU. The other 84% are dropped **before** the CPU, by the policer.",
+      "nodes": {
+        "FWD": {
+          "badge": "84% dropped",
+          "tone": "warn"
+        },
+        "CPU": {
+          "badge": "ICMP 64k",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ATK",
+            "FWD"
+          ],
+          "label": "500 pings/s",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "FWD",
+            "CPU"
+          ],
+          "label": "~80 pings/s",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. SSH from the internet: class-default",
+      "text": "The same SYN to port 22 from 198.51.100.7 matches none of the ACLs, so it falls into `class-default` at 128 kbps, shared with everything unexpected. CoPP doesn't block it (that's `access-class` and the iACL); it just squeezes it into a small pipe.",
+      "nodes": {
+        "FWD": null,
+        "CPU": {
+          "badge": "default 128k",
+          "tone": "muted"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ATK",
+            "FWD",
+            "CPU"
+          ],
+          "label": "SSH SYN :22",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "6. The point: routing survives",
+      "text": "However hard the ICMP and default classes are hit, the routing class keeps its own budget. OSPF hellos keep arriving, the adjacency stays FULL, and `show policy-map control-plane` shows the `exceeded` counter climbing on exactly the class under attack.",
+      "focus": [
+        "NBR",
+        "FWD",
+        "CPU",
+        "NBR-FWD",
+        "FWD-CPU"
+      ],
+      "nodes": {
+        "NBR": {
+          "badge": "FULL",
+          "tone": "good"
+        },
+        "CPU": {
+          "badge": "calm",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "NBR",
+            "FWD",
+            "CPU"
+          ],
+          "label": "OSPF hello",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Why `permit` in a CoPP ACL never means "allow".** The ACL is only a classifier. `permit` puts a packet *into* the class, and the policer decides its fate. A `deny` line just means "not this class, try the next one." Nothing is ever dropped *by* the ACL. *Read CoPP ACLs as membership lists.*
 
 ### Verifying
@@ -20840,6 +21699,45 @@ Read it as: *ICMP is arriving at ~61 kbps against a 64 kbps contract, and 3,319 
 
 *Each layer assumes the one before it might fail. That's the defense-in-depth idea Chapter 18 applies to the whole network.*
 
+**📝 Exam-style questions — 17.7**
+
+**Q1.** R1 has every control in the checklist above. A host on the internet, 198.51.100.7, floods R1's Loopback0 with TCP SYNs to port 22. Which two controls limit the effect of the flood? (Choose two.)
+
+- **A.** `access-class MGMT-HOSTS in` on the VTY lines
+- **B.** The policed `class-default` in the CoPP policy
+- **C.** `aaa authorization commands 15`
+- **D.** scrypt (type 9) secrets
+- **E.** `aaa accounting exec default start-stop`
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** `access-class` closes each connection from a non-management source before any login prompt appears, so there's nothing to guess passwords against. CoPP puts the SYNs, which match none of the CoPP ACLs, into the small shared `class-default` policer, so the CPU and the routing protocols keep working. **Why not the others:** C and E act only after someone has logged in. D protects stored passwords if the config leaks; it does nothing about a flood.
+</details>
+
+**Q2.** Both TACACS+ servers become unreachable during a WAN outage. Which part of the checklist still lets the network team log in, and why?
+
+- **A.** The local fallback admin, because `group ADMIN-TACACS local` moves to `local` when the servers return an ERROR
+- **B.** The local fallback admin, because `local` is tried whenever TACACS+ rejects a user
+- **C.** `if-authenticated` on the login list, because it accepts any user during an outage
+- **D.** The CoPP routing class, because it keeps TACACS+ traffic flowing to the CPU
+
+<details><summary>Answer</summary>
+
+**Answer: A.** No reply from either server is an ERROR, and an ERROR is the one result that moves the method list on to `local`. That's why the checklist pairs central AAA with a local privilege-15 fallback account. **Why not the others:** B describes a FAIL, which never falls through to `local`. C, `if-authenticated` is an authorization method that lets an already-authenticated user keep working; it doesn't log anyone in. D, CoPP can't make an unreachable server answer.
+</details>
+
+**Q3.** Why does the checklist use both infrastructure ACLs at the edge and CoPP on every device, rather than just one of them?
+
+- **A.** iACLs drop unwanted traffic aimed at the network's own addresses as it enters from outside; CoPP still limits whatever reaches each CPU, including traffic from inside and traffic the iACL must permit
+- **B.** iACLs protect the data plane and CoPP protects the management plane only
+- **C.** CoPP only works on Catalyst switches and iACLs only work on routers
+- **D.** They do the same job; the second is there only for redundancy if the first is misconfigured
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The iACL is a filter at the network edge: it stops outside traffic to loopbacks and link addresses before it travels anywhere. It can't see traffic that starts inside, and it must permit things like BGP from your peer. CoPP sits in front of each CPU and rate-limits everything that is punted, whatever its source. Each layer assumes the other might fail, which is the defense-in-depth idea. **Why not the others:** B, CoPP protects the control **and** management planes, and iACLs protect devices rather than transit traffic. C, CoPP exists on routers (user-defined MQC) and on Catalyst 9000 switches (the system policy). D, they work at different places on different traffic, so neither replaces the other.
+</details>
+
 ---
 
 <a name="chapter-18"></a>
@@ -20872,6 +21770,130 @@ Modern networks work the same way, for a reason the castle builders never faced:
 **Why the "before, during, after" framing?** No single control catches everything, so the design question isn't "is it blocked?" but "how quickly do we see it and how far can it spread?" *Prevention fails sometimes; detection and containment are what limit the damage when it does.*
 
 This is the thinking behind **zero trust**: *never trust because of location, always verify identity and posture, and grant the least access needed.* TrustSec (18.5) and ISE are Cisco's main tools for building it into the campus.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Defense in depth: click each layer",
+  "caption": "Each device and link holds one layer from the table above. Click them to see what each layer catches, and remember that each one assumes the others might already have failed.",
+  "nodes": [
+    {
+      "id": "INET",
+      "x": 0,
+      "y": 0,
+      "kind": "cloud",
+      "label": "Internet",
+      "info": "Where most attacks start: phishing links, malicious domains, exploit kits. **Talos** watches this space and feeds verdicts (bad IPs, domains, file hashes) to every product on this map."
+    },
+    {
+      "id": "FW",
+      "x": 1.6,
+      "y": 0,
+      "kind": "firewall",
+      "label": "Secure Firewall",
+      "sub": "NGFW + IPS",
+      "info": "**At the edge (18.4).** Stateful inspection plus application identification, IPS (Snort), URL filtering, file reputation and sandboxing. Rules can name users and groups, learned from ISE, not just IP addresses."
+    },
+    {
+      "id": "CORE",
+      "x": 3.2,
+      "y": 0,
+      "kind": "l3switch",
+      "label": "Core",
+      "sub": "SGACL enforce",
+      "info": "**Moving inside (18.5).** The core and data-centre switches enforce the TrustSec matrix at egress: a packet tagged Contractors (20) heading for PCI-Servers (30) is dropped, whatever its IP. They also export **NetFlow** to Secure Network Analytics, which spots scanning and exfiltration after the fact."
+    },
+    {
+      "id": "DC",
+      "x": 4.8,
+      "y": 0,
+      "kind": "server",
+      "label": "PCI servers",
+      "sub": "SGT 30",
+      "info": "Servers never authenticate, so they get a **static** SGT mapping (`cts role-based sgt-map 10.50.0.10 sgt 30`). Their protection is the egress SGACL in front of them."
+    },
+    {
+      "id": "UMB",
+      "x": 0,
+      "y": 2,
+      "kind": "cloud",
+      "label": "Umbrella",
+      "sub": "DNS-layer security",
+      "info": "**Before the attack reaches you.** Almost every connection starts with a DNS lookup. If the resolver refuses to answer for a known-bad domain, the connection never exists, on any port or protocol, even for devices that can't run an agent."
+    },
+    {
+      "id": "ISE",
+      "x": 1.6,
+      "y": 2,
+      "kind": "server",
+      "label": "ISE",
+      "sub": "policy brain",
+      "info": "**Getting onto the network (18.3).** ISE answers the switch's RADIUS requests for 802.1X and MAB, checks posture, profiles devices, and returns the authorization result: VLAN, downloadable ACL and **SGT**."
+    },
+    {
+      "id": "ACC",
+      "x": 3.2,
+      "y": 2,
+      "kind": "switch",
+      "label": "Access SW1",
+      "sub": "802.1X / MAB",
+      "info": "The **authenticator**. It relays EAP between the laptop and ISE but never checks credentials itself. Until ISE says yes, the port passes only EAPOL. It then tags the user's frames with their SGT."
+    },
+    {
+      "id": "LAP",
+      "x": 4.8,
+      "y": 2,
+      "kind": "host",
+      "label": "Laptop",
+      "sub": "Secure Endpoint",
+      "info": "**On the host (18.3).** The Secure Endpoint agent checks files against cloud verdicts as they run and watches behaviour. *Retrospective security* means a file convicted next week is found and quarantined on every machine it reached."
+    }
+  ],
+  "links": [
+    {
+      "a": "INET",
+      "b": "FW",
+      "info": "North–south boundary: everything crossing it is inspected by the NGFW."
+    },
+    {
+      "a": "FW",
+      "b": "CORE"
+    },
+    {
+      "a": "CORE",
+      "b": "DC",
+      "label": "egress SGACL"
+    },
+    {
+      "a": "CORE",
+      "b": "ACC",
+      "label": "MACsec",
+      "style": "thick",
+      "info": "**On the wire (18.6).** The uplink is encrypted with MACsec (802.1AE), hop by hop, so the inline SGT can't be read or rewritten by someone tapping the riser cable."
+    },
+    {
+      "a": "ACC",
+      "b": "LAP",
+      "label": "802.1X",
+      "info": "EAPOL between laptop and switch. The port opens only after ISE's Access-Accept, and host-to-switch MACsec can encrypt this cable too."
+    },
+    {
+      "a": "ACC",
+      "b": "ISE",
+      "label": "RADIUS",
+      "style": "dashed",
+      "info": "RADIUS on UDP 1812 (authentication) and 1813 (accounting); CoA on UDP 1700 lets ISE change a session's policy later, for example after a posture check."
+    },
+    {
+      "a": "INET",
+      "b": "UMB",
+      "label": "DNS",
+      "style": "dashed",
+      "info": "Laptops and the office resolver send DNS to Umbrella, so a click on a malicious link is answered with a block page instead of an address."
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 18.1**
 
@@ -21010,6 +22032,122 @@ Two protocols carry the conversation: **EAPOL** (EAP over LAN, EtherType 0x888E)
 5. ISE checks the credentials and its policy, then sends **Access-Accept** with the authorization result: for example, VLAN 10, a downloadable ACL, and SGT 10.
 6. The switch sends **EAP-Success** to the laptop, applies the VLAN, ACL and SGT, and moves the port to **authorized**. Normal traffic (DHCP first) now flows.
 7. With accounting on, the switch sends ISE an **Accounting-Request (Start)** on UDP 1813.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "802.1X with PEAP: supplicant, authenticator, ISE",
+  "caption": "EAPOL carries EAP between the laptop and the switch; RADIUS carries the same EAP between the switch and ISE. Step through one PEAP login.",
+  "actors": [
+    {
+      "id": "LAP",
+      "kind": "host",
+      "label": "Laptop (supplicant)"
+    },
+    {
+      "id": "SW",
+      "kind": "switch",
+      "label": "SW1 Gi1/0/10"
+    },
+    {
+      "id": "ISE",
+      "kind": "server",
+      "label": "ISE (RADIUS)"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SW",
+      "to": "LAP",
+      "label": "EAP-Request/Identity",
+      "detail": "EAPOL",
+      "states": {
+        "SW": "unauthorized"
+      },
+      "text": "The link comes up and the port starts **unauthorized**: only EAPOL frames (EtherType 0x888E) are allowed. The switch asks \"who are you?\""
+    },
+    {
+      "from": "LAP",
+      "to": "SW",
+      "label": "EAP-Response/Identity: CORP\\jsmith",
+      "detail": "EAPOL",
+      "text": "The supplicant answers with the user's identity."
+    },
+    {
+      "from": "SW",
+      "to": "ISE",
+      "label": "RADIUS Access-Request",
+      "detail": "UDP 1812",
+      "text": "The switch unwraps the EAP message from EAPOL and re-wraps it in a RADIUS **EAP-Message** attribute. It checks nothing itself: it's only the relay."
+    },
+    {
+      "from": "ISE",
+      "to": "SW",
+      "label": "RADIUS Access-Challenge",
+      "detail": "EAP-Request: PEAP",
+      "dashed": true,
+      "text": "ISE replies with a challenge: start PEAP."
+    },
+    {
+      "from": "SW",
+      "to": "LAP",
+      "label": "EAP-Request (PEAP)",
+      "detail": "EAPOL",
+      "text": "The switch relays it to the laptop over EAPOL. Several of these round trips follow."
+    },
+    {
+      "note": "TLS tunnel to ISE; MSCHAPv2 inside it",
+      "over": [
+        "LAP",
+        "SW",
+        "ISE"
+      ],
+      "text": "In PEAP the laptop builds a TLS tunnel using **ISE's certificate** (no client certificate needed), then proves the password with MSCHAPv2 inside the tunnel. The switch just keeps relaying Challenge and Request messages it can't read."
+    },
+    {
+      "from": "ISE",
+      "to": "SW",
+      "label": "RADIUS Access-Accept",
+      "detail": "VLAN 10, dACL, SGT 10",
+      "tone": "good",
+      "dashed": true,
+      "text": "The credentials are right and the policy matches. The Accept carries the **authorization result**: the VLAN, a downloadable ACL and the SGT for TrustSec (18.5)."
+    },
+    {
+      "from": "SW",
+      "to": "LAP",
+      "label": "EAP-Success",
+      "tone": "good",
+      "states": {
+        "SW": "authorized"
+      },
+      "text": "The switch tells the laptop it's in, applies VLAN 10, the ACL and SGT 10, and moves the port to **authorized**."
+    },
+    {
+      "from": "LAP",
+      "to": "SW",
+      "label": "DHCP DISCOVER (VLAN 10)",
+      "text": "Normal traffic now flows. DHCP is usually first, which is why a slow authentication can make a client give up on DHCP."
+    },
+    {
+      "from": "SW",
+      "to": "ISE",
+      "label": "Accounting-Request (Start)",
+      "detail": "UDP 1813",
+      "tone": "purple",
+      "text": "With `aaa accounting dot1x`, the switch reports the session start, so ISE knows who is on which port."
+    },
+    {
+      "from": "ISE",
+      "to": "SW",
+      "label": "Accounting-Response",
+      "tone": "purple",
+      "dashed": true,
+      "text": "ISE acknowledges. `show access-session interface Gi1/0/10 details` now shows `Authorized`, `dot1x Authc Success`, VLAN 10 and SGT 10."
+    }
+  ]
+}
+```
 
 ```
 SW1# show access-session interface GigabitEthernet1/0/10 details
@@ -21170,6 +22308,97 @@ A **next-generation firewall (NGFW)** keeps the stateful engine and adds layers 
 4. If allowed, file and IPS inspection continue for the rest of the session. If blocked, the session is reset.
 5. The session is added to the state table, so return traffic is matched without being evaluated again.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "One TCP 443 session meets an NGFW",
+  "caption": "Step through the five-step process above: stateful lookup, provisional pass, application identification, then the full policy with user identity.",
+  "actors": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "label": "Finance PC 10.1.1.25"
+    },
+    {
+      "id": "FW",
+      "kind": "firewall",
+      "label": "NGFW"
+    },
+    {
+      "id": "SRV",
+      "kind": "cloud",
+      "label": "File-sharing site"
+    }
+  ],
+  "messages": [
+    {
+      "from": "PC",
+      "to": "SRV",
+      "label": "TCP SYN :443",
+      "detail": "10.1.1.25:51544 → 203.0.113.80:443",
+      "text": "The first packet arrives. The stateful engine finds no existing session, so the access policy is checked. All the firewall knows yet is addresses and ports, and port 443 could be anything."
+    },
+    {
+      "note": "app: unknown yet",
+      "over": [
+        "FW"
+      ],
+      "text": "The firewall can't name the application from a SYN, so it lets the handshake and the first few data packets through while its application detector watches."
+    },
+    {
+      "from": "SRV",
+      "to": "PC",
+      "label": "SYN-ACK, then ACK",
+      "dashed": true,
+      "text": "The three-way handshake completes through the firewall."
+    },
+    {
+      "from": "PC",
+      "to": "SRV",
+      "label": "TLS ClientHello",
+      "detail": "SNI: www.dropbox.com",
+      "text": "The first data packet. Even without decryption, the ClientHello shows the **server name** (SNI) the client wants, and the certificate that comes back names the service too."
+    },
+    {
+      "note": "app = Dropbox",
+      "over": [
+        "FW"
+      ],
+      "text": "The detector matches the signature: this is Dropbox, not the CRM or Webex. To a port-based firewall they were identical."
+    },
+    {
+      "note": "user = Finance group",
+      "over": [
+        "FW"
+      ],
+      "text": "Identity awareness (from ISE or Active Directory) maps 10.1.1.25 to a user in the Finance group. Policy: no personal file sharing for Finance."
+    },
+    {
+      "from": "FW",
+      "to": "PC",
+      "label": "TCP RST",
+      "tone": "bad",
+      "text": "The rule says block, so the firewall resets the session in both directions. The download or upload never happens."
+    },
+    {
+      "from": "FW",
+      "to": "SRV",
+      "label": "TCP RST",
+      "tone": "bad",
+      "text": "The server side is reset too, so neither end keeps a half-open session."
+    },
+    {
+      "from": "PC",
+      "to": "SRV",
+      "label": "Webex: same port, allowed",
+      "detail": "TCP 443, identified as Webex",
+      "tone": "good",
+      "text": "A Webex session from the same PC goes through exactly the same steps, is identified as Webex, matches an allow rule, and is added to the **state table** so its return traffic is matched without being evaluated again."
+    }
+  ]
+}
+```
+
 **Worked example — two sessions on the same port.** Both cross the firewall as TCP 443 from 10.1.1.25:
 
 | Session | Old stateful firewall (rule: permit tcp any any eq 443) | NGFW (rules by application and user) |
@@ -21292,6 +22521,263 @@ The contractor's address isn't in this table, and doesn't need to be: with inlin
 
 Next week the contractor moves to another building and gets a different IP address. They authenticate, get SGT 20 again, and the same cell of the matrix blocks them. Nobody touched a policy.
 
+```diagram
+{
+  "type": "topology",
+  "title": "TrustSec: a contractor's packet, hop by hop",
+  "caption": "Classify, propagate, enforce. Step through the worked example: the policy follows the user's role, not their IP address.",
+  "nodes": [
+    {
+      "id": "LAP",
+      "x": 0,
+      "y": 1.6,
+      "kind": "host",
+      "label": "Contractor",
+      "sub": "10.10.20.57"
+    },
+    {
+      "id": "ACC",
+      "x": 1.15,
+      "y": 1.6,
+      "kind": "switch",
+      "label": "Access SW",
+      "sub": "classifies"
+    },
+    {
+      "id": "DIST",
+      "x": 2.3,
+      "y": 1.6,
+      "kind": "l3switch",
+      "label": "Dist",
+      "sub": "carries"
+    },
+    {
+      "id": "CORE",
+      "x": 3.45,
+      "y": 1.6,
+      "kind": "l3switch",
+      "label": "Core",
+      "sub": "carries"
+    },
+    {
+      "id": "DCSW",
+      "x": 4.6,
+      "y": 1.6,
+      "kind": "switch",
+      "label": "DC-SW",
+      "sub": "enforces"
+    },
+    {
+      "id": "PCI",
+      "x": 5.75,
+      "y": 1.6,
+      "kind": "server",
+      "label": "PCI DB",
+      "sub": "10.50.0.10"
+    },
+    {
+      "id": "ISE",
+      "x": 2.9,
+      "y": 0,
+      "kind": "server",
+      "label": "ISE",
+      "sub": "SGTs + matrix"
+    }
+  ],
+  "links": [
+    {
+      "a": "LAP",
+      "b": "ACC"
+    },
+    {
+      "a": "ACC",
+      "b": "DIST",
+      "style": "thick"
+    },
+    {
+      "a": "DIST",
+      "b": "CORE",
+      "label": "MACsec",
+      "style": "thick"
+    },
+    {
+      "a": "CORE",
+      "b": "DCSW",
+      "style": "thick"
+    },
+    {
+      "a": "DCSW",
+      "b": "PCI"
+    },
+    {
+      "a": "ACC",
+      "b": "ISE",
+      "label": "RADIUS",
+      "style": "dashed"
+    },
+    {
+      "a": "DCSW",
+      "b": "ISE",
+      "label": "matrix",
+      "style": "dashed"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Classify at the edge",
+      "text": "The laptop authenticates with 802.1X. ISE's Access-Accept includes **SGT 20** (Contractors), so the access switch binds 10.10.20.57 to group 20. *Classify where you know the source.*",
+      "nodes": {
+        "ACC": {
+          "badge": "SGT 20",
+          "tone": "purple"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "LAP",
+            "ACC"
+          ],
+          "label": "802.1X"
+        },
+        {
+          "path": [
+            "ACC",
+            "ISE"
+          ],
+          "label": "Access-Request"
+        },
+        {
+          "path": [
+            "ISE",
+            "ACC"
+          ],
+          "label": "Accept, SGT 20",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. Tag every frame",
+      "text": "The contractor sends a packet to 10.50.0.10. The laptop knows nothing about tags; the access switch inserts a **Cisco Meta Data** field (EtherType 0x8909) carrying 20 as the frame leaves on the uplink.",
+      "packets": [
+        {
+          "path": [
+            "LAP",
+            "ACC"
+          ],
+          "label": "to 10.50.0.10"
+        },
+        {
+          "path": [
+            "ACC",
+            "DIST"
+          ],
+          "label": "CMD: SGT 20",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "3. Carry it across the campus",
+      "text": "Distribution and core forward the frame and keep the tag. The uplinks run MACsec, so nobody tapping a cable can read the tag or rewrite 20 into something friendlier.",
+      "links": {
+        "ACC-DIST": "active",
+        "DIST-CORE": "active",
+        "CORE-DCSW": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "DIST",
+            "CORE",
+            "DCSW"
+          ],
+          "label": "CMD: SGT 20",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. The destination's group",
+      "text": "The PCI server never authenticates, so DC-SW has a **static** mapping: `cts role-based sgt-map 10.50.0.10 sgt 30`. It downloaded the matrix from ISE, including the cell for source 20 and destination 30.",
+      "nodes": {
+        "DCSW": {
+          "badge": "10.50.0.10=30",
+          "tone": "purple"
+        },
+        "PCI": {
+          "badge": "SGT 30",
+          "tone": "purple"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ISE",
+            "DCSW"
+          ],
+          "label": "20 → 30: deny",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Enforce at egress",
+      "text": "DC-SW looks up (source 20, destination 30) in the matrix: **deny**. The packet is dropped in front of the server and the SGACL counter increments. *Enforce where you know the destination.*",
+      "nodes": {
+        "DCSW": {
+          "badge": "deny 20 → 30",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "CORE",
+            "DCSW"
+          ],
+          "label": "SGT 20 → 10.50.0.10",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "6. Next week, a new IP",
+      "text": "The contractor moves building and gets a new address. They authenticate, get SGT 20 again, and the same matrix cell blocks them. Nobody edited an ACL. If the access switch were too old to tag, it would send \"10.10.20.57 = 20\" to DC-SW over **SXP** (TCP 64999) instead.",
+      "nodes": {
+        "ACC": {
+          "badge": "SGT 20",
+          "tone": "purple"
+        },
+        "LAP": {
+          "badge": "new IP",
+          "tone": "muted"
+        }
+      },
+      "links": {
+        "ACC-DIST": null,
+        "DIST-CORE": null,
+        "CORE-DCSW": null
+      },
+      "packets": [
+        {
+          "path": [
+            "LAP",
+            "ACC",
+            "DIST",
+            "CORE",
+            "DCSW"
+          ],
+          "label": "SGT 20 again",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **SXP in the same story:** if the contractor's access switch is too old to insert CMD tags, it sends the binding "10.10.20.57 = SGT 20" over an SXP TCP connection to a device that can use it, such as the data-centre switch or a firewall. That device then knows the source group from the packet's **IP address** rather than from a tag, and the binding appears in its table with `SXP` as the source:
 
 ```
@@ -21382,6 +22868,101 @@ IP Address              SGT     Source
 3. One switch is elected **key server** (the lowest key-server priority value wins; a tie goes to the lowest SCI, the Secure Channel Identifier).
 4. The key server generates a random **SAK** (Secure Association Key), the key that actually encrypts data, and sends it to its peer protected by a key derived from the CAK.
 5. Both install the SAK in hardware. Frames are now encrypted with AES-GCM. The SAK is replaced periodically, so the long-term CAK is never used to encrypt traffic itself.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "MKA brings up a MACsec link (pre-shared key)",
+  "caption": "Step through how two switches agree keys with MKA (802.1X-2010) and then encrypt with 802.1AE, and what happens to a tampered frame.",
+  "actors": [
+    {
+      "id": "SWA",
+      "kind": "switch",
+      "label": "SW-A (building A)"
+    },
+    {
+      "id": "TAP",
+      "kind": "host",
+      "label": "Fibre tap"
+    },
+    {
+      "id": "SWB",
+      "kind": "switch",
+      "label": "SW-B (building B)"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Both hold the same CAK and CKN",
+      "over": [
+        "SWA",
+        "SWB"
+      ],
+      "text": "The long-term pre-shared key (**CAK**, Connectivity Association Key) and its name (**CKN**) are configured on both switches. The CAK never encrypts data itself."
+    },
+    {
+      "from": "SWA",
+      "to": "SWB",
+      "label": "MKPDU: CKN, member ID, ICV",
+      "detail": "EAPOL (EtherType 0x888E)",
+      "text": "MKA messages are EAPOL frames. Each carries an integrity check computed with a key derived from the CAK, so only a switch holding the same CAK can produce one the peer accepts."
+    },
+    {
+      "from": "SWB",
+      "to": "SWA",
+      "label": "MKPDU: live peer list, ICV",
+      "states": {
+        "SWA": "peer live",
+        "SWB": "peer live"
+      },
+      "text": "SW-B proves it has the CAK too, and lists SW-A as a live peer. Each now trusts the other."
+    },
+    {
+      "note": "Key server: lowest priority, then lowest SCI",
+      "over": [
+        "SWA",
+        "SWB"
+      ],
+      "states": {
+        "SWA": "key server"
+      },
+      "text": "One switch becomes the **key server**. The lowest key-server priority value wins, and a tie goes to the lowest SCI (Secure Channel Identifier). Here SW-A wins."
+    },
+    {
+      "from": "SWA",
+      "to": "SWB",
+      "label": "MKPDU: distributed SAK",
+      "detail": "SAK wrapped with a CAK-derived key",
+      "text": "The key server generates a random **SAK** (Secure Association Key) and sends it wrapped in a key derived from the CAK."
+    },
+    {
+      "from": "SWB",
+      "to": "SWA",
+      "label": "MKPDU: SAK in use",
+      "states": {
+        "SWA": "secured",
+        "SWB": "secured"
+      },
+      "text": "Both install the SAK in hardware. The SAK is replaced periodically."
+    },
+    {
+      "from": "SWA",
+      "to": "SWB",
+      "label": "802.1AE frame: SecTAG + AES-GCM + ICV",
+      "tone": "good",
+      "text": "Data now flows encrypted. MACs stay visible; the 802.1Q tag, any SGT and the whole IP packet are encrypted and integrity-protected. Up to 32 bytes per frame of overhead, so mind the MTU."
+    },
+    {
+      "from": "TAP",
+      "to": "SWB",
+      "label": "modified frame re-injected",
+      "tone": "bad",
+      "drop": true,
+      "text": "An attacker spliced into the fibre alters a captured frame and sends it on. Its ICV no longer matches, so SW-B **drops** it. The attacker only learned which two MACs were talking."
+    }
+  ]
+}
+```
 
 **Worked example — what a tapped cable reveals.** An attacker splices into the fibre between building A and building B and captures a frame:
 
@@ -21486,6 +23067,107 @@ Controllers like Catalyst Center and SD-WAN Manager (Chapter 20), and devices ru
 Reading the error code tells you which control stopped you. That's exactly how ENCOR 6.5 (Chapter 20) expects you to read API responses.
 
 **OAuth 2.0 in three steps** (the simplest flow, used by one program calling another): the client program authenticates to an **authorization server** with its own client ID and secret → it receives an **access token** limited to certain **scopes** (for example `devices:read`) and valid for a short time → it sends that token as `Authorization: Bearer <token>` to the API, which checks the signature, expiry and scope. Revoking the client at the authorization server cuts off every API it could call, in one place.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "OAuth 2.0 client credentials: scoped, expiring tokens",
+  "caption": "Step through one program calling another with OAuth 2.0. Endpoint paths vary by product; the token, scope and expiry checks don't.",
+  "actors": [
+    {
+      "id": "APP",
+      "kind": "host",
+      "label": "Monitoring script"
+    },
+    {
+      "id": "AUTH",
+      "kind": "server",
+      "label": "Authorization server"
+    },
+    {
+      "id": "API",
+      "kind": "controller",
+      "label": "Controller API"
+    }
+  ],
+  "messages": [
+    {
+      "from": "APP",
+      "to": "AUTH",
+      "label": "POST /oauth/token",
+      "detail": "grant_type=client_credentials, id + secret",
+      "text": "The script authenticates **as itself** with its own client ID and secret, over HTTPS. No user's password is involved."
+    },
+    {
+      "from": "AUTH",
+      "to": "APP",
+      "label": "200 access_token, scope devices:read",
+      "detail": "expires_in: 3600",
+      "tone": "good",
+      "dashed": true,
+      "text": "The authorization server issues a short-lived **access token** limited to the scope it was granted, here read-only access to devices, valid for an hour."
+    },
+    {
+      "from": "APP",
+      "to": "API",
+      "label": "GET /devices",
+      "detail": "Authorization: Bearer eyJhbGciOi…",
+      "text": "Every API call carries the token, not a password."
+    },
+    {
+      "note": "sig + expiry + scope",
+      "over": [
+        "API"
+      ],
+      "text": "The API checks that the token was signed by the authorization server, hasn't expired, and has a scope that allows this call."
+    },
+    {
+      "from": "API",
+      "to": "APP",
+      "label": "200 OK + device list",
+      "tone": "good",
+      "dashed": true,
+      "text": "All three checks pass."
+    },
+    {
+      "from": "APP",
+      "to": "API",
+      "label": "DELETE /devices/42",
+      "detail": "Authorization: Bearer eyJhbGciOi…",
+      "text": "A bug in the script tries to delete a device with the same token."
+    },
+    {
+      "from": "API",
+      "to": "APP",
+      "label": "403 Forbidden",
+      "tone": "bad",
+      "dashed": true,
+      "text": "The token is valid, so this isn't 401. But its scope is `devices:read`, which doesn't allow a delete: **authenticated but not allowed** is 403. Least privilege just stopped an accident."
+    },
+    {
+      "from": "APP",
+      "to": "API",
+      "label": "GET /devices (61 min later)",
+      "text": "An hour later the script is still using the old token."
+    },
+    {
+      "from": "API",
+      "to": "APP",
+      "label": "401 Unauthorized",
+      "tone": "bad",
+      "dashed": true,
+      "text": "The token has **expired**, so the caller is no longer authenticated: 401. A leaked copy of this token would be just as useless now."
+    },
+    {
+      "from": "APP",
+      "to": "AUTH",
+      "label": "POST /oauth/token",
+      "detail": "grant_type=client_credentials, id + secret",
+      "text": "The script requests a fresh token and carries on. Revoking the client at the authorization server would stop every API it can call, in one place."
+    }
+  ]
+}
+```
 
 **Why do tokens expire?** Because every credential eventually leaks: into a log file, a screenshot, a Git commit. A password or static key that leaks stays valid until someone notices. A token that expires after an hour (Catalyst Center's tokens are valid for about 60 minutes by default) limits the attacker's window to the remainder of that hour. *Short-lived credentials turn a breach into an inconvenience.*
 
@@ -21612,6 +23294,99 @@ hello R1
 ```
 
 The common wrong answer puts `hello R1` second, because it *appears* second in the file. *Definition order isn't run order: follow the calls.*
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Definition order isn't run order",
+  "caption": "Step through the five-line script above exactly as the interpreter runs it.",
+  "actors": [
+    {
+      "id": "PY",
+      "kind": "host",
+      "label": "Interpreter"
+    },
+    {
+      "id": "FN",
+      "kind": "server",
+      "label": "greet()"
+    },
+    {
+      "id": "OUT",
+      "kind": "host",
+      "label": "Terminal"
+    }
+  ],
+  "messages": [
+    {
+      "from": "PY",
+      "to": "OUT",
+      "label": "line 1: print(\"start\")",
+      "detail": "prints: start",
+      "states": {
+        "OUT": "start"
+      },
+      "text": "Python starts at the top. Line 1 is an ordinary statement, so it runs immediately."
+    },
+    {
+      "from": "PY",
+      "to": "PY",
+      "label": "lines 2-3: def greet(name)",
+      "detail": "stored, body not run",
+      "states": {
+        "FN": "defined"
+      },
+      "text": "A `def` only **stores** the function under the name `greet`. The indented line 3 belongs to it, so it's skipped for now. Nothing prints."
+    },
+    {
+      "from": "PY",
+      "to": "OUT",
+      "label": "line 4: print(\"middle\")",
+      "detail": "prints: middle",
+      "states": {
+        "OUT": "middle"
+      },
+      "text": "The next top-level statement runs."
+    },
+    {
+      "from": "PY",
+      "to": "FN",
+      "label": "line 5: greet(\"R1\")",
+      "detail": "name = \"R1\"",
+      "states": {
+        "FN": "running"
+      },
+      "text": "Now the function is **called**. Python matches the argument to the parameter, so `name` is `\"R1\"`, and jumps into the body."
+    },
+    {
+      "from": "FN",
+      "to": "OUT",
+      "label": "line 3: print(f\"hello {name}\")",
+      "detail": "prints: hello R1",
+      "states": {
+        "OUT": "hello R1"
+      },
+      "text": "Line 3 finally runs, with `name` filled in by the f-string."
+    },
+    {
+      "from": "FN",
+      "to": "PY",
+      "label": "return None",
+      "dashed": true,
+      "states": {
+        "FN": "finished"
+      },
+      "text": "The body ends without a `return`, so the call hands back `None`, and Python continues after line 5."
+    },
+    {
+      "from": "PY",
+      "to": "PY",
+      "label": "end of file: script exits",
+      "text": "Nothing is left, so the script ends. The output, in order, was `start`, `middle`, `hello R1`. *Follow the calls, not the order the lines appear in.*"
+    }
+  ]
+}
+```
 
 **Why did the network industry settle on Python?** Readability (it reads close to English), a huge library ecosystem for networking (`requests`, `netmiko`, `ncclient`, `napalm`, Ansible itself), and it's preinstalled on most Linux systems, including the Guest Shell (a small Linux container that runs on the router itself) on IOS XE. *The libraries are the real reason: someone has already written the hard part.*
 
@@ -22291,6 +24066,101 @@ finally:
 
 If the device instead answers with **401**, `get` succeeds (a reply arrived) and `raise_for_status()` raises `HTTPError`. The output is then `API error: 401 Client Error: ...` followed by `done`. With no `try` at all, either failure would stop the script with a red traceback.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "try / except / finally, run twice",
+  "caption": "The same block from above, once against a dead device and once with a wrong password. Watch which clause catches each failure.",
+  "actors": [
+    {
+      "id": "SCR",
+      "kind": "host",
+      "label": "script"
+    },
+    {
+      "id": "DEV",
+      "kind": "router",
+      "label": "10.0.0.1"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SCR",
+      "to": "DEV",
+      "label": "requests.get(url, timeout=5)",
+      "detail": "HTTPS GET",
+      "text": "**Run 1.** The `try` block sends the request and waits for a reply."
+    },
+    {
+      "from": "DEV",
+      "to": "SCR",
+      "label": "no reply",
+      "tone": "bad",
+      "dashed": true,
+      "drop": true,
+      "text": "The device is down, so nothing comes back."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "5 s: Timeout raised",
+      "tone": "bad",
+      "text": "At 5 seconds `requests` **raises** a `Timeout` exception. Python abandons the rest of the `try` block at once, so `raise_for_status()` never runs."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "except Timeout: matches",
+      "detail": "prints: device did not answer",
+      "text": "Python checks the `except` clauses from the top. The first one matches, so it prints `device did not answer`. The `HTTPError` clause is skipped: only one `except` ever runs."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "finally: runs",
+      "detail": "prints: done",
+      "text": "`finally` always runs last, error or not."
+    },
+    {
+      "from": "SCR",
+      "to": "DEV",
+      "label": "requests.get(url, timeout=5)",
+      "detail": "HTTPS GET, wrong password",
+      "text": "**Run 2.** The device is up this time, but the script's password is wrong."
+    },
+    {
+      "from": "DEV",
+      "to": "SCR",
+      "label": "401 Unauthorized",
+      "tone": "warn",
+      "dashed": true,
+      "text": "A reply **did** arrive, so `get()` succeeds and no exception is raised yet. A 401 is still a valid HTTP answer."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "raise_for_status(): HTTPError",
+      "tone": "bad",
+      "text": "`raise_for_status()` turns any 4xx or 5xx status into an `HTTPError` exception."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "except HTTPError as err",
+      "detail": "prints: API error: 401 Client Error: …",
+      "text": "The first clause (`Timeout`) doesn't match, the second does."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "finally: runs",
+      "detail": "prints: done",
+      "text": "`done` prints again, and the script carries on with the next device instead of dying with a traceback."
+    }
+  ]
+}
+```
+
 **Story Time 📖:** `try`/`except` is the safety net under a trapeze. The act (the `try` block) runs as normal. If the performer falls (an exception), the net (`except`) catches them and the show goes on. `finally` is the crew sweeping the stage afterwards, which happens whether or not anyone fell.
 
 The full form has four clauses, and each runs at a different time:
@@ -22481,6 +24351,106 @@ GigabitEthernet2    down
 
 If the password is wrong, the device returns **401**: the script prints `Error 401`, the function returns an empty list, the loop runs zero times, and nothing else prints. **Interpreting the failure path is as examinable as the success path.**
 
+```diagram
+{
+  "type": "sequence",
+  "title": "The RESTCONF script, as it actually runs",
+  "caption": "The table above walks the file top to bottom; this walks it in the order things happen, including the 401 path the exam likes to ask about.",
+  "actors": [
+    {
+      "id": "SCR",
+      "kind": "host",
+      "label": "Python script"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 10.0.0.1"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "import, URL, HEADERS, def",
+      "text": "The import, `disable_warnings()` and the three assignments run. `def get_interfaces():` is only stored. Nothing has been sent yet."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "for loop calls get_interfaces()",
+      "text": "The `for` line needs a list to walk, so it calls the function. **Now** the body runs."
+    },
+    {
+      "from": "SCR",
+      "to": "R1",
+      "label": "TLS handshake, TCP 443",
+      "detail": "verify=False: certificate not checked",
+      "text": "`requests.get` opens HTTPS to R1. `verify=False` means the script doesn't check R1's certificate: fine in a lab, a vulnerability in production (18.7)."
+    },
+    {
+      "from": "SCR",
+      "to": "R1",
+      "label": "GET …/ietf-interfaces:interfaces",
+      "detail": "Accept: application/yang-data+json",
+      "text": "The request carries the Basic `Authorization` header built from `auth=` and asks for JSON."
+    },
+    {
+      "from": "R1",
+      "to": "SCR",
+      "label": "200 OK + JSON body",
+      "detail": "{\"ietf-interfaces:interfaces\": {…}}",
+      "tone": "good",
+      "dashed": true,
+      "text": "R1 authenticates `admin`, walks the YANG tree, and returns both interfaces."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "resp.json()[…][\"interface\"]",
+      "detail": "a list of 2 dicts",
+      "text": "`resp.json()` turns the text into a dict. The two keys dig down to the **list** of two interface dicts, and `return` hands it to the loop."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "turn 1: GigabitEthernet1 up",
+      "detail": "prints: GigabitEthernet1    up",
+      "text": "`intf[\"enabled\"]` is `True`, so `state = \"up\"`. The name is padded to 20 characters."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "turn 2: GigabitEthernet2 down",
+      "detail": "prints: GigabitEthernet2    down",
+      "text": "`enabled` is `False`, so `state = \"down\"`. The list is exhausted and the script ends."
+    },
+    {
+      "from": "SCR",
+      "to": "R1",
+      "label": "same GET, wrong password",
+      "detail": "Authorization: Basic (bad credentials)",
+      "text": "**The failure path.** Run it again with a wrong password."
+    },
+    {
+      "from": "R1",
+      "to": "SCR",
+      "label": "401 Unauthorized",
+      "tone": "bad",
+      "dashed": true,
+      "text": "R1 rejects the credentials."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "prints Error 401, returns []",
+      "tone": "bad",
+      "text": "`status_code` isn't 200, so the function prints `Error 401` and returns an empty list. The loop runs **zero** times, and nothing else prints."
+    }
+  ]
+}
+```
+
 ### A second example — netmiko over SSH
 
 ```python
@@ -22524,6 +24494,94 @@ Loopback0              2.2.2.2         YES NVRAM  up                    up
 | Loopback0 | Yes | **Yes** | No: excluded |
 
 Output: `GigabitEthernet1`. Note what `"up" in line` really tests: *the two letters u-p anywhere in the line*. An interface description such as `backup-link` would also match. That fragility is the point of the next paragraph.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "What netmiko does over SSH",
+  "caption": "Step through the second example: SSH, paging off, a show command, a config set, a clean exit, and then the parsing.",
+  "actors": [
+    {
+      "id": "SCR",
+      "kind": "host",
+      "label": "netmiko script"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2 10.0.0.2"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SCR",
+      "to": "R2",
+      "label": "TCP SYN to port 22",
+      "detail": "host=\"10.0.0.2\"",
+      "text": "`ConnectHandler(**device)` unpacks the dict into keyword arguments and opens an SSH connection."
+    },
+    {
+      "from": "SCR",
+      "to": "R2",
+      "label": "SSH login: admin / Cisco123",
+      "text": "Exactly what you'd type by hand, done by a program."
+    },
+    {
+      "from": "SCR",
+      "to": "R2",
+      "label": "terminal length 0",
+      "detail": "also: terminal width 511",
+      "text": "netmiko's session preparation turns off paging (and widens the terminal), so long output never stops at `--More--`. This is screen-scraping made robust."
+    },
+    {
+      "from": "SCR",
+      "to": "R2",
+      "label": "show ip interface brief",
+      "text": "`send_command` sends the command and reads until the prompt comes back."
+    },
+    {
+      "from": "R2",
+      "to": "SCR",
+      "label": "text table (4 lines)",
+      "dashed": true,
+      "text": "The answer is **human-formatted text**, column widths and all. The script must parse it itself."
+    },
+    {
+      "from": "SCR",
+      "to": "R2",
+      "label": "configure terminal",
+      "detail": "send_config_set(commands)",
+      "text": "`send_config_set` enters configuration mode for you…"
+    },
+    {
+      "from": "SCR",
+      "to": "R2",
+      "label": "interface Loopback100 / description …",
+      "text": "…sends each command in the list…"
+    },
+    {
+      "from": "SCR",
+      "to": "R2",
+      "label": "end",
+      "text": "…and leaves configuration mode."
+    },
+    {
+      "from": "SCR",
+      "to": "R2",
+      "label": "with block ends: exit, close",
+      "dashed": true,
+      "text": "Leaving the `with` block disconnects cleanly, even if an exception had been raised inside it."
+    },
+    {
+      "from": "SCR",
+      "to": "SCR",
+      "label": "loop over output.splitlines()",
+      "detail": "prints: GigabitEthernet1",
+      "text": "Only now does the loop run, on the text captured earlier, **before** Loopback100 existed. Only the GigabitEthernet1 line contains `up` and not `Loopback`."
+    }
+  ]
+}
+```
 
 **Why is netmiko considered a fallback compared with RESTCONF?** Because it scrapes **human-formatted text**. If a software upgrade changes a column width, `split()[0]` can silently pick the wrong field. An API returns **structured data** whose keys don't move. *Parse text when you must; consume structured data when you can.*
 
@@ -22955,6 +25013,70 @@ print(check("8"))
 
 </details>
 
+**📝 Exam-style questions — 19.10**
+
+**Q1.** Which line is valid JSON?
+
+- **A.** `{"vlans": [{"id": 10, "name": "DATA"}, {"id": 20, "name": "VOICE"},]}`
+- **B.** `{"vlans": [{"id": 10, "name": "DATA"}, {"id": 20, "name": "VOICE"}]}`
+- **C.** `{"vlans": [{"id": 010, "name": "DATA"}, {"id": 20, "name": "VOICE"}]}`
+- **D.** `{'vlans': [{"id": 10, "name": "DATA"}, {"id": 20, "name": "VOICE"}]}`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Run the four passes: brackets balanced, every key and string in double quotes, commas only between items, and every value a valid type. B passes all four. **Why not the others:** A has a trailing comma after the last object in the array. C writes the number `010` with a leading zero, which JSON's number grammar forbids. D puts the key `vlans` in single quotes.
+</details>
+
+**Q2.** Refer to the exhibit. What does the script print?
+
+```python
+data = {"response": [{"hostname": "SW1", "vlans": [10, 20]},
+                     {"hostname": "SW2", "vlans": []}]}
+for dev in data["response"]:
+    if dev["vlans"]:
+        print(dev["hostname"], len(dev["vlans"]))
+    else:
+        print(dev["hostname"], "none")
+```
+
+- **A.** `SW1 2` then `SW2 none`
+- **B.** `SW1 2` then `SW2 0`
+- **C.** `SW1 2` only
+- **D.** A `KeyError`, because SW2 has no VLANs
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The loop visits both dicts. SW1's list `[10, 20]` is non-empty, so it's truthy, and the script prints the name and `len()`, which is 2. SW2's list is empty, and an empty list is falsy, so the `else` branch prints `SW2 none`. **Why not the others:** B would need the `if` branch to run for SW2, but an empty list never passes `if`. C forgets the `else` branch. D is wrong because the key `vlans` exists for SW2; it just holds an empty list.
+</details>
+
+**Q3.** Refer to the exhibit. What does the script print?
+
+```python
+def parse(v):
+    try:
+        n = int(v)
+    except ValueError:
+        print("bad", end=" ")
+        return 0
+    else:
+        print("ok", end=" ")
+        return n
+    finally:
+        print("done", end=" ")
+
+print(parse("x") + parse("7"))
+```
+
+- **A.** `bad done ok done 7`
+- **B.** `bad ok 7 done`
+- **C.** `done done 7`
+- **D.** `bad done ok done 0`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Python evaluates `parse("x")` first: `int("x")` raises `ValueError`, so the `except` prints `bad` and prepares to return 0, then `finally` prints `done` before the return completes. `parse("7")` succeeds, so `else` prints `ok` and prepares to return 7, and `finally` prints `done`. Finally `print` shows 0 + 7 = `7`. **Why not the others:** B prints `done` once and in the wrong place; `finally` runs at the end of each call. C ignores the prints in `except` and `else`. D would need `parse("7")` to return 0, but its `else` branch returns `n`, which is 7.
+</details>
+
 ---
 
 <a name="chapter-20"></a>
@@ -23234,6 +25356,138 @@ This is everything that happens when a script makes one transactional change on 
 
 Every request is an `<rpc message-id="N">`, and every answer is an `<rpc-reply message-id="N">` containing `<ok/>`, `<data>` or `<rpc-error>`. Matching IDs is how the client knows which reply answers which request.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "A transactional NETCONF session, end to end",
+  "caption": "Every step from the list above: transport, hello and capabilities, locks, a staged edit, validate, commit, unlock and close.",
+  "actors": [
+    {
+      "id": "CL",
+      "kind": "host",
+      "label": "ncclient client"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 10.0.0.1"
+    }
+  ],
+  "messages": [
+    {
+      "from": "CL",
+      "to": "R1",
+      "label": "TCP SYN to port 830",
+      "detail": "netconf-yang must be configured",
+      "text": "NETCONF runs over SSH on its own port, **830**, so it never collides with interactive SSH on 22."
+    },
+    {
+      "from": "CL",
+      "to": "R1",
+      "label": "SSH auth, then subsystem netconf",
+      "text": "The client logs in as a privilege-15 user and asks SSH for the `netconf` **subsystem**, not a shell. There will be no `R1#` prompt: from now on both sides speak XML."
+    },
+    {
+      "from": "R1",
+      "to": "CL",
+      "label": "<hello> capabilities, session-id 2871",
+      "dashed": true,
+      "states": {
+        "R1": "session 2871"
+      },
+      "text": "The device speaks first. Its capabilities list the protocol versions, optional features (`candidate`, `validate`…) and every YANG module it supports."
+    },
+    {
+      "from": "CL",
+      "to": "R1",
+      "label": "<hello> capabilities (base:1.1)",
+      "states": {
+        "CL": "chunked framing"
+      },
+      "text": "The client answers with its own capabilities and no session-id. Both list `base:1.1`, so from the next message on they use **chunked framing** (`#length` … `##`) instead of `]]>]]>`."
+    },
+    {
+      "from": "CL",
+      "to": "R1",
+      "label": "rpc 101, 102: <lock> candidate, running",
+      "text": "Lock both datastores so no other session (another script, or the CLI) can change them mid-edit."
+    },
+    {
+      "from": "R1",
+      "to": "CL",
+      "label": "rpc-reply 101, 102: <ok/>",
+      "tone": "good",
+      "dashed": true,
+      "text": "Each reply carries the same `message-id` as its request, which is how the client pairs them up."
+    },
+    {
+      "from": "CL",
+      "to": "R1",
+      "label": "rpc 103: <edit-config> target candidate",
+      "text": "The change is staged in the **candidate** datastore, the shopping cart. Running is untouched. (On IOS XE, `netconf-yang feature candidate-datastore` enables it.)"
+    },
+    {
+      "from": "R1",
+      "to": "CL",
+      "label": "rpc-reply 103: <ok/>",
+      "tone": "good",
+      "dashed": true,
+      "states": {
+        "R1": "candidate edited"
+      },
+      "text": "Staged."
+    },
+    {
+      "from": "CL",
+      "to": "R1",
+      "label": "rpc 104: <validate> candidate",
+      "text": "Optional, but wise: the device checks the **whole** candidate against the YANG models now, before anything goes live."
+    },
+    {
+      "from": "R1",
+      "to": "CL",
+      "label": "rpc-reply 104: <ok/>",
+      "tone": "good",
+      "dashed": true,
+      "text": "Valid. Had it failed, the reply would hold `<rpc-error>` and nothing would be live."
+    },
+    {
+      "from": "CL",
+      "to": "R1",
+      "label": "rpc 105: <commit>",
+      "text": "Checkout. The candidate becomes the running configuration in **one step**."
+    },
+    {
+      "from": "R1",
+      "to": "CL",
+      "label": "rpc-reply 105: <ok/>",
+      "tone": "good",
+      "dashed": true,
+      "states": {
+        "R1": "running updated"
+      },
+      "text": "Committed. If the commit had failed, running would be exactly as it was: all or nothing."
+    },
+    {
+      "from": "CL",
+      "to": "R1",
+      "label": "rpc 106, 107: <unlock> both",
+      "text": "Release the locks so others can work."
+    },
+    {
+      "from": "CL",
+      "to": "R1",
+      "label": "rpc 108: <close-session>",
+      "states": {
+        "R1": "closed",
+        "CL": "done"
+      },
+      "text": "End the NETCONF session politely; the SSH connection then closes."
+    }
+  ]
+}
+```
+
 ### A NETCONF request in practice
 
 ```python
@@ -23465,6 +25719,93 @@ Content-Type: application/yang-data+json
 
 Read the body against the tree: the top key is the **target** node, `interface`, prefixed with its module. The IPv4 address sits under `ietf-ip:ipv4`, a container that the separate `ietf-ip` module **augments** (adds) into each interface, which is why it carries a different prefix. Different IOS XE releases wrap a single list entry slightly differently (as an object, or as an array of one), so read whichever you're given rather than assuming.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "A RESTCONF GET: what crosses the wire",
+  "caption": "Step through the curl request above, then the two most common failures.",
+  "actors": [
+    {
+      "id": "CU",
+      "kind": "host",
+      "label": "curl"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 10.0.0.1"
+    }
+  ],
+  "messages": [
+    {
+      "from": "CU",
+      "to": "R1",
+      "label": "TLS handshake, TCP 443",
+      "detail": "-k: self-signed certificate accepted",
+      "text": "RESTCONF rides on the device's HTTPS server (`ip http secure-server`). `-k` makes curl accept R1's self-signed certificate, a lab shortcut."
+    },
+    {
+      "from": "CU",
+      "to": "R1",
+      "label": "GET …:interfaces/interface=Loopback0",
+      "detail": "Authorization: Basic YWRtaW46Q2lzY28xMjM=",
+      "text": "The path follows the YANG tree: `/restconf/data/`, then `module:container`, then a list entry selected by its key."
+    },
+    {
+      "note": "AAA: priv 15 user?",
+      "over": [
+        "R1"
+      ],
+      "text": "`-u admin:Cisco123` became the Basic header, which is Base64, not encryption: only TLS keeps it secret. R1 checks the user through AAA. A wrong password, or a user below privilege 15, would get **401** here."
+    },
+    {
+      "note": "walk the YANG tree",
+      "over": [
+        "R1"
+      ],
+      "text": "Module `ietf-interfaces`, container `interfaces`, list entry with key `Loopback0`. If there were no such entry, the answer would be **404**."
+    },
+    {
+      "from": "R1",
+      "to": "CU",
+      "label": "200 OK",
+      "detail": "Content-Type: application/yang-data+json",
+      "tone": "good",
+      "dashed": true,
+      "text": "The result is encoded the way `Accept` asked for. The top-level key is the **target** node with its module prefix: `\"ietf-interfaces:interface\"`."
+    },
+    {
+      "from": "CU",
+      "to": "R1",
+      "label": "GET …/interface=Loopback99",
+      "text": "Now ask for an interface that doesn't exist."
+    },
+    {
+      "from": "R1",
+      "to": "CU",
+      "label": "404 Not Found",
+      "tone": "bad",
+      "dashed": true,
+      "text": "The URI is well-formed, but there's no list entry with that key. A wrong module prefix gives 404 too, so try a GET on the parent container."
+    },
+    {
+      "from": "CU",
+      "to": "R1",
+      "label": "GET … with -u admin:wrong",
+      "text": "And one with a bad password."
+    },
+    {
+      "from": "R1",
+      "to": "CU",
+      "label": "401 Unauthorized",
+      "tone": "bad",
+      "dashed": true,
+      "text": "An HTTP **answer**, so HTTPS, `restconf` and nginx are all working. The problem is identity: credentials, or the user's privilege level."
+    }
+  ]
+}
+```
+
 ### HTTP methods → operations
 
 | HTTP method | RESTCONF meaning | NETCONF equivalent | Success code |
@@ -23517,6 +25858,128 @@ HTTP/1.1 204 No Content
 **204** because the resource already existed and was replaced; the same PUT to a new name returns **201 Created**. After this PUT the loopback has *only* what the body listed: any IPv4 address configured under it in this model is gone. Note the body's top-level key is the **list name** (`interface`, as an array with one entry), and its `name` must match the key in the URI. If they differ, the device returns **400**.
 
 **Why does the PUT vs PATCH distinction matter so much?** Because **PUT replaces**. PUT an interface body containing only a description, and every leaf you *didn't* include (IP address, enabled state) is removed from that resource. **PATCH merges**: it changes only the leaves you send. *PUT is "make it exactly this", PATCH is "change just these bits." Mixing them up is how a one-line description change takes an interface's IP away.*
+
+```diagram
+{
+  "type": "sequence",
+  "title": "One loopback, five methods, the codes you get back",
+  "caption": "POST creates, PATCH merges, PUT replaces, DELETE removes. Step through the life of Loopback100 and read each status code.",
+  "actors": [
+    {
+      "id": "SCR",
+      "kind": "host",
+      "label": "Script"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 10.0.0.1"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SCR",
+      "to": "R1",
+      "label": "POST …:interfaces (Loopback100)",
+      "detail": "Content-Type: application/yang-data+json",
+      "text": "POST goes to the **parent** container, with the new child in the body."
+    },
+    {
+      "from": "R1",
+      "to": "SCR",
+      "label": "201 Created + Location",
+      "tone": "good",
+      "dashed": true,
+      "text": "Created. The `Location` header gives the new resource's own URI, `…/interface=Loopback100`, which the next calls use."
+    },
+    {
+      "from": "SCR",
+      "to": "R1",
+      "label": "POST the same body again",
+      "text": "POST only ever **creates**."
+    },
+    {
+      "from": "R1",
+      "to": "SCR",
+      "label": "409 Conflict (data-exists)",
+      "tone": "bad",
+      "dashed": true,
+      "text": "Loopback100 already exists, so POST refuses to overwrite it. The body's `error-tag` says `data-exists`."
+    },
+    {
+      "from": "SCR",
+      "to": "R1",
+      "label": "PATCH …/interface=Loopback100",
+      "detail": "{\"name\": \"Loopback100\", \"description\": …}",
+      "text": "PATCH **merges**: the body holds just the name and a new description."
+    },
+    {
+      "from": "R1",
+      "to": "SCR",
+      "label": "204 No Content",
+      "tone": "good",
+      "dashed": true,
+      "text": "Merged. Success with no body. The IP address and enabled state are untouched."
+    },
+    {
+      "from": "SCR",
+      "to": "R1",
+      "label": "PUT …/interface=Loopback100",
+      "text": "PUT **replaces** the whole resource with exactly the body: name, type, description, enabled, and no IPv4 address."
+    },
+    {
+      "from": "R1",
+      "to": "SCR",
+      "label": "204 No Content",
+      "tone": "warn",
+      "dashed": true,
+      "text": "Replaced (it existed, so 204 rather than 201). Any IPv4 address configured under it in this model is now **gone**, because the body didn't list it."
+    },
+    {
+      "from": "SCR",
+      "to": "R1",
+      "label": "PATCH, Content-Type: application/json",
+      "text": "A body sent with the wrong media type."
+    },
+    {
+      "from": "R1",
+      "to": "SCR",
+      "label": "415 Unsupported Media Type",
+      "tone": "bad",
+      "dashed": true,
+      "text": "RESTCONF wants `application/yang-data+json` (or `+xml`). Nothing changed."
+    },
+    {
+      "from": "SCR",
+      "to": "R1",
+      "label": "DELETE …/interface=Loopback100",
+      "text": "Remove the resource."
+    },
+    {
+      "from": "R1",
+      "to": "SCR",
+      "label": "204 No Content",
+      "tone": "good",
+      "dashed": true,
+      "text": "Deleted."
+    },
+    {
+      "from": "SCR",
+      "to": "R1",
+      "label": "GET …/interface=Loopback100",
+      "text": "Prove it."
+    },
+    {
+      "from": "R1",
+      "to": "SCR",
+      "label": "404 Not Found",
+      "tone": "bad",
+      "dashed": true,
+      "text": "It no longer exists."
+    }
+  ]
+}
+```
 
 ### Media types — the `Accept` and `Content-Type` headers
 
@@ -23659,6 +26122,89 @@ curl -k -u admin:Cisco123 -H "Accept: application/yang-data+json" \
 
 *A 401 with a correct password almost always means a privilege or AAA-method problem, not a typo.*
 
+```diagram
+{
+  "type": "topology",
+  "title": "What has to be running for NETCONF and RESTCONF",
+  "caption": "Click each piece to see the command that enables it and the `show` command that proves it. The symptom table above maps onto these boxes.",
+  "nodes": [
+    {
+      "id": "WS",
+      "x": 0,
+      "y": 1,
+      "kind": "host",
+      "label": "Workstation",
+      "sub": "ncclient / curl",
+      "info": "Any machine that can reach R1's management address. `ncclient` (Python) speaks NETCONF; `curl` or `requests` speaks RESTCONF."
+    },
+    {
+      "id": "NC",
+      "x": 2.6,
+      "y": 0,
+      "kind": "server",
+      "label": "NETCONF",
+      "sub": "ncsshd, TCP 830",
+      "info": "Started by `netconf-yang`. The processes take a minute or two to come up. Check them with `show platform software yang-management process` (look for `ncsshd: Running`) and `show netconf-yang status` (`ssh port: 830`, `candidate-datastore: disabled` by default)."
+    },
+    {
+      "id": "RC",
+      "x": 2.6,
+      "y": 2,
+      "kind": "server",
+      "label": "RESTCONF",
+      "sub": "nginx, TCP 443",
+      "info": "Needs **both** `ip http secure-server` (the HTTPS server, served by nginx) and `restconf`. Missing the first gives *connection refused on 443*; check with `show ip http server secure status`."
+    },
+    {
+      "id": "AAA",
+      "x": 4.6,
+      "y": 1,
+      "kind": "server",
+      "label": "AAA",
+      "sub": "priv-15 user",
+      "info": "Both APIs authenticate through AAA: `aaa new-model`, `aaa authentication login default local`, `aaa authorization exec default local`, and for RESTCONF `ip http authentication local`. The user **must be privilege 15**: `username admin privilege 15 algorithm-type scrypt secret …`. A correct password with privilege 1 still gets **401**."
+    }
+  ],
+  "links": [
+    {
+      "a": "WS",
+      "b": "NC",
+      "label": "SSH 830",
+      "info": "NETCONF over SSH. Refused? `netconf-yang` is missing, or the processes are still starting."
+    },
+    {
+      "a": "WS",
+      "b": "RC",
+      "label": "HTTPS 443",
+      "info": "RESTCONF over HTTPS. Refused on 443 means no `ip http secure-server`. Any HTTP answer at all (even 401 or 404) proves this path works."
+    },
+    {
+      "a": "NC",
+      "b": "AAA",
+      "style": "dashed",
+      "info": "NETCONF logins are checked by the AAA login method list."
+    },
+    {
+      "a": "RC",
+      "b": "AAA",
+      "style": "dashed",
+      "info": "RESTCONF logins use `ip http authentication local` (or AAA) and need privilege 15."
+    }
+  ],
+  "zones": [
+    {
+      "label": "R1 (IOS XE) 10.0.0.1",
+      "nodes": [
+        "NC",
+        "RC",
+        "AAA"
+      ],
+      "tone": "accent"
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 20.4**
 
 **Q1.** A router has `aaa new-model`, a privilege-15 local user and the `restconf` command configured. A curl test from a workstation gets **connection refused** on TCP 443. Which command is missing?
@@ -23727,7 +26273,124 @@ Cisco **Catalyst Center** (formerly DNA Center, Chapter 16) manages the campus. 
 
 ### Authentication flow — get a token, then use it
 
-![Catalyst Center token authentication sequence](images/c20_cc_token.png)
+```diagram
+{
+  "type": "sequence",
+  "title": "Catalyst Center: a token, then the API, then a 202 job",
+  "caption": "Token authentication (steps 1 and 2 below), then the asynchronous 202 pattern described later in this section.",
+  "actors": [
+    {
+      "id": "SCR",
+      "kind": "host",
+      "label": "Script"
+    },
+    {
+      "id": "CC",
+      "kind": "controller",
+      "label": "Catalyst Center"
+    },
+    {
+      "id": "DEV",
+      "kind": "switch",
+      "label": "Managed switches"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SCR",
+      "to": "CC",
+      "label": "POST /dna/system/api/v1/auth/token",
+      "detail": "Authorization: Basic YWRtaW46Q2lzY28xMjM=",
+      "text": "Step 1: show your ID once. The username and password travel as HTTP Basic, inside HTTPS."
+    },
+    {
+      "from": "CC",
+      "to": "SCR",
+      "label": "200 {\"Token\": \"eyJ0eXAi…\"}",
+      "tone": "good",
+      "dashed": true,
+      "text": "The wristband. The script stores it in `tok`; the password is never sent again."
+    },
+    {
+      "from": "SCR",
+      "to": "CC",
+      "label": "GET /dna/intent/api/v1/network-device",
+      "detail": "X-Auth-Token: eyJ0eXAi…",
+      "text": "Step 2: every later call carries the token in the `X-Auth-Token` header."
+    },
+    {
+      "from": "CC",
+      "to": "SCR",
+      "label": "200 {\"response\": [ … ]}",
+      "tone": "good",
+      "dashed": true,
+      "text": "The inventory, wrapped in `response`. The loop prints hostname, management IP and reachability for each device."
+    },
+    {
+      "from": "SCR",
+      "to": "CC",
+      "label": "POST template deploy (async)",
+      "detail": "/dna/intent/api/v1/template-programmer/…",
+      "text": "A long job: push a configuration template to 200 switches."
+    },
+    {
+      "from": "CC",
+      "to": "SCR",
+      "label": "202 Accepted {taskId: 6f2a-…}",
+      "dashed": true,
+      "text": "**202 means \"I'll do it\", not \"it's done\".** The coat-check ticket comes back at once, before any switch is touched."
+    },
+    {
+      "from": "CC",
+      "to": "DEV",
+      "label": "deploy configuration",
+      "tone": "purple",
+      "text": "Catalyst Center works through the devices in the background."
+    },
+    {
+      "from": "SCR",
+      "to": "CC",
+      "label": "GET /dna/intent/api/v1/task/6f2a-…",
+      "text": "The script polls the task."
+    },
+    {
+      "from": "CC",
+      "to": "SCR",
+      "label": "200 task: no endTime yet",
+      "dashed": true,
+      "text": "Still running. The script sleeps 5 seconds and asks again, rather than hammering the API into a 429."
+    },
+    {
+      "from": "SCR",
+      "to": "CC",
+      "label": "GET …/task/6f2a-… (again)",
+      "text": "Polling again."
+    },
+    {
+      "from": "CC",
+      "to": "SCR",
+      "label": "200 task: endTime set, isError false",
+      "tone": "good",
+      "dashed": true,
+      "text": "Finished, without error. On failure, `isError` is true and `failureReason` explains."
+    },
+    {
+      "from": "SCR",
+      "to": "CC",
+      "label": "GET …/network-device (70 min later)",
+      "text": "Much later, the same token."
+    },
+    {
+      "from": "CC",
+      "to": "SCR",
+      "label": "401 Unauthorized",
+      "tone": "bad",
+      "dashed": true,
+      "text": "The token expired after about an hour. The script repeats step 1 and retries."
+    }
+  ]
+}
+```
 
 **Story Time 📖:** It works like a music festival **wristband**. You show your ID once at the gate (username and password), and you get a wristband (the **token**). For the rest of the day you flash the wristband at each stage (each API call) instead of showing your ID again. Wristbands expire, so tomorrow you queue at the gate again (the token lasts about an hour). And anyone who steals your wristband gets in as you, which is exactly why tokens must only ever travel over HTTPS.
 
@@ -23949,6 +26612,114 @@ for dev in s.get(f"{BASE}/dataservice/device").json()["data"]:
 2. The `if` handles the gotcha above: a failed login still returns 200, but the body is the HTML login page.
 3. The token GET returns the token as **plain text**, so it's `.text`, not `.json()`. It's added to the session's headers for every later request.
 4. The device GET returns the JSON shown above, and `["data"]` is the list. Output: `branch1-cedge 10.255.1.1 reachable`.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "SD-WAN Manager: session cookie plus XSRF token",
+  "caption": "Step through the three-step login from the Python example, then see why the XSRF token exists.",
+  "actors": [
+    {
+      "id": "SCR",
+      "kind": "host",
+      "label": "Script (Session)"
+    },
+    {
+      "id": "VM",
+      "kind": "controller",
+      "label": "SD-WAN Manager"
+    },
+    {
+      "id": "EVIL",
+      "kind": "host",
+      "label": "Malicious web page"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SCR",
+      "to": "VM",
+      "label": "POST /j_security_check",
+      "detail": "j_username=admin&j_password=…",
+      "text": "A **form** login, not Basic auth: the fields are sent as `application/x-www-form-urlencoded`."
+    },
+    {
+      "from": "VM",
+      "to": "SCR",
+      "label": "200 + Set-Cookie: JSESSIONID",
+      "tone": "good",
+      "dashed": true,
+      "states": {
+        "SCR": "has JSESSIONID"
+      },
+      "text": "Success sets the session cookie, and `requests.Session` stores it like a browser would. Careful: a **failed** login also returns 200, with the HTML login page as the body, so the script checks the body."
+    },
+    {
+      "from": "SCR",
+      "to": "VM",
+      "label": "GET /dataservice/client/token",
+      "detail": "Cookie: JSESSIONID=…",
+      "text": "Fetch the XSRF token. The cookie goes along automatically."
+    },
+    {
+      "from": "VM",
+      "to": "SCR",
+      "label": "200 body = token (plain text)",
+      "tone": "good",
+      "dashed": true,
+      "states": {
+        "SCR": "+ X-XSRF-TOKEN"
+      },
+      "text": "The body **is** the token, so the script reads it with `.text`, not `.json()`, and adds it to the session headers."
+    },
+    {
+      "from": "SCR",
+      "to": "VM",
+      "label": "GET /dataservice/device",
+      "detail": "Cookie: JSESSIONID=…",
+      "text": "Reads need only the cookie."
+    },
+    {
+      "from": "VM",
+      "to": "SCR",
+      "label": "200 {\"header\": …, \"data\": [ … ]}",
+      "tone": "good",
+      "dashed": true,
+      "text": "The data sits under `data`, not `response` as on Catalyst Center."
+    },
+    {
+      "from": "SCR",
+      "to": "VM",
+      "label": "POST /dataservice/… (a change)",
+      "detail": "Cookie + X-XSRF-TOKEN",
+      "text": "Anything that changes state carries the cookie **and** the `X-XSRF-TOKEN` header."
+    },
+    {
+      "from": "VM",
+      "to": "SCR",
+      "label": "200 OK",
+      "tone": "good",
+      "dashed": true,
+      "text": "Accepted: the request came from code that could read the token."
+    },
+    {
+      "from": "EVIL",
+      "to": "VM",
+      "label": "forged POST (cookie only)",
+      "tone": "bad",
+      "text": "A malicious page open in the admin's browser triggers a request to SD-WAN Manager. The browser attaches the cookie automatically, but the page can't read the XSRF token, so it can't add the header."
+    },
+    {
+      "from": "VM",
+      "to": "EVIL",
+      "label": "rejected: no X-XSRF-TOKEN",
+      "tone": "bad",
+      "dashed": true,
+      "text": "No token, no change. *The cookie proves who you are; the XSRF token proves the request came from your own code.*"
+    }
+  ]
+}
+```
 
 | Property | Catalyst Center | SD-WAN Manager |
 |----------|-----------------|----------------|
@@ -24304,6 +27075,99 @@ How to read action 030: apply the pattern to `$_cli_result`, put the **whole mat
 
 With 12 errors instead, step 5 takes the `else` branch, and the log reads `%HA_EM-6-LOG: ERR-CHECK: Gi0/1 input errors OK (12)` (no `priority` given, so the default, informational, which is 6).
 
+```diagram
+{
+  "type": "sequence",
+  "title": "One firing of ERR-CHECK",
+  "caption": "Step through the worked example: the timer event, then the actions in label order, with the variables they fill.",
+  "actors": [
+    {
+      "id": "EEM",
+      "kind": "controller",
+      "label": "EEM: ERR-CHECK"
+    },
+    {
+      "id": "CLI",
+      "kind": "router",
+      "label": "R1 CLI session"
+    },
+    {
+      "id": "LOG",
+      "kind": "server",
+      "label": "Syslog"
+    }
+  ],
+  "messages": [
+    {
+      "from": "EEM",
+      "to": "EEM",
+      "label": "watchdog time 600 expires",
+      "states": {
+        "EEM": "running",
+        "CLI": "R1> (user)"
+      },
+      "text": "The **event**: the watchdog timer counts down 10 minutes and fires. EEM starts the applet and opens a private CLI session for it."
+    },
+    {
+      "from": "EEM",
+      "to": "CLI",
+      "label": "010 cli command \"enable\"",
+      "states": {
+        "CLI": "R1# (priv)"
+      },
+      "text": "Rule 1: an applet's CLI session starts at **user EXEC**, so the first action climbs to privileged EXEC."
+    },
+    {
+      "from": "EEM",
+      "to": "CLI",
+      "label": "020 cli command \"show interface …\"",
+      "detail": "show interface Gi0/1 | include input errors",
+      "text": "Run the `show` command. The `| include` keeps just the line with the error counter."
+    },
+    {
+      "from": "CLI",
+      "to": "EEM",
+      "label": "$_cli_result",
+      "detail": "1234 input errors, 0 CRC, 0 frame, …",
+      "dashed": true,
+      "text": "The output lands in the built-in variable `$_cli_result`, followed by the next `R1#` prompt, which EEM captures too."
+    },
+    {
+      "from": "EEM",
+      "to": "EEM",
+      "label": "030 regexp → errs = 1234",
+      "detail": "match = \"1234 input errors\"",
+      "text": "`([0-9]+) input errors` matches. The whole match goes into `match`, and the first bracketed group, the digits, into `errs`."
+    },
+    {
+      "from": "EEM",
+      "to": "EEM",
+      "label": "040 if $errs gt \"1000\": true",
+      "tone": "warn",
+      "text": "Both sides are numbers, so `gt` compares numerically. 1234 > 1000, so the `if` branch runs and 060–070 (the `else`) will be skipped."
+    },
+    {
+      "from": "EEM",
+      "to": "LOG",
+      "label": "050 syslog priority warnings",
+      "detail": "%HA_EM-4-LOG: ERR-CHECK: Gi0/1 has 1234 …",
+      "tone": "warn",
+      "text": "The log message appears under the `HA_EM` facility, at severity 4 (warnings), with the applet's name in front of the text: `%HA_EM-4-LOG: ERR-CHECK: Gi0/1 has 1234 input errors`."
+    },
+    {
+      "from": "EEM",
+      "to": "EEM",
+      "label": "080 end; applet finishes",
+      "states": {
+        "EEM": "waiting 600 s",
+        "CLI": "closed"
+      },
+      "text": "The `if` block closes and the applet ends well inside its 20-second `maxrun`. The watchdog starts the next 10-minute countdown. With only 12 errors, 070 would have logged `%HA_EM-6-LOG: … OK (12)` instead."
+    }
+  ]
+}
+```
+
 ### More than one trigger — event tags and correlation
 
 An applet normally has one event. To fire on a **combination**, give each event a tag and add a `trigger` block that correlates them:
@@ -24484,6 +27348,197 @@ event manager applet WAN1-UP
 
 Two applets, one for each direction, is the normal pattern: an applet reacts to *one* event, so "undo it when things recover" needs its own trigger.
 
+```diagram
+{
+  "type": "topology",
+  "title": "WAN1-DOWN and WAN1-UP: two applets, one per direction",
+  "caption": "Step through what happens when WAN1 fails: the probe, the track object, the event, and the actions.",
+  "nodes": [
+    {
+      "id": "LAN",
+      "x": 0,
+      "y": 1,
+      "kind": "host",
+      "label": "Branch LAN"
+    },
+    {
+      "id": "R1",
+      "x": 1.6,
+      "y": 1,
+      "kind": "router",
+      "label": "R1",
+      "sub": "IP SLA 1, track 10"
+    },
+    {
+      "id": "ISP1",
+      "x": 3.2,
+      "y": 0,
+      "kind": "router",
+      "label": "ISP1",
+      "sub": "WAN1"
+    },
+    {
+      "id": "ISP2",
+      "x": 3.2,
+      "y": 2,
+      "kind": "router",
+      "label": "ISP2",
+      "sub": "192.0.2.254"
+    },
+    {
+      "id": "TGT",
+      "x": 4.8,
+      "y": 0,
+      "kind": "server",
+      "label": "SLA target",
+      "sub": "beyond WAN1"
+    }
+  ],
+  "links": [
+    {
+      "a": "LAN",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "ISP1",
+      "label": "WAN1"
+    },
+    {
+      "a": "R1",
+      "b": "ISP2",
+      "label": "backup"
+    },
+    {
+      "a": "ISP1",
+      "b": "TGT"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Normal: the probe succeeds",
+      "text": "IP SLA 1 pings a target **beyond** WAN1 every few seconds. Track 10 follows its reachability and is Up. Traffic uses WAN1.",
+      "nodes": {
+        "R1": {
+          "badge": "track 10 Up",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISP1",
+            "TGT"
+          ],
+          "label": "SLA icmp-echo"
+        },
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "ISP1"
+          ],
+          "label": "user traffic"
+        }
+      ]
+    },
+    {
+      "title": "2. WAN1 fails beyond the interface",
+      "text": "Something breaks inside ISP1's network. R1's WAN1 interface stays up, so nothing in the routing table changes by itself. Only the probe notices: its pings go unanswered.",
+      "nodes": {
+        "TGT": {
+          "state": "dim"
+        }
+      },
+      "links": {
+        "ISP1-TGT": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISP1"
+          ],
+          "label": "echo, no reply",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. Track 10 goes Down: the event",
+      "text": "After the probe fails, track 10 changes state and logs `%TRACK-6-STATE: 10 ip sla 1 reachability Up -> Down`. That state change is exactly what `event track 10 state down` waits for.",
+      "nodes": {
+        "R1": {
+          "badge": "track 10 Down",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "4. WAN1-DOWN runs its actions",
+      "text": "`enable`, `configure terminal`, then `ip route 0.0.0.0 0.0.0.0 192.0.2.254 name EEM-BACKUP`, `end`, and a warning in the log. Branch traffic now leaves through ISP2.",
+      "nodes": {
+        "R1": {
+          "badge": "EEM: backup",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R1-ISP2": "active",
+        "R1-ISP1": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "ISP2"
+          ],
+          "label": "default via .254",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. Recovery needs its own applet",
+      "text": "ISP1 recovers, the probe succeeds and track 10 goes Up. An applet reacts to **one** event, so a second applet, `WAN1-UP` (`event track 10 state up`), removes the backup route and logs that it did.",
+      "nodes": {
+        "TGT": null,
+        "R1": {
+          "badge": "track 10 Up",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ISP1-TGT": null,
+        "R1-ISP2": null,
+        "R1-ISP1": null
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISP1",
+            "TGT"
+          ],
+          "label": "SLA icmp-echo",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "ISP1"
+          ],
+          "label": "user traffic"
+        }
+      ]
+    }
+  ]
+}
+```
+
 *In practice a tracked floating static (`ip route ... track 10`, Chapter 15) does this natively. The applet shows the pattern, which applies to any change a static route can't express: shutting a port, changing an HSRP priority, swapping an ACL.*
 
 ### 2 — Troubleshooting: capture evidence the moment an uplink drops
@@ -24645,7 +27700,244 @@ EEM automates **one device reacting to itself**. Orchestration (configuration ma
 
 Nobody has to start the run. That's the strength of pull for servers, and also why it needs an agent that can run on the device.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "A Puppet pull cycle",
+  "caption": "The five-step pull cycle above, from the agent's point of view.",
+  "actors": [
+    {
+      "id": "AG",
+      "kind": "server",
+      "label": "web01 (agent)"
+    },
+    {
+      "id": "PS",
+      "kind": "server",
+      "label": "Puppet server"
+    }
+  ],
+  "messages": [
+    {
+      "from": "AG",
+      "to": "AG",
+      "label": "30-minute run interval fires",
+      "states": {
+        "AG": "running"
+      },
+      "text": "Nobody starts this run. The agent wakes up on its own schedule."
+    },
+    {
+      "from": "AG",
+      "to": "AG",
+      "label": "Facter collects facts",
+      "detail": "os, hostname, networking, …",
+      "text": "OS, hostname, IP addresses, interfaces, memory: the facts that let one set of manifests produce the right result for this node."
+    },
+    {
+      "from": "AG",
+      "to": "PS",
+      "label": "HTTPS 8140: facts, catalog request",
+      "text": "The agent connects **out** to the server. The server never opens a connection to the node."
+    },
+    {
+      "note": "compile catalog",
+      "over": [
+        "PS"
+      ],
+      "text": "The server combines the manifests with web01's facts into a **catalog**: the complete desired state for this one node."
+    },
+    {
+      "from": "PS",
+      "to": "AG",
+      "label": "catalog (desired state)",
+      "dashed": true,
+      "text": "For example: package `chrony` installed, `/etc/chrony.conf` with these two NTP servers, service `chronyd` running."
+    },
+    {
+      "from": "AG",
+      "to": "AG",
+      "label": "compare and fix drift only",
+      "detail": "1 resource changed, rest unchanged",
+      "tone": "warn",
+      "text": "The agent checks each resource. Someone had edited `chrony.conf` by hand, so that file is put back and the service restarted. Everything else already matches and is left alone: **idempotency**."
+    },
+    {
+      "from": "AG",
+      "to": "PS",
+      "label": "report: 1 changed, 0 failed",
+      "states": {
+        "AG": "converged"
+      },
+      "text": "The run report shows exactly what drifted and what was corrected."
+    },
+    {
+      "from": "AG",
+      "to": "AG",
+      "label": "30 min later: run again",
+      "text": "The next run finds nothing to change, and reports 0 changed. That's the thermostat at temperature."
+    }
+  ]
+}
+```
+
 **Why does agentless fit network devices so well?** Because you usually **can't install software** on a router or switch, and even where you can, you don't want a third-party daemon on your core. Every device already has SSH and, on IOS XE, NETCONF and RESTCONF (Chapter 20). An agentless tool uses what's there. *Agents suit fleets of servers you fully control; network gear favours agentless.*
+
+```diagram
+{
+  "type": "topology",
+  "title": "Agentless push, agent pull, and Salt's proxy minions",
+  "caption": "Click each tool and each connection. Notice which way the connections point: Ansible and Salt reach out; Puppet agents call in.",
+  "nodes": [
+    {
+      "id": "ANS",
+      "x": 0,
+      "y": 0.8,
+      "kind": "server",
+      "label": "Ansible",
+      "sub": "control node",
+      "info": "**Agentless, push.** Holds the inventory and playbooks (YAML). When you run `ansible-playbook`, it connects out to each device with what the device already speaks, and pushes the change. Nothing is installed on the routers."
+    },
+    {
+      "id": "BR1",
+      "x": 1.7,
+      "y": 0,
+      "kind": "router",
+      "label": "br1",
+      "sub": "10.10.1.1",
+      "info": "A managed node. It runs no Ansible software at all: Ansible logs in over SSH (`network_cli`), NETCONF or a REST API."
+    },
+    {
+      "id": "BR2",
+      "x": 1.7,
+      "y": 1.6,
+      "kind": "router",
+      "label": "br2",
+      "sub": "10.10.2.1",
+      "info": "Same as br1. Ansible works on many hosts in parallel (forks), but each run starts only when someone, or a scheduler, runs the playbook."
+    },
+    {
+      "id": "PUP",
+      "x": 5.1,
+      "y": 0.8,
+      "kind": "server",
+      "label": "Puppet server",
+      "sub": "TCP 8140",
+      "info": "**Agent-based, pull.** Holds the manifests (Puppet DSL). It never connects out; agents come to it. For each agent it **compiles a catalog** from the manifests and the facts the agent sent. Chef works the same way: chef-client on each node pulls cookbooks from the Chef Infra Server over HTTPS 443."
+    },
+    {
+      "id": "WEB",
+      "x": 3.4,
+      "y": 0,
+      "kind": "server",
+      "label": "web01",
+      "sub": "puppet agent",
+      "info": "The agent runs every **30 minutes** by default: Facter gathers facts, the agent fetches its catalog, fixes any drift, and reports back. Nobody has to start it."
+    },
+    {
+      "id": "DB",
+      "x": 3.4,
+      "y": 1.6,
+      "kind": "server",
+      "label": "db01",
+      "sub": "puppet agent",
+      "info": "Every node needs the agent installed and a certificate signed by the Puppet server, which is why this model suits servers you fully control better than routers."
+    },
+    {
+      "id": "SALT",
+      "x": 0,
+      "y": 3.2,
+      "kind": "server",
+      "label": "Salt master",
+      "sub": "4505 / 4506",
+      "info": "**Agent-based, push.** Minions keep a connection to the master's ZeroMQ bus: the master **publishes** jobs on TCP 4505 and minions **return** results on 4506. Jobs reach thousands of minions in seconds. States are YAML (SLS files)."
+    },
+    {
+      "id": "PXY",
+      "x": 1.7,
+      "y": 3.2,
+      "kind": "server",
+      "label": "proxy minion",
+      "info": "Network devices can't run a minion, so a **proxy minion** runs on a server and manages the device on its behalf over NETCONF, SSH or an API. `salt-ssh` is Salt's fully agentless option."
+    },
+    {
+      "id": "SW1",
+      "x": 3.4,
+      "y": 3.2,
+      "kind": "switch",
+      "label": "sw1",
+      "info": "Managed by the proxy minion, so the switch itself runs nothing extra."
+    }
+  ],
+  "links": [
+    {
+      "a": "ANS",
+      "b": "BR1",
+      "label": "SSH 22",
+      "info": "`ansible_connection=ansible.netcommon.network_cli`: an ordinary SSH CLI session."
+    },
+    {
+      "a": "ANS",
+      "b": "BR2",
+      "label": "NETCONF 830",
+      "info": "`ansible_connection=ansible.netcommon.netconf` uses NETCONF instead; `httpapi` would use a REST API."
+    },
+    {
+      "a": "WEB",
+      "b": "PUP",
+      "label": "HTTPS 8140",
+      "info": "The **agent** opens this connection, every 30 minutes, to fetch its catalog."
+    },
+    {
+      "a": "DB",
+      "b": "PUP",
+      "label": "HTTPS 8140",
+      "info": "Pull: the server waits for agents to check in."
+    },
+    {
+      "a": "SALT",
+      "b": "PXY",
+      "label": "ZeroMQ 4505/4506",
+      "info": "The proxy minion is a minion like any other on the event bus."
+    },
+    {
+      "a": "PXY",
+      "b": "SW1",
+      "label": "NETCONF / SSH",
+      "info": "The proxy speaks to the device with protocols it already has."
+    }
+  ],
+  "zones": [
+    {
+      "label": "Agentless · push",
+      "nodes": [
+        "ANS",
+        "BR1",
+        "BR2"
+      ],
+      "tone": "accent"
+    },
+    {
+      "label": "Agent · pull",
+      "nodes": [
+        "PUP",
+        "WEB",
+        "DB"
+      ],
+      "tone": "purple"
+    },
+    {
+      "label": "Agent · push",
+      "nodes": [
+        "SALT",
+        "PXY",
+        "SW1"
+      ],
+      "tone": "warn"
+    }
+  ]
+}
+```
 
 | Property | **Ansible** | **Puppet** | **Chef** | **SaltStack (Salt)** |
 |----------|-------------|------------|----------|----------------------|
@@ -24798,6 +28090,105 @@ On the first run, each router reports **changed**. On the second run, they repor
 5. **Task 3:** `save_when: modified` compares running with startup, and runs `write memory` only if they differ.
 6. It prints a result per task per host, then a summary called the **PLAY RECAP**.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "ansible-playbook ntp.yml against br1, twice",
+  "caption": "Step through the six things `ansible-playbook` does, then the second run that changes nothing.",
+  "actors": [
+    {
+      "id": "CN",
+      "kind": "server",
+      "label": "Control node"
+    },
+    {
+      "id": "BR1",
+      "kind": "router",
+      "label": "br1 10.10.1.1"
+    }
+  ],
+  "messages": [
+    {
+      "from": "CN",
+      "to": "CN",
+      "label": "read inventory.ini",
+      "text": "Group `branch_routers` holds br1 and br2, with `network_cli`, `cisco.ios.ios` and user `automation`. br2 gets exactly the same treatment in parallel."
+    },
+    {
+      "from": "CN",
+      "to": "BR1",
+      "label": "SSH to port 22 as automation",
+      "detail": "ansible_connection=…network_cli",
+      "text": "Agentless: an ordinary SSH session. Nothing is installed on br1."
+    },
+    {
+      "from": "CN",
+      "to": "BR1",
+      "label": "show running-config",
+      "text": "**Task 1.** `ios_config` first reads the running configuration, so it can compare."
+    },
+    {
+      "from": "BR1",
+      "to": "CN",
+      "label": "running config (no NTP servers)",
+      "dashed": true,
+      "text": "Neither `ntp server` line is present."
+    },
+    {
+      "from": "CN",
+      "to": "BR1",
+      "label": "ntp server 10.0.0.1 / 10.0.0.2",
+      "detail": "config mode",
+      "states": {
+        "BR1": "changed"
+      },
+      "text": "Only the **missing** lines are sent, in configuration mode. Task result: changed."
+    },
+    {
+      "from": "CN",
+      "to": "BR1",
+      "label": "banner login (differs, so set)",
+      "text": "**Task 2.** `ios_banner` compares the current login banner with the text, and sets it because it differs. Changed."
+    },
+    {
+      "from": "CN",
+      "to": "BR1",
+      "label": "running ≠ startup: write memory",
+      "text": "**Task 3.** `save_when: modified` saves only because running and startup now differ. Changed."
+    },
+    {
+      "from": "CN",
+      "to": "CN",
+      "label": "PLAY RECAP: ok=3 changed=3",
+      "text": "First run: every task did something."
+    },
+    {
+      "from": "CN",
+      "to": "BR1",
+      "label": "second run: show running-config",
+      "text": "A minute later, the same playbook again."
+    },
+    {
+      "from": "BR1",
+      "to": "CN",
+      "label": "both ntp lines already present",
+      "dashed": true,
+      "states": {
+        "BR1": "ok"
+      },
+      "text": "Nothing is missing, so nothing is sent. The banner matches, and running equals startup."
+    },
+    {
+      "from": "CN",
+      "to": "CN",
+      "label": "PLAY RECAP: ok=3 changed=0",
+      "tone": "good",
+      "text": "`changed=0` is idempotency you can see: run it every night, and only devices that drifted get touched."
+    }
+  ]
+}
+```
+
 **Worked example — the two runs side by side.** The first run against routers that have neither NTP server nor a banner (the recap's long lines are trimmed at the right):
 
 ```
@@ -24895,6 +28286,195 @@ ENCOR v1.2 renamed this domain **"Automation and Artificial Intelligence"**, and
 **Story Time 📖:** A baseline is your doctor knowing *your* normal. A generic chart says a resting heart rate of 50 is low, but for a marathon runner it's perfectly healthy. And a jump from 55 to 85 is worth a question, even though 85 is "within the normal range." Static thresholds are the generic chart; a learned baseline is the doctor who has seen you every year.
 
 **Worked example — correlation.** A distribution switch serving 40 access switches reboots. Within a minute the monitoring system receives about 400 alarms: 40 "device unreachable", 120 "uplink down", 200 "AP disconnected", plus a burst of client-onboarding failures. Without correlation, that's 400 tickets. AIOps sees that they all started within the same few seconds and that every affected device sits *below* that one switch in the topology. It raises **one incident**: "distribution switch DS-2 rebooted; 400 downstream alarms are symptoms." Engineers start at the cause instead of working through the symptoms.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Correlation: 400 alarms, one cause",
+  "caption": "Step through the worked example: predictive AI's job is to turn an alert flood into a short list of things that are actually wrong.",
+  "nodes": [
+    {
+      "id": "AI",
+      "x": 0,
+      "y": 0,
+      "kind": "server",
+      "label": "AIOps engine",
+      "sub": "telemetry + topology"
+    },
+    {
+      "id": "CORE",
+      "x": 2.5,
+      "y": 0,
+      "kind": "l3switch",
+      "label": "Core"
+    },
+    {
+      "id": "DS2",
+      "x": 2.5,
+      "y": 1.4,
+      "kind": "l3switch",
+      "label": "DS-2",
+      "sub": "distribution"
+    },
+    {
+      "id": "AS1",
+      "x": 1,
+      "y": 2.8,
+      "kind": "switch",
+      "label": "AS-1"
+    },
+    {
+      "id": "AS2",
+      "x": 2.5,
+      "y": 2.8,
+      "kind": "switch",
+      "label": "AS-2"
+    },
+    {
+      "id": "AS40",
+      "x": 4,
+      "y": 2.8,
+      "kind": "switch",
+      "label": "AS-40",
+      "sub": "…40 in all"
+    },
+    {
+      "id": "AP1",
+      "x": 1,
+      "y": 4.2,
+      "kind": "ap",
+      "label": "APs"
+    },
+    {
+      "id": "AP2",
+      "x": 2.5,
+      "y": 4.2,
+      "kind": "ap",
+      "label": "APs"
+    },
+    {
+      "id": "AP40",
+      "x": 4,
+      "y": 4.2,
+      "kind": "ap",
+      "label": "APs",
+      "sub": "200 in all"
+    }
+  ],
+  "links": [
+    {
+      "a": "AI",
+      "b": "CORE",
+      "label": "telemetry",
+      "style": "dashed"
+    },
+    {
+      "a": "CORE",
+      "b": "DS2"
+    },
+    {
+      "a": "DS2",
+      "b": "AS1"
+    },
+    {
+      "a": "DS2",
+      "b": "AS2"
+    },
+    {
+      "a": "DS2",
+      "b": "AS40"
+    },
+    {
+      "a": "AS1",
+      "b": "AP1"
+    },
+    {
+      "a": "AS2",
+      "b": "AP2"
+    },
+    {
+      "a": "AS40",
+      "b": "AP40"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. A normal morning",
+      "text": "The AIOps engine learns from telemetry what normal looks like for this site, and it also knows the **topology**: which device sits below which."
+    },
+    {
+      "title": "2. DS-2 reboots",
+      "text": "One distribution switch serving 40 access switches restarts. Everything below it loses its path to the rest of the network at the same moment.",
+      "nodes": {
+        "DS2": {
+          "badge": "rebooting",
+          "tone": "bad",
+          "state": "down"
+        },
+        "AS1": {
+          "state": "down"
+        },
+        "AS2": {
+          "state": "down"
+        },
+        "AS40": {
+          "state": "down"
+        },
+        "AP1": {
+          "state": "down"
+        },
+        "AP2": {
+          "state": "down"
+        },
+        "AP40": {
+          "state": "down"
+        }
+      },
+      "links": {
+        "CORE-DS2": "down",
+        "DS2-AS1": "down",
+        "DS2-AS2": "down",
+        "DS2-AS40": "down",
+        "AS1-AP1": "down",
+        "AS2-AP2": "down",
+        "AS40-AP40": "down"
+      }
+    },
+    {
+      "title": "3. The alarm flood",
+      "text": "Within a minute: 40 \"device unreachable\", 120 \"uplink down\", 200 \"AP disconnected\", plus client-onboarding failures. Without correlation that's 400 tickets, and engineers start on whichever one they open first.",
+      "nodes": {
+        "AI": {
+          "badge": "400 alarms",
+          "tone": "warn"
+        }
+      }
+    },
+    {
+      "title": "4. One incident, at the cause",
+      "text": "The engine sees that every alarm started within the same few seconds and that every affected device sits **below DS-2**. It raises one incident, \"DS-2 rebooted; 400 downstream alarms are symptoms\", and engineers start at the cause.",
+      "focus": [
+        "AI",
+        "CORE",
+        "DS2",
+        "AI-CORE",
+        "CORE-DS2"
+      ],
+      "nodes": {
+        "AI": {
+          "badge": "1 incident",
+          "tone": "good"
+        },
+        "DS2": {
+          "badge": "root cause",
+          "tone": "bad",
+          "state": "down"
+        }
+      }
+    }
+  ]
+}
+```
 
 ### Guardrails — how to use AI safely
 
@@ -25007,6 +28587,222 @@ The general loop never changes:
 
 Notice what you never did: you never debugged OSPF, never touched the WAN and never rebooted anything. The VLAN 10 versus VLAN 20 comparison ruled all of that out in one step.
 
+```diagram
+{
+  "type": "topology",
+  "title": "The method loop on a real ticket: Branch 3 can't reach payroll",
+  "caption": "Step through the six-step loop on the worked example. The comparison in step 2 is the \"glasses question\" that flips half the board down.",
+  "nodes": [
+    {
+      "id": "V10",
+      "x": 0,
+      "y": 0,
+      "kind": "host",
+      "label": "VLAN 10 host",
+      "sub": "10.3.10.25"
+    },
+    {
+      "id": "V20",
+      "x": 0,
+      "y": 2,
+      "kind": "host",
+      "label": "VLAN 20 host",
+      "sub": "10.3.20.25"
+    },
+    {
+      "id": "BR",
+      "x": 1.6,
+      "y": 1,
+      "kind": "l3switch",
+      "label": "Branch 3",
+      "sub": "SVIs Vl10, Vl20"
+    },
+    {
+      "id": "WAN",
+      "x": 3.2,
+      "y": 1,
+      "kind": "cloud",
+      "label": "WAN"
+    },
+    {
+      "id": "PAY",
+      "x": 4.8,
+      "y": 1,
+      "kind": "server",
+      "label": "Payroll",
+      "sub": "10.50.1.10"
+    }
+  ],
+  "links": [
+    {
+      "a": "V10",
+      "b": "BR",
+      "label": "VLAN 10"
+    },
+    {
+      "a": "V20",
+      "b": "BR",
+      "label": "VLAN 20"
+    },
+    {
+      "a": "BR",
+      "b": "WAN"
+    },
+    {
+      "a": "WAN",
+      "b": "PAY"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Define the problem precisely",
+      "text": "Not \"Branch 3 is down\". You test and narrow it: VLAN 20 hosts can't reach 10.50.1.10, VLAN 10 hosts at the same branch can, and other branches can too.",
+      "nodes": {
+        "V10": {
+          "badge": "works",
+          "tone": "good"
+        },
+        "V20": {
+          "badge": "fails",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "V10",
+            "BR",
+            "WAN",
+            "PAY"
+          ],
+          "label": "ping 10.50.1.10",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "V20",
+            "BR"
+          ],
+          "label": "ping 10.50.1.10",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "2. Gather facts, including who is NOT affected",
+      "text": "`show ip route 10.50.1.10` on the branch router shows a good OSPF route. A ping from the router itself, sourced from the VLAN 20 SVI, succeeds. The change log shows a security change last night. VLAN 10 working rules out everything the two VLANs share: the uplink, the WAN, the core and the server.",
+      "focus": [
+        "BR",
+        "WAN",
+        "PAY",
+        "BR-WAN",
+        "WAN-PAY"
+      ],
+      "nodes": {
+        "BR": {
+          "badge": "route OK",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "BR",
+            "WAN",
+            "PAY"
+          ],
+          "label": "ping source Vl20",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. A hypothesis that explains every fact",
+      "text": "Something that applies only to traffic **arriving** from VLAN 20 drops it. An inbound ACL on the VLAN 20 SVI fits: the route is fine, router-generated traffic never passes an inbound SVI ACL, VLAN 10 is unaffected, and there was a recent change.",
+      "focus": [
+        "V20",
+        "BR",
+        "V20-BR"
+      ],
+      "nodes": {
+        "BR": {
+          "badge": "ACL on Vl20?",
+          "tone": "warn"
+        }
+      }
+    },
+    {
+      "title": "4. Test it without changing anything",
+      "text": "`show ip interface vlan 20 | include access list` shows `Inbound access list is SEC-V20`. `show access-lists SEC-V20` shows `deny ip any 10.50.0.0 0.0.255.255` with a hit counter that climbs each time a VLAN 20 host pings. Hypothesis proved.",
+      "nodes": {
+        "BR": {
+          "badge": "deny hits +1",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "V20",
+            "BR"
+          ],
+          "label": "ping (denied)",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Fix, then verify everything",
+      "text": "Correct the ACL line, ping again from VLAN 20, **and** check that VLAN 10 and the other branches still work.",
+      "nodes": {
+        "BR": {
+          "badge": "ACL fixed",
+          "tone": "good"
+        },
+        "V20": {
+          "badge": "works",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "V20",
+            "BR",
+            "WAN",
+            "PAY"
+          ],
+          "label": "ping 10.50.1.10",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "V10",
+            "BR",
+            "WAN",
+            "PAY"
+          ],
+          "label": "ping 10.50.1.10",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. Document",
+      "text": "Record the ACL change, who made it and why it broke payroll. Notice what you never did: debug OSPF, touch the WAN or reboot anything. One VLAN 10 versus VLAN 20 comparison ruled all of that out.",
+      "nodes": {
+        "V10": null,
+        "V20": null,
+        "BR": {
+          "badge": "documented",
+          "tone": "muted"
+        }
+      }
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 22.1**
 
 **Q1.** Users in VLAN 20 at a branch cannot reach the server 10.50.1.10. Users in VLAN 10 at the same branch reach it without problems, and so do all other branches. Which next step narrows the fault down fastest?
@@ -25051,6 +28847,205 @@ A method tells you *how* to think. An approach tells you *where to start looking
 **Story Time 📖:** Follow-the-path is like tracking a lost parcel. The parcel went through five sorting depots. Each depot read the label and chose the next truck on its own. You don't need to inspect the whole postal system: you check each depot's scan log in order until you find the one that put the parcel on the wrong truck. That depot is your broken router.
 
 **Exam trap:** don't treat these as competitors. Real troubleshooting chains them. You divide-and-conquer with a ping, follow the path with `traceroute` to find the failing hop, then compare that hop's config with its healthy twin.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Follow the path: find the one router with the wrong answer",
+  "caption": "Chaining the approaches: divide-and-conquer with a ping, follow the path with traceroute and `show ip route`, then compare configurations.",
+  "nodes": [
+    {
+      "id": "H1",
+      "x": 0,
+      "y": 1,
+      "kind": "host",
+      "label": "Host",
+      "sub": "10.1.1.10"
+    },
+    {
+      "id": "R1",
+      "x": 1.2,
+      "y": 1,
+      "kind": "router",
+      "label": "R1"
+    },
+    {
+      "id": "R2",
+      "x": 2.4,
+      "y": 1,
+      "kind": "router",
+      "label": "R2"
+    },
+    {
+      "id": "R3",
+      "x": 3.6,
+      "y": 1,
+      "kind": "router",
+      "label": "R3"
+    },
+    {
+      "id": "R4",
+      "x": 4.8,
+      "y": 1,
+      "kind": "router",
+      "label": "R4",
+      "sub": "10.0.34.4"
+    },
+    {
+      "id": "SRV",
+      "x": 6,
+      "y": 1,
+      "kind": "server",
+      "label": "Server",
+      "sub": "10.50.1.10"
+    },
+    {
+      "id": "R5",
+      "x": 3.6,
+      "y": 2.5,
+      "kind": "router",
+      "label": "R5",
+      "sub": "10.0.35.5"
+    }
+  ],
+  "links": [
+    {
+      "a": "H1",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "R2"
+    },
+    {
+      "a": "R2",
+      "b": "R3"
+    },
+    {
+      "a": "R3",
+      "b": "R4"
+    },
+    {
+      "a": "R4",
+      "b": "SRV"
+    },
+    {
+      "a": "R3",
+      "b": "R5"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Divide and conquer: one ping",
+      "text": "The host can't reach 10.50.1.10. A ping from the host fails, while the host reaches its own gateway fine. That one test says Layers 1 and 2 at the edge work, and puts the fault at Layer 3 somewhere along the path.",
+      "nodes": {
+        "H1": {
+          "badge": "ping fails",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "H1",
+            "R1"
+          ],
+          "label": "ping 10.50.1.10",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "2. traceroute finds the failing hop",
+      "text": "`traceroute 10.50.1.10` from R1 lists R2, then R3, then **10.0.35.5**, and then nothing more. R5 isn't on the path to the server at all, so the packet left the right path at R3 or R5.",
+      "nodes": {
+        "R5": {
+          "badge": "trace ends",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2",
+            "R3",
+            "R5"
+          ],
+          "label": "traceroute",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. Check each router's own decision",
+      "text": "Each router forwards using only its own table, so check them in order. `show ip route 10.50.1.10` on R1 says next hop R2, and on R2 says next hop R3. Both are correct.",
+      "focus": [
+        "R1",
+        "R2",
+        "R1-R2",
+        "R2-R3",
+        "R3"
+      ],
+      "nodes": {
+        "R1": {
+          "badge": "via R2 ✓",
+          "tone": "good"
+        },
+        "R2": {
+          "badge": "via R3 ✓",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "4. R3 is the one",
+      "text": "On R3: `Known via \"static\", distance 1`, next hop **10.0.35.5**. OSPF knows the right path through R4 (AD 110), but a mistyped static route (AD 1) wins the AD contest, and R5 has no route to 10.50.0.0/16.",
+      "focus": [
+        "R3",
+        "R5",
+        "R3-R5",
+        "R3-R4"
+      ],
+      "nodes": {
+        "R3": {
+          "badge": "S [1/0] wrong",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "5. Compare, fix, verify",
+      "text": "Compare R3 with its healthy twin at another site: the twin has no such static. Remove it, and OSPF's route via R4 is installed. The trace now goes R1, R2, R3, R4 and reaches the server.",
+      "nodes": {
+        "R3": {
+          "badge": "O via R4 ✓",
+          "tone": "good"
+        },
+        "R5": null,
+        "H1": {
+          "badge": "ping works",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "H1",
+            "R1",
+            "R2",
+            "R3",
+            "R4",
+            "SRV"
+          ],
+          "label": "ping 10.50.1.10",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 22.2**
 
@@ -25226,6 +29221,181 @@ The routing table is not what actually forwards packets on a modern Cisco router
 
 The RIB was never consulted for the packet itself. That is why `show ip route` alone can't prove the forwarding plane is healthy.
 
+```diagram
+{
+  "type": "topology",
+  "title": "RIB, FIB and adjacency: how R2 really forwards",
+  "caption": "Step through how a route becomes a FIB entry and an adjacency, and why `show ip route` alone can't prove that forwarding works.",
+  "nodes": [
+    {
+      "id": "H",
+      "x": 0,
+      "y": 1,
+      "kind": "host",
+      "label": "Host",
+      "sub": "10.1.1.10"
+    },
+    {
+      "id": "R2",
+      "x": 1.6,
+      "y": 1,
+      "kind": "router",
+      "label": "R2",
+      "sub": "Gi0/1 10.0.23.2"
+    },
+    {
+      "id": "R3",
+      "x": 4.0,
+      "y": 1,
+      "kind": "router",
+      "label": "R3",
+      "sub": "10.0.23.3"
+    },
+    {
+      "id": "NET",
+      "x": 5.6,
+      "y": 1,
+      "kind": "server",
+      "label": "10.50.1.1",
+      "sub": "in 10.50.0.0/16"
+    }
+  ],
+  "links": [
+    {
+      "a": "H",
+      "b": "R2"
+    },
+    {
+      "a": "R2",
+      "b": "R3"
+    },
+    {
+      "a": "R3",
+      "b": "NET"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The RIB decides",
+      "text": "OSPF offers 10.50.0.0/16 via 10.0.23.3, wins the AD contest and is installed in the RIB: `O E2 10.50.0.0/16 [110/20] via 10.0.23.3, Gi0/1`. This is the control plane **thinking**.",
+      "nodes": {
+        "R2": {
+          "badge": "RIB: O E2 /16",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R3",
+            "R2"
+          ],
+          "label": "OSPF LSA",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "2. CEF copies it into the FIB",
+      "text": "CEF builds a FIB entry with any recursion already resolved: `10.50.0.0/16 → nexthop 10.0.23.3 GigabitEthernet0/1`. That's done **once**, when the route changes, not per packet.",
+      "nodes": {
+        "R2": {
+          "badge": "FIB → Gi0/1",
+          "tone": "accent"
+        }
+      }
+    },
+    {
+      "title": "3. ARP for the next hop",
+      "text": "To build the outgoing frame, R2 needs R3's MAC address, so it ARPs for the FIB entry's next hop, 10.0.23.3.",
+      "nodes": {
+        "R2": {
+          "badge": "adj: ARP…",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R3"
+          ],
+          "label": "ARP who-has 10.0.23.3"
+        }
+      ]
+    },
+    {
+      "title": "4. The adjacency is complete",
+      "text": "R3 replies. CEF fills the **adjacency table** with a ready-made 14-byte rewrite: destination MAC `5254.001a.2b3c` (R3), source MAC `5254.004d.5e6f` (R2), type 0x0800. That's the hex string in `show adjacency Gi0/1 detail`.",
+      "nodes": {
+        "R2": {
+          "badge": "adj complete",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R3",
+            "R2"
+          ],
+          "label": "ARP reply",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. A packet: one lookup and a header copy",
+      "text": "A packet for 10.50.1.1 arrives. R2 does one longest-match lookup in the FIB, follows it to the adjacency, decrements the TTL, fixes the checksum, stamps on the pre-built header and queues it on Gi0/1. The RIB is never consulted.",
+      "packets": [
+        {
+          "path": [
+            "H",
+            "R2",
+            "R3",
+            "NET"
+          ],
+          "label": "dst 10.50.1.1",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. The ticket: route fine, traffic dropped",
+      "text": "Now R3's interface stops answering ARP. When the ARP entry for 10.0.23.3 times out, the adjacency goes **incomplete**, and every packet matching that FIB entry is dropped. `show ip route 10.50.1.1` still looks perfect; `show adjacency Gi0/1 detail` and `show ip arp` tell the truth.",
+      "nodes": {
+        "R2": {
+          "badge": "adj incomplete",
+          "tone": "bad"
+        },
+        "R3": {
+          "badge": "no ARP reply",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "H",
+            "R2"
+          ],
+          "label": "dst 10.50.1.1",
+          "tone": "bad"
+        },
+        {
+          "path": [
+            "R2",
+            "R3"
+          ],
+          "label": "ARP (no reply)",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
+
 This matters in troubleshooting because the two can **disagree** for short periods, or when something has gone wrong. CEF also has forwarding states the RIB never shows:
 
 ```
@@ -25337,6 +29507,108 @@ You met AD at CCNA (CCNA guide 14.4): when two **different sources** offer the s
 
 **Worked example — longest match beats AD.** R1 has `D 10.20.0.0/16 [90/28160]` and also learns `O 10.20.5.0/24 [110/40]` from OSPF. Which one carries a packet to 10.20.5.9? **The OSPF /24**, even though OSPF's AD is worse. These are two *different* prefixes, so both sit in the RIB, and forwarding always picks the longest match. AD never even got a vote. A packet to 10.20.9.9 doesn't match the /24, so it uses the EIGRP /16. Mixing up these two rules is one of the most common ENARSI mistakes.
 
+```diagram
+{
+  "type": "compare",
+  "title": "Which route forwards a packet to 10.20.5.9?",
+  "prompt": "Every row is a route that contains 10.20.5.9. The longest prefix wins first; only routes of the **same** length are compared on administrative distance, and metric only ever compares routes from the same source. Try setting route D's length to 16 (now AD decides: EIGRP), then make route C eBGP, or make A and B both OSPF.",
+  "winner": "Forwards the packet",
+  "fields": [
+    {
+      "id": "len",
+      "label": "Prefix length",
+      "kind": "number",
+      "rule": "highest"
+    },
+    {
+      "id": "src",
+      "label": "Route source (default AD)",
+      "kind": "choice",
+      "rule": "order",
+      "options": [
+        {
+          "value": "conn",
+          "label": "Connected (0)"
+        },
+        {
+          "value": "static",
+          "label": "Static (1)"
+        },
+        {
+          "value": "ebgp",
+          "label": "eBGP (20)"
+        },
+        {
+          "value": "eigrp",
+          "label": "EIGRP internal (90)"
+        },
+        {
+          "value": "ospf",
+          "label": "OSPF (110)"
+        },
+        {
+          "value": "isis",
+          "label": "IS-IS (115)"
+        },
+        {
+          "value": "rip",
+          "label": "RIP (120)"
+        },
+        {
+          "value": "eigrpex",
+          "label": "EIGRP external (170)"
+        },
+        {
+          "value": "ibgp",
+          "label": "iBGP (200)"
+        }
+      ]
+    },
+    {
+      "id": "metric",
+      "label": "Metric (same source only)",
+      "kind": "number",
+      "rule": "lowest",
+      "onlyIfSame": "src"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "A: 10.20.0.0/16 via 10.0.12.2",
+      "values": {
+        "len": 16,
+        "src": "eigrp",
+        "metric": 28160
+      }
+    },
+    {
+      "label": "B: 10.20.0.0/16 via 10.0.13.3",
+      "values": {
+        "len": 16,
+        "src": "ospf",
+        "metric": 30
+      }
+    },
+    {
+      "label": "C: 10.20.0.0/16 via 10.0.14.4",
+      "values": {
+        "len": 16,
+        "src": "rip",
+        "metric": 2
+      }
+    },
+    {
+      "label": "D: 10.20.5.0/24 via 10.0.13.3",
+      "values": {
+        "len": 24,
+        "src": "ospf",
+        "metric": 40
+      }
+    }
+  ]
+}
+```
+
 | Route source | Default AD | Note |
 |--------------|-----------|------|
 | Connected interface | **0** | Includes the local /32 (`L`) routes |
@@ -25377,6 +29649,203 @@ R1(config)# ip route 0.0.0.0 0.0.0.0 172.16.0.1 250   ! backup via LTE, AD 250
 4. The primary comes back, the AD 1 route returns and wins again, and the backup goes back to waiting.
 
 One limit to know: step 2 only happens if the router can *see* the failure. If the primary next hop sits behind a switch, the interface can stay up while the ISP is dead, and the primary static never leaves the RIB. The fix is to tie the primary to an IP SLA probe with object tracking (Chapter 32).
+
+```diagram
+{
+  "type": "topology",
+  "title": "A floating static route floats in and out",
+  "caption": "Step through the four steps above, then the failure a plain floating static can't detect.",
+  "nodes": [
+    {
+      "id": "LAN",
+      "x": 0,
+      "y": 1,
+      "kind": "host",
+      "label": "Branch LAN"
+    },
+    {
+      "id": "R1",
+      "x": 1.6,
+      "y": 1,
+      "kind": "router",
+      "label": "R1"
+    },
+    {
+      "id": "PE",
+      "x": 3.2,
+      "y": 0,
+      "kind": "router",
+      "label": "MPLS PE",
+      "sub": "10.0.12.2"
+    },
+    {
+      "id": "LTE",
+      "x": 3.2,
+      "y": 2,
+      "kind": "router",
+      "label": "LTE router",
+      "sub": "172.16.0.1"
+    },
+    {
+      "id": "WAN",
+      "x": 4.8,
+      "y": 1,
+      "kind": "cloud",
+      "label": "Everywhere else"
+    }
+  ],
+  "links": [
+    {
+      "a": "LAN",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "PE",
+      "label": "primary",
+      "aLabel": "Gi0/0"
+    },
+    {
+      "a": "R1",
+      "b": "LTE",
+      "label": "backup",
+      "aLabel": "Gi0/2"
+    },
+    {
+      "a": "PE",
+      "b": "WAN"
+    },
+    {
+      "a": "LTE",
+      "b": "WAN"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Two statics, one winner",
+      "text": "`ip route 0.0.0.0 0.0.0.0 10.0.12.2` (AD 1) and `ip route 0.0.0.0 0.0.0.0 172.16.0.1 250`. The RIB holds one source per prefix, so AD 1 wins: `S* 0.0.0.0/0 [1/0] via 10.0.12.2`. The AD 250 route waits in the config.",
+      "nodes": {
+        "R1": {
+          "badge": "S* [1/0]",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-LTE": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "PE",
+            "WAN"
+          ],
+          "label": "default route",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. The primary interface goes down",
+      "text": "Gi0/0 fails. 10.0.12.2 lived on that subnet, so the next hop is no longer resolvable and the AD 1 static is **removed** from the RIB.",
+      "nodes": {
+        "R1": {
+          "badge": "no default",
+          "tone": "bad"
+        },
+        "PE": {
+          "state": "dim"
+        }
+      },
+      "links": {
+        "R1-PE": "down"
+      }
+    },
+    {
+      "title": "3. The backup floats in",
+      "text": "R1 reruns the contest for 0.0.0.0/0. Only the AD 250 route is left, so `S* 0.0.0.0/0 [250/0] via 172.16.0.1` is installed. No script, no human.",
+      "nodes": {
+        "R1": {
+          "badge": "S* [250/0]",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R1-LTE": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "LTE",
+            "WAN"
+          ],
+          "label": "default via LTE",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "4. The primary returns",
+      "text": "Gi0/0 comes back, the AD 1 route is valid again and beats 250. The backup goes back to waiting.",
+      "nodes": {
+        "R1": {
+          "badge": "S* [1/0]",
+          "tone": "good"
+        },
+        "PE": null
+      },
+      "links": {
+        "R1-PE": null,
+        "R1-LTE": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "PE",
+            "WAN"
+          ],
+          "label": "default route",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. The limit: a failure R1 can't see",
+      "text": "If a switch sits between R1 and the PE, Gi0/0 stays up when the PE dies. The next hop still looks resolvable, the AD 1 route never leaves the RIB, and traffic is black-holed. Tie the primary to an IP SLA probe with object tracking (Chapter 32) to catch that.",
+      "nodes": {
+        "PE": {
+          "badge": "dead",
+          "tone": "bad",
+          "state": "down"
+        },
+        "R1": {
+          "badge": "S* [1/0] stuck",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "PE-WAN": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "PE"
+          ],
+          "label": "black-holed",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ### When Two Sources Tie on AD
 
@@ -25517,6 +29986,155 @@ R1(config-router-af)# network 172.30.0.0 mask 255.255.0.0 backdoor
 This tells BGP: *"treat my eBGP-learned copy of this prefix as AD 200 (local)."* The IGP's 110 now wins. The prefix is **not** advertised by this `network` statement — `backdoor` only changes the distance.
 
 **Worked example.** Before the change, R1 shows `B 172.30.0.0/16 [20/0] via 203.0.113.1` (the ISP) and the OSPF copy over the private link loses. After `network 172.30.0.0 mask 255.255.0.0 backdoor`, the eBGP copy is re-ranked at AD 200, so R1 installs `O 172.30.0.0/16 [110/2] via 10.99.0.2` and traffic uses the private link. If the private link fails, the OSPF route disappears and the BGP copy (now AD 200) is installed instead: the internet path becomes the automatic backup. Note that the prefix in the `backdoor` statement must match the eBGP-learned prefix exactly.
+
+```diagram
+{
+  "type": "topology",
+  "title": "The BGP backdoor: prefer the private link",
+  "caption": "Step through the worked example. The prefix in the `backdoor` statement must match the eBGP-learned prefix exactly.",
+  "nodes": [
+    {
+      "id": "R1",
+      "x": 0,
+      "y": 1,
+      "kind": "router",
+      "label": "R1",
+      "sub": "AS 65001"
+    },
+    {
+      "id": "ISP",
+      "x": 1.6,
+      "y": 0,
+      "kind": "router",
+      "label": "ISP",
+      "sub": "203.0.113.1"
+    },
+    {
+      "id": "INET",
+      "x": 3.2,
+      "y": 0,
+      "kind": "cloud",
+      "label": "Internet"
+    },
+    {
+      "id": "PR",
+      "x": 3.2,
+      "y": 2,
+      "kind": "router",
+      "label": "Partner edge",
+      "sub": "10.99.0.2"
+    },
+    {
+      "id": "PNET",
+      "x": 4.8,
+      "y": 1,
+      "kind": "server",
+      "label": "Partner LAN",
+      "sub": "172.30.0.0/16"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "ISP",
+      "label": "eBGP"
+    },
+    {
+      "a": "ISP",
+      "b": "INET"
+    },
+    {
+      "a": "INET",
+      "b": "PNET"
+    },
+    {
+      "a": "R1",
+      "b": "PR",
+      "label": "private link, OSPF"
+    },
+    {
+      "a": "PR",
+      "b": "PNET"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Before: eBGP's 20 beats OSPF's 110",
+      "text": "R1 learns 172.30.0.0/16 twice: over eBGP from the ISP (AD 20) and over OSPF across the private link (AD 110). eBGP wins: `B 172.30.0.0/16 [20/0] via 203.0.113.1`, so partner traffic crosses the internet.",
+      "nodes": {
+        "R1": {
+          "badge": "B [20/0]",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R1-PR": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISP",
+            "INET",
+            "PNET"
+          ],
+          "label": "to 172.30.1.10",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "2. network … backdoor",
+      "text": "`network 172.30.0.0 mask 255.255.0.0 backdoor` re-ranks the **eBGP-learned** copy at AD 200 (local). OSPF's 110 now wins: `O 172.30.0.0/16 [110/2] via 10.99.0.2`. The `network` statement doesn't advertise anything; `backdoor` only changes the distance.",
+      "nodes": {
+        "R1": {
+          "badge": "O [110/2]",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-PR": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "PR",
+            "PNET"
+          ],
+          "label": "to 172.30.1.10",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. Private link fails: automatic backup",
+      "text": "The OSPF route disappears with the link. The BGP copy, now at AD 200, is the only source left and is installed, so traffic falls back to the internet path until the link returns.",
+      "nodes": {
+        "R1": {
+          "badge": "B [200/0]",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "R1-PR": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISP",
+            "INET",
+            "PNET"
+          ],
+          "label": "to 172.30.1.10",
+          "tone": "warn"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 22.6**
 
@@ -25931,6 +30549,33 @@ Older configs (and some exam questions) match routes with ACLs. Here an ACL test
 | **Extended — in BGP** (route maps, `neighbor distribute-list`) | The "source" field matches the **network address**; the "destination" field matches the **subnet mask** |
 | **Extended — in an IGP distribute list** (EIGRP, RIP) | The "source" field matches the **update source**, the neighbour that advertised the route; the "destination" field matches the **network address** |
 
+```diagram
+{
+  "type": "match",
+  "kind": "standard",
+  "name": "10",
+  "title": "A standard ACL sees a route's address, never its length",
+  "prompt": "Used to match routes, each input below is a route's **network address**. The ACL meant to filter 10.1.5.0/24 also catches 10.1.5.0/25 and the 10.1.5.4/30 link, because all it can see is the address. Try 10.1.5.4 (a /30), then 10.1.0.0 (the /16 summary).",
+  "rules": [
+    {
+      "action": "deny",
+      "source": "10.1.5.0 0.0.0.255"
+    },
+    {
+      "action": "permit",
+      "source": "any"
+    }
+  ],
+  "input": "10.1.5.0",
+  "tries": [
+    "10.1.5.4",
+    "10.1.5.128",
+    "10.1.0.0",
+    "10.1.6.0"
+  ]
+}
+```
+
 The two extended-ACL meanings are a favourite trick. In an EIGRP `distribute-list 110 in`, `access-list 110 deny ip host 10.0.12.2 10.50.0.0 0.0.255.255` means "ignore 10.50.x.x **when heard from 10.0.12.2**", which is per-neighbour filtering by prefix. The prefix-list form of the same idea is `distribute-list prefix NETS gateway NEIGHBORS in` (below). Behaviour for extended ACLs in other IGP contexts, such as redistribution route maps, is less consistent across releases. That's one more reason to use prefix lists for routes.
 
 So to match *exactly* the /24s inside 10.1.0.0/16 with an extended ACL in **BGP**:
@@ -26037,6 +30682,156 @@ D EX     172.16.5.0/24 [170/51456] via 10.0.15.1, 00:01:10, GigabitEthernet0/0
 ```
 
 The /30 is absent. `show ip eigrp topology 10.100.8.0/25` would show `Administrator tag is 111`, which is the clue that it fell through to the catch-all clause.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Four OSPF routes meet RM-OSPF-TO-EIGRP",
+  "caption": "Step through the worked example: first match wins, `deny` filters, and a clause with no `match` catches the rest.",
+  "nodes": [
+    {
+      "id": "O",
+      "x": 0,
+      "y": 1,
+      "kind": "cloud",
+      "label": "OSPF domain"
+    },
+    {
+      "id": "R1",
+      "x": 2.2,
+      "y": 1,
+      "kind": "router",
+      "label": "R1",
+      "sub": "redistribute ospf 1"
+    },
+    {
+      "id": "R5",
+      "x": 4.4,
+      "y": 1,
+      "kind": "router",
+      "label": "R5",
+      "sub": "EIGRP 100"
+    }
+  ],
+  "links": [
+    {
+      "a": "O",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "R5"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The route map",
+      "text": "R1 runs `redistribute ospf 1 route-map RM-OSPF-TO-EIGRP` under EIGRP. Clause **10** (deny) matches prefix list `INFRA-P2P` (/30 links). Clause **20** (permit) matches `BRANCH-LANS` (/24s in 10.100.0.0/16) and sets tag 110. Clause **30** (permit, no match) catches everything else and sets tag 111.",
+      "focus": [
+        "R1"
+      ],
+      "nodes": {
+        "R1": {
+          "badge": "10 / 20 / 30"
+        }
+      }
+    },
+    {
+      "title": "2. 10.0.12.0/30: clause 10 denies it",
+      "text": "`INFRA-P2P` permits the /30, so clause 10 **matches**. Its action is deny, so the route is not redistributed, and processing stops.",
+      "nodes": {
+        "R1": {
+          "badge": "10: deny",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "O",
+            "R1"
+          ],
+          "label": "10.0.12.0/30",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. 10.100.7.0/24: clause 20",
+      "text": "Not a /30, so clause 10 doesn't match. `BRANCH-LANS` matches in clause 20: the route is redistributed with **tag 110**, and processing stops.",
+      "nodes": {
+        "R1": {
+          "badge": "20: tag 110",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "O",
+            "R1",
+            "R5"
+          ],
+          "label": "10.100.7.0/24 tag 110",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. 172.16.5.0/24: the catch-all",
+      "text": "Clauses 10 and 20 don't match. Clause 30 has no `match`, so it matches everything: redistributed with **tag 111**.",
+      "nodes": {
+        "R1": {
+          "badge": "30: tag 111",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "O",
+            "R1",
+            "R5"
+          ],
+          "label": "172.16.5.0/24 tag 111"
+        }
+      ]
+    },
+    {
+      "title": "5. 10.100.8.0/25: a surprise",
+      "text": "It's a /25, so `BRANCH-LANS` (which allows only /24s) doesn't match in clause 20. It falls to clause 30 and gets **tag 111**, probably not what the designer meant. Adding `le 25` to the prefix list would fix it.",
+      "nodes": {
+        "R1": {
+          "badge": "30: tag 111 ?",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "O",
+            "R1",
+            "R5"
+          ],
+          "label": "10.100.8.0/25 tag 111",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "6. What R5 ends up with",
+      "text": "R5 shows three `D EX` routes at `[170/51456]`: 10.100.7.0/24, 10.100.8.0/25 and 172.16.5.0/24. The /30 is absent. `show ip eigrp topology 10.100.8.0/25` shows `Administrator tag is 111`, the clue that it fell through to the catch-all.",
+      "nodes": {
+        "R1": null,
+        "R5": {
+          "badge": "3 × D EX",
+          "tone": "good"
+        }
+      }
+    }
+  ]
+}
+```
 
 **Why does the meaning of "deny" change with context?** Because the route map itself only answers one question: *"does this item fall into this clause, and is the clause permit or deny?"* What "deny" *does* belongs to the feature calling the route map. Redistribution asks "should I redistribute this?", so deny means no. PBR asks "should I apply special forwarding?", so deny means "no special treatment" — normal routing, not a drop. *The route map is a classifier; the feature decides the consequence.*
 
@@ -26165,6 +30960,140 @@ The syntax is `offset-list {acl | 0} {in | out} <offset> [interface]`. `in` adju
 
 The tell-tale signs: on R1, `show ip route 10.77.0.5` points at R2. On R2, the same command returns `% Network not in table`, yet `show ip ospf database router 3.3.3.3` on R2 still lists the prefix. Fix it by removing the distribute list. If the real goal is to hide the prefix from a whole area, filter the Type 3 LSA at an ABR with `area filter-list` instead, so no router in that area computes a path to it at all.
 
+```diagram
+{
+  "type": "topology",
+  "title": "An OSPF distribute-list in creates a black hole",
+  "caption": "Step through the worked example: an OSPF `distribute-list in` filters only the local RIB, never the LSAs.",
+  "nodes": [
+    {
+      "id": "R1",
+      "x": 0,
+      "y": 1,
+      "kind": "router",
+      "label": "R1"
+    },
+    {
+      "id": "R2",
+      "x": 1.8,
+      "y": 1,
+      "kind": "router",
+      "label": "R2",
+      "sub": "distribute-list in"
+    },
+    {
+      "id": "R3",
+      "x": 3.6,
+      "y": 1,
+      "kind": "router",
+      "label": "R3"
+    },
+    {
+      "id": "NET",
+      "x": 5.2,
+      "y": 1,
+      "kind": "server",
+      "label": "10.77.0.0/24",
+      "sub": "behind R3"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2"
+    },
+    {
+      "a": "R2",
+      "b": "R3"
+    },
+    {
+      "a": "R3",
+      "b": "NET"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. R3 floods its LSA",
+      "text": "R3's router LSA lists 10.77.0.0/24. R2 receives it, stores it and floods it on to R1. A distribute list can't edit the LSDB, because every router in the area must hold an identical copy.",
+      "packets": [
+        {
+          "path": [
+            "R3",
+            "R2",
+            "R1"
+          ],
+          "label": "router LSA (10.77/24)",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "2. R2's SPF finds the path, the filter blocks it",
+      "text": "R2 runs SPF and finds 10.77.0.0/24. `distribute-list prefix NO-77 in` stops that result from entering R2's own RIB. R2 has **no route** to it.",
+      "nodes": {
+        "R2": {
+          "badge": "no 10.77 route",
+          "tone": "bad"
+        }
+      }
+    },
+    {
+      "title": "3. R1 trusts the LSDB",
+      "text": "R1 runs SPF on the same LSDB and installs `O 10.77.0.0/24 via R2`. Nothing tells R1 that R2 filtered it.",
+      "nodes": {
+        "R1": {
+          "badge": "O via R2",
+          "tone": "accent"
+        }
+      }
+    },
+    {
+      "title": "4. The traffic dies at R2",
+      "text": "A packet from R1 to 10.77.0.5 reaches R2. R2 has no matching route and no default, so it drops the packet and sends ICMP unreachable. On R2, `show ip route 10.77.0.5` says `% Network not in table`, yet `show ip ospf database router 3.3.3.3` still lists the prefix.",
+      "nodes": {
+        "R2": {
+          "badge": "drop",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "to 10.77.0.5",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. The fix",
+      "text": "Remove the distribute list, and R2 forwards again. If the real goal was to hide the prefix from a whole area, filter the Type 3 LSA at an ABR with `area filter-list`, so no router in that area computes a path at all.",
+      "nodes": {
+        "R1": null,
+        "R2": {
+          "badge": "route back",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2",
+            "R3",
+            "NET"
+          ],
+          "label": "to 10.77.0.5",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 23.4**
 
 **Q1.** Refer to the exhibit. `INFRA-P2P` permits `10.0.0.0/8 ge 30 le 30` and `BRANCH-LANS` permits `10.100.0.0/16 ge 24 le 24`. The OSPF route 10.100.8.0/25 is redistributed into EIGRP through this route map. What happens to it?
@@ -26269,6 +31198,172 @@ Routing entry for 10.20.0.0/16
 
 Without step 3, the EIGRP route would re-enter EIGRP at R2 as an external, and the loop described in 24.4 could form.
 
+```diagram
+{
+  "type": "topology",
+  "title": "A tag carries a route's birthplace",
+  "caption": "Step through the four steps above. The tag is set where the route leaves its home protocol and checked where it would go back.",
+  "nodes": [
+    {
+      "id": "RE",
+      "x": 0,
+      "y": 1,
+      "kind": "router",
+      "label": "R-E",
+      "sub": "EIGRP: 10.20.0.0/16"
+    },
+    {
+      "id": "B1",
+      "x": 2.2,
+      "y": 0,
+      "kind": "router",
+      "label": "R1",
+      "sub": "EIGRP-TO-OSPF"
+    },
+    {
+      "id": "B2",
+      "x": 2.2,
+      "y": 2,
+      "kind": "router",
+      "label": "R2",
+      "sub": "OSPF-TO-EIGRP"
+    },
+    {
+      "id": "RO",
+      "x": 4.4,
+      "y": 1,
+      "kind": "router",
+      "label": "R-O",
+      "sub": "OSPF: 10.30.0.0/16"
+    }
+  ],
+  "links": [
+    {
+      "a": "RE",
+      "b": "B1"
+    },
+    {
+      "a": "RE",
+      "b": "B2"
+    },
+    {
+      "a": "B1",
+      "b": "RO"
+    },
+    {
+      "a": "B2",
+      "b": "RO"
+    }
+  ],
+  "zones": [
+    {
+      "label": "EIGRP",
+      "nodes": [
+        "RE"
+      ],
+      "tone": "accent"
+    },
+    {
+      "label": "OSPF",
+      "nodes": [
+        "RO"
+      ],
+      "tone": "purple"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. An EIGRP route reaches R1",
+      "text": "10.20.0.0/16 is native to EIGRP. R1 and R2 both run EIGRP and OSPF, and both redistribute.",
+      "packets": [
+        {
+          "path": [
+            "RE",
+            "B1"
+          ],
+          "label": "EIGRP 10.20.0.0/16"
+        }
+      ]
+    },
+    {
+      "title": "2. R1 redistributes it and tags it 90",
+      "text": "`route-map EIGRP-TO-OSPF permit 10` with `set tag 90`: R1 originates a Type 5 LSA for 10.20.0.0/16 carrying **tag 90**, meaning \"born in EIGRP\".",
+      "nodes": {
+        "B1": {
+          "badge": "set tag 90",
+          "tone": "purple"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "B1",
+            "RO"
+          ],
+          "label": "Type 5, tag 90",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "3. OSPF carries the tag untouched",
+      "text": "The LSA floods to R2 unchanged. OSPF never acts on the tag; it just carries it. R2's `show ip route 10.20.0.0` shows `Tag 90, type extern 2`.",
+      "packets": [
+        {
+          "path": [
+            "RO",
+            "B2"
+          ],
+          "label": "Type 5, tag 90",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. R2 refuses to send it home",
+      "text": "R2 redistributes OSPF into EIGRP through `OSPF-TO-EIGRP`. Clause 10 asks `match tag 90`: yes, and the clause is deny. 10.20.0.0/16 is **not** sent back into EIGRP, so it can't loop.",
+      "nodes": {
+        "B2": {
+          "badge": "deny tag 90",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "RO",
+            "B2"
+          ],
+          "label": "Type 5, tag 90",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "5. OSPF-native routes still cross",
+      "text": "10.30.0.0/16 was born in OSPF and has tag 0. It fails clause 10, hits clause 20 (permit) and enters EIGRP normally. *Tags describe where a route came from, which never goes out of date.*",
+      "nodes": {
+        "B2": {
+          "badge": "permit (tag 0)",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "RO",
+            "B2",
+            "RE"
+          ],
+          "label": "10.30.0.0/16",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 23.5**
 
 **Q1.** Refer to the exhibit. R1 redistributes EIGRP into OSPF with `EIGRP-TO-OSPF`. R2 redistributes OSPF into EIGRP with `OSPF-TO-EIGRP`. The EIGRP network 10.20.0.0/16 reaches R2 through OSPF. What does R2 do with it?
@@ -26357,6 +31452,213 @@ Now add the fixes one at a time:
 - **Poison reverse:** B advertises 10.9.0.0 back toward C with metric 16: an explicit "don't use me for this."
 - **Hold-down:** after B marks 10.9.0.0 as down, it ignores any *worse-or-equal* news about it for 180 seconds, so a stale "3 hops" from A can't revive it.
 - **Maximum hop count:** if all else fails, 16 ends the counting.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Count to infinity, and what stops it",
+  "caption": "Step through the table above: first without split horizon, then with each fix in place.",
+  "nodes": [
+    {
+      "id": "A",
+      "x": 0,
+      "y": 1,
+      "kind": "router",
+      "label": "A"
+    },
+    {
+      "id": "B",
+      "x": 1.8,
+      "y": 1,
+      "kind": "router",
+      "label": "B"
+    },
+    {
+      "id": "C",
+      "x": 3.6,
+      "y": 1,
+      "kind": "router",
+      "label": "C"
+    },
+    {
+      "id": "NET",
+      "x": 5.2,
+      "y": 1,
+      "kind": "server",
+      "label": "10.9.0.0/24",
+      "sub": "connected to C"
+    }
+  ],
+  "links": [
+    {
+      "a": "A",
+      "b": "B"
+    },
+    {
+      "a": "B",
+      "b": "C"
+    },
+    {
+      "a": "C",
+      "b": "NET"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Converged",
+      "text": "RIP, three routers in a line. C is connected to 10.9.0.0/24 (0 hops), B reaches it in 1 via C, A in 2 via B.",
+      "nodes": {
+        "A": {
+          "badge": "2 via B"
+        },
+        "B": {
+          "badge": "1 via C"
+        },
+        "C": {
+          "badge": "0 connected",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "2. C's link fails",
+      "text": "C removes the route. It has nothing for 10.9.0.0/24 now, but it hasn't told anyone yet.",
+      "nodes": {
+        "C": {
+          "badge": "no route",
+          "tone": "bad"
+        },
+        "NET": {
+          "state": "down"
+        }
+      },
+      "links": {
+        "C-NET": "down"
+      }
+    },
+    {
+      "title": "3. No split horizon: B echoes the route back",
+      "text": "B's next periodic update goes out of **every** interface, including toward C: \"10.9.0.0 in 1 hop\". B doesn't know its own path runs through C.",
+      "packets": [
+        {
+          "path": [
+            "B",
+            "C"
+          ],
+          "label": "10.9.0.0 in 1",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "4. C believes it: a loop",
+      "text": "C installs 10.9.0.0 at 2 hops **via B**. Now B points to C and C points to B. Packets for 10.9.0.0 bounce between them until the TTL runs out.",
+      "nodes": {
+        "C": {
+          "badge": "2 via B",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "B",
+            "C",
+            "B"
+          ],
+          "label": "looping packet",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Counting to infinity",
+      "text": "B hears C say 2, and C is B's next hop, so B moves to 3. C hears 3 and moves to 4, and so on, with A following along. Only when the count reaches **16**, RIP's \"unreachable\", is the route removed: minutes of looping traffic.",
+      "nodes": {
+        "A": {
+          "badge": "4, 6, 8 …",
+          "tone": "warn"
+        },
+        "B": {
+          "badge": "3, 5, 7 …",
+          "tone": "warn"
+        },
+        "C": {
+          "badge": "4, 6, 8 …",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "C",
+            "B"
+          ],
+          "label": "10.9.0.0 in 4",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "B",
+            "C"
+          ],
+          "label": "10.9.0.0 in 5",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "6. With split horizon and poisoning",
+      "text": "Replay the failure with the defences on. **Split horizon**: B never advertises 10.9.0.0 toward C, because it learned it from C, so step 3 can't happen. **Route poisoning**: C immediately advertises the route with metric **16**, so B and A learn \"unreachable\" at once instead of waiting for a timeout.",
+      "nodes": {
+        "A": {
+          "badge": "16 (down)",
+          "tone": "muted"
+        },
+        "B": {
+          "badge": "16 (down)",
+          "tone": "muted"
+        },
+        "C": {
+          "badge": "poisons: 16",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "C",
+            "B",
+            "A"
+          ],
+          "label": "10.9.0.0 metric 16",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "7. Poison reverse and hold-down",
+      "text": "**Poison reverse**: B advertises 10.9.0.0 back toward C with metric 16, an explicit \"don't use me for this\". **Hold-down**: for 180 seconds B ignores any equal-or-worse news about the route, so a stale \"3 hops\" from A can't revive it.",
+      "nodes": {
+        "B": {
+          "badge": "hold-down 180s",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "B",
+            "C"
+          ],
+          "label": "poison reverse: 16",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 The A-to-B-to-C line is the simple case. Split horizon can't stop loops around a *ring* of routers, which is why the other mechanisms exist too.
 
@@ -26819,6 +32121,73 @@ By default a router redistributes only **eBGP**-learned routes into an IGP. **iB
 
 With E2, R5 sends traffic across 100 units of internal network to save 10 units outside. With E1 it takes the nearby exit. The forward metric matters for E2 only when the external metrics *tie*: if both ASBRs seeded 20, E2 would pick B, because its forward metric (5) is lower.
 
+```diagram
+{
+  "type": "path",
+  "title": "E1: seed metric plus the internal cost to the ASBR",
+  "prompt": "R5 learns 172.20.0.0/16 from two ASBRs. As **E1**, the total is internal cost + seed, so R5 picks ASBR-B (5 + 30 = 35) over ASBR-A (100 + 20 = 120). To see what **E2** would do, set both internal costs to 0: only the seeds count, and ASBR-A's 20 wins. Change any cost and watch the choice move.",
+  "metric": "E1 metric",
+  "from": "R5",
+  "to": "EXT",
+  "nodes": [
+    {
+      "id": "R5",
+      "x": 0,
+      "y": 1,
+      "kind": "router",
+      "label": "R5"
+    },
+    {
+      "id": "ASBRA",
+      "x": 2,
+      "y": 0,
+      "kind": "router",
+      "label": "ASBR-A"
+    },
+    {
+      "id": "ASBRB",
+      "x": 2,
+      "y": 2,
+      "kind": "router",
+      "label": "ASBR-B"
+    },
+    {
+      "id": "EXT",
+      "x": 4,
+      "y": 1,
+      "kind": "cloud",
+      "label": "172.20.0.0/16"
+    }
+  ],
+  "links": [
+    {
+      "a": "R5",
+      "b": "ASBRA",
+      "label": "internal",
+      "cost": 100
+    },
+    {
+      "a": "R5",
+      "b": "ASBRB",
+      "label": "internal",
+      "cost": 5
+    },
+    {
+      "a": "ASBRA",
+      "b": "EXT",
+      "label": "seed",
+      "cost": 20
+    },
+    {
+      "a": "ASBRB",
+      "b": "EXT",
+      "label": "seed",
+      "cost": 30
+    }
+  ]
+}
+```
+
 ```
 R5# show ip route 172.20.0.0
 Routing entry for 172.20.0.0/16
@@ -26916,7 +32285,274 @@ R5# show ip route 10.1.45.5
 
 ## 24.4 Two-Point Mutual Redistribution — the Classic Loop
 
-![Two routers redistributing both ways create a feedback path; tags stop routes returning to their origin domain](images/c24_mutual_redist.png)
+```diagram
+{
+  "type": "topology",
+  "title": "Two-point mutual redistribution: the loop, and both fixes",
+  "caption": "Follow 192.168.5.0/24 around the circle: R1 redistributes it into OSPF, R2 prefers the reflected copy and feeds it back into RIP. Then apply both fixes.",
+  "nodes": [
+    {
+      "id": "SRC",
+      "x": 0,
+      "y": 1,
+      "kind": "router",
+      "label": "RIP router",
+      "sub": "192.168.5.0/24"
+    },
+    {
+      "id": "R1",
+      "x": 2.2,
+      "y": 0,
+      "kind": "router",
+      "label": "R1",
+      "sub": "RIP ↔ OSPF"
+    },
+    {
+      "id": "R2",
+      "x": 2.2,
+      "y": 2,
+      "kind": "router",
+      "label": "R2",
+      "sub": "RIP ↔ OSPF"
+    },
+    {
+      "id": "RO",
+      "x": 4.4,
+      "y": 1,
+      "kind": "router",
+      "label": "OSPF router"
+    }
+  ],
+  "links": [
+    {
+      "a": "SRC",
+      "b": "R1"
+    },
+    {
+      "a": "SRC",
+      "b": "R2"
+    },
+    {
+      "a": "R1",
+      "b": "RO"
+    },
+    {
+      "a": "R2",
+      "b": "RO"
+    }
+  ],
+  "zones": [
+    {
+      "label": "RIP",
+      "nodes": [
+        "SRC"
+      ],
+      "tone": "good"
+    },
+    {
+      "label": "OSPF",
+      "nodes": [
+        "RO"
+      ],
+      "tone": "accent"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. R1 learns the prefix from RIP",
+      "text": "192.168.5.0/24 lives in the RIP domain. R1 learns it natively: `R 192.168.5.0/24 [120/1]`.",
+      "nodes": {
+        "R1": {
+          "badge": "R [120/1]"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SRC",
+            "R1"
+          ],
+          "label": "RIP 192.168.5.0/24"
+        }
+      ]
+    },
+    {
+      "title": "2. R1 redistributes it into OSPF",
+      "text": "R1 originates a Type 5 LSA: an **E2** route, seed metric 20. Redistribution has erased its history: OSPF has no idea this route was born in RIP.",
+      "nodes": {
+        "R1": {
+          "badge": "→ OSPF E2",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "RO"
+          ],
+          "label": "Type 5 E2, metric 20",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "3. R2 hears it twice",
+      "text": "The LSA floods to R2. R2 now has the prefix natively from **RIP (AD 120)** and as **OSPF E2 (AD 110)**, which is just RIP's own route, reflected.",
+      "packets": [
+        {
+          "path": [
+            "RO",
+            "R2"
+          ],
+          "label": "E2 (AD 110)",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "SRC",
+            "R2"
+          ],
+          "label": "RIP (AD 120)"
+        }
+      ]
+    },
+    {
+      "title": "4. OSPF wins on AD: suboptimal routing",
+      "text": "110 beats 120, so R2 installs `O E2 192.168.5.0/24 [110/20]`. R2 sits right next to the RIP domain, yet sends traffic for it across the OSPF domain to R1.",
+      "nodes": {
+        "R2": {
+          "badge": "O E2 [110/20]",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "RO",
+            "R1",
+            "SRC"
+          ],
+          "label": "to 192.168.5.10",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. R2 feeds it back into RIP",
+      "text": "R2 redistributes its routing-table entry, the OSPF one, back into RIP. RIP routers now hear 192.168.5.0/24 from R2 as well.",
+      "nodes": {
+        "R2": {
+          "badge": "→ RIP",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "SRC"
+          ],
+          "label": "RIP from R2",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "6. The source fails: a routing loop",
+      "text": "The real 192.168.5.0/24 goes away. RIP routers still hear it from R2, R2 points into OSPF, OSPF points at R1, and R1 points back into RIP. Traffic circles until a timer or the TTL ends it.",
+      "nodes": {
+        "SRC": {
+          "badge": "network lost",
+          "tone": "bad"
+        },
+        "R1": {
+          "badge": "R (from R2)",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SRC",
+            "R2",
+            "RO",
+            "R1",
+            "SRC"
+          ],
+          "label": "looping",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "7. Fix 1: tag and filter",
+      "text": "Same policy on both routers. Leaving RIP, routes get **tag 120**; leaving OSPF, **tag 110**. Each redistribution first denies the other domain's tag. R1's Type 5 now carries tag 120, and R2's `OSPF-TO-RIP` clause 10 (`match tag 120`) refuses to send it back into RIP. The loop is gone.",
+      "nodes": {
+        "SRC": null,
+        "R1": {
+          "badge": "set tag 120",
+          "tone": "purple"
+        },
+        "R2": {
+          "badge": "deny tag 120",
+          "tone": "purple"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "RO",
+            "R2"
+          ],
+          "label": "E2, tag 120",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "8. Fix 2: correct the AD",
+      "text": "`distance ospf external 125` on both boundary routers. Native RIP (120) now beats the reflected E2 (125), so R2 installs `R 192.168.5.0/24 [120/1]` and uses the direct path.",
+      "nodes": {
+        "R2": {
+          "badge": "R [120/1]",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "SRC"
+          ],
+          "label": "to 192.168.5.10",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "9. The source fails again: clean withdrawal",
+      "text": "RIP withdraws the prefix, R1 stops redistributing it, the Type 5 is flushed, and the prefix disappears everywhere instead of circulating. *Tags fix the memory problem; AD fixes the trust problem.*",
+      "nodes": {
+        "SRC": {
+          "badge": "withdrawn",
+          "tone": "muted"
+        },
+        "R1": {
+          "badge": "flushes LSA",
+          "tone": "muted"
+        },
+        "R2": {
+          "badge": "gone",
+          "tone": "muted"
+        }
+      }
+    }
+  ]
+}
+```
 
 **The problem:** one redistribution point is a single point of failure, so designs use two. But two boundary routers create a circle: a route can leave its domain at one router and come back in at the other. Picture a **RIP** domain and an **OSPF** domain joined by **R1** and **R2**, each redistributing **both ways**. Follow the RIP prefix 192.168.5.0/24:
 
@@ -27098,6 +32734,17 @@ R2# show ip ospf database external 192.168.5.0
 4. Matching bits: 16 + 6 = **22**. Set every non-matching bit to 0: the third octet becomes 0000 0100 = 4.
 5. The summary is **10.1.4.0/22** (mask 255.255.252.0), which covers exactly 10.1.4.0 to 10.1.7.255 — no more, no less.
 
+```diagram
+{
+  "type": "bits",
+  "mode": "ipv4",
+  "value": "10.1.4.0",
+  "prefix": 22,
+  "title": "Find the summary: line up the bits",
+  "prompt": "10.1.4.0/22 covers 10.1.4.0 to 10.1.7.255, exactly the four /24s. Type 10.1.7.0 and see it lands in the same network. Then try 10.1.5.0 with prefix 22: the network is still 10.1.4.0. Slide to /20 to see how much more a looser summary claims."
+}
+```
+
 Try one that doesn't fit neatly: 10.1.5.0/24 to 10.1.8.0/24. In binary, 5 = 0000 0101 and 8 = 0000 1000 share only the first 4 bits, so the tightest summary is 10.1.0.0/20. That also covers 10.1.0.0 to 10.1.15.255, including twelve /24s you don't own. Either accept the wider claim (and its Null0 route), or advertise three exact routes instead: 10.1.5.0/24, 10.1.6.0/23 (which covers .6 and .7) and 10.1.8.0/24. Good addressing plans hand out blocks on power-of-two boundaries precisely so summaries come out clean.
 
 It has costs, which ENARSI tests directly — covered in 24.7.
@@ -27249,6 +32896,157 @@ Every summarizing router installs a route for the summary pointing to **Null0** 
 
 With the discard route, step 2 changes: R1's longest match is now `10.1.0.0/16 via Null0`, which is longer than the default. R1 drops the packet at once (and can send ICMP unreachable). *The discard route is the summarizer saying: "I claimed this whole block, so if I don't have the piece, nobody does."*
 
+```diagram
+{
+  "type": "topology",
+  "title": "Why every summary installs a Null0 route",
+  "caption": "Step through the loop that the discard route prevents. Don't delete the Null0 route because it looks wrong.",
+  "nodes": [
+    {
+      "id": "H",
+      "x": 0,
+      "y": 1,
+      "kind": "host",
+      "label": "Remote host"
+    },
+    {
+      "id": "U",
+      "x": 1.7,
+      "y": 1,
+      "kind": "router",
+      "label": "U",
+      "sub": "D 10.1.0.0/16 via R1"
+    },
+    {
+      "id": "R1",
+      "x": 3.4,
+      "y": 1,
+      "kind": "router",
+      "label": "R1",
+      "sub": "summarizes 10.1.0.0/16"
+    },
+    {
+      "id": "LAN",
+      "x": 5.1,
+      "y": 1,
+      "kind": "server",
+      "label": "Real subnets",
+      "sub": "10.1.4.0-10.1.7.0 /24"
+    }
+  ],
+  "links": [
+    {
+      "a": "H",
+      "b": "U"
+    },
+    {
+      "a": "U",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "LAN"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The setup",
+      "text": "R1 advertises the summary 10.1.0.0/16 upstream, and has a default route pointing back to U. The only real subnets inside the summary are 10.1.4.0 to 10.1.7.0.",
+      "nodes": {
+        "R1": {
+          "badge": "0/0 via U"
+        }
+      }
+    },
+    {
+      "title": "2. A packet for a subnet that doesn't exist",
+      "text": "A packet for 10.1.99.5 arrives at U. U's longest match is the /16, so it sends the packet to R1.",
+      "packets": [
+        {
+          "path": [
+            "H",
+            "U",
+            "R1"
+          ],
+          "label": "dst 10.1.99.5"
+        }
+      ]
+    },
+    {
+      "title": "3. Without the discard route: a loop",
+      "text": "R1 has no 10.1.99.x route. Its longest match is the **default** via U, so it sends the packet back. U matches the /16 again and returns it to R1. The packet bounces until its TTL hits 0, using bandwidth on every pass.",
+      "nodes": {
+        "R1": {
+          "badge": "no Null0",
+          "tone": "bad"
+        },
+        "U": {
+          "badge": "loop",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "U",
+            "R1",
+            "U",
+            "R1"
+          ],
+          "label": "TTL 64, 63, 62 …",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. With the discard route: dropped once",
+      "text": "R1's summary installed `10.1.0.0/16 via Null0` (EIGRP gives it AD 5). That /16 is a longer match than the default, so R1 drops the packet at once and can send ICMP unreachable. *I claimed this whole block, so if I don't have the piece, nobody does.*",
+      "nodes": {
+        "R1": {
+          "badge": "Null0 drop",
+          "tone": "good"
+        },
+        "U": null
+      },
+      "packets": [
+        {
+          "path": [
+            "H",
+            "U",
+            "R1"
+          ],
+          "label": "dst 10.1.99.5",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "5. Real subnets still work",
+      "text": "A packet for 10.1.5.9 matches the /24 on R1, which is longer than the Null0 /16, so it's delivered normally. The discard route only catches what nothing more specific covers.",
+      "nodes": {
+        "R1": {
+          "badge": "/24 beats /16",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "H",
+            "U",
+            "R1",
+            "LAN"
+          ],
+          "label": "dst 10.1.5.9",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Exam trap:** don't delete the Null0 route because it "looks wrong" in the table. Removing it (OSPF: `no discard-route internal` or `no discard-route external`) brings the loop back.
 
 ### OSPF — `area range` vs `summary-address`
@@ -27381,6 +33179,230 @@ R1# show bgp ipv4 unicast | begin Network
 - **Fix:** restore the failed area 1 link, and harden the design: give the two ABRs a direct link inside area 1 so each can reach the other's components, or leak 10.1.6.0/24 outside the summary if it is critical.
 - **Verify:** `traceroute 10.1.6.10` from the failing source now completes through ABR2.
 
+```diagram
+{
+  "type": "topology",
+  "title": "The summarization black hole",
+  "caption": "Step through the worked ticket: a summarizer keeps advertising after it has lost a component, and quietly drops that traffic.",
+  "nodes": [
+    {
+      "id": "BBA",
+      "x": 0,
+      "y": 0,
+      "kind": "router",
+      "label": "Backbone A"
+    },
+    {
+      "id": "BBB",
+      "x": 0,
+      "y": 2,
+      "kind": "router",
+      "label": "Backbone B"
+    },
+    {
+      "id": "ABR1",
+      "x": 2,
+      "y": 0,
+      "kind": "router",
+      "label": "ABR1",
+      "sub": "area 1 range /22"
+    },
+    {
+      "id": "ABR2",
+      "x": 2,
+      "y": 2,
+      "kind": "router",
+      "label": "ABR2",
+      "sub": "area 1 range /22"
+    },
+    {
+      "id": "RA",
+      "x": 4,
+      "y": 0,
+      "kind": "router",
+      "label": "RA",
+      "sub": "10.1.6.0/24"
+    },
+    {
+      "id": "RB",
+      "x": 4,
+      "y": 2,
+      "kind": "router",
+      "label": "RB",
+      "sub": "10.1.4, .5, .7 /24"
+    }
+  ],
+  "links": [
+    {
+      "a": "BBA",
+      "b": "BBB"
+    },
+    {
+      "a": "BBA",
+      "b": "ABR1"
+    },
+    {
+      "a": "BBB",
+      "b": "ABR2"
+    },
+    {
+      "a": "ABR1",
+      "b": "RA"
+    },
+    {
+      "a": "ABR1",
+      "b": "RB"
+    },
+    {
+      "a": "ABR2",
+      "b": "RB"
+    },
+    {
+      "a": "RA",
+      "b": "RB"
+    },
+    {
+      "a": "ABR1",
+      "b": "ABR2",
+      "id": "fix",
+      "label": "area 1 link",
+      "style": "dashed"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Area 1",
+      "nodes": [
+        "RA",
+        "RB"
+      ],
+      "tone": "purple"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Two ABRs, one summary",
+      "text": "Both ABRs have `area 1 range 10.1.4.0 255.255.252.0` and advertise the /22 into area 0. Each backbone router sends area 1 traffic to its nearer ABR. (The faint dashed link is one we'll add in step 6.)",
+      "links": {
+        "fix": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "ABR1",
+            "BBA"
+          ],
+          "label": "Type 3 10.1.4.0/22",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "ABR2",
+            "BBB"
+          ],
+          "label": "Type 3 10.1.4.0/22",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "2. A link inside area 1 fails",
+      "text": "The RA–RB link fails. ABR1 still reaches 10.1.6.0/24 directly through RA. ABR2 now reaches only RB's three subnets.",
+      "nodes": {
+        "ABR2": {
+          "badge": "no 10.1.6/24",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "RA-RB": "down"
+      }
+    },
+    {
+      "title": "3. ABR2 keeps promising",
+      "text": "ABR2 still has three components, so it keeps advertising the /22. Its Null0 discard route for the /22 is now its only match for 10.1.6.x. Everything **looks** healthy: both ABRs up, both advertising, tables agree.",
+      "nodes": {
+        "ABR2": {
+          "badge": "/22 → Null0",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ABR2",
+            "BBB"
+          ],
+          "label": "Type 3 10.1.4.0/22",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. Half the users lose 10.1.6.0/24",
+      "text": "Backbone B sends 10.1.6.10 traffic to its nearer ABR, ABR2, which discards it. `traceroute 10.1.6.10` stops at ABR2, and `show ip route 10.1.6.10` on ABR2 shows only the /22 via Null0.",
+      "nodes": {
+        "ABR2": {
+          "badge": "Null0 drop",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "BBB",
+            "ABR2"
+          ],
+          "label": "to 10.1.6.10",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. The other half are fine",
+      "text": "Backbone A's traffic goes to ABR1, which has the /24, so it works. That's why the ticket says \"some users\" and looks like an application problem.",
+      "packets": [
+        {
+          "path": [
+            "BBA",
+            "ABR1",
+            "RA"
+          ],
+          "label": "to 10.1.6.10",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. Harden the design",
+      "text": "Restore the RA–RB link, and give the ABRs a direct link **inside area 1**. Then ABR2 can still reach every component through ABR1 when area 1 splits, and nothing falls into Null0. Leaking 10.1.6.0/24 outside the summary is the other option if it's critical.",
+      "nodes": {
+        "ABR2": {
+          "badge": "via ABR1 ✓",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "RA-RB": null,
+        "fix": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "BBB",
+            "ABR2",
+            "ABR1",
+            "RA"
+          ],
+          "label": "to 10.1.6.10",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 24.7**
 
 **Q1.** ABR1 and ABR2 both advertise `area 1 range 10.1.4.0 255.255.252.0`. After a link failure inside area 1, users on some backbone routers can reach 10.1.6.10 and users on others can't. From a failing source, `traceroute 10.1.6.10` stops at ABR2, and on ABR2, `show ip route 10.1.6.10` matches only `10.1.4.0/22 via Null0`. What is the cause?
@@ -27462,6 +33484,193 @@ Routing entry for 0.0.0.0/0, supernet
 ```
 
 Metric 30 = seed 10 + internal cost 20, because it's E1. `from 1.1.1.1` names the originating ASBR. Remove R1's static route (and there's no `always`), and R1 flushes the Type 5: R3's default disappears within seconds, and if a second edge router also originates a default, R3 switches to it.
+
+```diagram
+{
+  "type": "topology",
+  "title": "default-information originate follows the RIB",
+  "caption": "Step through what the rest of the area sees when one edge router loses its upstream.",
+  "nodes": [
+    {
+      "id": "ISPA",
+      "x": 0,
+      "y": 0,
+      "kind": "cloud",
+      "label": "ISP A",
+      "sub": "203.0.113.1"
+    },
+    {
+      "id": "R1",
+      "x": 1.7,
+      "y": 0,
+      "kind": "router",
+      "label": "R1 (ASBR)",
+      "sub": "RID 1.1.1.1"
+    },
+    {
+      "id": "R2",
+      "x": 3.4,
+      "y": 0,
+      "kind": "router",
+      "label": "R2 (ASBR)",
+      "sub": "RID 2.2.2.2"
+    },
+    {
+      "id": "ISPB",
+      "x": 5.1,
+      "y": 0,
+      "kind": "cloud",
+      "label": "ISP B",
+      "sub": "198.51.100.1"
+    },
+    {
+      "id": "R3",
+      "x": 2.55,
+      "y": 1.6,
+      "kind": "router",
+      "label": "R3"
+    },
+    {
+      "id": "LAN",
+      "x": 2.55,
+      "y": 3,
+      "kind": "host",
+      "label": "Users"
+    }
+  ],
+  "links": [
+    {
+      "a": "ISPA",
+      "b": "R1"
+    },
+    {
+      "a": "R2",
+      "b": "ISPB"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "label": "cost 20"
+    },
+    {
+      "a": "R2",
+      "b": "R3",
+      "label": "cost 30"
+    },
+    {
+      "a": "R3",
+      "b": "LAN"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Two edges originate a default",
+      "text": "R1 and R2 each have a static default to their ISP and `default-information originate metric 10 metric-type 1`. Each floods a Type 5 for 0.0.0.0/0. As E1, R3 adds its internal cost: 10 + 20 = **30** via R1, 10 + 30 = 40 via R2. R3 shows `O*E1 0.0.0.0/0 [110/30]`, `from 1.1.1.1`.",
+      "nodes": {
+        "R3": {
+          "badge": "O*E1 [110/30]",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R3"
+          ],
+          "label": "Type 5 0/0, E1 10",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "R2",
+            "R3"
+          ],
+          "label": "Type 5 0/0, E1 10",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "LAN",
+            "R3",
+            "R1",
+            "ISPA"
+          ],
+          "label": "internet traffic",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. ISP A fails",
+      "text": "R1's link to ISP A goes down. Its static default's next hop is unreachable, so the static leaves R1's RIB.",
+      "nodes": {
+        "ISPA": {
+          "state": "down"
+        },
+        "R1": {
+          "badge": "no 0/0 in RIB",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "ISPA-R1": "down"
+      }
+    },
+    {
+      "title": "3. No default in the RIB, no advertisement",
+      "text": "Without `always`, R1 originates a default **only while one is in its own RIB**. It's gone, so R1 flushes its Type 5. Within seconds R3 switches to R2's default: `O*E1 [110/40]`.",
+      "nodes": {
+        "R1": {
+          "badge": "Type 5 flushed",
+          "tone": "muted"
+        },
+        "R3": {
+          "badge": "O*E1 [110/40]",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R3",
+            "R2",
+            "ISPB"
+          ],
+          "label": "internet traffic",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. Why not always use always?",
+      "text": "With `default-information originate always`, R1 would keep advertising 0.0.0.0/0 with its exit dead. R3 would still prefer R1 (30 < 40) and send internet traffic into a black hole. Use `always` only when the router is the sole exit, or add a route-map condition.",
+      "nodes": {
+        "R1": {
+          "badge": "always: 0/0",
+          "tone": "bad"
+        },
+        "R3": {
+          "badge": "O*E1 [110/30]",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R3",
+            "R1"
+          ],
+          "label": "black-holed",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
 
 For NSSAs the command is different (`area X nssa default-information-originate`), and so are the rules. See 27.5.
 
