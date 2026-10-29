@@ -4824,6 +4824,32 @@ IPv4 has about **4.3 billion** addresses. That sounds like a lot, but with phone
 
 **IPv6** fixes this with a mind-bogglingly huge number of addresses: **340 undecillion** (that's 340 followed by 36 zeros). Enough for every grain of sand to have trillions of addresses.
 
+**📝 Exam-style questions — 13.1**
+
+**Q1.** How long is an IPv6 address?
+
+- **A.** 32 bits
+- **B.** 64 bits
+- **C.** 128 bits
+- **D.** 256 bits
+
+<details><summary>Answer</summary>
+
+**Answer: C.** IPv6 addresses are 128 bits long, four times the length of an IPv4 address. That's where the "340 undecillion" comes from: 2^128 is about 3.4 × 10^38. **Why not the others:** A, 32 bits is IPv4, the space we ran out of. B, 64 bits is only the *host half* (the interface ID) of a typical IPv6 address. D, no IP version uses 256-bit addresses.
+</details>
+
+**Q2.** What was the main problem IPv6 was designed to solve?
+
+- **A.** IPv4 can't carry voice and video traffic
+- **B.** The world was running out of IPv4 addresses
+- **C.** IPv4 packets can't cross routers from different vendors
+- **D.** IPv4 has no way to send traffic to a group of hosts
+
+<details><summary>Answer</summary>
+
+**Answer: B.** About 4.3 billion IPv4 addresses simply isn't enough for every phone, laptop, TV and sensor on the planet. IPv6's giant address space fixes that for good. **Why not the others:** A, IPv4 carries voice and video every day (QoS handles the priorities). C, IPv4 is an open standard every vendor speaks. D, IPv4 already has multicast (224.0.0.0/4).
+</details>
+
 ## 13.2 What IPv6 Looks Like
 
 ![Anatomy of a global unicast IPv6 address](images/ipv6_addr.png)
@@ -4835,6 +4861,44 @@ An IPv6 address is written as **8 groups of 4 hex digits**, separated by colons:
 `2001:0db8:0000:0000:0000:ff00:0042:8329`
 
 Each group is 16 bits, so 8 × 16 = **128 bits** in total.
+
+**📝 Exam-style questions — 13.2**
+
+**Q1.** How many bits does each colon-separated group in an IPv6 address represent?
+
+- **A.** 4
+- **B.** 8
+- **C.** 16
+- **D.** 32
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Each group is four hex digits, and each hex digit is 4 bits, so a group is 16 bits. Eight groups × 16 bits = 128 bits. **Why not the others:** A, 4 bits is one hex digit, not a whole group. B, 8 bits is one IPv4 octet, a habit worth un-learning here. D, 32 bits would make the address 256 bits long.
+</details>
+
+**Q2.** Which one is a valid IPv6 address written out in full?
+
+- **A.** `2001:0db8:0000:ff00:0042:8329`
+- **B.** `2001:0db8:0000:0000:0000:ff00:0042:8329`
+- **C.** `2001.0db8.0000.0000.0000.ff00.0042.8329`
+- **D.** `2001:0db8:0000:0000:0000:ff00:0042:83g9`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Eight groups of four hex digits, separated by colons: that's exactly the full form. **Why not the others:** A has only six groups and no `::` to stand in for the missing two, so it's only 96 bits. C uses dots; IPv6 separates groups with colons. D contains `g`, which isn't a hex digit (hex stops at f).
+</details>
+
+**Q3.** How many hexadecimal digits are in a fully written IPv6 address?
+
+- **A.** 8
+- **B.** 16
+- **C.** 32
+- **D.** 128
+
+<details><summary>Answer</summary>
+
+**Answer: C.** 128 bits ÷ 4 bits per hex digit = 32 hex digits (8 groups of 4). **Why not the others:** A is the number of *groups*. B would only be 64 bits. D is the number of *bits*, not hex digits.
+</details>
 
 ## 13.3 Shortening IPv6 (The Two Rules)
 
@@ -4862,6 +4926,45 @@ IPv6 is long, so there are two rules to shorten it:
 - Drop leading zeros: `2001:db8:0:0:0:0:0:1`
 - Collapse the zeros: `2001:db8::1` ✅
 
+**📝 Exam-style questions — 13.3**
+
+**Q1.** An engineer must write `2001:0db8:0000:0000:0001:0000:0000:0001` in compressed form. Which two answers are valid representations of this address? (Choose two.)
+
+- **A.** `2001:db8::1::1`
+- **B.** `2001:db8::1:0:0:1`
+- **C.** `2001:db8:0:0:1::1`
+- **D.** `2001:db8::1:1`
+- **E.** `2001:db8:0000::1`
+
+<details><summary>Answer</summary>
+
+**Answer: B, C.** The address has two separate runs of two zero groups. `::` may replace only *one* of them, so you can collapse either the first run (B) or the second (C) and write the other as `0:0`. Both expand back to the same eight groups. (The recommended style, RFC 5952, collapses the first run when the runs are the same length, so B is the "preferred" text form, but both are valid.) **Why not the others:** A uses `::` twice, which is ambiguous and illegal. D expands to `2001:db8:0:0:0:0:1:1`, a different address: it lost the 1 in the fifth group's place. E shows four groups, so `::` hides four zero groups, giving `2001:db8:0:0:0:0:0:1`, which is also a different address.
+</details>
+
+**Q2.** What is the full, uncompressed form of `2001:db8:a::12`?
+
+- **A.** `2001:0db8:000a:0000:0000:0000:0000:0012`
+- **B.** `2001:0db8:a000:0000:0000:0000:0000:1200`
+- **C.** `2001:0db8:000a:0000:0000:0000:0012`
+- **D.** `2001:0db8:000a:0000:0000:0000:0000:0000:0012`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Four groups are visible (2001, db8, a, 12), so `::` hides 8 − 4 = 4 zero groups. Then put back the leading zeros: `a` → `000a`, `12` → `0012`. **Why not the others:** B pads with zeros on the *right*, but only *leading* zeros are ever dropped, so `a` is `000a`, not `a000`. C has only seven groups. D has nine; an IPv6 address always has exactly eight.
+</details>
+
+**Q3.** Which is the shortest valid way to write `FE80:0000:0000:0000:0202:B3FF:FE1E:8329`?
+
+- **A.** `FE8::202:B3FF:FE1E:8329`
+- **B.** `FE80::0202:B3FF:FE1E:8329`
+- **C.** `FE80::202:B3FF:FE1E:8329`
+- **D.** `FE80:0:0:0:202:B3FF:FE1E:8329`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Collapse the three zero groups to `::` and drop the leading zero from `0202`. **Why not the others:** A drops the *trailing* zero of FE80, which changes the value (FE8 means 0FE8). B is valid but not the shortest, because `0202` still has a leading zero. D is valid too, but it never uses `::`, so it's longer than C.
+</details>
+
 ## 13.4 Types of IPv6 Addresses
 
 | Type | Starts With | Meaning |
@@ -4879,6 +4982,45 @@ IPv6 is long, so there are two rules to shorten it:
 
 **Why does every IPv6 interface automatically make a "link-local" (FE80::) address?** Because IPv6 was designed so devices can **always talk to their direct neighbors instantly**, even before any DHCP, router, or manual config exists. The link-local address is a self-assigned "I can at least reach the devices on my own wire" address. *Why is that useful?* It lets crucial startup processes work immediately — like discovering the router, or two devices coordinating — without waiting for any address setup. It's the networking equivalent of being able to talk to people in the same room without needing a phone number yet. (Link-local only works on the local link — routers never forward it — which is exactly why it's safe to auto-generate on every interface.)
 
+**📝 Exam-style questions — 13.4**
+
+**Q1.** Which prefix identifies an IPv6 link-local address?
+
+- **A.** `2000::/3`
+- **B.** `FC00::/7`
+- **C.** `FE80::/10`
+- **D.** `FF00::/8`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Link-local addresses live in FE80::/10. Every IPv6 interface creates one automatically, and routers never forward them off the link. **Why not the others:** A is global unicast (public, routable). B is unique local, IPv6's version of private addressing. D is multicast.
+</details>
+
+**Q2.** A host is configured with `FD12:3456:789A:1::10/64`. What type of address is this?
+
+- **A.** Global unicast
+- **B.** Link-local
+- **C.** Unique local
+- **D.** Multicast
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Unique local is FC00::/7, which covers everything starting FC or FD. In practice you'll almost always see FD, because that's the half meant for locally assigned prefixes. Think of it as IPv6's 10.0.0.0/8. **Why not the others:** A, global unicast starts with 2 or 3 (2000::/3). B, link-local starts with FE80. D, multicast starts with FF.
+</details>
+
+**Q3.** Which two statements about IPv6 addressing are true? (Choose two.)
+
+- **A.** IPv6 has no broadcast addresses; multicast does that job.
+- **B.** Routers forward link-local addresses between subnets.
+- **C.** Unique local addresses are the IPv6 equivalent of private IPv4 addresses.
+- **D.** `::1` is the unspecified address.
+- **E.** Global unicast addresses begin with FF.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** IPv6 dropped broadcast completely and talks to groups with multicast, so only the devices that care get interrupted. Unique local (FC00::/7) addresses are for internal use, like 10.x or 192.168.x. **Why not the others:** B, link-local addresses are valid only on their own link, and routers never forward them; that's what "link-local" means. D, `::1` is the loopback address; the unspecified address is `::` (all zeros). E, FF is multicast; global unicast starts with 2000::/3.
+</details>
+
 ## 13.5 EUI-64 — Making a Host Part from a MAC
 
 IPv6 can build the second half of its address automatically from the device's MAC address using **EUI-64**:
@@ -4894,6 +5036,47 @@ IPv6 can build the second half of its address automatically from the device's MA
 | Flip the 7th bit of the first byte (`00` → `02`) | `02:1A:2B:FF:FE:3C:4D:5E` |
 | **Interface ID** | `021A:2BFF:FE3C:4D5E` |
 
+```diagram
+{
+  "type": "bits",
+  "mode": "octet",
+  "value": 0,
+  "title": "EUI-64's bit flip, up close",
+  "prompt": "This is the first byte of the MAC `00:1A:2B:3C:4D:5E`. EUI-64 flips the **7th bit from the left**, the one worth **2** (the universal/local bit). Click it and watch `0x00` become `0x02`. Then type **82** in the Decimal box (`0x52`, binary 0101 0010): that bit is already 1, so the flip makes it 0 and the byte becomes `0x50`. EUI-64 *flips* the bit; it doesn't just set it."
+}
+```
+
+**📝 Exam-style questions — 13.5**
+
+**Q1.** A host has the MAC address `0C1A.2B3C.4D5E`. Which interface ID does it build with modified EUI-64?
+
+- **A.** `0C1A:2BFF:FE3C:4D5E`
+- **B.** `0D1A:2BFF:FE3C:4D5E`
+- **C.** `0E1A:2BFF:FE3C:4D5E`
+- **D.** `0E1A:2B3C:FFFE:4D5E`
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Split the MAC (`0C1A2B` | `3C4D5E`), put `FFFE` in the middle, then flip the 7th bit of the first byte. `0C` is `0000 1100`; flipping the bit worth 2 gives `0000 1110` = `0E`. **Why not the others:** A forgot the bit flip. B flipped the wrong bit (the one worth 1, giving 0D). D put `FFFE` after the fourth byte instead of exactly in the middle, after the third.
+</details>
+
+**Q2.** Refer to the exhibit. The engineer then enters `ipv6 address 2001:db8:acad:10::/64 eui-64` on Gi0/0. Which address does the interface get?
+
+```
+R1# show interfaces gi0/0 | include address
+  Hardware is iGbE, address is 5254.0012.3456 (bia 5254.0012.3456)
+```
+
+- **A.** `2001:db8:acad:10:5254:ff:fe12:3456`
+- **B.** `2001:db8:acad:10:5054:ff:fe12:3456`
+- **C.** `2001:db8:acad:10:5654:ff:fe12:3456`
+- **D.** `2001:db8:acad:10:5054:12:fffe:3456`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The first byte is `52` = `0101 0010`. The bit worth 2 is already 1, and EUI-64 *flips* it, so it becomes 0: `0101 0000` = `50`. With `FFFE` in the middle the interface ID is `5054:00FF:FE12:3456`, written `5054:ff:fe12:3456`. **Why not the others:** A didn't flip the bit. C *set* a different bit (the one worth 4) instead of flipping the one worth 2. "Flip" means 1 becomes 0 here, which trips up anyone who memorised "00 becomes 02". D inserted `FFFE` in the wrong place.
+</details>
+
 ## 13.6 Configuring IPv6 on a Router
 
 ```
@@ -4904,11 +5087,76 @@ R1(config-if)# ipv6 address fe80::1 link-local   ! optional link-local
 R1(config-if)# no shutdown
 ```
 
+**📝 Exam-style questions — 13.6**
+
+**Q1.** An engineer configures IPv6 addresses on two interfaces of R1. Hosts on each LAN can ping their own R1 interface, but R1 doesn't forward IPv6 packets between the LANs and hosts receive no Router Advertisements. Which command is missing?
+
+- **A.** `ipv6 enable`
+- **B.** `ipv6 unicast-routing`
+- **C.** `ipv6 address autoconfig`
+- **D.** `ip routing`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** IPv4 routing is on by default on a Cisco router, but IPv6 routing is not. Until `ipv6 unicast-routing` is entered globally, the router acts like an IPv6 host: it answers on its own addresses but won't route between interfaces or send RAs. **Why not the others:** A, `ipv6 enable` is an interface command that just turns on IPv6 with a link-local address. C makes the interface get its *own* address by SLAAC, like a host. D turns on IPv4 routing, which doesn't touch IPv6.
+</details>
+
+**Q2.** An engineer enters `ipv6 address 2001:db8:0:1::1/64` on Gi0/0 and doesn't configure a link-local address. `ipv6 unicast-routing` is enabled and the interface is up. Which two statements are true? (Choose two.)
+
+- **A.** The interface automatically creates its own FE80:: link-local address.
+- **B.** The routing table shows `2001:db8:0:1::/64` as connected (C) and `2001:db8:0:1::1/128` as local (L).
+- **C.** The global address won't work until a link-local address is configured by hand.
+- **D.** The router forwards traffic sourced from link-local addresses to other subnets.
+- **E.** The interface must also have an IPv4 address before IPv6 can be enabled.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** As soon as IPv6 is enabled on an interface, it builds a link-local address on its own (on Cisco routers usually with EUI-64). And just like IPv4, the subnet appears as a connected route and the router's own address as a /128 local route. **Why not the others:** C, the `link-local` command is optional; it just picks an easier-to-read value such as FE80::1. D, link-local traffic never leaves its link. E, IPv6 runs fine on an interface with no IPv4 address at all.
+</details>
+
 ## 13.7 How Devices Get IPv6 Addresses
 
 - **SLAAC** (Stateless Address Auto-Configuration): The device makes its own address by listening to the router. No DHCP needed!
 - **DHCPv6:** A server hands out addresses (stateful) or just extra info like DNS (stateless).
 - **Static:** You type it in by hand.
+
+**📝 Exam-style questions — 13.7**
+
+**Q1.** Which method lets a host build its own global IPv6 address from the prefix a router advertises, with no server keeping track of who has what?
+
+- **A.** Stateful DHCPv6
+- **B.** SLAAC
+- **C.** Static configuration
+- **D.** DHCP relay
+
+<details><summary>Answer</summary>
+
+**Answer: B.** With SLAAC (stateless address autoconfiguration) the host takes the /64 prefix from the router's RA and adds its own interface ID. Nobody keeps a list, which is what "stateless" means. **Why not the others:** A, stateful DHCPv6 has a server lease addresses and remember each one. C, static means someone types the address in. D, relay only forwards DHCP messages to a server on another subnet; it doesn't assign anything.
+</details>
+
+**Q2.** A network uses stateless DHCPv6. What does the DHCPv6 server provide to hosts?
+
+- **A.** The IPv6 address and the DNS server
+- **B.** Only the default gateway
+- **C.** Extra settings such as the DNS server; the host builds its address with SLAAC
+- **D.** Nothing; stateless means no DHCPv6 server is used
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Stateless DHCPv6 hands out "other" information like DNS servers and the domain name, while the address itself comes from SLAAC. The server doesn't need to track addresses, so it keeps no state. **Why not the others:** A describes stateful DHCPv6. B, DHCPv6 never hands out a default gateway; that always comes from the Router Advertisement. D, there *is* a DHCPv6 server, it just doesn't hand out addresses.
+</details>
+
+**Q3.** How does an IPv6 host learn its default gateway?
+
+- **A.** From a DHCPv6 option, the same way DHCPv4 sends option 3
+- **B.** From the source link-local address of the Router Advertisement
+- **C.** By sending an ARP request for the router's address
+- **D.** From the DNS server
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The router that sends the RA *is* the gateway, and the host uses the RA's source address, the router's link-local address, as its default gateway. That's why a host's default route usually points at a next hop like FE80::1. **Why not the others:** A, DHCPv6 has no default-gateway option at all, a classic exam trap. C, IPv6 has no ARP; NDP replaced it. D, DNS turns names into addresses; it doesn't pick gateways.
+</details>
 
 ---
 
@@ -4940,6 +5188,83 @@ solicited-node address **`FF02::1:FFb2:c3d4`**.
 
 **Why does this help, when it's still one-to-many?** Because a NIC filters multicast **in hardware**. A host joins only the group matching its own address, so its network card silently ignores everything else — the CPU is never even notified. Since the group is derived from the low 24 bits, the odds of two hosts sharing it on one segment are tiny. *Effectively, only the intended target wakes up. Same question as ARP, asked without bothering the whole room.*
 
+```diagram
+{
+  "type": "sequence",
+  "title": "Neighbor Solicitation: ARP's job without the broadcast",
+  "caption": "PC1 (`2001:db8:a:b::10`) wants to send to PC2 (`2001:db8:a:b::a1b2:c3d4`) on the same link but doesn't know its MAC yet. Watch who wakes up.",
+  "actors": [
+    {
+      "id": "PC1",
+      "kind": "host",
+      "label": "PC1"
+    },
+    {
+      "id": "PC2",
+      "kind": "host",
+      "label": "PC2 (…a1b2:c3d4)"
+    },
+    {
+      "id": "PC3",
+      "kind": "host",
+      "label": "PC3 (…77:1234)"
+    }
+  ],
+  "messages": [
+    {
+      "note": "No entry for …a1b2:c3d4",
+      "over": [
+        "PC1"
+      ],
+      "states": {
+        "PC1": "INCOMPLETE"
+      },
+      "text": "PC1 checks its **neighbor cache** (IPv6's ARP table, `show ipv6 neighbors` on a router). No entry, so it must ask. The entry starts in the **INCOMPLETE** state."
+    },
+    {
+      "from": "PC1",
+      "to": "PC2",
+      "label": "NS (135): who has …a1b2:c3d4?",
+      "detail": "to FF02::1:FFB2:C3D4 / MAC 3333.FFB2.C3D4",
+      "text": "The NS goes to the **solicited-node** group built from the target's last 24 bits (`b2:c3d4`). On Ethernet that maps to the multicast MAC `33:33` + the last 32 bits: **3333.FFB2.C3D4**. PC1's own MAC rides along in the message, so PC2 learns it for free."
+    },
+    {
+      "note": "NIC filters 3333.FFB2.C3D4",
+      "over": [
+        "PC3"
+      ],
+      "states": {
+        "PC3": "not disturbed"
+      },
+      "text": "PC3 joined only *its* group, `FF02::1:FF77:1234` (MAC 3333.FF77.1234). Its network card drops this frame **in hardware**, and the CPU never hears about it. With an ARP broadcast, PC3 would have had to stop and look."
+    },
+    {
+      "from": "PC2",
+      "to": "PC1",
+      "label": "NA (136): that's me",
+      "detail": "unicast, MAC 0050.56aa.bbcc",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "PC2": "answered"
+      },
+      "text": "PC2 replies with a **Neighbor Advertisement** sent straight to PC1, carrying its MAC address."
+    },
+    {
+      "note": "Cached: sends packet",
+      "over": [
+        "PC1"
+      ],
+      "states": {
+        "PC1": "REACHABLE"
+      },
+      "tone": "good",
+      "text": "PC1 caches `…a1b2:c3d4 → 0050.56aa.bbcc` as **REACHABLE** and sends its packet. Same job as ARP, but only the target was interrupted."
+    }
+  ]
+}
+```
+
 ### SLAAC — Building Your Own Address
 
 1. The host boots and forms a **link-local** address (`FE80::/10` + its interface ID).
@@ -4951,6 +5276,105 @@ solicited-node address **`FF02::1:FFb2:c3d4`**.
 6. It runs **DAD** once more, on the new address.
 
 **Why does the host generate the host portion itself rather than being assigned one?** Because a /64 subnet holds 18 quintillion addresses. Collisions are so improbable that central bookkeeping — the entire reason DHCP exists — stops being worth it. The scarcity that made DHCP necessary in IPv4 simply doesn't exist here. **DAD (Duplicate Address Detection)** is the cheap safety check that makes self-assignment safe: ask for your own address, and *silence is the confirmation*.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "SLAAC: a host builds its own address",
+  "caption": "Press **Next** to watch a PC with MAC `5254.0012.3456` go from nothing to a working global address. Nobody hands it an address; it builds one and checks it.",
+  "actors": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "label": "PC"
+    },
+    {
+      "id": "LAN",
+      "kind": "host",
+      "label": "Other hosts"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 (FE80::1)"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Builds its link-local",
+      "over": [
+        "PC"
+      ],
+      "states": {
+        "PC": "LL tentative"
+      },
+      "text": "The PC makes a **link-local** address from FE80::/64 plus its interface ID (here EUI-64 from the MAC; many operating systems use a random ID instead). It's **tentative**: not used until it's proven unique."
+    },
+    {
+      "from": "PC",
+      "to": "LAN",
+      "label": "NS (135): DAD for my link-local",
+      "detail": ":: → FF02::1:FF12:3456",
+      "text": "**Duplicate Address Detection.** The PC asks about its *own* tentative address. The source is `::` (unspecified) because it doesn't own an address yet. Only a host that already holds an address ending `12:3456` listens to that solicited-node group."
+    },
+    {
+      "note": "Silence: nobody owns it",
+      "over": [
+        "PC",
+        "LAN"
+      ],
+      "states": {
+        "PC": "LL ready"
+      },
+      "text": "No Neighbor Advertisement comes back, so the link-local address is unique. Silence *is* the confirmation."
+    },
+    {
+      "from": "PC",
+      "to": "R1",
+      "label": "RS (133): any routers here?",
+      "detail": "FE80::5054:ff:fe12:3456 → FF02::2",
+      "text": "Rather than wait up to a few minutes for the next periodic RA, the PC sends a **Router Solicitation** to all-routers, `FF02::2`."
+    },
+    {
+      "from": "R1",
+      "to": "PC",
+      "label": "RA (134): prefix 2001:db8:a:b::/64",
+      "detail": "FE80::1 → FF02::1, flags A=1 M=0 O=0",
+      "dashed": true,
+      "tone": "good",
+      "text": "R1 answers with a **Router Advertisement**: the on-link prefix, its length, and the flags. A = 1 means \"build your own address\". The RA's source, **FE80::1**, becomes the PC's default gateway. DHCPv6 never hands out a gateway; the RA always does."
+    },
+    {
+      "from": "PC",
+      "to": "PC",
+      "label": "Prefix + interface ID",
+      "detail": "2001:db8:a:b:5054:ff:fe12:3456",
+      "states": {
+        "PC": "GUA tentative"
+      },
+      "text": "The PC glues the /64 prefix from the RA to its own 64-bit interface ID. No server is involved, so nothing records who holds what: that's the *stateless* part."
+    },
+    {
+      "from": "PC",
+      "to": "LAN",
+      "label": "NS (135): DAD for the new address",
+      "detail": ":: → FF02::1:FF12:3456",
+      "text": "DAD runs again for the global address. Notice the **same** solicited-node group: both addresses end in the same 24 bits, `12:3456`."
+    },
+    {
+      "note": "Address in use",
+      "over": [
+        "PC"
+      ],
+      "states": {
+        "PC": "GUA preferred"
+      },
+      "tone": "good",
+      "text": "Silence again, so the PC uses **2001:db8:a:b:5054:ff:fe12:3456** with gateway **FE80::1**. If the RA had M = 1, the PC would ask a DHCPv6 server for its address instead; with O = 1 it would ask DHCPv6 only for extras such as DNS."
+    }
+  ]
+}
+```
 
 ### The RA Flags Decide Everything
 
@@ -4970,6 +5394,56 @@ R1# show ipv6 interface gi0/0     ! link-local, global, joined multicast groups
 R1(config-if)# ipv6 nd prefix 2001:db8:a:b::/64 no-autoconfig   ! clear the A flag
 ```
 
+**📝 Exam-style questions — 13.8**
+
+**Q1.** A host needs the MAC address of neighbor `2001:db8:1::25:1a3c:7f02`. To which address does it send the Neighbor Solicitation?
+
+- **A.** `FF02::1:FF3C:7F02`
+- **B.** `FF02::1:FF1A:3C7F`
+- **C.** `FF02::2:FF3C:7F02`
+- **D.** `FF02::1`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The solicited-node address is `FF02::1:FF` followed by the target's last 24 bits. The last 24 bits (6 hex digits) of `...1a3c:7f02` are `3c:7f02`. **Why not the others:** B took the wrong 24 bits; it's always the lowest 24. C uses `FF02::2`, which isn't the solicited-node prefix (FF02::2 on its own is all-routers). D is all-nodes, which would wake every host on the link, just like an ARP broadcast. Avoiding that is the whole point of solicited-node multicast.
+</details>
+
+**Q2.** A host has just booted and wants to find the routers on its link right away. Which NDP message does it send, and to which address?
+
+- **A.** A Router Solicitation to `FF02::1`
+- **B.** A Router Solicitation to `FF02::2`
+- **C.** A Router Advertisement to `FF02::2`
+- **D.** A Neighbor Solicitation to `FF02::2`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A Router Solicitation (ICMPv6 type 133) asks "any routers here?", so it goes to the all-routers group, `FF02::2`. Routers answer with an RA (type 134). **Why not the others:** A, `FF02::1` is all-nodes; the question is only for routers. C, hosts don't send RAs; routers do. D, a Neighbor Solicitation (135) resolves one specific address to a MAC (ARP's job) or checks for duplicates; it isn't how you find routers.
+</details>
+
+**Q3.** A network team wants hosts to build their own addresses with SLAAC but learn their DNS server from a DHCPv6 server. Which RA flags do this?
+
+- **A.** M = 1
+- **B.** A = 1, O = 1, M = 0
+- **C.** A = 0, O = 0, M = 0
+- **D.** A = 1, O = 0, M = 0
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A = 1 says "build your own address", and O = 1 ("other config") says "ask DHCPv6 for the extras like DNS". M stays 0 because the address doesn't come from DHCPv6. **Why not the others:** A, M = 1 tells hosts to get their *address* from stateful DHCPv6. C turns off SLAAC and tells hosts nothing useful. D is pure SLAAC with no DHCPv6 at all, so hosts would only learn DNS if the RA itself carried it.
+</details>
+
+**Q4.** During SLAAC, a host sends a Neighbor Solicitation for its own tentative address and gets no reply. What does the host conclude?
+
+- **A.** No router is present, so it must use a link-local address only
+- **B.** The address is unique on the link, so the host can use it
+- **C.** The address is a duplicate, so it must generate another one
+- **D.** The DHCPv6 server is down
+
+<details><summary>Answer</summary>
+
+**Answer: B.** This is Duplicate Address Detection (DAD). The host asks "does anyone already have this address?", and silence means nobody does. **Why not the others:** A, DAD has nothing to do with finding routers; that's RS and RA. C is the opposite: a duplicate would *answer* with a Neighbor Advertisement. D, DAD doesn't involve DHCPv6.
+</details>
+
 ---
 
 <a name="chapter-14"></a>
@@ -4982,6 +5456,32 @@ A **switch** moves data **inside** one network. A **router** moves data **betwee
 A router sits between two different networks — say `192.168.1.0/24` on one side
 and `10.0.0.0/24` on the other — with an interface in each. It's the only device
 that knows how to reach **both**, so anything crossing between them goes through it.
+
+**📝 Exam-style questions — 14.1**
+
+**Q1.** Which device forwards packets between different IP networks and stops broadcasts from crossing between them?
+
+- **A.** Hub
+- **B.** Layer 2 switch
+- **C.** Router
+- **D.** Wireless access point
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A router joins different networks, picks a path using the destination IP address, and doesn't forward broadcasts, so every router interface is the edge of a broadcast domain. **Why not the others:** A, a hub just repeats bits out every port. B, a Layer 2 switch moves frames *within* one network (one VLAN) and floods broadcasts to every port in it. D, an AP bridges wireless clients onto the wired LAN; it doesn't route between networks.
+</details>
+
+**Q2.** Which statement about a router's interfaces is true?
+
+- **A.** All of a router's interfaces must be in the same IP subnet.
+- **B.** Each router interface connects to a different IP subnet.
+- **C.** Routers forward broadcasts out every interface by default.
+- **D.** Routers forward packets based on the destination MAC address.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A router's whole job is to sit *between* networks, so each interface is in its own subnet (IOS even refuses an address that overlaps another interface's subnet). **Why not the others:** A is the opposite of what a router is for. C, routers deliberately *stop* broadcasts. D, routers forward on the destination *IP* address; the MAC address only gets a frame to the router across one link.
+</details>
 
 ## 14.2 The Routing Table
 
@@ -5002,6 +5502,55 @@ O   192.168.5.0/24 [110/2] via 10.0.0.2
 - **O** = OSPF (learned dynamically).
 - **D** = EIGRP. **R** = RIP. **B** = BGP.
 
+**📝 Exam-style questions — 14.2**
+
+**Q1.** Refer to the exhibit. Which statement is true?
+
+```
+R1# show ip route
+Gateway of last resort is not set
+
+      10.0.0.0/8 is variably subnetted, 2 subnets, 2 masks
+C        10.0.0.0/24 is directly connected, GigabitEthernet0/1
+L        10.0.0.1/32 is directly connected, GigabitEthernet0/1
+S     172.16.0.0/16 [1/0] via 10.0.0.2
+O     192.168.5.0/24 [110/2] via 10.0.0.2, 00:12:44, GigabitEthernet0/1
+```
+
+- **A.** 10.0.0.1/32 is a host on the 10.0.0.0/24 subnet that R1 learned through ARP.
+- **B.** 10.0.0.1/32 is R1's own IP address on GigabitEthernet0/1.
+- **C.** An administrator typed in the route to 192.168.5.0/24.
+- **D.** The route to 172.16.0.0/16 has an administrative distance of 0.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An **L** (local) route is a /32 for the router's own interface address. It tells R1 "packets to this address are for me". **Why not the others:** A, ARP entries live in the ARP table, never in the routing table. C, the code **O** means OSPF learned it; a typed-in route would be **S**. D, the `[1/0]` shows AD 1, the default for a static route; AD 0 is for connected routes.
+</details>
+
+**Q2.** In the route `O 192.168.5.0/24 [110/2] via 10.0.0.2`, what do 110 and 2 mean?
+
+- **A.** 110 is the administrative distance and 2 is the metric.
+- **B.** 110 is the metric and 2 is the administrative distance.
+- **C.** 110 is the OSPF process ID and 2 is the area number.
+- **D.** 110 is the hop count and 2 is the number of equal-cost paths.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The brackets always read `[administrative distance/metric]`. 110 is OSPF's default AD, and 2 is the OSPF cost to reach the network. **Why not the others:** B has them backwards. C, the process ID and area never appear in the brackets. D, OSPF doesn't count hops, and equal-cost paths show as extra `via` lines, not a number in the brackets.
+</details>
+
+**Q3.** Which code letter marks a route learned through EIGRP in `show ip route`?
+
+- **A.** E
+- **B.** D
+- **C.** B
+- **D.** R
+
+<details><summary>Answer</summary>
+
+**Answer: B.** EIGRP routes show as **D** (think "DUAL", EIGRP's algorithm) and EIGRP externals as **D EX**. **Why not the others:** A, E was used for the old EGP protocol, so EIGRP had to take a different letter. C, B is BGP. D, R is RIP.
+</details>
+
 ## 14.3 How a Router Decides: Longest Prefix Match
 
 If two routes could match a destination, the router picks the **most specific** one — the one with the **longest prefix** (biggest /number).
@@ -5013,6 +5562,273 @@ If two routes could match a destination, the router picks the **most specific** 
 **Story Time 📖:** It's like directions. "Go to California" vs. "Go to 123 Maple St, San Diego, CA." The **more specific** address gets you exactly where you need to go, so the router prefers it.
 
 **Why does "most specific" win — why is that the right rule?** Because a longer prefix means the route is describing a **smaller, more exact group of addresses**, which almost always means someone configured it *deliberately* for that specific destination. Think about the directions analogy again: "Go to California" (a /16, broad) and "Go to 123 Maple St, San Diego" (a /24, exact) might *both* technically be correct — but the exact one reflects real, specific knowledge of where you're going. The broad route is a fallback for "everything in this general area," while the specific route is "I know *exactly* where this one goes." A router honoring the most specific match means it uses the **most precise information available** and only falls back to broader routes when it has nothing better. *The ultimate example is the default route (0.0.0.0/0) — the least specific route possible ("everywhere else") — which only wins when literally nothing else matches.* That's why longest-prefix-match and default routes work together so cleanly.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Longest prefix match: four packets, four different exits",
+  "caption": "R1 has four routes that overlap. Press **Next** to send packets and see which line of the routing table catches each one.",
+  "nodes": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 0,
+      "y": 1.65,
+      "sub": "192.168.1.10"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.7,
+      "y": 1.65,
+      "sub": "the decision"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 4,
+      "y": 0,
+      "sub": "172.16.1.1"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 4,
+      "y": 1.1,
+      "sub": "172.16.2.2"
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 4,
+      "y": 2.2,
+      "sub": "172.16.3.3"
+    },
+    {
+      "id": "ISP",
+      "kind": "cloud",
+      "x": 4,
+      "y": 3.3,
+      "sub": "203.0.113.1"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "10.0.0.0/8"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "label": "10.1.0.0/16"
+    },
+    {
+      "a": "R1",
+      "b": "R4",
+      "label": "10.1.1.0/24"
+    },
+    {
+      "a": "R1",
+      "b": "ISP",
+      "label": "0.0.0.0/0"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Four routes that overlap",
+      "text": "R1's table holds `10.0.0.0/8` via R2, `10.1.0.0/16` via R3, `10.1.1.0/24` via R4 and a default `0.0.0.0/0` via the ISP. They overlap: every 10.1.1.x address is inside all four. That's normal. The rule that settles it is **the longest matching prefix wins**.",
+      "focus": [
+        "R1"
+      ]
+    },
+    {
+      "title": "2. To 10.1.1.77: /24 wins",
+      "text": "10.1.1.77 matches **all four** routes. The longest prefix is **/24**, the most specific knowledge R1 has, so the packet goes to **R4**.",
+      "nodes": {
+        "R4": {
+          "badge": "/24 wins",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R4": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1",
+            "R4"
+          ],
+          "label": "to 10.1.1.77"
+        }
+      ]
+    },
+    {
+      "title": "3. To 10.1.200.1: /16 wins",
+      "text": "10.1.200.1 isn't in 10.1.1.0/24 (that only runs to 10.1.1.255). It matches /16, /8 and /0, and **/16** is the longest, so it goes to **R3**.",
+      "nodes": {
+        "R4": null,
+        "R3": {
+          "badge": "/16 wins",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R4": null,
+        "R1-R3": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1",
+            "R3"
+          ],
+          "label": "to 10.1.200.1"
+        }
+      ]
+    },
+    {
+      "title": "4. To 10.9.9.9: /8 wins",
+      "text": "Only `10.0.0.0/8` and the default match. **/8** beats **/0**, so the packet goes to **R2**.",
+      "nodes": {
+        "R3": null,
+        "R2": {
+          "badge": "/8 wins",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R3": null,
+        "R1-R2": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1",
+            "R2"
+          ],
+          "label": "to 10.9.9.9"
+        }
+      ]
+    },
+    {
+      "title": "5. To 8.8.8.8: only the default matches",
+      "text": "Nothing in 10.x matches, so the **default route** (/0, zero bits to match) catches it. The default is the last resort: it only wins when nothing more specific exists.",
+      "nodes": {
+        "R2": null,
+        "ISP": {
+          "badge": "/0 wins",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R2": null,
+        "R1-ISP": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1",
+            "ISP"
+          ],
+          "label": "to 8.8.8.8"
+        }
+      ]
+    },
+    {
+      "title": "6. Take the default away",
+      "text": "Delete the default route and send to 8.8.8.8 again. Now **nothing** matches, so R1 **drops** the packet and sends the PC an ICMP *destination unreachable*. Routers never flood packets they can't place.",
+      "nodes": {
+        "ISP": {
+          "state": "dim"
+        },
+        "R1": {
+          "badge": "drop",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "R1-ISP": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1"
+          ],
+          "label": "to 8.8.8.8",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 14.3**
+
+**Q1.** Refer to the exhibit. R1 receives a packet for 10.1.2.5. Which next hop does it use?
+
+```
+R1# show ip route
+Gateway of last resort is 203.0.113.1 to network 0.0.0.0
+
+S*    0.0.0.0/0 [1/0] via 203.0.113.1
+      10.0.0.0/8 is variably subnetted, 3 subnets, 3 masks
+O        10.0.0.0/8 [110/30] via 172.16.1.1, 00:05:12, GigabitEthernet0/1
+O        10.1.0.0/16 [110/20] via 172.16.2.2, 00:05:12, GigabitEthernet0/2
+O        10.1.1.0/24 [110/10] via 172.16.3.3, 00:05:12, GigabitEthernet0/3
+```
+
+- **A.** 203.0.113.1
+- **B.** 172.16.1.1
+- **C.** 172.16.2.2
+- **D.** 172.16.3.3
+
+<details><summary>Answer</summary>
+
+**Answer: C.** 10.1.2.5 matches 0.0.0.0/0, 10.0.0.0/8 and 10.1.0.0/16. It does *not* match 10.1.1.0/24, which only covers 10.1.1.0–10.1.1.255. Of the matches, /16 is the longest, so the packet goes to 172.16.2.2. **Why not the others:** A, the default route only wins when nothing more specific matches. B, /8 matches but is less specific than /16. D, 10.1.2.5 isn't inside 10.1.1.0/24, so that route doesn't apply however tempting "10.1" looks.
+</details>
+
+**Q2.** Refer to the exhibit. R1 receives a packet for 172.16.10.5. What does it do?
+
+```
+R1# show ip route
+      172.16.0.0/16 is variably subnetted, 2 subnets, 2 masks
+D        172.16.0.0/16 [90/30720] via 10.1.1.2, 00:10:01, GigabitEthernet0/0
+O        172.16.10.0/24 [110/3] via 10.2.2.2, 00:08:44, GigabitEthernet0/1
+```
+
+- **A.** Forwards it to 10.1.1.2, because EIGRP's AD of 90 beats OSPF's 110
+- **B.** Forwards it to 10.2.2.2, because 172.16.10.0/24 is the longest matching prefix
+- **C.** Load-balances it across both next hops
+- **D.** Drops it, because the two routes conflict
+
+<details><summary>Answer</summary>
+
+**Answer: B.** These are two *different* prefixes, so both sit in the table and the router simply picks the longest match: /24 beats /16. **Why not the others:** A, AD only decides between routes to the *exact same* prefix and length. It never overrides longest match. C, load balancing needs equal-cost routes to the same prefix from the same source. D, overlapping routes aren't a conflict; they're normal, and longest match sorts them out.
+</details>
+
+**Q3.** A router has no default route. A packet arrives for 192.0.2.50, and no route in the table matches it. What happens?
+
+- **A.** The router floods the packet out every interface.
+- **B.** The router drops the packet and may send an ICMP Destination Unreachable back to the source.
+- **C.** The router sends the packet out the interface with the lowest metric.
+- **D.** The router sends an ARP request for 192.0.2.50 on every interface.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** No match and no default route means the router has nowhere to send it, so it drops the packet. It normally tells the sender with an ICMP "destination unreachable". **Why not the others:** A, flooding unknown destinations is what a *switch* does with unknown MACs; routers never flood. C, metrics only compare routes that match. D, a router only ARPs for addresses on its directly connected subnets.
+</details>
 
 ## 14.4 Administrative Distance (Who to Trust)
 
@@ -5037,6 +5853,99 @@ If a router learns about the **same** network from **two different sources**, wh
 
 *So AD answers "WHO do I believe?" It's about the credibility of the messenger.* Note this is different from the next concept, which answers "WHICH PATH is best?" — keep them separate!
 
+```diagram
+{
+  "type": "compare",
+  "title": "Same prefix, four sources: who does R1 believe?",
+  "prompt": "R1 has heard about **172.16.50.0/24** four ways. Lowest administrative distance goes in the routing table; the metric doesn't matter here, because metrics from different protocols can't be compared. Try setting EIGRP's AD to **255** (untrusted, never used) to act out EIGRP failing, or the static route's AD to **1** to make it beat everything.",
+  "winner": "Installed route",
+  "fields": [
+    {
+      "id": "ad",
+      "label": "Administrative distance",
+      "kind": "number",
+      "rule": "lowest",
+      "ineligible": 255
+    },
+    {
+      "id": "metric",
+      "label": "Metric (not compared)",
+      "kind": "number",
+      "rule": "context"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "EIGRP via 10.0.1.2",
+      "values": {
+        "ad": 90,
+        "metric": 3072
+      }
+    },
+    {
+      "label": "OSPF via 10.0.2.2",
+      "values": {
+        "ad": 110,
+        "metric": 20
+      }
+    },
+    {
+      "label": "RIP via 10.0.3.2",
+      "values": {
+        "ad": 120,
+        "metric": 1
+      }
+    },
+    {
+      "label": "Floating static via 10.0.4.2",
+      "values": {
+        "ad": 200,
+        "metric": 0
+      }
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 14.4**
+
+**Q1.** R1 learns 10.5.0.0/24 from EIGRP (internal), OSPF and RIP at the same time. Which route goes into the routing table?
+
+- **A.** The OSPF route
+- **B.** The EIGRP route
+- **C.** The RIP route
+- **D.** All three, load-balanced
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Same prefix, different sources, so administrative distance decides, and lowest wins: internal EIGRP 90, OSPF 110, RIP 120. **Why not the others:** A and C lose on AD; they stay in their own protocol's database as backups but aren't installed. D, IOS never load-balances across different routing protocols; one source wins.
+</details>
+
+**Q2.** Which two default administrative distances are correct on a Cisco router? (Choose two.)
+
+- **A.** OSPF: 110
+- **B.** eBGP: 20
+- **C.** RIP: 100
+- **D.** Internal EIGRP: 170
+- **E.** Static route: 0
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** OSPF is 110, and external BGP is 20, which makes routes learned from another AS more trusted than any IGP's (iBGP is 200). **Why not the others:** C, RIP is 120. D, internal EIGRP is 90; 170 is *external* EIGRP (routes redistributed into EIGRP). E, a static route is 1; only connected routes are 0.
+</details>
+
+**Q3.** What happens to a route whose administrative distance is 255?
+
+- **A.** It is preferred over every other route.
+- **B.** It is installed only if no connected route exists.
+- **C.** It is never installed in the routing table.
+- **D.** It is used only for load balancing.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** AD 255 means "I don't believe this source at all", so the router never installs the route. **Why not the others:** A, lower AD is preferred, so 255 is the *least* trusted value possible. B and D describe behaviour that AD 255 doesn't have; such a route can never enter the table at all.
+</details>
+
 ## 14.5 Metric (Which Path Within One Protocol)
 
 If one routing protocol knows **two paths** to the same place, it uses a **metric** to pick the best. Each protocol measures differently:
@@ -5052,6 +5961,44 @@ If one routing protocol knows **two paths** to the same place, it uses a **metri
 *Think of planning a trip:* **AD** is choosing *which navigation app* to trust (the reliable one vs. the flaky one). **Metric** is that chosen app then picking the *best route* among several it found. You pick the app first, then the app picks the road. You never compare a road from one app against the trust-level of another app — different questions, done in sequence.
 
 **Why do different protocols use different metrics?** Because they were designed with different levels of "smart." **RIP** just counts routers (hops) — simple, but dumb: it would happily pick a 1-hop path over a slow modem instead of a 2-hop path over gigabit fiber, because it only counts hops, not speed! **OSPF** fixed this by measuring **bandwidth** (cost), so it prefers faster links even if they have more hops. **EIGRP** goes further, blending bandwidth *and* delay. *So the metric a protocol uses tells you how cleverly it judges "best" — and it's a big reason OSPF and EIGRP are preferred over old RIP.*
+
+**📝 Exam-style questions — 14.5**
+
+**Q1.** R1 learns 10.9.9.0/24 from OSPF with a cost of 30, and from RIP with a hop count of 1. Which route does R1 install?
+
+- **A.** The RIP route, because 1 is lower than 30
+- **B.** The OSPF route, because OSPF's administrative distance is lower
+- **C.** Both, because the metrics can't be compared
+- **D.** Neither, because the metrics conflict
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Two different protocols means AD decides first: OSPF 110 beats RIP 120. Metric is never compared across protocols. A hop count and an OSPF cost measure completely different things. **Why not the others:** A compares a RIP hop count with an OSPF cost, which is apples to oranges. C, it's true that the metrics can't be compared, but that's exactly why AD picks *one*. D, nothing conflicts; AD settles it.
+</details>
+
+**Q2.** RIP knows two paths to a network: one hop over a 1.544 Mbps T1, or two hops over 1 Gbps links. Which path does RIP choose?
+
+- **A.** The two-hop gigabit path, because it's faster
+- **B.** The one-hop T1 path, because it has fewer hops
+- **C.** Both paths equally
+- **D.** Whichever path it learned first
+
+<details><summary>Answer</summary>
+
+**Answer: B.** RIP's metric is hop count only, so one hop beats two even though that hop is about 650 times slower. That's the weakness OSPF's bandwidth-based cost fixes. **Why not the others:** A is what OSPF would choose, not RIP. C, RIP only load-balances paths with *equal* hop counts. D, RIP picks by metric, not by arrival order.
+</details>
+
+**Q3.** OSPF finds two paths to 10.20.0.0/24, each with a total cost of 20. What does the router do by default?
+
+- **A.** Installs only the path through the neighbor with the highest router ID
+- **B.** Installs both and load-balances across them
+- **C.** Installs neither until one path's cost changes
+- **D.** Installs the path it learned first and keeps the other as a backup only
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Equal-cost paths from the same protocol all go into the table (ECMP), and traffic is shared across them. OSPF on IOS installs up to four by default. You'd see two `via` lines under the one route. **Why not the others:** A, router ID breaks ties in elections, not in path selection. C, a tie isn't an error. D, keeping only one is what happens when costs *differ*.
+</details>
 
 ## 14.6 The Router's Boot Process & Interfaces
 
@@ -5074,6 +6021,52 @@ Gi0/1       10.0.0.1      YES manual up      up
 ```
 
 "up / up" means the cable is good (Layer 1) **and** the protocol is working (Layer 2). "administratively down" means someone forgot `no shutdown`.
+
+**📝 Exam-style questions — 14.6**
+
+**Q1.** Refer to the exhibit. Users on the LAN connected to Gi0/2 can't reach anything. What fixes the problem?
+
+```
+R1# show ip interface brief
+Interface              IP-Address      OK? Method Status                Protocol
+GigabitEthernet0/0     192.168.1.1     YES manual up                    up
+GigabitEthernet0/1     10.0.0.1        YES manual up                    up
+GigabitEthernet0/2     172.16.0.1      YES manual administratively down down
+```
+
+- **A.** Replace the cable on Gi0/2
+- **B.** Enter `no shutdown` on Gi0/2
+- **C.** Re-enter the IP address on Gi0/2
+- **D.** Configure `clock rate` on Gi0/2
+
+<details><summary>Answer</summary>
+
+**Answer: B.** "administratively down" means the interface is shut down in the config. Router interfaces start that way, so someone forgot `no shutdown`. **Why not the others:** A, a bad or missing cable shows `down down`, not "administratively down". C, the address is already there. D, `clock rate` is for the DCE end of a serial link, not Ethernet.
+</details>
+
+**Q2.** An interface shows Status `up` and Protocol `down`. What does this most likely mean?
+
+- **A.** The cable is unplugged.
+- **B.** The interface has been shut down by an administrator.
+- **C.** Layer 1 is working, but there's a Layer 2 problem such as an encapsulation mismatch.
+- **D.** The interface is fully working.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Status is Layer 1 (a signal is there) and Protocol is Layer 2 (the data link protocol is working). Up/down means the wire is fine but the two ends can't agree, for example HDLC on one end of a serial link and PPP on the other. **Why not the others:** A would show down/down. B would show administratively down/down. D needs up/up.
+</details>
+
+**Q3.** In what order does a Cisco router start up?
+
+- **A.** Load the startup configuration, run POST, load IOS
+- **B.** Run POST, load the startup configuration, load IOS
+- **C.** Run POST, load IOS, load the startup configuration
+- **D.** Load IOS, run POST, load the startup configuration
+
+<details><summary>Answer</summary>
+
+**Answer: C.** First the hardware checks itself (POST, the power-on self-test). Then the bootstrap finds and loads IOS, and IOS applies the startup configuration from NVRAM. **Why not the others:** A and D load software before the hardware has been tested. B loads the config before IOS, but the config is a list of IOS commands, so IOS has to be running first to read it.
+</details>
 
 ---
 
@@ -5135,6 +6128,55 @@ Routers in the same **HSRP group** exchange hello messages (every 3 seconds by d
 
 If hellos stop arriving for the **hold time** (10 seconds by default), the standby declares the active router dead and takes over.
 
+```diagram
+{
+  "type": "compare",
+  "title": "Which router becomes HSRP active?",
+  "prompt": "Three routers share HSRP group 1 on the 192.168.1.0/24 LAN. Highest priority wins; a tie goes to the highest interface IP. Only one is active and one standby; any others just listen. Try giving R2 priority 110 to tie with R1, and watch the IP address decide. (Remember: a router only takes over from a running active router if it has `preempt`.)",
+  "places": [
+    "Active",
+    "Standby"
+  ],
+  "fields": [
+    {
+      "id": "prio",
+      "label": "HSRP priority",
+      "kind": "number",
+      "rule": "highest"
+    },
+    {
+      "id": "ip",
+      "label": "Interface IP",
+      "kind": "ip",
+      "rule": "highest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "R1",
+      "values": {
+        "prio": 110,
+        "ip": "192.168.1.2"
+      }
+    },
+    {
+      "label": "R2",
+      "values": {
+        "prio": 100,
+        "ip": "192.168.1.3"
+      }
+    },
+    {
+      "label": "R3",
+      "values": {
+        "prio": 100,
+        "ip": "192.168.1.4"
+      }
+    }
+  ]
+}
+```
+
 ### Configuring HSRP
 
 ```
@@ -5164,6 +6206,57 @@ R1# show standby             ! full detail: timers, virtual MAC, state changes
 
 Read that output as a sentence: *group 1, priority 110, P = preempt enabled, this router is **Active**, the standby is at .3, and together they present 192.168.1.1 to the world.*
 
+**📝 Exam-style questions — 14.7**
+
+**Q1.** R1 (HSRP priority 110, **no** `preempt`) is active and R2 (priority 100, `preempt` configured) is standby. R1 reloads, R2 becomes active, and then R1 comes back up. What happens?
+
+- **A.** R1 becomes active again straight away, because it has the higher priority.
+- **B.** R2 stays active and R1 becomes standby.
+- **C.** Both routers become active.
+- **D.** R1 becomes active, because R2's `preempt` makes it step down.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Taking the role back requires `preempt` on the router that *wants* the role, here R1, the higher-priority one. R1 has no preempt, so it waits as standby while R2 keeps forwarding. **Why not the others:** A only happens if R1 has `preempt`. C, HSRP elects exactly one active router per group. D, preempt lets a router *take* the active role when it has better priority; it never makes a router hand the role over.
+</details>
+
+**Q2.** Which virtual MAC address does HSRP version 1 use for group 1?
+
+- **A.** `0000.0c07.ac01`
+- **B.** `0000.5e00.0101`
+- **C.** `0007.b400.0101`
+- **D.** `0000.0c9f.f001`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** HSRPv1 uses `0000.0c07.acXX`, where XX is the group number in hex. Group 1 gives `ac01`. **Why not the others:** B is VRRP's format (`0000.5e00.01XX`). C is GLBP's format (`0007.b400.XXYY`). D is HSRP *version 2*'s format (`0000.0c9f.fXXX`).
+</details>
+
+**Q3.** Which two statements about first hop redundancy protocols are true? (Choose two.)
+
+- **A.** VRRP is an open standard.
+- **B.** GLBP can load-balance by giving different hosts different virtual MAC addresses.
+- **C.** HSRP calls its roles Master and Backup.
+- **D.** HSRP's default hold time is 3 seconds.
+- **E.** VRRP is Cisco proprietary.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** VRRP is the vendor-neutral standard. GLBP's active virtual gateway answers ARP requests with different virtual MACs, so different hosts send to different routers at the same time. **Why not the others:** C, Master/Backup are VRRP's names; HSRP uses Active/Standby. D, 3 seconds is HSRP's *hello* time; the hold time is 10 seconds. E, it's the other way round: HSRP and GLBP are Cisco's, VRRP is the standard.
+</details>
+
+**Q4.** R1 (192.168.1.2) and R2 (192.168.1.3) are in HSRP group 10, both at the default priority, and both start at the same time. Which router becomes active?
+
+- **A.** R1, because it has the lower IP address
+- **B.** R2, because it has the higher IP address
+- **C.** R1, because it was configured first
+- **D.** Neither, because a tie stops the election
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Equal priority (100), so the tie-breaker is the highest interface IP address: 192.168.1.3 wins. **Why not the others:** A has the tie-breaker backwards. C, the order you typed the config in doesn't matter. D, the IP tie-breaker means there's always a winner, because two interfaces can't share an address.
+</details>
+
 ---
 
 ## 14.8 A Day in the Life of a Packet — Everything, End to End
@@ -5185,6 +6278,221 @@ The path, end to end:
 
 PC-A connects to a switch, which uplinks to R1; R1 links to R2; R2 reaches the
 server's network.
+
+```diagram
+{
+  "type": "topology",
+  "title": "One packet, two routers: what changes and what doesn't",
+  "caption": "The same addresses as the table above. Press **Next** to walk PC-A's packet to the server and watch the frame get rebuilt at every router.",
+  "nodes": [
+    {
+      "id": "PCA",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "PC-A",
+      "sub": "192.168.1.10"
+    },
+    {
+      "id": "SW",
+      "kind": "switch",
+      "x": 1.4,
+      "y": 0,
+      "label": "SW1"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2.8,
+      "y": 0,
+      "sub": "bbbb.2222"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.8,
+      "y": 1.5,
+      "sub": "cccc.3333"
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 4.2,
+      "y": 1.5,
+      "label": "Server",
+      "sub": "10.0.0.50"
+    }
+  ],
+  "links": [
+    {
+      "a": "PCA",
+      "b": "SW"
+    },
+    {
+      "a": "SW",
+      "b": "R1",
+      "bLabel": ".1"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "10.1.1.0/24"
+    },
+    {
+      "a": "R2",
+      "b": "SRV",
+      "aLabel": ".1"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Local or remote?",
+      "text": "PC-A ANDs both addresses with its mask: `192.168.1.0` is its network, `10.0.0.0` isn't. So the packet must go to the **default gateway**, 192.168.1.1 (R1). PC-A never ARPs for the server; nobody on this LAN could answer.",
+      "focus": [
+        "PCA"
+      ],
+      "nodes": {
+        "PCA": {
+          "badge": "remote",
+          "tone": "warn"
+        }
+      }
+    },
+    {
+      "title": "2. ARP for the gateway",
+      "text": "PC-A needs R1's **MAC**, so it broadcasts *who has 192.168.1.1?* The switch floods the broadcast (and learns PC-A's MAC on that port).",
+      "nodes": {
+        "PCA": null
+      },
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "SW",
+            "R1"
+          ],
+          "label": "ARP: who has .1?",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. R1 answers",
+      "text": "R1 replies with **bbbb.2222**, sent straight back to PC-A. PC-A caches it, so the next packet skips this step.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "SW",
+            "PCA"
+          ],
+          "label": "ARP: .1 is bbbb.2222",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. The frame leaves PC-A",
+      "text": "Destination **MAC** = R1 (`bbbb.2222`), destination **IP** = the server (`10.0.0.50`), TTL 64. Layer 2 says *next hop*, Layer 3 says *final destination*. The switch reads only the MAC and never looks at the IP.",
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "SW",
+            "R1"
+          ],
+          "label": "MAC bbbb.2222 TTL 64"
+        }
+      ]
+    },
+    {
+      "title": "5. R1 routes and rebuilds",
+      "text": "R1 strips the Ethernet header, finds `10.0.0.0/24` via 10.1.1.2 by **longest prefix match**, drops the TTL to **63**, recomputes the IP checksum, and builds a **new** frame: destination MAC R2 (`cccc.3333`), source MAC R1's outgoing interface. The IP addresses don't change.",
+      "nodes": {
+        "R1": {
+          "badge": "TTL 64→63",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "MAC cccc.3333 TTL 63"
+        }
+      ]
+    },
+    {
+      "title": "6. R2 is directly connected",
+      "text": "`10.0.0.0/24` is R2's own connected network, so this time the next hop is the server itself. R2 ARPs for **10.0.0.50** and learns `dddd.4444`.",
+      "nodes": {
+        "R1": null,
+        "R2": {
+          "badge": "connected",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "SRV"
+          ],
+          "label": "ARP: who has .50?",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "7. Delivered",
+      "text": "R2 drops the TTL to **62** and builds the last frame to `dddd.4444`. Across three links the packet wore three different Ethernet headers, but the source and destination IPs never changed.",
+      "nodes": {
+        "R2": {
+          "badge": "TTL 63→62",
+          "tone": "accent"
+        },
+        "SRV": {
+          "badge": "received",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "SRV"
+          ],
+          "label": "MAC dddd.4444 TTL 62",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "8. The reply is a new journey",
+      "text": "The server does its own local-or-remote check, sends to *its* gateway (R2), and each router routes the reply independently. If R2 had no route back to 192.168.1.0/24, the request would arrive and the reply would die: *I can reach it, but it can't reach me.*",
+      "nodes": {
+        "R2": null,
+        "SRV": null
+      },
+      "packets": [
+        {
+          "path": [
+            "SRV",
+            "R2",
+            "R1",
+            "SW",
+            "PCA"
+          ],
+          "label": "reply",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ### Step 1 — "Is this local?" (PC-A does the math)
 
@@ -5264,6 +6572,57 @@ The server replies — and **none of the outbound decisions are reused.** It run
 
 **When something is broken, walk these steps in order.** Nearly every fault is one of them failing: wrong mask (step 1), no ARP reply (step 2), wrong VLAN (step 4), missing route (step 5), or no return route (step 7).
 
+**📝 Exam-style questions — 14.8**
+
+**Q1.** PC1 (192.168.10.10) sends a packet to a server at 172.16.5.20. The path is PC1 → R1 → R2 → server. Which addresses does the packet carry on the link between R1 and R2?
+
+- **A.** Source IP 192.168.10.10, destination IP 172.16.5.20; source MAC is R1's outgoing interface, destination MAC is R2's incoming interface.
+- **B.** Source IP is R1's outgoing interface, destination IP is R2's incoming interface; source MAC is R1, destination MAC is R2.
+- **C.** Source IP 192.168.10.10, destination IP 172.16.5.20; source MAC is PC1, destination MAC is the server.
+- **D.** Source IP 192.168.10.10, destination IP 172.16.5.20; source MAC is PC1, destination MAC is R2's incoming interface.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The IP addresses stay end to end (no NAT here). The MAC addresses describe only the current link, so R1 builds a new frame from its own interface to R2's. **Why not the others:** B, routers don't change the IP addresses of packets they forward. C, the server's MAC means nothing outside its own LAN; PC1 never even learns it. D, PC1's MAC was dropped when R1 threw away the old Ethernet header.
+</details>
+
+**Q2.** PC1 (192.168.10.10/24, gateway 192.168.10.1) needs to send a packet to 172.16.5.20 and has an empty ARP cache. Which address does PC1 send an ARP request for?
+
+- **A.** 172.16.5.20
+- **B.** 192.168.10.1
+- **C.** 192.168.10.255
+- **D.** None; PC1 sends the packet to the broadcast MAC address
+
+<details><summary>Answer</summary>
+
+**Answer: B.** 172.16.5.20 isn't on PC1's subnet, so the frame must go to the default gateway, and PC1 needs the gateway's MAC. **Why not the others:** A, nobody on PC1's LAN owns 172.16.5.20, so that ARP would get no answer. C is the subnet's broadcast address, not a device. D, normal unicast data is never sent to the broadcast MAC; only the ARP request itself is broadcast.
+</details>
+
+**Q3.** A packet arrives at a router with a TTL of 1. The routing table has a route for its destination through another router. What happens?
+
+- **A.** The router forwards it with a TTL of 1.
+- **B.** The router forwards it with a TTL of 0, and the next router drops it.
+- **C.** The router decrements the TTL to 0, drops the packet and sends an ICMP Time Exceeded message to the source.
+- **D.** The router resets the TTL to 64 and forwards it.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Every router decrements the TTL. When it reaches 0, the packet is dropped and the sender gets an ICMP Time Exceeded. That's the loop protection, and the trick traceroute is built on. **Why not the others:** A, the router must decrement. B, a router never forwards a packet with a TTL of 0. D, only the original sender sets the starting TTL.
+</details>
+
+**Q4.** A router forwards an IPv4 packet from one Ethernet LAN to another. NAT is not configured. Which two fields does it change? (Choose two.)
+
+- **A.** Source MAC address
+- **B.** Destination IP address
+- **C.** TTL
+- **D.** Source IP address
+- **E.** TCP destination port
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** The router builds a new Ethernet header, so the source MAC (and destination MAC) change, and it decrements the TTL (recomputing the header checksum). **Why not the others:** B and D, the IP addresses stay the same end to end unless NAT rewrites them. E, a router doesn't touch Layer 4 ports either, unless it's doing PAT.
+</details>
+
 ---
 
 <a name="chapter-15"></a>
@@ -5275,6 +6634,32 @@ A **static route** is a path you **type in by hand**. You're telling the router:
 
 **Story Time 📖:** A static route is like writing directions on a sticky note: "To get to Grandma's, turn left at the big oak tree." It works great — until they cut down the tree and nobody updates your note. That's the downside: static routes don't adjust automatically.
 
+**📝 Exam-style questions — 15.1**
+
+**Q1.** What is the main drawback of static routes?
+
+- **A.** They use a lot of bandwidth sending updates.
+- **B.** They don't adapt on their own when the network changes.
+- **C.** They have a higher administrative distance than OSPF.
+- **D.** They can only point to a next-hop IP address, never to an interface.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A static route is the sticky note from the Story Time: it says the same thing until a human changes it. If a link fails or a new subnet appears, the router won't work around it. **Why not the others:** A, static routes send no updates at all, which is one of their advantages. C, a static route's AD is 1, *lower* (more trusted) than OSPF's 110. D, a static route can point to a next hop, an exit interface, or both.
+</details>
+
+**Q2.** An engineer configures `ip route 10.0.0.0 255.255.255.0 192.168.1.2`. How does the route appear in `show ip route`?
+
+- **A.** `S 10.0.0.0/24 [1/0] via 192.168.1.2`
+- **B.** `S 10.0.0.0/24 [0/1] via 192.168.1.2`
+- **C.** `C 10.0.0.0/24 [1/0] via 192.168.1.2`
+- **D.** `S 10.0.0.0/24 [110/1] via 192.168.1.2`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Static routes are coded **S**, and the brackets read `[AD/metric]`: a static route has AD 1 and metric 0. **Why not the others:** B has the AD and metric swapped. C, **C** is for connected networks, which never have a `via` next hop. D, 110 is OSPF's AD; a static route keeps AD 1 unless you set another value.
+</details>
+
 ## 15.2 When to Use Static Routes
 
 - **Small networks** with few paths.
@@ -5283,6 +6668,33 @@ A **static route** is a path you **type in by hand**. You're telling the router:
 - When you want **total control**.
 
 Downsides: lots of manual work and no automatic healing if a link fails.
+
+**📝 Exam-style questions — 15.2**
+
+**Q1.** In which situation are static routes the best fit?
+
+- **A.** A branch office with a single WAN link to headquarters
+- **B.** A large campus with many redundant paths between buildings
+- **C.** A network where subnets are added and removed every week
+- **D.** Two hundred routers connected in a full mesh
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A stub network has only one way in and out, so there's nothing for a routing protocol to choose between. One default route at the branch does the whole job. **Why not the others:** B, redundant paths need a protocol that can reroute around failures on its own. C, constant change means constant manual edits, exactly what static routing is bad at. D, hand-writing routes for 200 routers would be a huge amount of work and very error-prone.
+</details>
+
+**Q2.** Which two are advantages of static routing over a dynamic routing protocol? (Choose two.)
+
+- **A.** No routing protocol traffic and no extra CPU for route calculations
+- **B.** The administrator controls exactly which path is used
+- **C.** It reroutes around failures automatically
+- **D.** It scales easily to large networks
+- **E.** New subnets are learned automatically
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Static routes cost nothing to run: no hellos, no updates, no SPF calculations. They're also completely predictable, because the path is whatever you typed. **Why not the others:** C, E and D are the strengths of *dynamic* routing. A static route never discovers anything new, and it only "fails over" if you plan a floating backup yourself (15.5).
+</details>
 
 ## 15.3 Configuring a Static Route
 
@@ -5302,6 +6714,184 @@ You can also point out an **exit interface** instead of a next hop:
 R1(config)# ip route 10.0.0.0 255.255.255.0 gi0/1
 ```
 
+```diagram
+{
+  "type": "topology",
+  "title": "A static route needs a route back",
+  "caption": "R1 and R2 share the link 10.0.12.0/30 (R1 is .1, R2 is .2). Press **Next**. Each router starts with only its connected networks. Watch where the ping dies, and why it takes **two** static routes to fix it.",
+  "nodes": [
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "sub": "192.168.1.10"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.5,
+      "y": 0,
+      "sub": "192.168.1.1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 3,
+      "y": 0,
+      "sub": "172.16.20.1"
+    },
+    {
+      "id": "PC2",
+      "kind": "host",
+      "x": 4.5,
+      "y": 0,
+      "sub": "172.16.20.10"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC1",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "aLabel": ".1",
+      "bLabel": ".2"
+    },
+    {
+      "a": "R2",
+      "b": "PC2"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Connected routes only",
+      "text": "R1 knows `192.168.1.0/24` and `10.0.12.0/30`, nothing more. PC1 pings PC2; R1 has no route for 172.16.20.10 and no default, so it **drops** the packet.",
+      "nodes": {
+        "R1": {
+          "badge": "no route",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "R1"
+          ],
+          "label": "ping 172.16.20.10",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "2. Add a route on R1",
+      "text": "`R1(config)# ip route 172.16.20.0 255.255.255.0 10.0.12.2`. Now R1 forwards to R2, and R2 delivers it on its connected LAN. The request **arrives**.",
+      "nodes": {
+        "R1": {
+          "badge": "S 172.16.20.0",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "R1",
+            "R2",
+            "PC2"
+          ],
+          "label": "echo request",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. …but the reply dies",
+      "text": "PC2 replies to **192.168.1.10**. R2 only knows its connected networks, so it has no route to 192.168.1.0/24 and drops the reply. From PC1, the ping just times out, even though half the path works. Routing is decided **one direction at a time**.",
+      "nodes": {
+        "R2": {
+          "badge": "no route",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC2",
+            "R2"
+          ],
+          "label": "echo reply",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. Add the return route on R2",
+      "text": "`R2(config)# ip route 192.168.1.0 255.255.255.0 10.0.12.1`. Now the reply has a path home, and the ping succeeds. **Every static route needs a partner going the other way.**",
+      "nodes": {
+        "R2": {
+          "badge": "S 192.168.1.0",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC2",
+            "R2",
+            "R1",
+            "PC1"
+          ],
+          "label": "echo reply",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 15.3**
+
+**Q1.** R1's Gi0/1 is 10.0.12.1/30 and connects to R2's Gi0/0, 10.0.12.2/30. R2's LAN is 172.16.20.0/24. Which command on R1 creates a working static route to that LAN?
+
+- **A.** `ip route 172.16.20.0 255.255.255.0 10.0.12.2`
+- **B.** `ip route 172.16.20.0 0.0.0.255 10.0.12.2`
+- **C.** `ip route 172.16.20.0 255.255.255.0 10.0.12.1`
+- **D.** `ip route 10.0.12.2 255.255.255.0 172.16.20.0`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The format is destination network, subnet mask, then the next hop, which is the *neighbor's* address on the shared link. **Why not the others:** B uses a wildcard mask; `ip route` needs a subnet mask. C points at R1's own address, so the packet would never leave R1. D has the destination and next hop swapped.
+</details>
+
+**Q2.** R1 has a static route to R2's LAN, 172.16.20.0/24. R2 has only its connected routes. A PC on R1's LAN (192.168.1.0/24) pings a PC on R2's LAN, and the ping fails. What is the most likely cause?
+
+- **A.** R1's static route needs an exit interface as well as a next hop.
+- **B.** R2 has no route back to 192.168.1.0/24, so the replies are dropped.
+- **C.** Static routes don't work for ICMP.
+- **D.** R2 needs `ip routing` enabled.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The echo request reaches R2's LAN, but the reply is addressed to 192.168.1.x, and R2 has no idea where that is. Routing works one direction at a time, so every static route needs a matching route on the way back. **Why not the others:** A, a next hop alone is enough. C, static routes forward any IP packet. D, `ip routing` is on by default on routers, and R2 is already forwarding its connected networks.
+</details>
+
+**Q3.** An engineer configures `ip route 10.0.0.0 255.255.255.0 GigabitEthernet0/1` on an Ethernet interface, with no next-hop address. Which statement is true?
+
+- **A.** The route shows as `S 10.0.0.0/24 is directly connected, GigabitEthernet0/1`, and the router ARPs for each destination, relying on the next router to answer with proxy ARP.
+- **B.** The route has an administrative distance of 0, the same as a connected network.
+- **C.** IOS rejects the command, because Ethernet routes need a next hop.
+- **D.** The router ignores the route until a next hop is learned by OSPF.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Without a next hop, the router treats every destination in 10.0.0.0/24 as if it were on the wire, and ARPs for each one. That only works if the neighbor answers with proxy ARP. That's why, on Ethernet, it's better to give a next hop (or both an interface and a next hop, a "fully specified" route). **Why not the others:** B, it still has AD 1; "directly connected" in the output doesn't make it a connected route. C, IOS accepts it. D, static routes never wait on OSPF.
+</details>
+
 ## 15.4 The Default Route (The "Everywhere Else" Route)
 
 A **default route** matches **any** destination the router doesn't otherwise know. It's how routers say "if you don't know where it goes, send it this way (usually toward the internet)." Written as `0.0.0.0 0.0.0.0` (means "all networks"):
@@ -5313,6 +6903,112 @@ R1(config)# ip route 0.0.0.0 0.0.0.0 203.0.113.1
 **Story Time 📖:** A default route is like a mail clerk's rule: "Any letter I don't recognize? Just send it to the main post office downtown; they'll figure it out." That "main post office" is your ISP.
 
 **Why does `0.0.0.0 0.0.0.0` mean "everything"? And why is it the LAST resort?** The magic is in the mask: a mask of `0.0.0.0` means "**match zero bits** of the address" — in other words, *don't require any part of the destination to match at all.* So every possible address matches it. That makes it the **shortest prefix possible (/0)** — the least specific route there is. Remember longest-prefix-match from Chapter 14: the router always prefers a more specific route. So the default route naturally sits at the very bottom of the priority list and only gets used when **nothing more specific matches**. *That's exactly the behavior you want:* "use real knowledge when I have it; otherwise, shove it toward the internet and let a bigger router deal with it." Your home router does this constantly — it knows *your* local network specifically, and has a default route pointing everything else (all of the internet) at your ISP. It doesn't need to know where google.com is; it just needs to know "not local → send to ISP."
+
+```diagram
+{
+  "type": "topology",
+  "title": "Where default routes belong: a stub branch",
+  "caption": "Click each router and link to read its routes. The branch has only one way out, so a single default route is all it needs.",
+  "nodes": [
+    {
+      "id": "BrPC",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "Branch PC",
+      "sub": "192.168.50.10",
+      "info": "Its default gateway is the branch router, 192.168.50.1. The PC doesn't route at all; it only decides *local or not*."
+    },
+    {
+      "id": "BR",
+      "kind": "router",
+      "x": 1.5,
+      "y": 0,
+      "label": "Branch",
+      "sub": "stub router",
+      "info": "A **stub**: one link in, one link out. It needs just one static route: `ip route 0.0.0.0 0.0.0.0 10.0.12.1`. Headquarters, the internet, anything not local goes up the WAN link. `show ip route` shows `Gateway of last resort is 10.0.12.1` and an `S*` route."
+    },
+    {
+      "id": "HQ",
+      "kind": "router",
+      "x": 3,
+      "y": 0,
+      "sub": "203.0.113.2",
+      "info": "HQ needs **two** kinds of route. Toward the branch, a specific one: `ip route 192.168.50.0 255.255.255.0 10.0.12.2` (without it, replies to the branch would follow HQ's default to the ISP and be lost). Toward the internet, its own default: `ip route 0.0.0.0 0.0.0.0 203.0.113.1`."
+    },
+    {
+      "id": "ISP",
+      "kind": "cloud",
+      "x": 4.5,
+      "y": 0,
+      "label": "Internet",
+      "sub": "203.0.113.1",
+      "info": "The ISP's router knows the whole internet so HQ doesn't have to. That's the \"main post office downtown\" from the Story Time."
+    }
+  ],
+  "links": [
+    {
+      "a": "BrPC",
+      "b": "BR",
+      "label": "192.168.50.0/24"
+    },
+    {
+      "a": "BR",
+      "b": "HQ",
+      "label": "10.0.12.0/30",
+      "aLabel": ".2",
+      "bLabel": ".1",
+      "info": "The only WAN link. If it fails, the branch is cut off whatever routes exist, which is why a routing protocol would add nothing here."
+    },
+    {
+      "a": "HQ",
+      "b": "ISP",
+      "label": "203.0.113.0/30",
+      "info": "HQ's default route points here. Every destination HQ doesn't know specifically, the whole internet, matches 0.0.0.0/0 and goes this way."
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 15.4**
+
+**Q1.** Which command sends all traffic with no more specific match to the ISP at 203.0.113.1?
+
+- **A.** `ip route 0.0.0.0 0.0.0.0 203.0.113.1`
+- **B.** `ip route 0.0.0.0 255.255.255.255 203.0.113.1`
+- **C.** `ip default-gateway 203.0.113.1`
+- **D.** `ip route 255.255.255.255 0.0.0.0 203.0.113.1`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Network 0.0.0.0 with mask 0.0.0.0 is the /0 route: it matches every address, so it catches anything nothing else matches. **Why not the others:** B is a /32 host route to the single address 0.0.0.0, which matches nothing useful. C, `ip default-gateway` is for devices that *aren't* routing, such as a Layer 2 switch; a router with IP routing on ignores it. D has the network and mask swapped, which isn't a valid route.
+</details>
+
+**Q2.** Refer to the exhibit. Which two statements are true? (Choose two.)
+
+```
+R1# show ip route
+Gateway of last resort is 203.0.113.1 to network 0.0.0.0
+
+S*    0.0.0.0/0 [1/0] via 203.0.113.1
+      192.168.1.0/24 is variably subnetted, 2 subnets, 2 masks
+C        192.168.1.0/24 is directly connected, GigabitEthernet0/0
+L        192.168.1.1/32 is directly connected, GigabitEthernet0/0
+      203.0.113.0/24 is variably subnetted, 2 subnets, 2 masks
+C        203.0.113.0/30 is directly connected, GigabitEthernet0/1
+L        203.0.113.2/32 is directly connected, GigabitEthernet0/1
+```
+
+- **A.** A packet to 8.8.8.8 is forwarded to 203.0.113.1.
+- **B.** A packet to 192.168.1.50 is sent directly out GigabitEthernet0/0.
+- **C.** A packet to 10.1.1.1 is dropped because there is no matching route.
+- **D.** The `*` means this route was learned most recently.
+- **E.** The default route has an administrative distance of 0.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** 8.8.8.8 matches only the default route, so it goes to 203.0.113.1, the gateway of last resort. 192.168.1.50 is on a connected network, a /24 match that beats /0, so R1 delivers it straight onto that LAN. **Why not the others:** C, 10.1.1.1 matches the default route like every other address, so it's forwarded, not dropped. D, the `*` marks a *candidate default* route, not a recent one. E, the brackets show `[1/0]`: AD 1, as for any static route.
+</details>
 
 ## 15.5 Floating Static Route (Backup Path)
 
@@ -5327,6 +7023,218 @@ The backup "floats" unused until the main route disappears — then it drops in 
 
 **Why does raising the AD make it a "backup" — how does that create standby behavior?** Recall AD is the *trust score*, and **lower wins**. Both routes describe the same destination (10.0.0.0/24), so the router must pick one. The main route has AD 1; the backup we deliberately gave AD 5. Since 1 < 5, the router installs **only the main route** and keeps the AD-5 one sitting on the bench, unused. *Here's the clever part:* a static route only stays valid while its path is usable. If the main link goes down, that AD-1 route **disappears** from consideration — and now the AD-5 backup is the *best remaining* option, so the router instantly promotes it into the routing table. When the main link recovers, the AD-1 route returns and wins again, benching the backup once more. *So "floating" is just AD doing its job:* we manufactured a deliberate trust difference so one route automatically yields to the other. It's an elegant failover with no fancy protocol — just clever use of the trust score you already understand. (You could even point the backup out a slower/pricier link, so it's only used in an emergency — exactly why you'd want it dormant normally.)
 
+```diagram
+{
+  "type": "topology",
+  "title": "A floating static route steps in, then steps back",
+  "caption": "Two static routes to 10.0.0.0/24: the main one via R2 (AD 1) and a backup via R3 (AD 5). Press **Next** to fail the main link and bring it back.",
+  "nodes": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 0,
+      "y": 1,
+      "sub": "192.168.10.10"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.4,
+      "y": 1
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.9,
+      "y": 0,
+      "sub": "192.168.1.2"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 2.9,
+      "y": 2,
+      "sub": "192.168.9.2"
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 4.3,
+      "y": 1,
+      "label": "Server",
+      "sub": "10.0.0.50"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "main",
+      "aLabel": "Gi0/1"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "label": "backup",
+      "aLabel": "Gi0/2",
+      "style": "dashed"
+    },
+    {
+      "a": "R2",
+      "b": "SRV"
+    },
+    {
+      "a": "R3",
+      "b": "SRV"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Two routes, one winner",
+      "text": "`ip route 10.0.0.0 255.255.255.0 192.168.1.2` (AD 1) and `ip route 10.0.0.0 255.255.255.0 192.168.9.2 5` (AD 5). Same prefix, so the lower AD is installed. The AD-5 route sits on the bench and doesn't appear in `show ip route`.",
+      "nodes": {
+        "R2": {
+          "badge": "AD 1 in use",
+          "tone": "good"
+        },
+        "R3": {
+          "badge": "AD 5 bench",
+          "tone": "muted"
+        }
+      },
+      "links": {
+        "R1-R2": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1",
+            "R2",
+            "SRV"
+          ],
+          "label": "to 10.0.0.50"
+        }
+      ]
+    },
+    {
+      "title": "2. The main link fails",
+      "text": "Gi0/1 goes **down**. Its next hop, 192.168.1.2, is no longer reachable through a connected network, so R1 removes the AD-1 route from the table.",
+      "nodes": {
+        "R2": {
+          "badge": "route gone",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "R1-R2": "down"
+      }
+    },
+    {
+      "title": "3. The backup floats in",
+      "text": "The AD-5 route is now the best remaining route to 10.0.0.0/24, so R1 installs it, and traffic flows via R3 with no protocol involved. `show ip route` now shows `S 10.0.0.0/24 [5/0] via 192.168.9.2`.",
+      "nodes": {
+        "R3": {
+          "badge": "AD 5 in use",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R3": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1",
+            "R3",
+            "SRV"
+          ],
+          "label": "to 10.0.0.50",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. The main link recovers",
+      "text": "Gi0/1 comes back up, the AD-1 route returns, and it beats AD 5 again. The backup goes back on the bench automatically. One catch: this only works because the *interface* went down. If R2 died behind a switch while Gi0/1 stayed up, R1 would never notice.",
+      "nodes": {
+        "R2": {
+          "badge": "AD 1 in use",
+          "tone": "good"
+        },
+        "R3": {
+          "badge": "AD 5 bench",
+          "tone": "muted"
+        }
+      },
+      "links": {
+        "R1-R2": "active",
+        "R1-R3": null
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1",
+            "R2",
+            "SRV"
+          ],
+          "label": "to 10.0.0.50"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 15.5**
+
+**Q1.** Refer to the exhibit. Both links are up. Which statement is true?
+
+```
+R1(config)# ip route 10.0.0.0 255.255.255.0 192.168.1.2
+R1(config)# ip route 10.0.0.0 255.255.255.0 192.168.9.2 5
+```
+
+- **A.** Both routes are installed and R1 load-balances across them.
+- **B.** Only the route via 192.168.1.2 is installed; the route via 192.168.9.2 is installed only if the first one is removed.
+- **C.** Only the route via 192.168.9.2 is installed, because 5 is its metric and that is the best value.
+- **D.** The second command replaces the first.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The second route has an AD of 5, and the first has the default of 1. Same prefix, so the lower AD wins, and the AD-5 route waits on the bench. If the first route's path fails (its exit interface goes down), the backup floats into the table. **Why not the others:** A, load balancing needs equal AD *and* equal metric. C, the trailing number in `ip route` is the administrative distance, not a metric, and lower AD wins. D, the two lines have different next hops, so IOS keeps both.
+</details>
+
+**Q2.** R1 learns 10.50.0.0/24 through OSPF. The engineer wants a static route to 10.50.0.0/24 via 192.0.2.1 that is used **only** if the OSPF route disappears. Which administrative distance should the static route have?
+
+- **A.** None; leave the default
+- **B.** 50
+- **C.** 90
+- **D.** 130
+
+<details><summary>Answer</summary>
+
+**Answer: D.** To float behind OSPF, the static route's AD must be *higher* than OSPF's 110. 130 does that. **Why not the others:** A, the default static AD of 1 would beat OSPF and pull all the traffic onto the backup path. B and C are both below 110, so they would also replace the OSPF route instead of backing it up.
+</details>
+
+**Q3.** R1's primary static route to 10.0.0.0/24 uses next hop 192.168.1.2, which R1 reaches through a switch on Gi0/0. A floating static route with AD 5 points to 192.168.9.2. The router at 192.168.1.2 loses power, but R1's Gi0/0 stays up/up because the switch is still on. What happens?
+
+- **A.** The floating static route takes over immediately.
+- **B.** The primary route stays in the table, so traffic is sent toward the dead router and lost.
+- **C.** R1 load-balances between the two next hops.
+- **D.** R1 removes both routes from the table.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A static route stays in the table as long as its next hop looks reachable, and 192.168.1.2 is still inside a connected subnet on an up interface. R1 can't tell that the router behind the switch died, so the backup never gets its turn. (The fix is to track the next hop, for example with IP SLA, or to use a routing protocol.) **Why not the others:** A only happens when the primary route actually leaves the table, such as when Gi0/0 goes down. C, the routes have different ADs, so they're never used together. D, nothing removes the floating route; it's simply not needed as long as the primary looks valid.
+</details>
+
 ## 15.6 IPv6 Static Routes
 
 Same idea, IPv6 style:
@@ -5335,6 +7243,44 @@ R1(config)# ipv6 unicast-routing
 R1(config)# ipv6 route 2001:db8:0:2::/64 2001:db8:0:1::2
 R1(config)# ipv6 route ::/0 2001:db8:0:1::2        ! default route
 ```
+
+**📝 Exam-style questions — 15.6**
+
+**Q1.** Which command creates an IPv6 default route through 2001:db8:0:1::2?
+
+- **A.** `ipv6 route ::/0 2001:db8:0:1::2`
+- **B.** `ipv6 route ::/128 2001:db8:0:1::2`
+- **C.** `ip route ::/0 2001:db8:0:1::2`
+- **D.** `ipv6 route 0.0.0.0 0.0.0.0 2001:db8:0:1::2`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `::/0` is IPv6's "match everything" prefix, the twin of 0.0.0.0/0. **Why not the others:** B, `::/128` is the single unspecified address, not every address. C, `ip route` is the IPv4 command. D uses IPv4-style network and mask; IPv6 routes are always written as prefix/length.
+</details>
+
+**Q2.** An engineer wants a static IPv6 route to 2001:db8:0:2::/64 using the neighbor's link-local address FE80::2, which is reached out Gi0/1. Which command is correct?
+
+- **A.** `ipv6 route 2001:db8:0:2::/64 fe80::2`
+- **B.** `ipv6 route 2001:db8:0:2::/64 gigabitethernet0/1 fe80::2`
+- **C.** `ipv6 route 2001:db8:0:2::/64 fe80::2 gigabitethernet0/1`
+- **D.** `ipv6 route fe80::2 gigabitethernet0/1 2001:db8:0:2::/64`
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Every interface on the router has its own FE80:: link, so the same link-local address could exist out of several interfaces. IOS therefore requires the exit interface, written *before* the next hop. **Why not the others:** A has no interface, and IOS rejects a link-local next hop without one. C puts the interface after the address, which isn't the command's syntax. D starts with the next hop instead of the destination prefix.
+</details>
+
+**Q3.** Which command creates a floating IPv6 default route through 2001:db8:9::2 with an administrative distance of 200?
+
+- **A.** `ipv6 route ::/0 2001:db8:9::2 200`
+- **B.** `ipv6 route ::/0 200 2001:db8:9::2`
+- **C.** `ipv6 route ::/128 2001:db8:9::2 200`
+- **D.** `ipv6 route ::/0 2001:db8:9::2 metric 200`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Same pattern as IPv4: the AD goes at the end, after the next hop. With 200, the route waits behind any OSPFv3 (110) or regular static (1) default route. **Why not the others:** B puts the distance before the next hop. C, `::/128` isn't the default route. D, there's no `metric` keyword here; the trailing number is the administrative distance.
+</details>
 
 ---
 
@@ -5350,6 +7296,32 @@ R1(config)# ipv6 route ::/0 2001:db8:0:1::2        ! default route
    Dynamic: Routers share maps and adapt automatically. 😎
 ```
 
+**📝 Exam-style questions — 16.1**
+
+**Q1.** What is the main advantage of dynamic routing over static routing?
+
+- **A.** It uses no CPU or bandwidth.
+- **B.** Routers learn new networks and find new paths around failures on their own.
+- **C.** It is always more secure than static routing.
+- **D.** It doesn't need any configuration at all.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Routers running a routing protocol tell each other what they know and recalculate when something changes, so nobody has to edit sticky notes after a link dies. **Why not the others:** A, the opposite: hellos, updates and path calculations all cost CPU, memory and bandwidth. C, routing updates can be spoofed unless you add authentication; static routes have no updates to attack. D, you still have to enable the protocol and tell it which interfaces to use.
+</details>
+
+**Q2.** Which network would benefit most from a dynamic routing protocol?
+
+- **A.** A single router with one LAN and one internet link
+- **B.** A branch with one WAN link to headquarters
+- **C.** Thirty routers with several redundant paths between sites
+- **D.** A lab with two routers joined by one cable
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Many routers and several possible paths is exactly where hand-written routes become unmanageable and where automatic failover matters. **Why not the others:** A, B and D each have only one way to go, so a static or default route does the job with no protocol overhead.
+</details>
+
 ## 16.2 Two Families of Routing Protocols
 
 - **Distance Vector** (e.g., **RIP**): "I heard network X is 3 hops that way." Simple, shares its whole table with neighbors. Can be slow and short-sighted.
@@ -5362,6 +7334,44 @@ R1(config)# ipv6 route ::/0 2001:db8:0:1::2        ! default route
 
 *Why does having the full map matter so much?* Because when you can see the whole network, you can (a) instantly compute the truly shortest path, and (b) react fast and correctly when something breaks — you just update your map and recalculate, no waiting for rumors to propagate hop by hop. That's why OSPF converges (settles after a change) faster and avoids the loop problems that plague RIP. **More knowledge = better, faster, safer decisions.**
 
+**📝 Exam-style questions — 16.2**
+
+**Q1.** Which statement describes a link-state routing protocol?
+
+- **A.** Each router sends its whole routing table to its neighbors and trusts what they send back.
+- **B.** Each router builds a full map of the network and calculates the best paths itself.
+- **C.** Each router picks paths using hop count only.
+- **D.** Routers only exchange routes that an administrator typed in.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Link-state routers share facts about their own links, every router assembles the same map (the LSDB), and each one runs SPF on it. **Why not the others:** A is distance vector, "routing by rumor". C is RIP's metric, a distance-vector protocol. D describes static routing.
+</details>
+
+**Q2.** Which of these is a distance-vector routing protocol?
+
+- **A.** OSPFv2
+- **B.** IS-IS
+- **C.** RIP
+- **D.** OSPFv3
+
+<details><summary>Answer</summary>
+
+**Answer: C.** RIP shares its routing table with its neighbors and counts hops, the classic distance-vector design. **Why not the others:** A and D are OSPF for IPv4 and IPv6, both link state. B, IS-IS is also a link-state protocol, mostly found in service-provider networks.
+</details>
+
+**Q3.** Why do distance-vector protocols usually take longer to converge after a failure than link-state protocols?
+
+- **A.** They use larger packets.
+- **B.** Each router only learns about the change when its neighbor passes it on, one hop at a time.
+- **C.** They have to wait for an administrator to approve the change.
+- **D.** They run Dijkstra's algorithm, which is slow.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Bad news travels like a game of telephone: router to router, each one recalculating before passing it on. A link-state router floods the fact itself and every router recalculates straight away. **Why not the others:** A, packet size isn't the reason. C, no routing protocol waits for a human. D, Dijkstra (SPF) is what *link-state* protocols run.
+</details>
+
 ## 16.3 Meet OSPF (Open Shortest Path First)
 
 **OSPF** is the star of the CCNA. It's a **link-state** protocol that:
@@ -5369,6 +7379,33 @@ R1(config)# ipv6 route ::/0 2001:db8:0:1::2        ! default route
 - Uses **cost** (based on bandwidth) to pick the best path.
 - Reacts quickly to changes.
 - Is an **open standard** (works with any vendor).
+
+**📝 Exam-style questions — 16.3**
+
+**Q1.** Which two statements about OSPF are true? (Choose two.)
+
+- **A.** It is an open standard that any vendor can implement.
+- **B.** It picks paths by cost, which is based on bandwidth.
+- **C.** It picks paths by hop count.
+- **D.** It is a Cisco-proprietary protocol.
+- **E.** It is a distance-vector protocol.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** OSPF is an open standard (it runs between Cisco and anyone else), and its metric is cost, derived from interface bandwidth. **Why not the others:** C is RIP. D, OSPF is an open standard; EIGRP started out as the Cisco one. E, OSPF is link state.
+</details>
+
+**Q2.** What is OSPF's default administrative distance on a Cisco router?
+
+- **A.** 90
+- **B.** 100
+- **C.** 110
+- **D.** 120
+
+<details><summary>Answer</summary>
+
+**Answer: C.** OSPF routes show up as `[110/cost]`. **Why not the others:** A is internal EIGRP. B isn't the default AD for any common IGP. D is RIP.
+</details>
 
 ## 16.4 How OSPF Works (The Friendship Steps)
 
@@ -5381,11 +7418,180 @@ R1(config)# ipv6 route ::/0 2001:db8:0:1::2        ! default route
 5. **Run SPF:** Each router runs the **Dijkstra (SPF) algorithm** to compute the shortest path to everywhere.
 6. **Install routes:** The best paths go into the routing table.
 
+**📝 Exam-style questions — 16.4**
+
+**Q1.** In which order does OSPF go from a powered-on router to routes in the table?
+
+- **A.** Run SPF, exchange LSAs, send Hellos, install routes
+- **B.** Send Hellos, form adjacencies, exchange LSAs, build the LSDB, run SPF, install routes
+- **C.** Exchange LSAs, send Hellos, run SPF, build the LSDB, install routes
+- **D.** Install routes, send Hellos, exchange LSAs, run SPF
+
+<details><summary>Answer</summary>
+
+**Answer: B.** First find neighbors (Hellos), then become adjacent, then swap LSAs, assemble the map, compute the shortest paths, and install the best ones. **Why not the others:** A runs SPF before there's a map to run it on. C trades LSAs before there are any neighbors to trade with. D installs routes before learning anything.
+</details>
+
+**Q2.** Which algorithm does OSPF use to calculate the shortest path to every destination?
+
+- **A.** Bellman-Ford
+- **B.** DUAL
+- **C.** Dijkstra's SPF
+- **D.** Spanning Tree
+
+<details><summary>Answer</summary>
+
+**Answer: C.** OSPF runs Dijkstra's shortest path first algorithm over its LSDB, with itself at the root of the tree. **Why not the others:** A, Bellman-Ford is behind distance-vector protocols like RIP. B, DUAL is EIGRP's algorithm. D, Spanning Tree stops Layer 2 loops between switches; it doesn't calculate routes.
+</details>
+
+**Q3.** On an Ethernet segment, to which multicast address does OSPF send its Hello packets?
+
+- **A.** 224.0.0.5
+- **B.** 224.0.0.6
+- **C.** 224.0.0.9
+- **D.** 224.0.0.10
+
+<details><summary>Answer</summary>
+
+**Answer: A.** 224.0.0.5 is AllSPFRouters: every OSPF router listens to it. **Why not the others:** B, 224.0.0.6 is AllDRouters, which only the DR and BDR listen to (16.10). C, 224.0.0.9 is RIPv2. D, 224.0.0.10 is EIGRP.
+</details>
+
 ## 16.5 OSPF Areas
 
 ![OSPF areas around the backbone with ABRs](images/ospf_areas.png)
 
 Big OSPF networks are split into **areas** to keep maps small and updates local. The center is always **Area 0** (the backbone). All other areas connect to Area 0.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Three areas, one backbone",
+  "caption": "Click any router or link to see what it knows and what a failure there would touch.",
+  "nodes": [
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 0,
+      "y": 0,
+      "sub": "internal",
+      "info": "An **internal router**: every interface is in Area 1. It holds the full, detailed map of Area 1, but Area 2 reaches it only as **summary** routes (Type 3 LSAs) from ABR1. In its routing table those show as `O IA` (inter-area)."
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 0,
+      "y": 1.6,
+      "sub": "internal",
+      "info": "Another Area 1 internal router. Its LSDB is identical to R3's, which is the rule inside every area."
+    },
+    {
+      "id": "ABR1",
+      "kind": "router",
+      "x": 1.45,
+      "y": 0.8,
+      "sub": "Area 1 + 0",
+      "info": "An **ABR** (area border router) with interfaces in Area 1 and Area 0. It keeps a separate LSDB for each area and turns Area 1's detail into summaries for the backbone, and the backbone's routes into summaries for Area 1."
+    },
+    {
+      "id": "BB",
+      "kind": "router",
+      "x": 2.55,
+      "y": 0.8,
+      "label": "Core",
+      "sub": "backbone",
+      "info": "A **backbone router**: all interfaces in Area 0. All inter-area traffic crosses Area 0, so this is where Area 1 meets Area 2."
+    },
+    {
+      "id": "ABR2",
+      "kind": "router",
+      "x": 3.65,
+      "y": 0.8,
+      "sub": "Area 0 + 2",
+      "info": "The ABR for Area 2. Areas 1 and 2 never connect directly; they only meet through Area 0."
+    },
+    {
+      "id": "R5",
+      "kind": "router",
+      "x": 5.1,
+      "y": 0,
+      "sub": "internal",
+      "info": "An Area 2 internal router. It never sees Area 1's individual links, only ABR2's summaries."
+    },
+    {
+      "id": "R6",
+      "kind": "router",
+      "x": 5.1,
+      "y": 1.6,
+      "sub": "internal",
+      "info": "Another Area 2 internal router."
+    }
+  ],
+  "links": [
+    {
+      "a": "R3",
+      "b": "R4",
+      "info": "If **this** link flaps, only the Area 1 routers (R3, R4, ABR1) rerun the full SPF. Area 0 and Area 2 just see an updated summary, if the reachable prefixes change at all. That containment is the whole reason for areas."
+    },
+    {
+      "a": "R3",
+      "b": "ABR1"
+    },
+    {
+      "a": "R4",
+      "b": "ABR1"
+    },
+    {
+      "a": "ABR1",
+      "b": "BB",
+      "info": "An Area 0 link. Summaries from Area 1 flow over it to the rest of the backbone."
+    },
+    {
+      "a": "BB",
+      "b": "ABR2",
+      "info": "An Area 0 link."
+    },
+    {
+      "a": "ABR2",
+      "b": "R5"
+    },
+    {
+      "a": "ABR2",
+      "b": "R6"
+    },
+    {
+      "a": "R5",
+      "b": "R6"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Area 1",
+      "nodes": [
+        "R3",
+        "R4"
+      ],
+      "tone": "purple"
+    },
+    {
+      "label": "Area 0 (backbone)",
+      "nodes": [
+        "ABR1",
+        "BB",
+        "ABR2"
+      ],
+      "tone": "accent"
+    },
+    {
+      "label": "Area 2",
+      "nodes": [
+        "R5",
+        "R6"
+      ],
+      "tone": "good"
+    }
+  ]
+}
+```
 
 **Area 0** is the backbone. Every other area — Area 1, Area 2 and so on —
 connects **to Area 0**, never directly to each other. Traffic between two
@@ -5397,6 +7603,44 @@ non-backbone areas always passes through the backbone.
 2. **Constant recalculation.** Here's the killer: in one giant area, **any** link flapping *anywhere* forces **every** router in the whole network to re-run SPF. One flaky cable in a far corner makes 1,000 routers stop and recompute. Wasteful and destabilizing.
 
 Areas fix both by **containing the detail**. Inside an area, routers know the full local map. But between areas, they only share **summaries** ("Area 1 can reach these networks") — not every internal link. *So a flapping link in Area 1 only forces Area 1's routers to recalculate; Area 2 doesn't even hear about it.* This is the same hierarchical-addressing idea from IP: keep detail local, share summaries globally. **Why is Area 0 mandatory as the center?** Because you need a single, consistent backbone for all areas to exchange their summaries through — if areas connected in random chains, you could get inconsistent or looping inter-area information. Forcing everything through Area 0 keeps the hierarchy clean: local traffic stays local, and cross-area traffic has one well-defined path through the backbone.
+
+**📝 Exam-style questions — 16.5**
+
+**Q1.** A router has one interface in Area 0 and another in Area 1. What is it called?
+
+- **A.** ASBR
+- **B.** ABR
+- **C.** DR
+- **D.** Internal router
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An Area Border Router sits on the edge between areas and passes summaries between them. **Why not the others:** A, an ASBR connects OSPF to the *outside* (another routing protocol or domain). C, a DR is the spokesperson on one Ethernet segment, which has nothing to do with areas. D, an internal router has all its interfaces in a single area.
+</details>
+
+**Q2.** An OSPF network is split into Area 0, Area 1 and Area 2. A link inside Area 1 keeps going up and down. What is the main benefit of the area design here?
+
+- **A.** Routers in Area 2 don't have to rerun SPF over Area 1's detailed map.
+- **B.** The flapping link is shut down automatically.
+- **C.** Area 1's routers stop sending Hellos.
+- **D.** All three areas share one LSDB, so the change is learned faster.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Detailed link-state information stays inside its area. Other areas only see summaries from the ABR, so the churn stays mostly in Area 1. **Why not the others:** B, OSPF doesn't shut down interfaces. C, Hellos keep running; that's how neighbors stay up. D is the opposite: each area has its own LSDB, which is the whole point of areas.
+</details>
+
+**Q3.** Which statement about OSPF Area 0 is true?
+
+- **A.** Area 0 is optional in a multi-area design.
+- **B.** Every other area must connect to Area 0, and traffic between two other areas passes through it.
+- **C.** Area 1 and Area 2 can exchange routes directly, without Area 0.
+- **D.** Only one router may be in Area 0.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Area 0 is the backbone. All other areas hang off it, so inter-area routes always cross it, which keeps the design loop-free and predictable. **Why not the others:** A, a multi-area design must have Area 0. C, non-backbone areas never swap routes directly. D, Area 0 can hold as many routers as you need.
+</details>
 
 ## 16.6 OSPF Cost — How It Picks Paths
 
@@ -5412,6 +7656,114 @@ OSPF cost formula (default): **Cost = Reference Bandwidth ÷ Link Bandwidth**. D
 
 **Why is cost based on bandwidth (and why does dividing work)?** Because OSPF's whole goal is to prefer **faster** paths, and dividing by bandwidth naturally makes faster links cheaper. A bigger-bandwidth link puts a bigger number on the bottom of the fraction, giving a *smaller* cost — and OSPF prefers the lowest total cost. So a gigabit link ends up "cheaper" than a 10 Mbps link automatically. **Why does the reference bandwidth need tuning today?** Look at the table's problem: with the default reference of 100 Mbps, both a 100 Mbps link *and* a 1 Gbps link (and a 10 Gbps link!) all round down to cost **1** — OSPF can't tell them apart, so it might pick the slower one. That's an accident of the 1980s default, when 100 Mbps *was* blazing fast. Raising the reference bandwidth (e.g., to 10,000) restores meaningful differences between modern fast links so OSPF again prefers the genuinely faster path. *Understanding the formula is what makes this "gotcha" obvious rather than mysterious.*
 
+```diagram
+{
+  "type": "path",
+  "title": "Fewer hops isn't better: OSPF adds up the costs",
+  "prompt": "Costs here use `auto-cost reference-bandwidth 10000`, so 1 Gbps = 10, 100 Mbps = 100 and 10 Gbps = 1. R1 takes three gigabit hops (cost 30) over two hops that include a 100 Mbps link (cost 101). Change the 100 Mbps link to **1** (what the default reference would make it) and watch OSPF move onto the slow link.",
+  "metric": "Cost",
+  "from": "R1",
+  "to": "R5",
+  "nodes": [
+    {
+      "id": "R1",
+      "x": 0,
+      "y": 1
+    },
+    {
+      "id": "R2",
+      "x": 1.5,
+      "y": 0
+    },
+    {
+      "id": "R3",
+      "x": 3,
+      "y": 0
+    },
+    {
+      "id": "R4",
+      "x": 2.25,
+      "y": 2
+    },
+    {
+      "id": "R5",
+      "x": 4.5,
+      "y": 1
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "R2",
+      "cost": 10,
+      "label": "1G"
+    },
+    {
+      "a": "R2",
+      "b": "R3",
+      "cost": 10,
+      "label": "1G"
+    },
+    {
+      "a": "R3",
+      "b": "R5",
+      "cost": 10,
+      "label": "1G"
+    },
+    {
+      "a": "R1",
+      "b": "R4",
+      "cost": 100,
+      "label": "100M"
+    },
+    {
+      "a": "R4",
+      "b": "R5",
+      "cost": 1,
+      "label": "10G"
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 16.6**
+
+**Q1.** An engineer enters `auto-cost reference-bandwidth 10000` on every router. What is the OSPF cost of a 1 Gbps interface?
+
+- **A.** 1
+- **B.** 10
+- **C.** 100
+- **D.** 1000
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The reference bandwidth is in Mbps, so cost = 10,000 ÷ 1,000 = 10. A 10 Gbps link would then cost 1 and a 100 Mbps link 100, so OSPF can finally tell them apart. **Why not the others:** A is what 1 Gbps costs with the *default* reference of 100 (and what 10 Gbps costs with this one). C is a 100 Mbps link here. D would be a 10 Mbps link.
+</details>
+
+**Q2.** All routers use the default reference bandwidth of 100 Mbps. R1 reaches R3 either directly over a 100 Mbps link, or through R2 over two 1 Gbps links. Which path does OSPF choose?
+
+- **A.** Through R2, because gigabit links are faster
+- **B.** The direct 100 Mbps link, because its total cost is 1 and the path through R2 costs 2
+- **C.** Both, because the costs are equal
+- **D.** Neither, because the costs can't be calculated
+
+<details><summary>Answer</summary>
+
+**Answer: B.** With a 100 Mbps reference, 100 Mbps and 1 Gbps links both cost 1 (the result is never lower than 1). The direct path costs 1 and the path through R2 costs 1 + 1 = 2, so OSPF picks the slower link. That's exactly why you raise the reference bandwidth. **Why not the others:** A is what you'd *want*, but OSPF only sees cost, not speed. C, 1 and 2 aren't equal. D, the costs are easy to work out; they're just misleading.
+</details>
+
+**Q3.** Which interface command sets an OSPF cost of 50 directly?
+
+- **A.** `ip ospf cost 50`
+- **B.** `bandwidth 50`
+- **C.** `auto-cost 50`
+- **D.** `ospf cost 50`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `ip ospf cost` overrides the calculated cost on that interface. **Why not the others:** B sets the interface's bandwidth value to 50 *kbps*, which changes the calculated cost (and other things that read bandwidth) rather than setting 50. C, `auto-cost reference-bandwidth` is a router-mode command that changes the reference for all interfaces. D isn't an IOS command.
+</details>
+
 ## 16.7 OSPF Router ID
 
 Each OSPF router needs a unique **Router ID** (looks like an IP). It's chosen by:
@@ -5422,6 +7774,32 @@ Each OSPF router needs a unique **Router ID** (looks like an IP). It's chosen by
 Best practice: set it manually for predictability.
 
 **Why does OSPF need a Router ID, and why prefer a loopback for it?** OSPF needs a **stable, unique name** for each router so it can label who-said-what in the map (every LSA is tagged with the Router ID of its author). If a router's identity kept changing, the map would get confused about who's who. That's *why* a **loopback** is preferred as the source: a loopback is a virtual interface that **never goes down** (it has no cable to unplug, no hardware to fail). If OSPF instead used a physical interface's IP as its ID, and that interface went down, the router's very *identity* could change — forcing disruptive recalculation. A loopback gives OSPF a rock-solid, permanent name. And setting the `router-id` manually is best of all: then you *know* each router's ID (great for troubleshooting) instead of leaving it to whichever interface happens to have the highest IP.
+
+**📝 Exam-style questions — 16.7**
+
+**Q1.** R1 has no `router-id` command. Its interfaces are Loopback0 10.255.255.1, Loopback1 172.16.0.1 and GigabitEthernet0/0 192.168.1.1, all up. Which router ID does OSPF choose?
+
+- **A.** 10.255.255.1
+- **B.** 172.16.0.1
+- **C.** 192.168.1.1
+- **D.** 0.0.0.0
+
+<details><summary>Answer</summary>
+
+**Answer: B.** With no manual router ID, OSPF takes the highest IP on an up loopback, and only looks at physical interfaces if there are no loopbacks. 172.16.0.1 is the higher loopback. **Why not the others:** A is the lower loopback. C is higher than both, but physical interfaces only count when no loopback is up. D, 0.0.0.0 isn't a valid router ID; without any address OSPF can't start.
+</details>
+
+**Q2.** OSPF is already running on R1 with router ID 192.168.1.1. An engineer enters `router-id 1.1.1.1` under `router ospf 1`, but `show ip ospf` still shows 192.168.1.1. Why?
+
+- **A.** A loopback address always overrides a manual router ID.
+- **B.** The new router ID takes effect only after `clear ip ospf process` or a reload.
+- **C.** 1.1.1.1 isn't configured on any interface.
+- **D.** The command must be entered in interface configuration mode.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The router ID is chosen when the OSPF process starts, and changing it would disrupt every adjacency, so IOS waits until you reset the process (it even prints a reminder). **Why not the others:** A, a manual router ID beats everything. C, a manual router ID doesn't have to exist on any interface; it's just a 32-bit name. D, `router-id` is a router-mode command.
+</details>
 
 ## 16.8 Configuring OSPF (Try It!)
 
@@ -5448,6 +7826,45 @@ R1# show ip route ospf         ! what did we learn? (O routes)
 R1# show ip protocols          ! routing settings summary
 ```
 
+**📝 Exam-style questions — 16.8**
+
+**Q1.** R1's Gi0/1 has the address 10.1.1.5/30. Which two `network` commands enable OSPF Area 0 on that interface? (Choose two.)
+
+- **A.** `network 10.1.1.4 0.0.0.3 area 0`
+- **B.** `network 10.1.1.0 0.0.0.3 area 0`
+- **C.** `network 10.1.1.5 0.0.0.0 area 0`
+- **D.** `network 10.1.1.8 0.0.0.3 area 0`
+- **E.** `network 10.1.1.4 0.0.0.3 area 1`
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** A `network` command enables OSPF on every interface whose IP falls inside the address and wildcard. A covers 10.1.1.4–10.1.1.7, which includes .5. C uses a 0.0.0.0 wildcard to match exactly 10.1.1.5, a precise and popular style. **Why not the others:** B covers .0–.3 and D covers .8–.11, and neither includes .5. E matches the interface but puts it in Area 1, not Area 0.
+</details>
+
+**Q2.** What is the wildcard mask for a /28 subnet (255.255.255.240)?
+
+- **A.** 0.0.0.7
+- **B.** 0.0.0.15
+- **C.** 0.0.0.16
+- **D.** 0.0.0.240
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Subtract each octet from 255: 255 − 240 = 15. That flips every bit of the mask, so the 4 host bits become the "anything goes" part. **Why not the others:** A is a /29's wildcard. C is the block size, one too many. D is the mask's last octet copied unchanged, which would mean the opposite thing.
+</details>
+
+**Q3.** R1 uses `router ospf 1` and R2 uses `router ospf 20`. Everything else matches. Will they become neighbors?
+
+- **A.** No, the process IDs must match.
+- **B.** Yes, the process ID only matters inside each router.
+- **C.** Only if both are in Area 0.
+- **D.** Only if R2 changes to `router ospf 1`.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The process ID is locally significant: it just labels the OSPF process inside one router and is never sent in a Hello. **Why not the others:** A and D treat the process ID like the area ID, which *must* match. C, the area must match, but any area number works as long as both sides agree.
+</details>
+
 ## 16.9 OSPF Neighbor Requirements (Why Friendships Fail)
 
 For two routers to become OSPF neighbors, these must match:
@@ -5468,6 +7885,59 @@ If any of these differ, they won't become neighbors — a very common exam troub
 - **Compatible MTU:** MTU is the biggest frame size a link allows. If they disagree, one router might send a map-update packet too big for the other to receive, so the sync **stalls forever** at the exchange stage — a nasty, subtle failure.
 
 *So OSPF isn't being difficult for no reason — each match requirement protects the integrity of the shared map or the reliability of the neighbor relationship.* This is exactly why "OSPF neighbors won't form" is such a common troubleshooting question: you just walk down this list checking which agreement broke.
+
+**📝 Exam-style questions — 16.9**
+
+**Q1.** Refer to the exhibit. R1 and R2 are directly connected but `show ip ospf neighbor` is empty on both. What is the cause?
+
+```
+R1# show ip ospf interface GigabitEthernet0/0
+GigabitEthernet0/0 is up, line protocol is up
+  Internet Address 10.0.12.1/30, Area 0, Attached via Network Statement
+  Process ID 1, Router ID 1.1.1.1, Network Type POINT_TO_POINT, Cost: 1
+  Timer intervals configured, Hello 10, Dead 40, Wait 40, Retransmit 5
+
+R2# show ip ospf interface GigabitEthernet0/0
+GigabitEthernet0/0 is up, line protocol is up
+  Internet Address 10.0.12.2/30, Area 0, Attached via Network Statement
+  Process ID 20, Router ID 2.2.2.2, Network Type POINT_TO_POINT, Cost: 1
+  Timer intervals configured, Hello 5, Dead 20, Wait 20, Retransmit 5
+```
+
+- **A.** The process IDs don't match.
+- **B.** The Hello and Dead timers don't match.
+- **C.** The router IDs are different.
+- **D.** The interfaces are in different subnets.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** R1 uses 10/40 and R2 uses 5/20. Hellos carry both values, and a router silently ignores Hellos whose timers differ from its own, so the routers never see each other. **Why not the others:** A, process IDs are local and never need to match. C, router IDs *must* be different; identical ones would be the problem. D, 10.0.12.1/30 and 10.0.12.2/30 are in the same subnet.
+</details>
+
+**Q2.** Which two settings must match for two routers to become OSPF neighbors? (Choose two.)
+
+- **A.** Area ID on the connecting interfaces
+- **B.** Hello and Dead intervals
+- **C.** OSPF process ID
+- **D.** Router ID
+- **E.** Interface OSPF priority
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Both are carried in the Hello and checked by the receiver, along with the subnet, authentication and stub flags. **Why not the others:** C is local to each router. D must be *unique*, not the same. E only affects the DR election; neighbors can have any priorities.
+</details>
+
+**Q3.** Two OSPF neighbors have different interface MTUs. Where does their adjacency usually get stuck?
+
+- **A.** Down
+- **B.** Init
+- **C.** ExStart or Exchange
+- **D.** Full
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Hellos are small and get through, so the routers see each other. The database description packets carry the MTU and can be large, so the exchange never completes. **Why not the others:** A and B are where Hello problems show up (timers, area, ACLs). D means everything worked.
+</details>
 
 ---
 
@@ -5524,6 +7994,70 @@ R1(config-if)# ip ospf priority 0       ! this router must never be DR/BDR
 
 **The trap that catches people:** the DR election is **not preemptive**. Bring a brand-new router with priority 255 onto a segment that already has a DR, and it will *not* take over — it becomes a DROTHER and waits. The existing DR keeps the job until it fails or OSPF is restarted (`clear ip ospf process`). *This is the opposite of HSRP with `preempt` — a classic exam comparison, so keep them apart: HSRP can be told to take its role back; an OSPF DR never takes the role back on its own.*
 
+```diagram
+{
+  "type": "compare",
+  "title": "Elect the DR and BDR for the five-router segment",
+  "prompt": "These are the five routers from the table above, all starting together. Highest priority wins, then highest router ID; priority **0** never takes part. Try setting R1's priority to 0. Then set everyone to priority 1 and watch the router ID decide, and notice R5 still sits out with priority 0 despite the highest router ID. (In real life a newcomer never takes over from a running DR.)",
+  "places": [
+    "DR",
+    "BDR"
+  ],
+  "fields": [
+    {
+      "id": "prio",
+      "label": "ip ospf priority",
+      "kind": "number",
+      "rule": "highest",
+      "ineligible": 0
+    },
+    {
+      "id": "rid",
+      "label": "Router ID",
+      "kind": "ip",
+      "rule": "highest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "R1",
+      "values": {
+        "prio": 100,
+        "rid": "1.1.1.1"
+      }
+    },
+    {
+      "label": "R2",
+      "values": {
+        "prio": 50,
+        "rid": "2.2.2.2"
+      }
+    },
+    {
+      "label": "R3",
+      "values": {
+        "prio": 1,
+        "rid": "3.3.3.3"
+      }
+    },
+    {
+      "label": "R4",
+      "values": {
+        "prio": 1,
+        "rid": "4.4.4.4"
+      }
+    },
+    {
+      "label": "R5 (weak router)",
+      "values": {
+        "prio": 0,
+        "rid": "5.5.5.5"
+      }
+    }
+  ]
+}
+```
+
 ### The Two Network Types You Must Know
 
 | Network type | Where it's used | DR/BDR? | Hello / Dead timers |
@@ -5553,6 +8087,73 @@ Neighbor ID   Pri  State           Dead Time  Address      Interface
 
 **Read that third line carefully — `2WAY/DROTHER` is not a failure.** Two DROTHERs on a segment deliberately stop at **2WAY** and never reach FULL with each other, because they only need full adjacency with the DR and BDR. Seeing 2WAY between DROTHERs is **normal and correct**; panicking about it is a classic beginner mistake. *FULL with the DR and BDR, 2WAY with everyone else — that's a healthy broadcast segment.*
 
+**📝 Exam-style questions — 16.10**
+
+**Q1.** Refer to the exhibit. R5 is on the same Ethernet segment. Which statement is true?
+
+```
+R5# show ip ospf neighbor
+Neighbor ID     Pri   State           Dead Time   Address         Interface
+1.1.1.1         100   FULL/DR         00:00:36    10.10.10.1      GigabitEthernet0/0
+2.2.2.2          50   FULL/BDR        00:00:38    10.10.10.2      GigabitEthernet0/0
+3.3.3.3           1   2WAY/DROTHER    00:00:33    10.10.10.3      GigabitEthernet0/0
+4.4.4.4           0   2WAY/DROTHER    00:00:35    10.10.10.4      GigabitEthernet0/0
+```
+
+- **A.** R5 is a DROTHER, and every relationship shown is normal.
+- **B.** R5 has an MTU mismatch with 3.3.3.3 and 4.4.4.4.
+- **C.** R5 is the BDR.
+- **D.** 4.4.4.4 will become the DR if 1.1.1.1 fails.
+
+<details><summary>Answer</summary>
+
+**Answer: A.** R5 lists the DR and the BDR as *other* routers, so it's neither: it's a DROTHER. DROTHERs go FULL with the DR and BDR and deliberately stop at 2WAY with each other. **Why not the others:** B, an MTU problem shows up as EXSTART or EXCHANGE, not a clean 2WAY. C, 2.2.2.2 is already the BDR, and a segment has only one. D, 4.4.4.4 has priority 0, so it can never be DR or BDR. If the DR fails, the BDR (2.2.2.2) takes over.
+</details>
+
+**Q2.** Four routers start at the same moment on one Ethernet segment. Which routers become DR and BDR?
+
+| Router | Priority | Router ID |
+|---|---|---|
+| R1 | 10 | 10.0.0.1 |
+| R2 | 10 | 10.0.0.2 |
+| R3 | 0 | 10.0.0.99 |
+| R4 | 5 | 10.0.0.50 |
+
+- **A.** DR R3, BDR R4
+- **B.** DR R2, BDR R1
+- **C.** DR R1, BDR R2
+- **D.** DR R4, BDR R2
+
+<details><summary>Answer</summary>
+
+**Answer: B.** R3 is out (priority 0). R1 and R2 tie on the highest priority, 10, so the higher router ID wins: R2 is DR. The BDR election runs again without R2, and R1's priority of 10 beats R4's 5. **Why not the others:** A, R3 has the highest router ID but priority 0 means "never". C reverses the router-ID tie-breaker. D, R4's priority (5) is lower than R1 and R2's (10), and priority is checked before router ID.
+</details>
+
+**Q3.** A segment has a working DR (priority 1) and BDR. An engineer connects a new router with `ip ospf priority 255`. What happens?
+
+- **A.** The new router becomes DR immediately.
+- **B.** The new router becomes BDR immediately, and DR at the next Hello.
+- **C.** The new router becomes a DROTHER; the existing DR and BDR keep their roles.
+- **D.** All routers restart the election.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** The OSPF DR election isn't preemptive. A newcomer, however high its priority, accepts the current DR and BDR and only stands a chance when one of them fails (or OSPF is restarted). **Why not the others:** A and B describe preemption, which OSPF doesn't do. D, a new router joining never forces a new election.
+</details>
+
+**Q4.** Which two statements about the DR and BDR are true? (Choose two.)
+
+- **A.** DROTHERs send their updates to the DR and BDR at 224.0.0.6.
+- **B.** A DR and BDR are elected on point-to-point links.
+- **C.** A router with OSPF priority 0 can never become DR or BDR.
+- **D.** The DR election is preemptive by default.
+- **E.** The default OSPF interface priority is 0.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** DROTHERs tell the DR and BDR on AllDRouters (224.0.0.6), and the DR repeats it to everyone on 224.0.0.5. Priority 0 takes a router out of the election completely. **Why not the others:** B, point-to-point links have only one possible neighbor, so there's no election. D, it's non-preemptive. E, the default is 1; if it were 0, nobody could ever be DR.
+</details>
+
 ---
 
 > **One item on that list needs its own section.** "Network type" decides whether OSPF holds an election on the link — which brings in the **DR** and **BDR** roles. That's section **16.10**, next.
@@ -5576,6 +8177,134 @@ Neighbor ID   Pri  State           Dead Time  Address      Interface
 | **Exchange** | Trading database descriptions (DBDs) | MTU or unstable link |
 | **Loading** | Requesting the LSAs I'm missing | Rare; usually resolves |
 | **Full** | Databases synchronized | Healthy |
+
+```diagram
+{
+  "type": "sequence",
+  "title": "From Down to Full: one adjacency, state by state",
+  "caption": "R1 (RID 1.1.1.1) and R2 (RID 2.2.2.2) on a point-to-point link, so there's no DR election to wait for. Press **Next** and watch the state chips change.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 (1.1.1.1)"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2 (2.2.2.2)"
+    }
+  ],
+  "messages": [
+    {
+      "note": "OSPF enabled, nothing heard yet",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "states": {
+        "R1": "Down",
+        "R2": "Down"
+      },
+      "text": "Both routers are **Down** toward each other: no Hello received. Stuck here means the basics: interface down, OSPF not enabled on it, or something dropping multicast."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Hello (I've seen: nobody)",
+      "detail": "to 224.0.0.5, area 0, hello 10 / dead 40",
+      "states": {
+        "R2": "Init"
+      },
+      "text": "R2 checks the Hello: area, subnet, timers, authentication all match. It now knows R1 exists, so it moves to **Init**. But R1's Hello doesn't list R2 yet, so the conversation is one-way."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Hello (I've seen: 1.1.1.1)",
+      "detail": "to 224.0.0.5",
+      "states": {
+        "R1": "2-Way"
+      },
+      "text": "R1 finds its **own** router ID in R2's Hello: R2 hears it. Two-way communication is proven, so R1 jumps to **2-Way**."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Hello (I've seen: 2.2.2.2)",
+      "detail": "to 224.0.0.5",
+      "states": {
+        "R2": "2-Way"
+      },
+      "text": "R2 sees itself in R1's Hello and reaches **2-Way** too. On Ethernet, this is where the DR election happens, and two DROTHERs stop here for good."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "DBD (empty): I'll be master",
+      "detail": "seq 5000, MTU 1500",
+      "states": {
+        "R1": "ExStart",
+        "R2": "ExStart"
+      },
+      "text": "**ExStart.** Each side sends an empty database description claiming to be master. The DBD carries the interface **MTU**: if the MTUs differ, the DBD is rejected and the routers sit in ExStart (or Exchange) forever."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "DBD (empty): no, I will",
+      "detail": "seq 9000, RID 2.2.2.2 is higher",
+      "text": "R2 has the higher router ID, so R2 is **master** and owns the sequence numbers. R1 agrees to be slave."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "DBD: my LSA headers",
+      "detail": "seq 9000 (the master's number)",
+      "states": {
+        "R1": "Exchange",
+        "R2": "Exchange"
+      },
+      "text": "**Exchange.** They trade **summaries** of their databases: just LSA headers (who made it, which type, which version), not the full LSAs. Each side notes which LSAs it's missing or has an older copy of."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "DBD: my LSA headers",
+      "detail": "seq 9001",
+      "text": "The master steps the sequence number; the slave echoes it. That's how both sides know nothing was lost."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "LSR: send me these LSAs",
+      "states": {
+        "R1": "Loading"
+      },
+      "text": "**Loading.** R1 asks for the full copies of the LSAs it's missing with a Link-State Request."
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "LSU: the full LSAs",
+      "dashed": true,
+      "text": "R2 sends them in a Link-State Update. Every LSU is acknowledged, so flooding is reliable."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "LSAck",
+      "dashed": true,
+      "states": {
+        "R1": "Full",
+        "R2": "Full"
+      },
+      "tone": "good",
+      "text": "Databases match: both routers are **Full**. Each now runs SPF over the identical LSDB and installs its best routes. `show ip ospf neighbor` shows `FULL/  -` on a point-to-point link."
+    }
+  ]
+}
+```
 
 **Why is there a master/slave election in ExStart, when the routers are peers?** Because the database exchange needs a **single sequence-number owner**. If both sides numbered their own DBD packets, neither could tell a retransmission from a new one. Electing one side (**higher Router ID wins**) to drive the sequence makes the conversation unambiguous.
 
@@ -5630,6 +8359,62 @@ Areas exist to bound flooding and SPF work. **Special area types go further, tra
 
 **Why would you deliberately deny a router information?** Because detail costs memory and CPU on every SPF run, and a branch office with one exit link cannot *use* the detail. If every route leaves through the same door, knowing 10,000 destinations beyond it changes nothing — "everything else goes that way" is equally correct and vastly cheaper. **NSSA** exists for the awkward middle case: a stub area that nonetheless has its own external route to inject, which plain stub rules would forbid.
 
+**📝 Exam-style questions — 16.11**
+
+**Q1.** Refer to the exhibit. The adjacency has been in this state for several minutes. What is the most likely cause?
+
+```
+R1# show ip ospf neighbor
+Neighbor ID     Pri   State           Dead Time   Address         Interface
+2.2.2.2           0   EXSTART/  -     00:00:37    10.0.12.2       GigabitEthernet0/1
+```
+
+- **A.** An MTU mismatch between R1 and R2
+- **B.** A Hello timer mismatch
+- **C.** An area ID mismatch
+- **D.** An authentication mismatch
+
+<details><summary>Answer</summary>
+
+**Answer: A.** EXSTART means Hellos are working (the routers see each other) but the database exchange can't get going. That's the classic sign of mismatched MTUs: check `show interfaces` on both ends. **Why not the others:** B, C and D are all checked on the Hello itself. Any of them would stop the neighbor from appearing at all, rather than stranding it at EXSTART.
+</details>
+
+**Q2.** What does the Init state mean in `show ip ospf neighbor`?
+
+- **A.** The two routers have synchronized their databases.
+- **B.** This router has received a Hello from the neighbor, but its own router ID isn't listed in that Hello yet.
+- **C.** The routers are electing a master and slave.
+- **D.** The router is requesting LSAs it is missing.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Init is one-way communication: "I can hear you, but you haven't heard me yet." If it stays like that, something is blocking traffic in one direction. **Why not the others:** A is Full. C is ExStart. D is Loading.
+</details>
+
+**Q3.** Which LSA type does the DR create to describe a broadcast segment?
+
+- **A.** Type 1
+- **B.** Type 2
+- **C.** Type 3
+- **D.** Type 5
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The Type 2 network LSA lists every router attached to the segment, published once by the DR. **Why not the others:** A, every router creates its own Type 1 router LSA. C, Type 3 summary LSAs come from ABRs. D, Type 5 external LSAs come from ASBRs.
+</details>
+
+**Q4.** During ExStart, two OSPF neighbors elect a master to control the DBD sequence numbers. Which router becomes master?
+
+- **A.** The router with the higher OSPF priority
+- **B.** The router with the higher router ID
+- **C.** The DR
+- **D.** The router that sent its Hello first
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The master/slave decision uses router ID only. The master owns the sequence numbers so both sides can tell a retransmission from a new packet. **Why not the others:** A, priority only affects the DR election. C, being DR doesn't make a router master; the router ID decides. D, timing doesn't matter.
+</details>
+
 ---
 
 <a name="chapter-17"></a>
@@ -5681,7 +8466,165 @@ R1(config-if)# ip helper-address 10.0.0.5   ! forward DHCP to this server
 
 **Why is a helper address even necessary?** Here's the conflict: DHCP Discover is a **broadcast**, but (from Chapter 6/11) **routers deliberately do NOT forward broadcasts** — that's their job, to contain broadcast domains! So a laptop's "any DHCP servers?" shout dies at the router and never reaches a server sitting on a different network. In the real world, companies don't put a DHCP server on every single subnet — they run **one central server** for everyone. The `ip helper-address` command is the fix: it tells the router "when you hear a DHCP broadcast, *make an exception* — convert it to a unicast and forward it to the real server at 10.0.0.5." *So the helper address is the deliberate bridge across the very broadcast boundary the router normally enforces* — letting one central DHCP server serve many subnets.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "DORA across a router: what ip helper-address does",
+  "caption": "The PC is on 192.168.10.0/24 behind R1's Gi0/0 (192.168.10.1); the DHCP server is 10.0.0.5, on another subnet. Press **Next**.",
+  "actors": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "label": "PC"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 (relay)"
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "label": "DHCP 10.0.0.5"
+    }
+  ],
+  "messages": [
+    {
+      "from": "PC",
+      "to": "R1",
+      "label": "DISCOVER",
+      "detail": "0.0.0.0:68 → 255.255.255.255:67",
+      "states": {
+        "PC": "SELECTING"
+      },
+      "text": "The PC has no address and doesn't know the server's, so it **broadcasts** from 0.0.0.0. A router never forwards broadcasts, so without help this would die at R1."
+    },
+    {
+      "from": "R1",
+      "to": "SRV",
+      "label": "DISCOVER (relayed)",
+      "detail": "unicast to 10.0.0.5, giaddr 192.168.10.1",
+      "text": "`ip helper-address 10.0.0.5` on Gi0/0 makes R1 turn the broadcast into a **unicast** to the server. R1 writes the address of the interface the request came in on, 192.168.10.1, into the **giaddr** field. That's how the server knows which pool, which subnet, to lease from."
+    },
+    {
+      "from": "SRV",
+      "to": "R1",
+      "label": "OFFER 192.168.10.21",
+      "detail": "unicast back to the giaddr",
+      "dashed": true,
+      "text": "The server picks a free address from the pool matching 192.168.10.0/24 and sends the offer back to the relay, the only address it can reach."
+    },
+    {
+      "from": "R1",
+      "to": "PC",
+      "label": "OFFER 192.168.10.21",
+      "detail": "mask, gateway .1, DNS 8.8.8.8, lease",
+      "dashed": true,
+      "text": "R1 passes the offer onto the client's LAN. The offer is tentative: the address is held for the PC but not yet confirmed."
+    },
+    {
+      "from": "PC",
+      "to": "R1",
+      "label": "REQUEST 192.168.10.21",
+      "detail": "broadcast, names server 10.0.0.5",
+      "states": {
+        "PC": "REQUESTING"
+      },
+      "text": "The PC still **broadcasts**, on purpose. If several servers made offers, they all hear which one was chosen and can release theirs."
+    },
+    {
+      "from": "R1",
+      "to": "SRV",
+      "label": "REQUEST (relayed)",
+      "detail": "unicast to 10.0.0.5",
+      "text": "The helper address relays this broadcast too."
+    },
+    {
+      "from": "SRV",
+      "to": "R1",
+      "label": "ACK",
+      "detail": "lease confirmed",
+      "dashed": true,
+      "tone": "good",
+      "text": "The server records the lease and confirms it."
+    },
+    {
+      "from": "R1",
+      "to": "PC",
+      "label": "ACK",
+      "detail": "192.168.10.21/24, lease 7 days",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "PC": "BOUND"
+      },
+      "text": "The PC is **bound**: address, mask, default gateway and DNS server, for the length of the lease. Around halfway through the lease, it renews directly with the server."
+    }
+  ]
+}
+```
+
 > **When DHCP fails, the client tells you.** A PC that gets no answer assigns itself a **169.254.x.x** APIPA address — the single fastest clue in networking that DHCP is unreachable. Section **23.6** covers reading that (and the other three numbers) on Windows, macOS and Linux.
+
+**📝 Exam-style questions — 17.1**
+
+**Q1.** In which order are the four DHCP messages exchanged when a client gets a new address?
+
+- **A.** Request, Offer, Discover, Acknowledge
+- **B.** Discover, Request, Offer, Acknowledge
+- **C.** Discover, Offer, Request, Acknowledge
+- **D.** Offer, Discover, Acknowledge, Request
+
+<details><summary>Answer</summary>
+
+**Answer: C.** DORA: the client **D**iscovers, a server **O**ffers, the client **R**equests that offer, and the server **A**cknowledges it. The client sends from UDP port 68 to the server's UDP port 67. **Why not the others:** A and D start with a message that only makes sense as a reply. B has the client requesting before anything has been offered.
+</details>
+
+**Q2.** Refer to the exhibit. Which two statements are true? (Choose two.)
+
+```
+R1(config)# ip dhcp excluded-address 192.168.10.1 192.168.10.20
+R1(config)# ip dhcp pool VLAN10
+R1(dhcp-config)# network 192.168.10.0 255.255.255.0
+R1(dhcp-config)# default-router 192.168.10.1
+R1(dhcp-config)# dns-server 8.8.8.8
+R1(dhcp-config)# lease 7
+```
+
+- **A.** Clients receive 192.168.10.1 as their default gateway.
+- **B.** Addresses 192.168.10.1 through 192.168.10.20 are never leased.
+- **C.** The router can lease 192.168.10.10 to a client.
+- **D.** Clients receive 192.168.10.1 as their DNS server.
+- **E.** Leases last 7 hours.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** `default-router` sets the gateway handed to clients, and `excluded-address` keeps .1–.20 out of the pool for routers, switches and servers. **Why not the others:** C, .10 is inside the excluded range. D, the DNS server is 8.8.8.8, from `dns-server`. E, `lease 7` means 7 **days** (hours and minutes are optional extra arguments).
+</details>
+
+**Q3.** Clients in VLAN 20 (R1's interface Gi0/1.20) don't get addresses. The DHCP server is 10.0.0.5, on another subnet reached through Gi0/0. What fixes this?
+
+- **A.** `ip helper-address 10.0.0.5` on Gi0/1.20
+- **B.** `ip helper-address 10.0.0.5` on Gi0/0
+- **C.** `ip dhcp excluded-address 10.0.0.5` on R1
+- **D.** `ip default-gateway 10.0.0.5` on R1
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The helper address goes on the interface that **hears the clients' broadcasts**, the one facing the clients. R1 then relays each DHCP broadcast as a unicast to 10.0.0.5. **Why not the others:** B, no client broadcasts ever arrive on Gi0/0, so a helper there has nothing to relay. C only stops the router's *own* DHCP server from leasing that address. D is for non-routing devices and has nothing to do with DHCP.
+</details>
+
+**Q4.** A Windows PC shows the address 169.254.37.12. What does this most likely mean?
+
+- **A.** The PC has a statically configured address.
+- **B.** The PC received this address from the DHCP server.
+- **C.** The PC got no answer from a DHCP server and assigned itself an APIPA address.
+- **D.** The PC is using NAT.
+
+<details><summary>Answer</summary>
+
+**Answer: C.** 169.254.0.0/16 is APIPA (link-local IPv4). A client picks one only after its DHCP Discovers go unanswered, so it's a strong sign that DHCP is broken or unreachable. **Why not the others:** A, nobody configures 169.254.x.x on purpose. B, DHCP servers don't hand out that range. D, NAT happens on the router; it doesn't change the PC's own address.
+</details>
 
 ## 17.2 DNS — The Internet's Phone Book
 
@@ -5699,6 +8642,146 @@ Common DNS record types:
 - **CNAME** = an alias (nickname) for another name.
 - **MX** = mail server for a domain.
 - **PTR** = reverse (IP → name).
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Resolving www.example.com from scratch",
+  "caption": "The PC asks its local DNS server once. That server (the resolver) does the legwork, starting at the root. Press **Next**.",
+  "actors": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "label": "PC"
+    },
+    {
+      "id": "RES",
+      "kind": "server",
+      "label": "Local DNS"
+    },
+    {
+      "id": "ROOT",
+      "kind": "server",
+      "label": "Root"
+    },
+    {
+      "id": "TLD",
+      "kind": "server",
+      "label": ".com servers"
+    },
+    {
+      "id": "AUTH",
+      "kind": "server",
+      "label": "example.com DNS"
+    }
+  ],
+  "messages": [
+    {
+      "from": "PC",
+      "to": "RES",
+      "label": "A? www.example.com",
+      "detail": "UDP 53, recursive",
+      "text": "The PC sends one **recursive** query to the DNS server it got from DHCP: *give me the final answer, whatever it takes.*"
+    },
+    {
+      "note": "Not in cache",
+      "over": [
+        "RES"
+      ],
+      "text": "If anyone had asked recently, the answer would be in the resolver's cache and the PC would have it right now. This time it's a miss, so the resolver starts at the top."
+    },
+    {
+      "from": "RES",
+      "to": "ROOT",
+      "label": "A? www.example.com",
+      "text": "The root servers don't know every name. They know who runs each top-level domain."
+    },
+    {
+      "from": "ROOT",
+      "to": "RES",
+      "label": "Referral",
+      "dashed": true,
+      "text": "A **referral**, not an answer: *I don't know, but they do.*",
+      "detail": "try the .com servers"
+    },
+    {
+      "from": "RES",
+      "to": "TLD",
+      "label": "A? www.example.com",
+      "text": "The resolver asks a .com server."
+    },
+    {
+      "from": "TLD",
+      "to": "RES",
+      "label": "Referral",
+      "dashed": true,
+      "text": "Another referral, this time to the **authoritative** servers for example.com, the ones that hold its records.",
+      "detail": "try example.com NS"
+    },
+    {
+      "from": "RES",
+      "to": "AUTH",
+      "label": "A? www.example.com",
+      "text": "Third time lucky."
+    },
+    {
+      "from": "AUTH",
+      "to": "RES",
+      "label": "A 203.0.113.80",
+      "detail": "TTL 3600",
+      "dashed": true,
+      "tone": "good",
+      "text": "An actual **A record**. The TTL says how long anyone may cache it: an hour here."
+    },
+    {
+      "from": "RES",
+      "to": "PC",
+      "label": "A 203.0.113.80",
+      "dashed": true,
+      "tone": "good",
+      "text": "The resolver caches the answer and passes it to the PC, which now connects to **203.0.113.80**. The next PC that asks gets it straight from the cache, which is why most lookups take a millisecond or two."
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 17.2**
+
+**Q1.** Which DNS record type maps a name to an IPv6 address?
+
+- **A.** A
+- **B.** AAAA
+- **C.** CNAME
+- **D.** PTR
+
+<details><summary>Answer</summary>
+
+**Answer: B.** An AAAA ("quad-A") record holds an IPv6 address. IPv6 addresses are four times as long, hence four As. **Why not the others:** A, an A record is a name to an IPv4 address. C, a CNAME points one name at another name. D, a PTR does the reverse, from an address to a name.
+</details>
+
+**Q2.** A user can ping 142.250.72.4 but can't open `www.google.com` in a browser, and `ping www.google.com` says the host couldn't be found. What is the most likely problem?
+
+- **A.** The default gateway is wrong.
+- **B.** The PC can't resolve names, so DNS is misconfigured or unreachable.
+- **C.** The web server is down.
+- **D.** The PC has no IP address.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The ping to the IP address proves the PC can reach the internet. Only the step that turns the name into an address is failing, and that's DNS. **Why not the others:** A, a wrong gateway would break the ping to 142.250.72.4 as well. C, a down web server would still resolve; the error says the *name* couldn't be found. D, the PC couldn't ping anything without an address.
+</details>
+
+**Q3.** Which transport does a typical DNS query use?
+
+- **A.** UDP port 53
+- **B.** TCP port 80
+- **C.** UDP port 67
+- **D.** UDP port 123
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Ordinary lookups are a single question and answer, so DNS uses fast, connectionless UDP 53. TCP 53 is used for zone transfers and answers too large for one UDP packet. **Why not the others:** B is HTTP. C is the DHCP server port. D is NTP.
+</details>
 
 ## 17.3 NAT — Sharing One Public Address
 
@@ -5728,6 +8811,181 @@ PAT translation table (simplified):
 | `192.168.1.12 : 51000` | → | `203.0.113.5 : 40003` |
 
 When PC .10 sends a request, the router rewrites the source to `203.0.113.5 : 40001` and **notes that in the table**. When the web server replies to `203.0.113.5 : 40001`, the router looks up port 40001, sees "that's really 192.168.1.10," and forwards it back to the right PC. *The port number is the claim ticket* — it's how the router tells apart hundreds of conversations that all share one public address. Notice even when two PCs happen to use the same private port (51000 above), the router just assigns them **different public ports** (40001 vs 40003), so there's never confusion. **Why does this matter so much?** Because it's the trick that lets a whole house — or a whole company — share a single public IPv4 address, which (along with private addressing) is a huge reason we didn't run out of IPv4 years ago. One public address can support *thousands* of simultaneous conversations, each tracked by its port.
+
+```diagram
+{
+  "type": "topology",
+  "title": "PAT in action: one public address, many conversations",
+  "caption": "R1 runs `ip nat inside source list 1 interface gi0/1 overload`; Gi0/1's address is 203.0.113.5. Press **Next** to follow two PCs that happen to pick the same source port.",
+  "nodes": [
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "sub": "192.168.1.10"
+    },
+    {
+      "id": "PC2",
+      "kind": "host",
+      "x": 0,
+      "y": 1.8,
+      "sub": "192.168.1.11"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.7,
+      "y": 0.9,
+      "sub": "203.0.113.5"
+    },
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 3.2,
+      "y": 0.9,
+      "label": "Internet"
+    },
+    {
+      "id": "WEB",
+      "kind": "server",
+      "x": 4.7,
+      "y": 0.9,
+      "label": "Web server",
+      "sub": "198.51.100.7"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC1",
+      "b": "R1"
+    },
+    {
+      "a": "PC2",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "INET",
+      "aLabel": "outside"
+    },
+    {
+      "a": "INET",
+      "b": "WEB"
+    }
+  ],
+  "zones": [
+    {
+      "label": "inside (private)",
+      "nodes": [
+        "PC1",
+        "PC2"
+      ],
+      "tone": "muted"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. PC1 opens a web connection",
+      "text": "PC1 sends from **192.168.1.10:51000** to 198.51.100.7:443. That source can't be used on the internet: 192.168.1.0/24 is private, and thousands of other networks use it too.",
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "R1"
+          ],
+          "label": "192.168.1.10:51000"
+        }
+      ]
+    },
+    {
+      "title": "2. R1 rewrites the source",
+      "text": "The packet goes from an `ip nat inside` interface to an `ip nat outside` one and matches ACL 1, so R1 rewrites the source to **203.0.113.5:51000** (it keeps the port when it's free) and records the pair in its translation table.",
+      "nodes": {
+        "R1": {
+          "badge": "1 entry",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "INET",
+            "WEB"
+          ],
+          "label": "203.0.113.5:51000"
+        }
+      ]
+    },
+    {
+      "title": "3. PC2 picks the same port",
+      "text": "PC2 also sends from port **51000**. Port 51000 on 203.0.113.5 is already taken by PC1, so R1 picks another free port, here **1024**. Now each conversation has its own public address *and port* combination.",
+      "nodes": {
+        "R1": {
+          "badge": "2 entries",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC2",
+            "R1",
+            "INET",
+            "WEB"
+          ],
+          "label": "203.0.113.5:1024"
+        }
+      ]
+    },
+    {
+      "title": "4. The reply finds its way home",
+      "text": "The server replies to **203.0.113.5:1024**. R1 looks up port 1024, finds *192.168.1.11:51000*, rewrites the destination and delivers it to PC2. The port is the claim ticket.",
+      "nodes": {
+        "PC2": {
+          "badge": "got reply",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "WEB",
+            "INET",
+            "R1",
+            "PC2"
+          ],
+          "label": "to 203.0.113.5:1024",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. Nobody can start a conversation from outside",
+      "text": "An outside host tries to connect to 203.0.113.5 on port 8080. No translation entry matches, because none was created from inside, so R1 has nowhere to send it and drops it. That's why a server that must be reachable gets **static NAT** instead.",
+      "nodes": {
+        "PC2": null,
+        "R1": {
+          "badge": "no entry",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "WEB",
+            "INET",
+            "R1"
+          ],
+          "label": "to 203.0.113.5:8080",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ### Configuring PAT (NAT Overload)
 ```
@@ -5766,6 +9024,75 @@ R1# clear ip nat translation *    ! wipe dynamic entries (useful when testing)
 
 **Why must you label interfaces `inside` and `outside`?** Because NAT has to know *which direction* traffic is going to translate it correctly — it rewrites private→public on the way *out* and public→private on the way *back in*. Telling the router which side is the private "inside" and which is the internet-facing "outside" is what lets it apply the translation in the right direction. And the keyword **`overload`** is literally what turns plain NAT into *PAT* — it means "overload one public address with many conversations by using ports," exactly the port-tracking trick above.
 
+**📝 Exam-style questions — 17.3**
+
+**Q1.** Refer to the exhibit. Which two statements are true? (Choose two.)
+
+```
+R1# show ip nat translations
+Pro Inside global         Inside local          Outside local         Outside global
+tcp 203.0.113.5:51000     192.168.1.10:51000    198.51.100.7:443      198.51.100.7:443
+tcp 203.0.113.5:1024      192.168.1.11:51000    198.51.100.7:443      198.51.100.7:443
+--- 203.0.113.10          192.168.1.50          ---                   ---
+```
+
+- **A.** 203.0.113.5 is an inside global address.
+- **B.** 192.168.1.11 is an inside global address.
+- **C.** The third line is a static one-to-one translation for 192.168.1.50.
+- **D.** 198.51.100.7 is an inside local address.
+- **E.** Port Address Translation is not in use.
+
+<details><summary>Answer</summary>
+
+**Answer: A, C.** Inside global is how an inside host appears on the internet, here the shared public 203.0.113.5. A line with no protocol and no ports is a permanent static mapping, so 192.168.1.50 always appears as 203.0.113.10. **Why not the others:** B, 192.168.1.11 is the private, inside *local* address. D, 198.51.100.7 is the outside web server. E, two inside hosts share 203.0.113.5 and are told apart by port, which is exactly PAT. R1 even gave the second host port 1024 because 51000 was already taken.
+</details>
+
+**Q2.** A router uses dynamic NAT with a pool of five public addresses and no `overload`. Five inside hosts are already using the internet when a sixth host tries. What happens?
+
+- **A.** The sixth host shares an address with another host by using a different port.
+- **B.** The sixth host's traffic isn't translated, so it can't reach the internet until an address frees up.
+- **C.** The router automatically adds a sixth public address to the pool.
+- **D.** The oldest translation is deleted to make room.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Without `overload`, dynamic NAT is one inside host per public address. With the pool empty, the router has nothing to translate the sixth host to, so its packets fail. **Why not the others:** A describes PAT, which only happens with `overload`. C, the router can only use the addresses you put in the pool. D, active translations stay until they time out or are cleared.
+</details>
+
+**Q3.** Refer to the exhibit. Inside hosts can't reach the internet. What is wrong?
+
+```
+R1(config)# access-list 1 permit 192.168.1.0 0.0.0.255
+R1(config)# interface gi0/0
+R1(config-if)# ip nat inside
+R1(config-if)# interface gi0/1
+R1(config-if)# ip nat inside
+R1(config-if)# exit
+R1(config)# ip nat inside source list 1 interface gi0/1 overload
+```
+
+- **A.** The ACL must be an extended ACL.
+- **B.** Gi0/1, the internet-facing interface, must be `ip nat outside`.
+- **C.** `overload` can't be used with an interface.
+- **D.** The ACL should permit the public address.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** NAT translates traffic that goes from an *inside* interface to an *outside* interface. With both marked inside, nothing ever crosses that boundary, so nothing is translated. **Why not the others:** A, a standard ACL is the normal way to say *who* gets translated. C, `interface gi0/1 overload` is the classic PAT command: share that interface's own address. D, the ACL matches the inside *private* sources, not the public address.
+</details>
+
+**Q4.** A company's web server at 192.168.1.50 must be reachable from the internet at a fixed public address. Which type of NAT fits?
+
+- **A.** Static NAT
+- **B.** Dynamic NAT
+- **C.** PAT using the outside interface address
+- **D.** No NAT; private addresses are routable on the internet
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A static mapping is permanent and works in both directions, so outside users always find the server at the same public address. **Why not the others:** B and C only create translations when an *inside* host starts a conversation, so an outsider has no entry to land on. D, private ranges are not routed on the internet.
+</details>
+
 ## 17.4 NTP — Keeping Time in Sync
 
 **NTP (Network Time Protocol)** keeps all devices' clocks in sync (UDP port **123**). Why care? Three concrete reasons the exam and real life share:
@@ -5785,6 +9112,44 @@ R1# show ntp associations                 ! all servers it's talking to
 
 **The usual design:** one or two routers sync to a public NTP server on the internet, then act as `ntp master` for everything inside. **Why not point all 200 devices at the internet?** The same centralization logic as AAA and DHCP: one controlled place to manage — and if the internet link dies, your devices keep agreeing with *each other*, which is what log correlation actually needs.
 
+**📝 Exam-style questions — 17.4**
+
+**Q1.** Which transport protocol and port does NTP use?
+
+- **A.** TCP 123
+- **B.** UDP 123
+- **C.** UDP 161
+- **D.** UDP 514
+
+<details><summary>Answer</summary>
+
+**Answer: B.** NTP uses UDP 123. **Why not the others:** A, NTP doesn't use TCP. C is SNMP polling. D is syslog.
+</details>
+
+**Q2.** R1 synchronizes its clock to an NTP server running at stratum 2. What stratum does R1 become?
+
+- **A.** 1
+- **B.** 2
+- **C.** 3
+- **D.** 16
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Each step away from the reference clock adds one, so learning from stratum 2 makes R1 stratum 3. **Why not the others:** A is a server wired straight to the reference clock. B would mean R1 is as close to the source as its server, which can't be. D, stratum 16 means "not synchronized".
+</details>
+
+**Q3.** R2 must get its time from R1 at 10.1.1.1. Which command does the engineer enter on R2?
+
+- **A.** `ntp server 10.1.1.1`
+- **B.** `ntp master 10.1.1.1`
+- **C.** `clock set 10.1.1.1`
+- **D.** `ntp source 10.1.1.1`
+
+<details><summary>Answer</summary>
+
+**Answer: A.** `ntp server` makes the router an NTP client of that address. **Why not the others:** B, `ntp master` makes a router *serve* time from its own clock, and it takes a stratum number, not an address. C sets the clock by hand with a time and date. D chooses which of R2's own interfaces it sends NTP from; it takes an interface name, not a server address.
+</details>
+
 ## 17.5 Syslog — The Diary of Events
 
 **Syslog** collects **log messages** from devices (errors, warnings, events) in one place. Messages have **severity levels 0–7** (lower = more urgent):
@@ -5801,6 +9166,44 @@ R1# show ntp associations                 ! all servers it's talking to
 | 7 | Debug | Super detailed |
 
 **Memory trick:** "**E**very **A**wesome **C**isco **E**ngineer **W**ill **N**eed **I**ce cream **D**aily" → Emergency, Alert, Critical, Error, Warning, Notice, Informational, Debug.
+
+**📝 Exam-style questions — 17.5**
+
+**Q1.** Which syslog severity level is Warning?
+
+- **A.** 2
+- **B.** 3
+- **C.** 4
+- **D.** 5
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Counting from 0: Emergency, Alert, Critical, Error, **Warning** (4), Notice, Informational, Debug. **Why not the others:** A is Critical. B is Error. D is Notice.
+</details>
+
+**Q2.** An engineer configures `logging host 10.0.0.50` and `logging trap warnings`. Which messages are sent to the syslog server?
+
+- **A.** Only severity 4
+- **B.** Severities 0 through 4
+- **C.** Severities 4 through 7
+- **D.** All severities, 0 through 7
+
+<details><summary>Answer</summary>
+
+**Answer: B.** A logging level means "this severity *and everything more urgent*". More urgent means a lower number, so warnings sends levels 0, 1, 2, 3 and 4. **Why not the others:** A, a level isn't an exact match. C has the direction backwards; that would bury the server in debug messages. D would need `logging trap debugging`.
+</details>
+
+**Q3.** A router logs `%LINK-3-UPDOWN: Interface GigabitEthernet0/1, changed state to down`. What is the severity of this message?
+
+- **A.** Error
+- **B.** Critical
+- **C.** Notice
+- **D.** Informational
+
+<details><summary>Answer</summary>
+
+**Answer: A.** The number between the dashes is the severity: 3 is Error. (The `%LINEPROTO-5-UPDOWN` message that usually follows is a 5, Notice.) **Why not the others:** B is 2. C is 5. D is 6.
+</details>
 
 ## 17.6 SNMP — Watching Devices
 
@@ -5819,6 +9222,44 @@ Two directions of conversation, and the difference matters:
 - **Traps (agent shouts):** the device sends an unsolicited **trap** the moment something happens ("interface down!"). **Why have both?** Because polling alone means a link can flap and recover *between* two polls and you'd never know; traps alone means a dead device simply goes silent — no agent left to shout. Polling proves devices are alive; traps catch events instantly. Real monitoring uses both.
 
 Versions: **v1** is ancient; **v2c** added better bulk reads but still "secures" everything with a plaintext **community string** — a shared password sent in the clear, usually `public` (read) and `private` (write). **v3** finally adds real **authentication and encryption** — always prefer it, and if you must run v2c, make it read-only with an ACL restricting who may ask.
+
+**📝 Exam-style questions — 17.6**
+
+**Q1.** Which SNMP message does an agent send on its own, without being asked, when an event happens?
+
+- **A.** Get
+- **B.** Set
+- **C.** Trap
+- **D.** GetBulk
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A trap is the agent shouting "something happened!" to the manager, on UDP 162. **Why not the others:** A, B and D are all sent *by the manager* to the agent (on UDP 161): reading a value, changing a value, and reading many values at once.
+</details>
+
+**Q2.** Which SNMP version adds authentication and encryption?
+
+- **A.** SNMPv1
+- **B.** SNMPv2c
+- **C.** SNMPv3
+- **D.** All versions use encryption
+
+<details><summary>Answer</summary>
+
+**Answer: C.** SNMPv3 adds user-based authentication and optional encryption, so it's the one to use. **Why not the others:** A and B only have a community string, sent in plain text. D, only v3 encrypts.
+</details>
+
+**Q3.** What is the MIB?
+
+- **A.** The monitoring station that collects data
+- **B.** The structured collection of every value that can be read or set on a device
+- **C.** The password shared between the manager and agent
+- **D.** The message an agent sends when an interface goes down
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The Management Information Base is the tree of variables an agent can report, each one addressed by an OID. **Why not the others:** A is the NMS (manager). C is the community string. D is a trap.
+</details>
 
 ---
 
@@ -5859,6 +9300,16 @@ QoS is applied **hop by hop** — each device makes its own decision about traff
 | Signaling (call setup) | CS3 | 24 |
 | Best effort (everything else) | BE / Default | 0 |
 
+```diagram
+{
+  "type": "bits",
+  "mode": "dscp",
+  "value": 46,
+  "title": "Six bits of DSCP",
+  "prompt": "DSCP is the top 6 bits of the IP header's ToS byte. Start at **46 (EF, voice)**, then click bits or type **34** (AF41, video), **24** (CS3, signaling) and **0** (best effort). The top three bits are the old IP precedence."
+}
+```
+
 **Why mark once at the edge instead of classifying at every hop?** Because deep inspection is expensive, and every router repeating it wastes effort. Classify once where the traffic **enters** the network, stamp the verdict on the packet, and every device afterward just reads the stamp. *Do the hard thinking at the door; everyone downstream reads the badge.*
 
 This is also why **trust boundaries** matter: a device decides whether to *believe* incoming markings. You trust the marking from a company IP phone; you do **not** trust it from a random PC, because any user could mark their game traffic EF and promote themselves to the front of every queue.
@@ -5875,6 +9326,57 @@ This is also why **trust boundaries** matter: a device decides whether to *belie
 | **Shaping** | **Buffers** it and sends it later | Yes (needs buffers) | Gentle — the bursts are smoothed out |
 
 *Policing throws away the excess; shaping makes it wait its turn.* Policing is typically applied to **incoming** traffic (an ISP enforcing what you paid for), shaping to **outgoing** traffic (smoothing your own traffic so the far end doesn't have to drop it).
+
+**📝 Exam-style questions — 17.7**
+
+**Q1.** Which DSCP marking is the standard choice for voice traffic?
+
+- **A.** AF41 (34)
+- **B.** CS3 (24)
+- **C.** EF (46)
+- **D.** Default (0)
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Expedited Forwarding, DSCP 46, is the voice marking, and it usually lands in the low-latency priority queue. **Why not the others:** A is interactive video. B is call signaling (setting up the call, not the audio). D is best effort.
+</details>
+
+**Q2.** Which two statements about policing and shaping are true? (Choose two.)
+
+- **A.** Policing drops (or re-marks) traffic that exceeds the rate.
+- **B.** Shaping buffers excess traffic and sends it later, which adds delay.
+- **C.** Shaping drops excess traffic immediately.
+- **D.** Policing adds delay because it holds packets in a queue.
+- **E.** Both can only be applied to incoming traffic.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Policing chops off whatever is over the limit (or marks it down). Shaping smooths bursts by delaying packets in a buffer. **Why not the others:** C and D swap the two tools' behaviour. E, shaping is normally applied *outbound*, and policing can be applied in either direction.
+</details>
+
+**Q3.** Which queuing method gives voice a strict-priority queue that is always served first?
+
+- **A.** FIFO
+- **B.** WRED
+- **C.** LLQ
+- **D.** Tail drop
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Low Latency Queuing adds a strict priority queue, with a policed limit so it can't starve everything else. **Why not the others:** A, first in first out treats every packet the same. B, WRED decides which packets to drop *early*; it doesn't schedule. D, tail drop is just what happens when a queue is full.
+</details>
+
+**Q4.** Why does WRED drop some packets before a queue is full?
+
+- **A.** To make every TCP sender slow down at the same moment
+- **B.** To nudge some TCP senders to slow down early and avoid global synchronization
+- **C.** To give voice traffic more bandwidth
+- **D.** To encrypt traffic that is waiting in the queue
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Dropping a few lower-priority packets early makes a few TCP flows back off, gently and at different times. That avoids the sawtooth where every flow loses packets at once (tail drop), all back off, and all ramp up together. **Why not the others:** A is the problem WRED solves, not its goal. C, voice is protected by LLQ, and voice is UDP, so drops don't slow it down anyway. D, queuing has nothing to do with encryption.
+</details>
 
 ---
 
@@ -5899,6 +9401,44 @@ Security has three big goals, remembered as **CIA**:
 
 *So the triad is a checklist that forces you to think about every angle:* Can the wrong people read it? Can they change it? Can they take it down? Real security needs all three. This is why the exam frames threats by which part of CIA they attack — it tells you what defense you need.
 
+**📝 Exam-style questions — 18.1**
+
+**Q1.** An attacker intercepts a funds transfer and changes the amount from $100 to $10,000 before it reaches the bank. Which part of the CIA triad was attacked?
+
+- **A.** Confidentiality
+- **B.** Integrity
+- **C.** Availability
+- **D.** Accounting
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Integrity means data arrives exactly as it was sent. Changing it in transit breaks integrity, even if nobody outside could read it. Hashes and digital signatures are the usual defense. **Why not the others:** A is about who can *read* the data. C is about whether the service is up. D, accounting is one of the three A's of AAA, not part of the CIA triad.
+</details>
+
+**Q2.** A botnet floods a company's web server with traffic until real customers can't load the site. Which security goal is under attack?
+
+- **A.** Confidentiality
+- **B.** Integrity
+- **C.** Availability
+- **D.** Authentication
+
+<details><summary>Answer</summary>
+
+**Answer: C.** A (distributed) denial-of-service attack doesn't steal or change anything. It just makes the service unusable, which is an attack on availability. **Why not the others:** A, nothing is being read. B, nothing is being altered. D, authentication is about proving identity, not part of CIA.
+</details>
+
+**Q3.** Encrypting data before sending it across the internet mainly protects which goal?
+
+- **A.** Confidentiality
+- **B.** Integrity
+- **C.** Availability
+- **D.** None; encryption only speeds up transfers
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Encryption turns the data into gibberish for anyone without the key, so only the right people can read it. **Why not the others:** B, encryption on its own doesn't prove the data wasn't altered; that takes a hash or authentication check, which VPNs add alongside encryption. C, encryption does nothing to keep a service online. D, encryption adds work; it never speeds anything up.
+</details>
+
 ## 18.2 Common Threats (The Bad Guys' Tricks)
 
 - **Malware:** Bad software (viruses, worms, ransomware).
@@ -5907,6 +9447,44 @@ Security has three big goals, remembered as **CIA**:
 - **Man-in-the-Middle (MITM):** Secretly sitting between two parties to spy or change data.
 - **Spoofing:** Pretending to be someone else (fake IP or MAC).
 - **Brute Force:** Trying many passwords until one works.
+
+**📝 Exam-style questions — 18.2**
+
+**Q1.** Employees receive an email that looks like it's from their bank, with a link to a fake login page. Which threat is this?
+
+- **A.** Brute force
+- **B.** Phishing
+- **C.** Denial of service
+- **D.** MAC flooding
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Phishing tricks people into handing over credentials using a convincing fake email or site. **Why not the others:** A guesses passwords rather than tricking someone into typing one. C overwhelms a service. D attacks a switch's MAC table.
+</details>
+
+**Q2.** A log shows thousands of failed SSH logins to a router from one address, each trying a different password. Which attack is this?
+
+- **A.** Man-in-the-middle
+- **B.** Spoofing
+- **C.** Brute force
+- **D.** Phishing
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Trying password after password until one works is brute force. Long passwords, lockouts (`login block-for`) and an ACL limiting who can reach SSH all help. **Why not the others:** A sits silently between two parties. B fakes an identity, such as a source address. D tricks a person rather than hammering the device.
+</details>
+
+**Q3.** An attacker sends packets with a forged source IP address so they appear to come from a trusted host. What is this called?
+
+- **A.** Spoofing
+- **B.** Malware
+- **C.** Phishing
+- **D.** Brute force
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Spoofing means pretending to be someone else by faking an address (IP or MAC). **Why not the others:** B is malicious software running on a device. C targets people with fake messages. D guesses passwords.
+</details>
 
 ## 18.3 Layer 2 Attacks & Defenses (CCNA Favorites)
 
@@ -5930,6 +9508,397 @@ SW1(config)# ip dhcp snooping vlan 10
 SW1(config)# interface gi0/1
 SW1(config-if)# ip dhcp snooping trust     ! this port leads to the real DHCP server
 ```
+
+```diagram
+{
+  "type": "topology",
+  "title": "A rogue DHCP server, with and without snooping",
+  "caption": "PC1 and an attacker's laptop share VLAN 10 on SW1. The real DHCP server (R1) is up the uplink Gi0/1. Press **Next**.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.75,
+      "y": 0,
+      "label": "R1",
+      "sub": "real DHCP, gw .1"
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 1.75,
+      "y": 1.3
+    },
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0.3,
+      "y": 2.6,
+      "sub": "Gi0/5"
+    },
+    {
+      "id": "ATK",
+      "kind": "host",
+      "x": 3.2,
+      "y": 2.6,
+      "label": "Attacker",
+      "sub": "Gi0/9, fake DHCP"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "SW1",
+      "bLabel": "Gi0/1"
+    },
+    {
+      "a": "SW1",
+      "b": "PC1"
+    },
+    {
+      "a": "SW1",
+      "b": "ATK"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. PC1 shouts for an address",
+      "text": "PC1 broadcasts a DHCP **Discover**. A switch floods broadcasts to every port in the VLAN, so the real server **and** the attacker both hear it.",
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "SW1",
+            "R1"
+          ],
+          "label": "DISCOVER"
+        },
+        {
+          "path": [
+            "PC1",
+            "SW1",
+            "ATK"
+          ],
+          "label": "DISCOVER"
+        }
+      ]
+    },
+    {
+      "title": "2. The attacker answers first",
+      "text": "The attacker's laptop is right there and replies first, with an offer that names **itself** as the default gateway. PC1 accepts the first offer it gets.",
+      "nodes": {
+        "ATK": {
+          "badge": "fake OFFER",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ATK",
+            "SW1",
+            "PC1"
+          ],
+          "label": "OFFER gw = attacker",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. Man in the middle",
+      "text": "Now every packet PC1 sends off its subnet goes to the attacker, who can read or alter it and pass it on to R1 so nothing looks wrong.",
+      "nodes": {
+        "PC1": {
+          "badge": "bad gateway",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "SW1",
+            "ATK",
+            "SW1",
+            "R1"
+          ],
+          "label": "PC1's traffic",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. Turn on DHCP snooping",
+      "text": "`ip dhcp snooping`, `ip dhcp snooping vlan 10`, and `ip dhcp snooping trust` on **Gi0/1** only. Now every other port is **untrusted**: a client may send Discovers and Requests there, but never Offers or Acks.",
+      "nodes": {
+        "ATK": null,
+        "PC1": null,
+        "SW1": {
+          "badge": "snooping on",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-SW1": "active"
+      }
+    },
+    {
+      "title": "5. The fake offer is dropped",
+      "text": "The attacker's Offer arrives on untrusted Gi0/9, so SW1 **drops** it (and logs it). It never reaches PC1.",
+      "nodes": {
+        "ATK": {
+          "badge": "dropped",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ATK",
+            "SW1"
+          ],
+          "label": "fake OFFER",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "6. The real offer gets through, and is remembered",
+      "text": "R1's Offer and Ack come in on trusted Gi0/1 and pass. SW1 writes a **binding**: PC1's MAC, its leased IP, VLAN 10, port Gi0/5. Dynamic ARP Inspection uses that table next.",
+      "nodes": {
+        "PC1": {
+          "badge": "real lease",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "SW1",
+            "PC1"
+          ],
+          "label": "OFFER gw = R1",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
+```diagram
+{
+  "type": "topology",
+  "title": "ARP spoofing, and how DAI catches it",
+  "caption": "PC1 (192.168.10.10) uses R1 (192.168.10.1, MAC 0000.0c11.1111) as its gateway. The attacker is 192.168.10.66 on the same VLAN. Press **Next**.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.75,
+      "y": 0,
+      "sub": "192.168.10.1"
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 1.75,
+      "y": 1.3
+    },
+    {
+      "id": "PC1",
+      "kind": "host",
+      "x": 0.3,
+      "y": 2.6,
+      "sub": "192.168.10.10"
+    },
+    {
+      "id": "ATK",
+      "kind": "host",
+      "x": 3.2,
+      "y": 2.6,
+      "label": "Attacker",
+      "sub": "192.168.10.66"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "SW1",
+      "bLabel": "Gi0/1"
+    },
+    {
+      "a": "SW1",
+      "b": "PC1",
+      "aLabel": "Gi0/5"
+    },
+    {
+      "a": "SW1",
+      "b": "ATK",
+      "aLabel": "Gi0/9"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. A lie, sent unasked",
+      "text": "The attacker sends PC1 an ARP reply nobody asked for (a *gratuitous* ARP): **192.168.10.1 is at the attacker's MAC**. ARP has no authentication, so PC1 simply believes it and overwrites its cache.",
+      "nodes": {
+        "ATK": {
+          "badge": "fake ARP",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ATK",
+            "SW1",
+            "PC1"
+          ],
+          "label": ".1 is at ATTACKER MAC",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "2. PC1's traffic takes a detour",
+      "text": "PC1 still sends to 192.168.10.1, but frames go to the attacker's MAC. The attacker reads them and forwards them to R1, a quiet **man-in-the-middle**.",
+      "nodes": {
+        "PC1": {
+          "badge": "cache poisoned",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "SW1",
+            "ATK",
+            "SW1",
+            "R1"
+          ],
+          "label": "to the internet",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. Turn on Dynamic ARP Inspection",
+      "text": "`ip arp inspection vlan 10`, with the uplink Gi0/1 trusted. On every untrusted port, SW1 now checks each ARP message against the **DHCP snooping binding table**, which says Gi0/9 belongs to 192.168.10.66.",
+      "nodes": {
+        "ATK": null,
+        "PC1": null,
+        "SW1": {
+          "badge": "DAI on",
+          "tone": "good"
+        }
+      }
+    },
+    {
+      "title": "4. The lie is dropped",
+      "text": "The attacker repeats the trick: *192.168.10.1 is at my MAC*, arriving on Gi0/9. The binding table says Gi0/9 is 192.168.10.66, not .1, so SW1 **drops** the ARP and logs it. PC1's cache stays correct.",
+      "nodes": {
+        "ATK": {
+          "badge": "ARP dropped",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ATK",
+            "SW1"
+          ],
+          "label": ".1 is at ATTACKER MAC",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Normal traffic flows",
+      "text": "PC1's frames go straight to R1's real MAC. That's why DAI needs DHCP snooping first: the binding table is its source of truth.",
+      "nodes": {
+        "PC1": {
+          "badge": "correct ARP",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC1",
+            "SW1",
+            "R1"
+          ],
+          "label": "to the internet",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 18.3**
+
+**Q1.** Users are receiving the wrong default gateway from a DHCP server someone plugged into an access port. Which switch feature prevents this?
+
+- **A.** Port security
+- **B.** DHCP snooping
+- **C.** BPDU Guard
+- **D.** Dynamic ARP Inspection
+
+<details><summary>Answer</summary>
+
+**Answer: B.** DHCP snooping lets server messages (Offers and Acks) in only on ports you mark as trusted, the ones toward the real server. A rogue server on an access port is ignored. **Why not the others:** A limits which MAC addresses a port accepts, but the rogue server only needs one. C protects STP from switches plugged into PortFast ports. D stops forged ARP replies, not DHCP replies (though it relies on DHCP snooping's records).
+</details>
+
+**Q2.** Refer to the exhibit. The real DHCP server is reached through the uplink Gi0/24. A user PC is connected to Gi0/1. What is the result of this configuration?
+
+```
+SW1(config)# ip dhcp snooping
+SW1(config)# ip dhcp snooping vlan 10
+SW1(config)# interface gi0/1
+SW1(config-if)# ip dhcp snooping trust
+```
+
+- **A.** DHCP works normally for VLAN 10.
+- **B.** Clients in VLAN 10 get no addresses, because the server's Offers arrive on untrusted Gi0/24 and are dropped.
+- **C.** Every port in VLAN 10 is now trusted.
+- **D.** DHCP snooping isn't active, because no SVI exists for VLAN 10.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Once snooping is on, every port is untrusted unless you say otherwise. Gi0/24, where the real Offers arrive, was never trusted, so they're dropped. Worse, the user port Gi0/1 *is* trusted, so a rogue server there would be believed. The fix is to trust Gi0/24 and remove trust from Gi0/1. **Why not the others:** A, the legitimate server's replies are being dropped. C, only the one port configured with `trust` is trusted. D, DHCP snooping is a Layer 2 feature and needs no SVI.
+</details>
+
+**Q3.** Which two statements about Dynamic ARP Inspection (DAI) are true? (Choose two.)
+
+- **A.** DAI drops ARP messages whose IP-to-MAC pairing doesn't match a trusted record.
+- **B.** DAI checks ARP messages against the DHCP snooping binding table.
+- **C.** DAI stops MAC flooding attacks.
+- **D.** DAI replaces the need for DHCP snooping.
+- **E.** DAI checks every IP packet, not just ARP.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** DAI intercepts ARP on untrusted ports and compares "IP X is at MAC Y" with what DHCP snooping recorded when the address was leased. A lie, such as an attacker claiming the gateway's IP, is dropped. **Why not the others:** C, MAC flooding is stopped by port security. D, DAI *depends* on DHCP snooping's binding table. E, DAI looks only at ARP; checking the source of IP packets is IP Source Guard's job.
+</details>
+
+**Q4.** Which two actions help prevent VLAN hopping? (Choose two.)
+
+- **A.** Set user ports to `switchport mode access` so they can't negotiate a trunk with DTP
+- **B.** Change the native VLAN on trunks to an unused VLAN
+- **C.** Enable DHCP snooping
+- **D.** Enable PortFast on access ports
+- **E.** Enable `service password-encryption`
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** VLAN hopping works by tricking a port into trunking (switch spoofing via DTP) or by double-tagging frames that ride the native VLAN. Fixed access ports and an unused native VLAN shut both doors. **Why not the others:** C protects DHCP. D speeds up port startup and has no security effect. E hides passwords in the config file.
+</details>
 
 ## 18.4 AAA — Who Are You, and What Can You Do?
 
@@ -5961,6 +9930,45 @@ Servers like **RADIUS** and **TACACS+** provide AAA centrally instead of a passw
 
 *So it's not "which is better" — it's "which fits the job": TACACS+ for admin control, RADIUS for user network access.*
 
+**📝 Exam-style questions — 18.4**
+
+**Q1.** Which part of AAA records which commands an administrator entered and when?
+
+- **A.** Authentication
+- **B.** Authorization
+- **C.** Accounting
+- **D.** Auditing
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Accounting is the record of what was done, the "who changed this at 3 a.m.?" answer. **Why not the others:** A proves who you are. B decides what you may do. D isn't one of the three A's.
+</details>
+
+**Q2.** Which two statements about TACACS+ and RADIUS are true? (Choose two.)
+
+- **A.** TACACS+ uses TCP.
+- **B.** TACACS+ encrypts the entire packet body.
+- **C.** RADIUS encrypts the entire packet.
+- **D.** TACACS+ is an open standard.
+- **E.** RADIUS uses TCP port 49.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** TACACS+ runs over TCP port 49 and encrypts everything after its header, which suits device administration. **Why not the others:** C, RADIUS hides only the password. D, TACACS+ is Cisco's; RADIUS is the open standard. E, RADIUS uses UDP (1812 and 1813); TCP 49 is TACACS+.
+</details>
+
+**Q3.** A junior technician can log in to every switch but may only run `show` commands. Which AAA function enforces that limit?
+
+- **A.** Authentication
+- **B.** Authorization
+- **C.** Accounting
+- **D.** Encryption
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Authorization decides what an authenticated user is allowed to do, down to individual commands with TACACS+. **Why not the others:** A already let them in. C only records what they did. D isn't one of the AAA functions.
+</details>
+
 ## 18.5 Passwords & Best Practices
 
 - Use **strong, long** passwords.
@@ -5970,6 +9978,44 @@ Servers like **RADIUS** and **TACACS+** provide AAA centrally instead of a passw
 - Shut down **unused ports** and put them in an unused VLAN.
 - Use a **login banner** warning.
 - Keep IOS **updated**.
+
+**📝 Exam-style questions — 18.5**
+
+**Q1.** A router has both `enable password Cisco123` and `enable secret S3cure!` configured. Which password grants privileged EXEC mode?
+
+- **A.** Cisco123
+- **B.** S3cure!
+- **C.** Either one
+- **D.** Neither, because the two commands conflict
+
+<details><summary>Answer</summary>
+
+**Answer: B.** When both exist, `enable secret` always wins, and it's stored as a strong hash. **Why not the others:** A, `enable password` is ignored once a secret exists. C, only the secret is checked, so typing Cisco123 fails. D, there's no conflict; the secret simply takes priority.
+</details>
+
+**Q2.** What does `service password-encryption` do?
+
+- **A.** Hashes every password with a strong algorithm
+- **B.** Applies weak, reversible Type 7 encryption to plain-text passwords in the configuration
+- **C.** Encrypts SSH sessions
+- **D.** Encrypts all traffic leaving the router
+
+<details><summary>Answer</summary>
+
+**Answer: B.** It stops someone reading passwords over your shoulder, but Type 7 can be reversed with free tools in seconds, so it's no replacement for `enable secret` and hashed user passwords. **Why not the others:** A describes `enable secret` and `username ... secret`. C, SSH encrypts itself. D, encrypting traffic is a job for a VPN.
+</details>
+
+**Q3.** Why is SSH preferred over Telnet for managing network devices?
+
+- **A.** SSH is faster.
+- **B.** Telnet sends everything, including passwords, in plain text; SSH encrypts the session.
+- **C.** Telnet doesn't work over IPv4.
+- **D.** SSH doesn't need a username.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Anyone capturing Telnet traffic can read the password straight off the wire. SSH encrypts the whole session. **Why not the others:** A, speed isn't the reason. C, Telnet works over IPv4 just fine. D, SSH on IOS needs a username (for example with `login local`).
+</details>
 
 ## 18.6 802.1X — The Bouncer at the Port
 
@@ -5984,6 +10030,153 @@ The device asks to join; the **switch** passes the credentials to a **RADIUS**
 server; RADIUS answers **allowed** or **denied**, and the switch opens or keeps
 the port shut accordingly.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "802.1X: proving who you are before the port opens",
+  "caption": "A laptop plugs into an 802.1X port on SW1. Press **Next** and watch the port state.",
+  "actors": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "label": "Supplicant (laptop)"
+    },
+    {
+      "id": "SW",
+      "kind": "switch",
+      "label": "Authenticator (SW1)"
+    },
+    {
+      "id": "RAD",
+      "kind": "server",
+      "label": "Auth server (RADIUS)"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Port unauthorized",
+      "over": [
+        "SW"
+      ],
+      "states": {
+        "SW": "unauthorized"
+      },
+      "text": "The link is up, but the port carries only **EAPoL** (EAP over LAN). No DHCP, no IP, nothing else until the laptop proves who it is."
+    },
+    {
+      "from": "SW",
+      "to": "PC",
+      "label": "EAP-Request/Identity",
+      "detail": "EAPoL",
+      "text": "The switch asks: *who are you?* (A supplicant can also start things itself with an EAPoL-Start.)"
+    },
+    {
+      "from": "PC",
+      "to": "SW",
+      "label": "EAP-Response/Identity: alice",
+      "detail": "EAPoL",
+      "text": "The laptop answers with its identity, still in EAPoL frames. It has no IP address to talk to anything else."
+    },
+    {
+      "from": "SW",
+      "to": "RAD",
+      "label": "RADIUS Access-Request",
+      "detail": "EAP inside RADIUS, UDP 1812",
+      "text": "The switch doesn't judge credentials itself. It **wraps** the EAP message in RADIUS and passes it to the server. The switch is a relay and a gate, not a judge."
+    },
+    {
+      "from": "RAD",
+      "to": "SW",
+      "label": "RADIUS Access-Challenge",
+      "detail": "pick a method, e.g. PEAP or EAP-TLS",
+      "dashed": true,
+      "text": "The server starts the chosen EAP method. With EAP-TLS, both sides use certificates (18.8). With PEAP, a TLS tunnel protects a username and password."
+    },
+    {
+      "from": "SW",
+      "to": "PC",
+      "label": "EAP-Request (method)",
+      "detail": "EAPoL",
+      "text": "The switch unwraps it and passes it on. Several rounds of this back-and-forth may follow; they're shown here as one."
+    },
+    {
+      "from": "PC",
+      "to": "SW",
+      "label": "EAP-Response (credentials)",
+      "detail": "EAPoL",
+      "text": "The laptop answers the challenge with its certificate or its protected credentials."
+    },
+    {
+      "from": "SW",
+      "to": "RAD",
+      "label": "RADIUS Access-Request",
+      "detail": "UDP 1812",
+      "text": "Relayed to the server again."
+    },
+    {
+      "from": "RAD",
+      "to": "SW",
+      "label": "RADIUS Access-Accept",
+      "detail": "can also assign a VLAN",
+      "dashed": true,
+      "tone": "good",
+      "text": "The credentials check out. The Accept can carry extras, such as which VLAN to put this user in. A bad login would get an **Access-Reject**, and the port would stay closed."
+    },
+    {
+      "from": "SW",
+      "to": "PC",
+      "label": "EAP-Success",
+      "detail": "EAPoL",
+      "dashed": true,
+      "tone": "good",
+      "states": {
+        "SW": "authorized"
+      },
+      "text": "The port moves to **authorized**. Only now can the laptop send its first DHCP Discover and join the network."
+    }
+  ]
+}
+```
+
+**📝 Exam-style questions — 18.6**
+
+**Q1.** In 802.1X, which role does the access switch play?
+
+- **A.** Supplicant
+- **B.** Authenticator
+- **C.** Authentication server
+- **D.** Certificate authority
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The switch is the bouncer: it holds the port closed, passes the credentials along, and opens the port when told to. **Why not the others:** A is the device trying to connect. C is the RADIUS server that actually checks the credentials. D issues certificates and isn't one of the three 802.1X roles.
+</details>
+
+**Q2.** Which two protocols carry 802.1X authentication? (Choose two.)
+
+- **A.** EAP over LAN (EAPoL) between the supplicant and the authenticator
+- **B.** RADIUS between the authenticator and the authentication server
+- **C.** TACACS+ between the supplicant and the authentication server
+- **D.** SNMP between the authenticator and the authentication server
+- **E.** RADIUS between the supplicant and the authenticator
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** The client speaks EAPoL to the switch over the wire, and the switch wraps the EAP messages in RADIUS to the server. **Why not the others:** C, the supplicant never talks to the server directly, and 802.1X uses RADIUS, not TACACS+. D, SNMP is for monitoring. E, the supplicant doesn't speak RADIUS; it has no IP access yet.
+</details>
+
+**Q3.** An 802.1X port has not yet authenticated the connected PC. Which traffic does the port allow?
+
+- **A.** All traffic, but it's logged
+- **B.** Only EAPoL (plus a few control protocols such as CDP and STP)
+- **C.** Only DHCP and DNS
+- **D.** Only traffic to the RADIUS server
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Until authentication succeeds, the port only carries the authentication conversation itself. No IP traffic gets through, not even DHCP. **Why not the others:** A would make 802.1X pointless. C, DHCP waits until the port is authorized. D, the PC never talks to RADIUS directly; the switch does that.
+</details>
+
 ## 18.7 VPNs — Secret Tunnels
 
 A **VPN (Virtual Private Network)** creates an **encrypted tunnel** across the public internet so data travels safely, as if on a private line.
@@ -5993,6 +10186,33 @@ A **VPN (Virtual Private Network)** creates an **encrypted tunnel** across the p
 Office A and Office B are joined by an **encrypted tunnel** across the public
 internet. Anyone intercepting the traffic in between sees only scrambled
 gibberish. 🔒
+
+**📝 Exam-style questions — 18.7**
+
+**Q1.** A company wants a permanent encrypted connection over the internet between headquarters and a branch office, with no software on users' PCs. Which solution fits?
+
+- **A.** Site-to-site IPsec VPN
+- **B.** Remote-access VPN
+- **C.** Telnet
+- **D.** Static NAT
+
+<details><summary>Answer</summary>
+
+**Answer: A.** A site-to-site VPN runs between the two offices' routers or firewalls, so users don't need to do anything. **Why not the others:** B connects one user's device and needs client software on it. C is unencrypted remote management. D translates addresses but encrypts nothing.
+</details>
+
+**Q2.** Which two statements about VPNs are true? (Choose two.)
+
+- **A.** In a site-to-site VPN, the end hosts don't know the tunnel exists.
+- **B.** A remote-access VPN usually needs a VPN client (such as Cisco AnyConnect) or a browser session on the user's device.
+- **C.** A site-to-site VPN needs VPN client software on every PC.
+- **D.** VPN traffic crosses the internet unencrypted.
+- **E.** Remote-access VPNs are used for permanent links between offices.
+
+<details><summary>Answer</summary>
+
+**Answer: A, B.** Site-to-site tunnels are built by the edge devices, invisible to the hosts behind them. Remote access is per user, so the user's device runs the client. **Why not the others:** C describes remote access. D, the whole point of a VPN is encryption across the untrusted network. E, permanent office links are site-to-site.
+</details>
 
 ---
 
@@ -6016,6 +10236,44 @@ Section 18.5 covered making passwords strong. But the exam also expects you to k
 
 **Biometrics** are convenient but come with a permanent catch worth stating plainly: **you can't change your fingerprint.** A leaked password is replaced in seconds; leaked biometric data is compromised for life. That's why biometrics are best used as *one* factor unlocking a local device — not as the single credential guarding a system.
 
+**📝 Exam-style questions — 18.8**
+
+**Q1.** Which login method is true multi-factor authentication?
+
+- **A.** A password and a security question
+- **B.** A password and a code from an authenticator app on the user's phone
+- **C.** Two different passwords
+- **D.** A PIN and a password
+
+<details><summary>Answer</summary>
+
+**Answer: B.** That's something you know (the password) plus something you have (the phone). An attacker now needs to steal a physical object as well. **Why not the others:** A, C and D are all two things you *know*, and one phishing page can collect both.
+</details>
+
+**Q2.** A fingerprint scan belongs to which authentication factor?
+
+- **A.** Something you know
+- **B.** Something you have
+- **C.** Something you are
+- **D.** Somewhere you are
+
+<details><summary>Answer</summary>
+
+**Answer: C.** Biometrics such as fingerprints and faces are inherence factors: something you are. **Why not the others:** A is passwords and PINs. B is tokens, phones and smart cards. D, location is sometimes used as an extra signal, but a fingerprint isn't one.
+</details>
+
+**Q3.** Why is certificate-based authentication stronger than a shared password?
+
+- **A.** Certificates never expire.
+- **B.** The private key stays on the device and is never sent, so there's no secret to intercept.
+- **C.** Certificates are shorter and easier to remember.
+- **D.** Certificates don't need any server to check them.
+
+<details><summary>Answer</summary>
+
+**Answer: B.** The device proves its identity by signing with a private key that never leaves it, so sniffing the exchange gives the attacker nothing reusable. **Why not the others:** A, certificates *do* expire, on purpose. C, nobody memorizes a certificate. D, something still has to validate the certificate, such as the RADIUS server in 802.1X.
+</details>
+
 ## 18.9 Security Is People, Too — Program Elements
 
 Every control so far has been technical. The exam explicitly covers the **non-technical** side, and there's a good reason: attackers routinely skip the technology entirely.
@@ -6025,6 +10283,44 @@ Every control so far has been technical. The exam explicitly covers the **non-te
 - **User awareness** — organization-wide communication that keeps threats visible: simulated phishing emails, posters, reminders about tailgating. The goal is *recognition* — an employee who has seen a fake login page before is far likelier to spot a real attack.
 - **User training** — deeper, often role-specific instruction, usually formal and repeated: how to handle sensitive data, how to report an incident, acceptable use. Awareness raises alertness; training builds skill.
 - **Physical access control** — locks, badge readers, cameras, and secured server rooms and wiring closets. **Why does this matter so much?** Because physical access effectively defeats most software security: someone at your switch can plug into any port, reset a device's password through the console, or simply walk out with hardware. *Console access and a paperclip beat any password you configured.*
+
+**📝 Exam-style questions — 18.9**
+
+**Q1.** A company sends employees fake phishing emails every month and shows a short reminder to anyone who clicks. Which security program element is this?
+
+- **A.** User awareness
+- **B.** Physical access control
+- **C.** AAA
+- **D.** 802.1X
+
+<details><summary>Answer</summary>
+
+**Answer: A.** Awareness programs keep threats in front of everyone, and simulated phishing is the classic example. **Why not the others:** B is locks and badges. C and D are technical controls for logins and port access.
+</details>
+
+**Q2.** Badge readers and cameras are installed on the doors to the wiring closets. Which security program element is this?
+
+- **A.** User training
+- **B.** Physical access control
+- **C.** User awareness
+- **D.** Accounting
+
+<details><summary>Answer</summary>
+
+**Answer: B.** It controls who can physically reach the equipment, which matters because console access lets someone reset passwords. **Why not the others:** A and C are about people's knowledge and habits. D, accounting logs what users did on a device.
+</details>
+
+**Q3.** New help-desk staff attend a formal course on handling customer data and reporting security incidents. Which element is this?
+
+- **A.** User awareness
+- **B.** User training
+- **C.** Physical access control
+- **D.** Authorization
+
+<details><summary>Answer</summary>
+
+**Answer: B.** Training is formal, often role-specific instruction that builds skills. **Why not the others:** A is the broad, ongoing reminder campaign rather than a formal course. C is locks and badges. D is an AAA function on network devices.
+</details>
 
 ---
 
