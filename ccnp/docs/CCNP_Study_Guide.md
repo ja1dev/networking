@@ -6912,6 +6912,55 @@ All three protocols (HSRP, VRRP and GLBP) share one mechanism:
 
 Change one thing: remove `preempt` from R1. In step 5, R1 comes back, sees an Active router already (R3), and does **not** take over, even though its priority is higher. R3 stays Active until it fails. *Priority decides who wins an election; preemption decides whether an election is re-held when someone better arrives.*
 
+```diagram
+{
+  "type": "compare",
+  "title": "Who becomes HSRP Active, and who is Standby?",
+  "prompt": "These are the three routers from the worked example. Change the priorities and addresses and watch the roles move. Set R2 to priority 110 to tie with R1: the higher interface address then decides. Remember that this is the election when everyone starts together. Without `preempt`, a better router that arrives later does **not** take over.",
+  "places": [
+    "Active",
+    "Standby"
+  ],
+  "fields": [
+    {
+      "id": "prio",
+      "label": "Priority (0-255, default 100)",
+      "kind": "number",
+      "rule": "highest"
+    },
+    {
+      "id": "ip",
+      "label": "Interface IP address",
+      "kind": "ip",
+      "rule": "highest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "R1",
+      "values": {
+        "prio": 110,
+        "ip": "10.10.10.2"
+      }
+    },
+    {
+      "label": "R2",
+      "values": {
+        "prio": 100,
+        "ip": "10.10.10.3"
+      }
+    },
+    {
+      "label": "R3",
+      "values": {
+        "prio": 100,
+        "ip": "10.10.10.4"
+      }
+    }
+  ]
+}
+```
+
 **Why is preempt off by default?** Because every takeover is a small disruption: a gratuitous ARP, a MAC move and possibly lost packets. If the "better" router is flapping, preemption makes every flap cause *two* outages, one when it dies and one when it grabs the role back. Cisco's default favors stability, and you opt in when you have a reason. When you do enable it, add a **delay** (`preempt delay minimum 60`) so a rebooting router finishes building its routing table *before* it attracts traffic it can't yet route.
 
 ### Timers
@@ -6929,6 +6978,121 @@ The defaults are **hello 3 s, hold 10 s**. The hold time is how long a router wa
 With `timers msec 250 msec 750`, step 3 happens at about 0.75 s instead of 10 s. That's the whole reason people tune the timers.
 
 **Why hold = about 3 × hello?** So that one or two lost hellos (a busy CPU, a dropped multicast) don't trigger a failover. The backup only acts after missing roughly three in a row.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "HSRP from power-on to failover (version 2, default timers)",
+  "caption": "DSW1 is priority 110, DSW2 is the default 100. Both have `standby 10 ip 10.10.10.1` configured, so neither needs the Learn state.",
+  "actors": [
+    {
+      "id": "DSW1",
+      "kind": "l3switch",
+      "label": "DSW1 .2"
+    },
+    {
+      "id": "DSW2",
+      "kind": "l3switch",
+      "label": "DSW2 .3"
+    },
+    {
+      "id": "ASW",
+      "kind": "switch",
+      "label": "Access switch"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Vlan10 comes up: Initial → Listen",
+      "over": [
+        "DSW1",
+        "DSW2"
+      ],
+      "text": "Both start in **Initial**. Each already knows the VIP from its own config, so each skips **Learn** and goes straight to **Listen**, where it listens for hellos from an existing Active or Standby router. Nobody is talking yet.",
+      "states": {
+        "DSW1": "Listen",
+        "DSW2": "Listen"
+      }
+    },
+    {
+      "from": "DSW1",
+      "to": "DSW2",
+      "label": "Hello: Speak, prio 110",
+      "text": "Hearing no Standby router, DSW1 moves to **Speak** and starts sending hellos to **224.0.0.102** on **UDP 1985** every 3 s. Speak is the state in which a router campaigns for a role.",
+      "detail": "→ 224.0.0.102, UDP 1985",
+      "states": {
+        "DSW1": "Speak"
+      }
+    },
+    {
+      "from": "DSW2",
+      "to": "DSW1",
+      "label": "Hello: Speak, prio 100",
+      "text": "DSW2 campaigns too. Both now hear each other, compare priority (110 beats 100) and agree that DSW1 should hold the better role.",
+      "detail": "→ 224.0.0.102, UDP 1985",
+      "states": {
+        "DSW2": "Speak"
+      },
+      "dashed": true
+    },
+    {
+      "note": "No Active heard: Speak → Standby → Active",
+      "over": [
+        "DSW1"
+      ],
+      "text": "DSW1 wins the Standby role first. Then, because no Active router has spoken during the hold time (10 s), the Standby router promotes itself to **Active**. DSW2, the best of the rest, settles into **Standby**. A third router would fall back to **Listen** and go quiet.",
+      "states": {
+        "DSW1": "Active",
+        "DSW2": "Standby"
+      }
+    },
+    {
+      "from": "DSW1",
+      "to": "ASW",
+      "label": "Gratuitous ARP for .1",
+      "text": "The new Active router announces the virtual MAC (HSRPv2 group 10 = `0000.0c9f.f00a`) so the access switch learns which port it lives behind. Hosts that ARP for 10.10.10.1 from now on get that virtual MAC, never DSW1's real one.",
+      "detail": "from vMAC 0000.0c9f.f00a",
+      "tone": "good"
+    },
+    {
+      "from": "DSW1",
+      "to": "DSW2",
+      "label": "Hello: Active, prio 110",
+      "text": "Every 3 s. The Active **and** the Standby router both send hellos, so every router knows the line of succession in advance.",
+      "detail": "Every 3 s; hold time 10 s"
+    },
+    {
+      "from": "DSW1",
+      "to": "DSW2",
+      "label": "Hello, then power lost",
+      "text": "DSW1 dies just after a hello. From here until DSW2's hold timer runs out, hosts keep sending frames to `0000.0c9f.f00a`, the access switch keeps forwarding them toward DSW1's port, and they are lost. *This gap is the outage users feel.*",
+      "states": {
+        "DSW1": "Down"
+      },
+      "tone": "bad",
+      "drop": true
+    },
+    {
+      "note": "t = 10 s: hold timer expires",
+      "over": [
+        "DSW2"
+      ],
+      "text": "DSW2 has heard nothing from the Active router for the full **hold time** (about 3 missed hellos). It declares DSW1 dead and moves from **Standby** to **Active**.",
+      "states": {
+        "DSW2": "Active"
+      }
+    },
+    {
+      "from": "DSW2",
+      "to": "ASW",
+      "label": "Gratuitous ARP for .1",
+      "text": "Same IP, same virtual MAC, new port. The access switch sees the vMAC arrive on DSW2's port and moves its MAC table entry. Hosts change nothing: their ARP caches were never wrong. With `standby 10 timers msec 250 msec 750`, this moment arrives after about 0.75 s instead of 10 s.",
+      "detail": "same vMAC, new switch port",
+      "tone": "good"
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 9.2**
 
@@ -7018,6 +7182,257 @@ Picture DSW1 as Active for VLAN 10. Its **uplink** to the core fails, but its VL
 5. The uplink comes back. Priority returns to 110. DSW1 has preempt with a 60 s delay, so 60 s later it takes the Active role back.
 
 `show standby` on DSW1 during the failure would show `Priority 90 (configured 110)` and `Track object 1 state Down decrement 20`.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Object tracking + preempt: failing over when the uplink dies",
+  "caption": "DSW1: `standby 10 priority 110`, `preempt delay minimum 60`, `track 1 decrement 20`. DSW2: default priority 100 with `preempt`. DSW1 is also the STP root for VLAN 10, so ASW's uplink to DSW2 is blocking for that VLAN.",
+  "nodes": [
+    {
+      "id": "Core",
+      "kind": "router",
+      "x": 2,
+      "y": 0,
+      "label": "Core",
+      "sub": "10.255.255.1"
+    },
+    {
+      "id": "DSW1",
+      "kind": "l3switch",
+      "x": 0.6,
+      "y": 1.5,
+      "label": "DSW1",
+      "sub": "10.10.10.2"
+    },
+    {
+      "id": "DSW2",
+      "kind": "l3switch",
+      "x": 3.4,
+      "y": 1.5,
+      "label": "DSW2",
+      "sub": "10.10.10.3 prio 100"
+    },
+    {
+      "id": "ASW",
+      "kind": "switch",
+      "x": 2,
+      "y": 3,
+      "label": "ASW",
+      "sub": "VLAN 10"
+    },
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 2,
+      "y": 4.3,
+      "label": "PC",
+      "sub": "gw 10.10.10.1"
+    }
+  ],
+  "links": [
+    {
+      "a": "Core",
+      "b": "DSW1",
+      "bLabel": "Gi1/0/48"
+    },
+    {
+      "a": "Core",
+      "b": "DSW2",
+      "bLabel": "Gi1/0/48"
+    },
+    {
+      "a": "DSW1",
+      "b": "DSW2",
+      "aLabel": "Po1",
+      "bLabel": "Po1",
+      "style": "thick"
+    },
+    {
+      "a": "ASW",
+      "b": "DSW1",
+      "aLabel": "Gi1/0/49"
+    },
+    {
+      "a": "ASW",
+      "b": "DSW2",
+      "aLabel": "Gi1/0/50"
+    },
+    {
+      "a": "ASW",
+      "b": "PC"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Normal running",
+      "text": "DSW1 has priority 110 and is **Active** for 10.10.10.1. DSW2 (100) is **Standby**. The PC's frames to the virtual MAC go up ASW's forwarding uplink straight to DSW1, and out its uplink Gi1/0/48 to the core.",
+      "nodes": {
+        "DSW1": {
+          "badge": "Active 110",
+          "tone": "good"
+        },
+        "DSW2": {
+          "badge": "Standby",
+          "tone": "muted"
+        }
+      },
+      "links": {
+        "ASW-DSW2": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ASW",
+            "DSW1",
+            "Core"
+          ],
+          "label": "to 0000.0c9f.f00a",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. The uplink fails, and HSRP doesn't notice",
+      "text": "Gi1/0/48 on DSW1 goes down. VLAN 10 is still fine, so hellos keep flowing and DSW1 stays **Active**. Without tracking, every host's traffic still arrives at a router that can no longer send it anywhere useful: a black hole.",
+      "nodes": {
+        "DSW1": {
+          "badge": "Active 110",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "Core-DSW1": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ASW",
+            "DSW1"
+          ],
+          "label": "black-holed",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. Track 1 goes Down: priority 110 − 20 = 90",
+      "text": "`track 1 interface GigabitEthernet1/0/48 line-protocol` changes to **Down**, so DSW1 lowers its own HSRP priority by the decrement and advertises **90** in its next hello. Tracking only lowers DSW1's priority. It does not make anyone else take over.",
+      "nodes": {
+        "DSW1": {
+          "badge": "Active 90",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "DSW1",
+            "DSW2"
+          ],
+          "label": "Hello, priority 90",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "4. DSW2 preempts with a Coup",
+      "text": "DSW2 hears an Active router at 90, lower than its own 100, **and** DSW2 has `preempt`. It sends a **Coup** and becomes Active. DSW1 drops to Standby. If DSW2 had no `preempt`, DSW1 would stay Active at 90 with a dead uplink.",
+      "nodes": {
+        "DSW2": {
+          "badge": "Active",
+          "tone": "good"
+        },
+        "DSW1": {
+          "badge": "Standby 90",
+          "tone": "muted"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "DSW2",
+            "DSW1"
+          ],
+          "label": "Coup",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "5. Gratuitous ARP moves the virtual MAC",
+      "text": "DSW2 sends a gratuitous ARP from `0000.0c9f.f00a`. It reaches ASW through Po1 and DSW1, because ASW's direct uplink to DSW2 is still blocking for VLAN 10. Every switch moves its MAC table entry for the vMAC toward DSW2.",
+      "packets": [
+        {
+          "path": [
+            "DSW2",
+            "DSW1",
+            "ASW"
+          ],
+          "label": "Gratuitous ARP",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. Traffic now leaves through DSW2",
+      "text": "The PC still sends to the same gateway MAC. Its frames climb to DSW1, which now just **switches** them across Po1 at Layer 2 to DSW2, which routes them to the core. STP hasn't changed, so the frames take this extra hop. That's acceptable during a failure, and it's why STP root and HSRP Active must line up in normal running (9.4).",
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ASW",
+            "DSW1",
+            "DSW2",
+            "Core"
+          ],
+          "label": "to 0000.0c9f.f00a",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "7. Uplink back: wait 60 s, then take over again",
+      "text": "Gi1/0/48 comes back, track 1 goes Up, and DSW1 returns to priority **110**. It has `preempt delay minimum 60`, so it waits 60 s to let routing converge on the new uplink before it attracts traffic. Then it sends its own Coup, becomes Active again, and DSW2 returns to Standby.",
+      "nodes": {
+        "DSW1": {
+          "badge": "Active 110",
+          "tone": "good"
+        },
+        "DSW2": {
+          "badge": "Standby",
+          "tone": "muted"
+        }
+      },
+      "links": {
+        "Core-DSW1": null
+      },
+      "packets": [
+        {
+          "path": [
+            "DSW1",
+            "DSW2"
+          ],
+          "label": "Coup (after 60 s)",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "PC",
+            "ASW",
+            "DSW1",
+            "Core"
+          ],
+          "label": "to 0000.0c9f.f00a",
+          "tone": "accent"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **Default decrement:** if you write `standby 10 track 1` with no `decrement` value, the priority drops by **10**. **Exam trap:** the decrement has to be big enough to cross the other router's priority. 110 − 5 = 105 is still higher than 100, so nothing happens. Do the arithmetic every time.
 
@@ -7161,6 +7576,207 @@ interface Vlan10
 
 **Why must the STP root and the HSRP Active router be the same switch?** Picture them misaligned. For VLAN 10, DSW2 is the STP root, so the access switch's uplink to DSW1 is *blocking* for VLAN 10. HSRP Active is DSW1. A host's frame to the gateway now goes up to DSW2 (the only forwarding path), across the inter-distribution link, and then to DSW1. Every packet takes an extra hop across a link that was never sized for it. Aligning them means the forwarding uplink leads *directly* to the Active gateway. *Layer 2 and Layer 3 redundancy have to agree on which box is "primary", or traffic zig-zags between them.*
 
+```diagram
+{
+  "type": "topology",
+  "title": "Per-VLAN load sharing: line up the STP root with HSRP Active",
+  "caption": "Two HSRP groups, one per VLAN. Each distribution switch is the STP root **and** the HSRP Active router for one VLAN.",
+  "nodes": [
+    {
+      "id": "DSW1",
+      "kind": "l3switch",
+      "x": 0.5,
+      "y": 0,
+      "label": "DSW1",
+      "sub": "Vl10 .2 / Vl20 .2"
+    },
+    {
+      "id": "DSW2",
+      "kind": "l3switch",
+      "x": 3.5,
+      "y": 0,
+      "label": "DSW2",
+      "sub": "Vl10 .3 / Vl20 .3"
+    },
+    {
+      "id": "ASW",
+      "kind": "switch",
+      "x": 2,
+      "y": 1.6,
+      "label": "ASW"
+    },
+    {
+      "id": "PC10",
+      "kind": "host",
+      "x": 0,
+      "y": 3,
+      "label": "PC10",
+      "sub": "VLAN 10"
+    },
+    {
+      "id": "PC20",
+      "kind": "host",
+      "x": 4,
+      "y": 3,
+      "label": "PC20",
+      "sub": "VLAN 20"
+    }
+  ],
+  "links": [
+    {
+      "a": "DSW1",
+      "b": "DSW2",
+      "aLabel": "Po1",
+      "bLabel": "Po1",
+      "style": "thick"
+    },
+    {
+      "a": "ASW",
+      "b": "DSW1",
+      "aLabel": "Gi1/0/49"
+    },
+    {
+      "a": "ASW",
+      "b": "DSW2",
+      "aLabel": "Gi1/0/50"
+    },
+    {
+      "a": "ASW",
+      "b": "PC10"
+    },
+    {
+      "a": "ASW",
+      "b": "PC20"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. VLAN 10: aligned on DSW1",
+      "text": "DSW1 is the STP root for VLAN 10, so ASW's uplink to DSW2 **blocks** for VLAN 10. DSW1 is also HSRP Active for 10.10.10.1. PC10's frames take the forwarding uplink and arrive **directly** at their gateway.",
+      "focus": [
+        "PC10",
+        "ASW",
+        "DSW1",
+        "ASW-PC10",
+        "ASW-DSW1",
+        "ASW-DSW2"
+      ],
+      "nodes": {
+        "DSW1": {
+          "badge": "Active V10",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ASW-DSW2": "blocked",
+        "ASW-DSW1": null
+      },
+      "packets": [
+        {
+          "path": [
+            "PC10",
+            "ASW",
+            "DSW1"
+          ],
+          "label": "VLAN 10 → gw .1",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. VLAN 20: aligned on DSW2",
+      "text": "For VLAN 20 it's the mirror image: DSW2 is root, so the uplink to DSW1 blocks for VLAN 20, and DSW2 is HSRP Active for 10.10.20.1. Both uplinks now carry traffic, one VLAN each. That's the whole point: no idle standby.",
+      "focus": [
+        "PC20",
+        "ASW",
+        "DSW2",
+        "ASW-PC20",
+        "ASW-DSW1",
+        "ASW-DSW2"
+      ],
+      "nodes": {
+        "DSW1": null,
+        "DSW2": {
+          "badge": "Active V20",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ASW-DSW1": "blocked",
+        "ASW-DSW2": null
+      },
+      "packets": [
+        {
+          "path": [
+            "PC20",
+            "ASW",
+            "DSW2"
+          ],
+          "label": "VLAN 20 → gw .1",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "3. Misaligned: the zig-zag",
+      "text": "Now suppose someone made DSW2 the STP root for VLAN 10 but left DSW1 as HSRP Active. ASW's uplink to **DSW1** blocks for VLAN 10, so PC10's frames climb to DSW2, cross Po1 and only then reach the gateway on DSW1. Every packet takes an extra hop over a link that was never sized for it.",
+      "nodes": {
+        "DSW1": {
+          "badge": "Active V10",
+          "tone": "warn"
+        },
+        "DSW2": {
+          "badge": "Root V10",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "ASW-DSW1": "blocked",
+        "ASW-DSW2": null
+      },
+      "packets": [
+        {
+          "path": [
+            "PC10",
+            "ASW",
+            "DSW2",
+            "DSW1"
+          ],
+          "label": "VLAN 10 hairpin",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. Fixed: root and Active on the same switch again",
+      "text": "`spanning-tree vlan 10 root primary` on DSW1 (and `root secondary` on DSW2) moves the VLAN 10 root back. The blocked port moves to the DSW2 uplink, and PC10's frames once again go straight up to the Active gateway.",
+      "nodes": {
+        "DSW1": {
+          "badge": "Active V10",
+          "tone": "good"
+        },
+        "DSW2": null
+      },
+      "links": {
+        "ASW-DSW1": null,
+        "ASW-DSW2": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC10",
+            "ASW",
+            "DSW1"
+          ],
+          "label": "VLAN 10 → gw .1",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 The matching configs, side by side. Each switch is primary for one VLAN and backup for the other, and both preempt so the design restores itself after a failure:
 
 ```
@@ -7284,6 +7900,104 @@ During the failure DSW2 carries both VLANs, which is exactly the redundancy you 
 
 *No election messages are needed: the higher priority simply gives a shorter fuse.*
 
+```diagram
+{
+  "type": "sequence",
+  "title": "VRRP: the shortest fuse wins, with no election messages",
+  "caption": "VRRPv3, advertisement interval 1 s, preempt on (the default). R1 is Master at priority 250; B1 is 200, B2 is 100.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 (250)"
+    },
+    {
+      "id": "B1",
+      "kind": "router",
+      "label": "B1 (200)"
+    },
+    {
+      "id": "B2",
+      "kind": "router",
+      "label": "B2 (100)"
+    }
+  ],
+  "messages": [
+    {
+      "from": "R1",
+      "to": "B2",
+      "label": "Advert, priority 250",
+      "text": "Only the **Master** speaks: one advertisement every second to **224.0.0.18**, IP protocol **112**. Both backups hear it and restart their master down timers. Backups send nothing at all.",
+      "detail": "→ 224.0.0.18, IP protocol 112, every 1 s",
+      "states": {
+        "R1": "Master",
+        "B1": "Backup",
+        "B2": "Backup"
+      }
+    },
+    {
+      "from": "R1",
+      "to": "B2",
+      "label": "Advert (R1 loses power)",
+      "text": "R1 dies. Each backup's **master down interval** is 3 × advertisement interval + skew, where skew = (256 − priority) ÷ 256 s. B1: 3 + 56/256 ≈ **3.22 s**. B2: 3 + 156/256 ≈ **3.61 s**.",
+      "states": {
+        "R1": "Down"
+      },
+      "tone": "bad",
+      "drop": true
+    },
+    {
+      "note": "t ≈ 3.22 s: B1's timer fires first",
+      "over": [
+        "B1"
+      ],
+      "text": "B1's shorter fuse burns out first. It becomes **Master**, sends a gratuitous ARP for the VIP from `0000.5e00.0114` (group 20), and starts advertising.",
+      "states": {
+        "B1": "Master"
+      }
+    },
+    {
+      "from": "B1",
+      "to": "B2",
+      "label": "Advert, priority 200",
+      "text": "B2's timer would have expired at 3.61 s, but this advertisement arrives first, so B2 resets its timer and stays **Backup**. The higher priority simply gave B1 a shorter fuse.",
+      "detail": "→ 224.0.0.18"
+    },
+    {
+      "note": "R1 boots: Initial → Backup",
+      "over": [
+        "R1"
+      ],
+      "text": "R1 comes back. It isn't the address owner (priority 255), so it starts as **Backup**. It hears B1 advertising priority 200, which is lower than its own 250. With preempt on, a Backup **ignores** a lower-priority advertisement, so R1's own master down timer keeps running.",
+      "states": {
+        "R1": "Backup"
+      }
+    },
+    {
+      "note": "t ≈ 3.02 s later: R1's timer fires",
+      "over": [
+        "R1"
+      ],
+      "text": "R1's fuse is 3 + 6/256 ≈ 3.02 s. Nothing it respects has reset it, so R1 becomes **Master**.",
+      "states": {
+        "R1": "Master"
+      }
+    },
+    {
+      "from": "R1",
+      "to": "B1",
+      "label": "Advert, priority 250",
+      "text": "A Master that hears a **higher-priority** advertisement steps down. B1 returns to Backup. Preemption is on by default in VRRP, so this happens with no extra config. In HSRP you would need `standby preempt`.",
+      "detail": "→ 224.0.0.18",
+      "states": {
+        "B1": "Backup"
+      },
+      "tone": "good"
+    }
+  ]
+}
+```
+
 **Story Time 📖:** HSRP is a team where the captain *and* vice-captain both keep calling out "still here!", so everyone always knows who's next. VRRP is a team where only the captain calls out. Everyone else stays quiet and has a stopwatch, and the most senior player's stopwatch is set slightly shorter, so if the captain goes quiet, the most senior player speaks up first.
 
 ### Try It — VRRPv3 on IOS XE
@@ -7392,6 +8106,96 @@ Vl20            20 IPv4 110     0  N   Y  MASTER  10.10.20.2(local) 10.10.20.1
 **GLBP (Gateway Load Balancing Protocol)**, Cisco-proprietary on **UDP 3222** to **224.0.0.102**, solves the "idle standby" problem *inside one group*. One router is the **AVG** (Active Virtual Gateway). It hands out **different virtual MACs** to different hosts in its ARP replies, and up to **four AVFs** (Active Virtual Forwarders) each forward for their own vMAC (`0007.b400.XXYY`). Everyone shares one VIP, yet hosts spread across all routers. Load balancing is **round-robin** by default, or weighted, or host-dependent.
 
 **Worked example.** R1 is the AVG and AVF 1 (vMAC `0007.b400.0a01`), and R2 is AVF 2 (`0007.b400.0a02`), in group 10 with VIP 10.10.10.1. PC-A ARPs for 10.10.10.1 and the AVG answers with `.0a01`, so PC-A uses R1. PC-B ARPs next and the AVG answers with `.0a02`, so PC-B uses R2. Both PCs have the same gateway IP, but their frames go to different routers. If R2 dies, R1 takes over forwarding for `.0a02` too, so PC-B keeps working without re-ARPing.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "GLBP: one virtual IP, two forwarders",
+  "caption": "Group 10, VIP 10.10.10.1. R1 is the AVG and AVF 1 (`0007.b400.0a01`); R2 is AVF 2 (`0007.b400.0a02`). Default round-robin.",
+  "actors": [
+    {
+      "id": "PCA",
+      "kind": "host",
+      "label": "PC-A"
+    },
+    {
+      "id": "PCB",
+      "kind": "host",
+      "label": "PC-B"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 AVG"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2 AVF"
+    }
+  ],
+  "messages": [
+    {
+      "from": "PCA",
+      "to": "R1",
+      "label": "ARP for 10.10.10.1",
+      "text": "PC-A needs its gateway's MAC. The ARP request is a broadcast, but only the **AVG** answers ARPs for the VIP.",
+      "detail": "only the AVG replies"
+    },
+    {
+      "from": "R1",
+      "to": "PCA",
+      "label": "Reply: .0a01",
+      "text": "Round-robin: the first host gets forwarder 1's virtual MAC. `XX` = 0a is group 10, `YY` = 01 is forwarder 1.",
+      "states": {
+        "PCA": "gw = R1"
+      },
+      "dashed": true
+    },
+    {
+      "from": "PCB",
+      "to": "R1",
+      "label": "ARP for 10.10.10.1",
+      "text": "Same VIP, same question from a different host.",
+      "detail": "only the AVG replies"
+    },
+    {
+      "from": "R1",
+      "to": "PCB",
+      "label": "Reply: .0a02",
+      "text": "The next host gets forwarder 2's virtual MAC, which belongs to R2. Both PCs use the gateway IP 10.10.10.1, yet their frames go to different routers.",
+      "states": {
+        "PCB": "gw = R2"
+      },
+      "dashed": true
+    },
+    {
+      "from": "PCB",
+      "to": "R2",
+      "label": "Data to .0a02",
+      "text": "PC-B's traffic is forwarded by R2 while PC-A's goes to R1: load sharing inside **one** group, which HSRP and VRRP can't do."
+    },
+    {
+      "note": "R2 fails",
+      "over": [
+        "R2"
+      ],
+      "text": "R2 stops sending hellos. Every GLBP router also stands by as a secondary forwarder for the others' virtual MACs, so when the hold time (10 s by default) expires, R1 takes over forwarding for `0007.b400.0a02` as well.",
+      "states": {
+        "R2": "Down",
+        "R1": "AVG+AVF1+AVF2"
+      }
+    },
+    {
+      "from": "PCB",
+      "to": "R1",
+      "label": "Data to .0a02",
+      "text": "PC-B never re-ARPs. Its cached MAC now simply arrives at R1, which forwards for both virtual MACs. Failover is as invisible as HSRP's.",
+      "tone": "good"
+    }
+  ]
+}
+```
 
 It's elegant, but it fits poorly in modern designs. Spreading one VLAN's hosts across two gateways conflicts with STP alignment (9.4), and Catalyst 9000 switches often don't support it at all. You'll meet it in comparison questions far more than in production. It isn't named in the ENCOR v1.2 blueprint, which says "HSRP, VRRP".
 
@@ -7744,6 +8548,128 @@ A group address has 28 significant bits (32 minus the fixed `1110` prefix). Only
 5. R1 sends a **Group-Specific Query** for 239.1.1.1 ("anyone still want this?"), with a 1 s response time, and repeats it once.
 6. PC-A is still watching, so it **reports**. R1 keeps forwarding. Had PC-A also left, nobody would answer, and about 2 s after the Leave R1 would stop forwarding onto VLAN 10.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "IGMPv2: join, query, suppression and leave",
+  "caption": "VLAN 10: PC-A 10.10.10.21, PC-B 10.10.10.22, router R1 10.10.10.1 (the querier). IOS defaults: query every 60 s, max response 10 s, last member query 1 s × 2.",
+  "actors": [
+    {
+      "id": "PCA",
+      "kind": "host",
+      "label": "PC-A .21"
+    },
+    {
+      "id": "PCB",
+      "kind": "host",
+      "label": "PC-B .22"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 .1"
+    }
+  ],
+  "messages": [
+    {
+      "from": "PCA",
+      "to": "R1",
+      "label": "Report 239.1.1.1",
+      "text": "PC-A opens the video app and sends an **unsolicited** report straight away, so it doesn't wait up to a minute for the next query. A v2 report is addressed to **the group itself**. R1 adds 239.1.1.1 to VLAN 10 and starts forwarding the stream there.",
+      "detail": "10.10.10.21 → 239.1.1.1, TTL 1",
+      "states": {
+        "PCA": "Member",
+        "R1": "Fwd 239.1.1.1"
+      }
+    },
+    {
+      "from": "PCB",
+      "to": "R1",
+      "label": "Report 239.1.1.1",
+      "text": "PC-B joins the same group. R1 is already forwarding onto VLAN 10, so nothing changes. R1 never learns *how many* hosts want the group, only that *someone* does.",
+      "detail": "10.10.10.22 → 239.1.1.1",
+      "states": {
+        "PCB": "Member"
+      }
+    },
+    {
+      "from": "R1",
+      "to": "PCA",
+      "label": "General Query",
+      "text": "Every 60 s R1 asks the whole subnet \"does anyone still want any group?\". Both PCs hear it, and each starts a random timer between 0 and the **max response time** (10 s).",
+      "detail": "→ 224.0.0.1 (all hosts), max response 10 s",
+      "dashed": true
+    },
+    {
+      "from": "PCB",
+      "to": "R1",
+      "label": "Report 239.1.1.1",
+      "text": "PC-B's timer fires first. Because the report goes to 239.1.1.1, PC-A (a member) hears it and **suppresses** its own report. R1 only needed one \"yes\" per group.",
+      "detail": "PC-A hears it, cancels its own",
+      "states": {
+        "PCA": "Suppressed"
+      }
+    },
+    {
+      "from": "PCB",
+      "to": "R1",
+      "label": "Leave Group 239.1.1.1",
+      "text": "PC-B closes the app. Leave is new in v2 and goes to **224.0.0.2** (all routers). It doesn't tell R1 whether anyone else is still watching.",
+      "detail": "→ 224.0.0.2 (all routers)",
+      "states": {
+        "PCB": "Left",
+        "PCA": "Member"
+      }
+    },
+    {
+      "from": "R1",
+      "to": "PCA",
+      "label": "Group-Specific Query 239.1.1.1",
+      "text": "So R1 asks about **this group only**, with a short max response time (the last member query interval, 1 s), and repeats it once.",
+      "detail": "→ 239.1.1.1, max response 1 s, sent twice",
+      "dashed": true
+    },
+    {
+      "from": "PCA",
+      "to": "R1",
+      "label": "Report 239.1.1.1",
+      "text": "PC-A is still watching, so it answers. R1 keeps forwarding onto VLAN 10.",
+      "tone": "good"
+    },
+    {
+      "from": "PCA",
+      "to": "R1",
+      "label": "Leave Group 239.1.1.1",
+      "text": "Later PC-A leaves too.",
+      "detail": "→ 224.0.0.2",
+      "states": {
+        "PCA": "Left"
+      }
+    },
+    {
+      "from": "R1",
+      "to": "PCA",
+      "label": "Group-Specific Query (no answer)",
+      "text": "R1 asks twice more, 1 s apart. Nobody is left to answer.",
+      "detail": "→ 239.1.1.1, max response 1 s",
+      "dashed": true,
+      "tone": "warn",
+      "drop": true
+    },
+    {
+      "note": "≈ 2 s after the Leave: stop forwarding",
+      "over": [
+        "R1"
+      ],
+      "text": "With no report after the last member queries, R1 removes VLAN 10 from the outgoing list for 239.1.1.1. That ≈ 2 s is v2's **low leave latency**. In IGMPv1 the router only noticed after several minutes of silence.",
+      "states": {
+        "R1": "Not forwarding"
+      }
+    }
+  ]
+}
+```
+
 *Don't confuse this with the switch feature called **immediate-leave** (sometimes "fast-leave") in IGMP snooping, below. That one removes a port the instant a Leave arrives, with no query at all, and is only safe when a single host sits behind each port.*
 
 **The querier:** if a subnet has several routers, only one should send queries. In IGMPv2 the **lowest IP address** wins the querier election. (In IGMPv1 there was no election, so the PIM DR did it.)
@@ -7775,6 +8701,205 @@ A switch treats multicast frames like broadcasts by default and **floods** them 
 4. Without snooping, all 22 ports in VLAN 10 would receive the 20 Mbps stream.
 
 **Why must the switch know the mrouter port?** Because routers don't send IGMP reports. They send queries and PIM hellos, and the switch identifies the router port from those. If no querier exists on a VLAN (a VLAN with no router), reports eventually time out and snooping breaks. The fix is `ip igmp snooping querier`.
+
+```diagram
+{
+  "type": "topology",
+  "title": "IGMP snooping: from flooding to only the ports that asked",
+  "caption": "One VLAN 10 on SW1. The router is on Gi1/0/48. Snooping is on by default on Catalyst switches; step 1 shows life without it.",
+  "nodes": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 2,
+      "y": 0,
+      "label": "R1",
+      "sub": "querier 10.10.10.1"
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 2,
+      "y": 1.4,
+      "label": "SW1",
+      "sub": "VLAN 10"
+    },
+    {
+      "id": "PCA",
+      "kind": "host",
+      "x": 0.5,
+      "y": 2.9,
+      "label": "PC-A",
+      "sub": "Gi1/0/1"
+    },
+    {
+      "id": "PCB",
+      "kind": "host",
+      "x": 2,
+      "y": 2.9,
+      "label": "PC-B",
+      "sub": "Gi1/0/2"
+    },
+    {
+      "id": "PCC",
+      "kind": "host",
+      "x": 3.5,
+      "y": 2.9,
+      "label": "PC-C ... PC-V",
+      "sub": "Gi1/0/3-22"
+    }
+  ],
+  "links": [
+    {
+      "a": "R1",
+      "b": "SW1",
+      "bLabel": "Gi1/0/48"
+    },
+    {
+      "a": "SW1",
+      "b": "PCA"
+    },
+    {
+      "a": "SW1",
+      "b": "PCB"
+    },
+    {
+      "a": "SW1",
+      "b": "PCC"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Without snooping: every port gets the stream",
+      "text": "A switch treats a multicast destination MAC (`01:00:5e:01:01:01` for 239.1.1.1) like a broadcast and floods it to every port in the VLAN. A 20 Mbps stream lands on all 22 PCs whether or not anyone is watching.",
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "SW1",
+            "PCA"
+          ],
+          "label": "239.1.1.1",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "R1",
+            "SW1",
+            "PCB"
+          ],
+          "label": "239.1.1.1",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "R1",
+            "SW1",
+            "PCC"
+          ],
+          "label": "239.1.1.1",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "2. Finding the mrouter port",
+      "text": "Routers don't send reports, so SW1 recognises the router port from the **IGMP General Queries** and **PIM hellos** arriving on Gi1/0/48. That becomes the **mrouter port**: every report is relayed there, and every group's traffic arrives from there.",
+      "nodes": {
+        "SW1": {
+          "badge": "mrouter Gi48",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "SW1"
+          ],
+          "label": "Query / PIM hello",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. PC-A reports for 239.1.1.1",
+      "text": "SW1 snoops the report as it passes and adds **Gi1/0/1** to its table entry for 239.1.1.1. It relays the report to the mrouter port only, so R1 learns that VLAN 10 has a member.",
+      "nodes": {
+        "PCA": {
+          "badge": "Member",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "SW1",
+            "R1"
+          ],
+          "label": "Report 239.1.1.1",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. The stream goes only to Gi1/0/1",
+      "text": "Now SW1 sends 239.1.1.1 out **only** Gi1/0/1. The other 21 PCs never see it. `show ip igmp snooping groups` would list `239.1.1.1  igmp  v2  Gi1/0/1`.",
+      "links": {
+        "SW1-PCB": "dim",
+        "SW1-PCC": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "SW1",
+            "PCA"
+          ],
+          "label": "239.1.1.1",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "5. PC-A leaves",
+      "text": "The Leave goes up to R1, the querier, which sends a **group-specific query**. SW1 forwards that query out the member port to check whether anyone else behind Gi1/0/1 still wants the group. With `ip igmp snooping vlan 10 immediate-leave`, SW1 would drop the port at once, which is only safe with one host per port.",
+      "packets": [
+        {
+          "path": [
+            "PCA",
+            "SW1",
+            "R1"
+          ],
+          "label": "Leave 239.1.1.1",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "R1",
+            "SW1",
+            "PCA"
+          ],
+          "label": "Group-specific query",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "6. No answer: the port is removed",
+      "text": "Nobody reports, so SW1 removes Gi1/0/1 from 239.1.1.1. R1 hears no report either and stops forwarding the group into VLAN 10. The stream no longer crosses the link at all.",
+      "nodes": {
+        "PCA": null
+      },
+      "links": {
+        "R1-SW1": "dim",
+        "SW1-PCA": "dim"
+      }
+    }
+  ]
+}
+```
 
 **Immediate-leave:** `ip igmp snooping vlan 10 immediate-leave` makes the switch drop a port from the group the moment it sees a Leave, skipping the query. It's great for a VLAN where each port has exactly one receiver (an IPTV set-top box, say), and wrong anywhere a port leads to several hosts, because one host leaving would cut off the rest.
 
@@ -7883,6 +9008,45 @@ On a **receiver** segment, the DR is the router that turns IGMP reports into PIM
 
 **Worked example.** VLAN 10 has two PIM routers: R1 (10.10.10.2) and R2 (10.10.10.3), both at the default DR priority 1. The tie goes to the higher IP, so **R2 is DR**. Receivers on VLAN 10 send IGMP reports, both routers hear them, but only R2 sends the PIM Join upstream. To make R1 the DR (perhaps it has the better uplink), set `ip pim dr-priority 10` on R1's VLAN 10 interface. 10 beats 1, so R1 becomes DR.
 
+```diagram
+{
+  "type": "compare",
+  "title": "PIM DR election on VLAN 10",
+  "prompt": "Both routers start at the default DR priority of 1, so the higher address wins and R2 is DR. Change R1's priority to 10 (`ip pim dr-priority 10`) and watch it take over. Only the DR turns IGMP reports into PIM Joins and sends Registers for local sources.",
+  "winner": "PIM DR",
+  "fields": [
+    {
+      "id": "prio",
+      "label": "DR priority (default 1)",
+      "kind": "number",
+      "rule": "highest"
+    },
+    {
+      "id": "ip",
+      "label": "Interface IP address",
+      "kind": "ip",
+      "rule": "highest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "R1",
+      "values": {
+        "prio": 1,
+        "ip": "10.10.10.2"
+      }
+    },
+    {
+      "label": "R2",
+      "values": {
+        "prio": 1,
+        "ip": "10.10.10.3"
+      }
+    }
+  ]
+}
+```
+
 **The Assert.** Sometimes two routers both forward the same (S,G) onto one LAN, for example two routers each with a downstream receiver segment that is the same VLAN. Each sees the other's copies arriving on its own *outgoing* interface, which means the LAN is getting every packet twice. They exchange **PIM Assert** messages, and the winner is:
 
 1. Lowest **administrative distance** of the route back to the source (or RP).
@@ -7892,6 +9056,53 @@ On a **receiver** segment, the DR is the router that turns IGMP reports into PIM
 The loser stops forwarding onto that LAN. *The DR decides who asks for traffic; the Assert decides who delivers it when two routers end up delivering.*
 
 **Worked example.** R1 and R2 both forward (10.5.5.10, 239.1.1.1) onto VLAN 30. R1's route to 10.5.5.10 is OSPF (AD 110). R2's is EIGRP (AD 90). They exchange Asserts. Step 1 already decides it: **R2 wins** with the lower AD, so R1 removes VLAN 30 from its outgoing list for that (S,G). VLAN 30 now receives one copy of each packet instead of two.
+
+```diagram
+{
+  "type": "compare",
+  "title": "PIM Assert: who keeps forwarding (10.5.5.10, 239.1.1.1) onto VLAN 30?",
+  "prompt": "R2's route back to the source is EIGRP (AD 90), R1's is OSPF (AD 110), so R2 wins on the first tie-breaker. Make both OSPF (AD 110) and the lower metric decides. Make the metrics equal too, and the highest address wins. Note that **lowest** wins for the first two fields.",
+  "winner": "Assert winner",
+  "fields": [
+    {
+      "id": "ad",
+      "label": "AD of the route to the source",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "metric",
+      "label": "Metric to the source",
+      "kind": "number",
+      "rule": "lowest"
+    },
+    {
+      "id": "ip",
+      "label": "Interface IP on VLAN 30",
+      "kind": "ip",
+      "rule": "highest"
+    }
+  ],
+  "candidates": [
+    {
+      "label": "R1",
+      "values": {
+        "ad": 110,
+        "metric": 20,
+        "ip": "10.30.30.2"
+      }
+    },
+    {
+      "label": "R2",
+      "values": {
+        "ad": 90,
+        "metric": 3072,
+        "ip": "10.30.30.3"
+      }
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 10.4**
 
@@ -7969,6 +9180,311 @@ Picture a source S, its **first-hop router (FHR)**, an **RP**, and a receiver be
 
 **Why bother with a shared tree at all if everyone switches to the SPT immediately?** Because of **source discovery**. A receiver knows the group but not the sources, and the LHR can't join a tree toward a source it has never heard of. The RP is the **meeting place** where sources register and receivers join. Once the first packet has introduced the source, the LHR builds the shortest path straight to it. *The RP is the introduction, not the long-term delivery path.*
 
+```diagram
+{
+  "type": "topology",
+  "title": "PIM-SM step by step: shared tree, Register, then the SPT",
+  "caption": "Source 10.5.5.10 behind FHR R1. RP = R2 (Loopback0 10.0.0.1). Receiver 10.20.20.50 behind LHR R4. Group 239.1.1.1. OSPF costs make R3 the shortest path from R4 to the source.",
+  "nodes": [
+    {
+      "id": "SRC",
+      "kind": "server",
+      "x": 0,
+      "y": 1,
+      "label": "Source",
+      "sub": "10.5.5.10"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.2,
+      "y": 1,
+      "label": "R1 (FHR)"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.6,
+      "y": 0,
+      "label": "R2 (RP)",
+      "sub": "10.0.0.1"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 2.6,
+      "y": 2,
+      "label": "R3"
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "x": 4,
+      "y": 1,
+      "label": "R4 (LHR)"
+    },
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 5.2,
+      "y": 1,
+      "label": "Receiver",
+      "sub": "10.20.20.50"
+    }
+  ],
+  "links": [
+    {
+      "a": "SRC",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "cost 10"
+    },
+    {
+      "a": "R2",
+      "b": "R4",
+      "label": "cost 10"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "label": "cost 5"
+    },
+    {
+      "a": "R3",
+      "b": "R4",
+      "label": "cost 5"
+    },
+    {
+      "a": "R4",
+      "b": "PC"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The receiver asks for the group",
+      "text": "The PC sends an IGMP report for 239.1.1.1. R4 is the DR on that segment, so R4 creates **(\\*, 239.1.1.1)** state with the receiver's interface in its outgoing list. R4 doesn't know any source yet, only the group.",
+      "nodes": {
+        "R4": {
+          "badge": "(*,G)",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R4"
+          ],
+          "label": "IGMP Report",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. (*,G) Join toward the RP",
+      "text": "R4 looks up the RP's address, 10.0.0.1, in its **unicast** table. The best route points at R2, so R4 sends a **(\\*,G) Join** that way (to 224.0.0.13). Each router on the path adds (\\*,G) state. That chain of state is the **shared tree**, rooted at the RP.",
+      "nodes": {
+        "R2": {
+          "badge": "(*,G)",
+          "tone": "accent"
+        }
+      },
+      "links": {
+        "R2-R4": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "R4",
+            "R2"
+          ],
+          "label": "(*,G) Join",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. The source starts: Register",
+      "text": "The source sends to 239.1.1.1. R1, the DR on the source's segment, has no idea whether anyone wants it. It wraps each packet in a **unicast PIM Register** message addressed to the RP, 10.0.0.1, and creates (S,G) state.",
+      "nodes": {
+        "R1": {
+          "badge": "(S,G)",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SRC",
+            "R1"
+          ],
+          "label": "to 239.1.1.1",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "Register (unicast)",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. The RP delivers, and joins toward the source",
+      "text": "R2 has receivers for the group, so it decapsulates the Register and sends the packets down the shared tree to R4. At the same time it sends an **(S,G) Join** toward 10.5.5.10 so the traffic can arrive natively instead of tunnelled.",
+      "nodes": {
+        "R2": {
+          "badge": "(*,G) (S,G)",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R4",
+            "PC"
+          ],
+          "label": "239.1.1.1 data",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "R2",
+            "R1"
+          ],
+          "label": "(S,G) Join",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "5. Native traffic, then Register-Stop",
+      "text": "Packets now flow natively S → R1 → R2 → R4. Once R2 receives them natively, it sends **Register-Stop** to R1, which ends the tunnelled phase. Receivers are being served, but via the RP: not necessarily the shortest path.",
+      "links": {
+        "R1-R2": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "SRC",
+            "R1",
+            "R2",
+            "R4",
+            "PC"
+          ],
+          "label": "239.1.1.1 data",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "R2",
+            "R1"
+          ],
+          "label": "Register-Stop",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "6. SPT switchover: R4 joins toward the source",
+      "text": "The first packet told R4 the source's address. With the IOS default **SPT threshold of 0**, R4 immediately looks up 10.5.5.10 in its unicast table. The best path is via R3 (cost 10, versus 20 via R2), so R4 sends an **(S,G) Join** that way. R3 and R1 add the new branch.",
+      "nodes": {
+        "R3": {
+          "badge": "(S,G)",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R4",
+            "R3",
+            "R1"
+          ],
+          "label": "(S,G) Join",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "7. Traffic on the SPT; prune the RP path",
+      "text": "Packets now arrive over R3 and pass R4's RPF check for (S,G). R4 sets the **T** flag and sends an **(S,G,rpt) Prune** toward the RP: \"stop sending me this source down the shared tree\".",
+      "nodes": {
+        "R4": {
+          "badge": "(S,G) T",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R3": "active",
+        "R3-R4": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "SRC",
+            "R1",
+            "R3",
+            "R4",
+            "PC"
+          ],
+          "label": "239.1.1.1 data",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "R4",
+            "R2"
+          ],
+          "label": "(S,G,rpt) Prune",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "8. The RP prunes itself off the source",
+      "text": "R2 now has nobody downstream who wants this source, so it sends an **(S,G) Prune** toward R1. Traffic for this source flows only over the shortest path. The **(\\*,G)** branch from R4 to R2 stays, so R4 still hears about any *new* source for 239.1.1.1. *The RP was the introduction, not the long-term delivery path.*",
+      "nodes": {
+        "R2": {
+          "badge": "(*,G)",
+          "tone": "muted"
+        }
+      },
+      "links": {
+        "R1-R2": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R1"
+          ],
+          "label": "(S,G) Prune",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "SRC",
+            "R1",
+            "R3",
+            "R4",
+            "PC"
+          ],
+          "label": "239.1.1.1 data",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### The RPF Check — Multicast's Loop Prevention
 
 Unicast forwarding asks "where is the destination?" Multicast can't ask that, because the destination is a group spread across the network. It asks the reverse question:
@@ -7995,6 +9511,195 @@ Routing entry for 10.5.5.0/24
 `show ip rpf 10.5.5.10` shows the same decision directly: `RPF interface: GigabitEthernet0/0`, with RPF neighbor 10.1.23.2.
 
 **The classic RPF failure:** the unicast table and the multicast path disagree. A typical case is a stream coming in on a link where PIM is enabled, while the unicast route to the source points out a *different* link where PIM isn't. The packets fail RPF and are silently dropped. The fixes are to enable PIM on the RPF interface, fix the unicast routing, or add a static multicast route (`ip mroute`) to override RPF.
+
+```diagram
+{
+  "type": "topology",
+  "title": "The RPF check on R3",
+  "caption": "R3's unicast route to 10.5.5.0/24 is via 10.1.23.2 on Gi0/0 (cost 20). The direct link to R1 on Gi0/1 costs 100, so it is **not** the RPF interface.",
+  "nodes": [
+    {
+      "id": "SRC",
+      "kind": "server",
+      "x": 0,
+      "y": 1,
+      "label": "Source",
+      "sub": "10.5.5.10"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.2,
+      "y": 1,
+      "label": "R1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 2.4,
+      "y": 0,
+      "label": "R2",
+      "sub": "10.1.23.2"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "x": 3.6,
+      "y": 1,
+      "label": "R3"
+    },
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 4.8,
+      "y": 1,
+      "label": "Receiver"
+    }
+  ],
+  "links": [
+    {
+      "a": "SRC",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "label": "cost 10"
+    },
+    {
+      "a": "R2",
+      "b": "R3",
+      "label": "cost 10",
+      "bLabel": "Gi0/0"
+    },
+    {
+      "a": "R1",
+      "b": "R3",
+      "label": "cost 100",
+      "bLabel": "Gi0/1"
+    },
+    {
+      "a": "R3",
+      "b": "PC",
+      "aLabel": "Gi0/2"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. R3 asks the unicast table about the *source*",
+      "text": "Unicast forwarding looks up the destination. Multicast looks up the **source**: \"which interface would I use to send traffic *back* to 10.5.5.10?\" `show ip rpf 10.5.5.10` answers: **RPF interface GigabitEthernet0/0**, RPF neighbor 10.1.23.2.",
+      "focus": [
+        "R3",
+        "R2",
+        "R1",
+        "SRC",
+        "R2-R3",
+        "R1-R2",
+        "SRC-R1"
+      ],
+      "links": {
+        "R2-R3": "active"
+      }
+    },
+    {
+      "title": "2. Arrives on Gi0/0: RPF passes",
+      "text": "A packet from 10.5.5.10 arrives on Gi0/0, the interface back toward the source. The check **passes**, and R3 replicates the packet to every interface in its outgoing list (Gi0/2).",
+      "nodes": {
+        "R3": {
+          "badge": "RPF pass",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SRC",
+            "R1",
+            "R2",
+            "R3",
+            "PC"
+          ],
+          "label": "(10.5.5.10, 239.1.1.1)",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. A copy arrives on Gi0/1: dropped",
+      "text": "A copy of the same packet arrives on Gi0/1, having come the other way round the mesh. The route back to 10.5.5.10 is not via Gi0/1, so the check **fails** and R3 drops it. Every looping or duplicate copy dies this way, which is what makes the delivery path a loop-free tree.",
+      "nodes": {
+        "R3": {
+          "badge": "RPF fail: drop",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SRC",
+            "R1",
+            "R3"
+          ],
+          "label": "duplicate copy",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. The classic failure: PIM missing on the RPF interface",
+      "text": "Now suppose PIM isn't enabled on Gi0/0, so R3 has no PIM neighbor that way and the stream reaches it over Gi0/1 instead. The unicast route still points out Gi0/0, so **every** packet fails RPF and is silently dropped. Nothing is broken in unicast, which is why this one fools people.",
+      "nodes": {
+        "R3": {
+          "badge": "RPF fail: drop",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "R2-R3": "dim",
+        "R1-R2": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "SRC",
+            "R1",
+            "R3"
+          ],
+          "label": "stream",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Three fixes",
+      "text": "Enable `ip pim sparse-mode` on Gi0/0 so the tree follows the unicast path, fix the unicast routing so Gi0/1 is best, or override RPF with a static mroute: `ip mroute 10.5.5.0 255.255.255.0 10.1.13.1`. With the mroute, the RPF interface becomes Gi0/1 and the stream passes.",
+      "nodes": {
+        "R3": {
+          "badge": "RPF pass",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-R3": "active",
+        "R2-R3": null,
+        "R1-R2": null
+      },
+      "packets": [
+        {
+          "path": [
+            "SRC",
+            "R1",
+            "R3",
+            "PC"
+          ],
+          "label": "stream",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ### Reading `show ip mroute`
 
@@ -8124,6 +9829,105 @@ interface Vlan10
 3. Every router on that path creates (S,G) state. When the Join reaches R1, R1 starts forwarding the source's packets down the tree.
 4. That's the whole process: no Register, no shared tree, no switchover. Three steps instead of four, and none of them depend on an RP.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "SSM: the receiver names the source, so no RP is needed",
+  "caption": "`ip pim ssm default` on every router (232.0.0.0/8), IGMPv3 on the receiver VLAN. Same routers as the PIM-SM walk-through.",
+  "actors": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "label": "Receiver"
+    },
+    {
+      "id": "R4",
+      "kind": "router",
+      "label": "R4 (LHR)"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "label": "R3"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 (FHR)"
+    },
+    {
+      "id": "SRC",
+      "kind": "server",
+      "label": "10.5.5.10"
+    }
+  ],
+  "messages": [
+    {
+      "from": "PC",
+      "to": "R4",
+      "label": "IGMPv3 Report",
+      "text": "The receiver doesn't just say \"I want 232.1.1.1\". It says \"I want 232.1.1.1 **from 10.5.5.10**\". IGMPv3 reports go to 224.0.0.22.",
+      "detail": "INCLUDE {10.5.5.10}",
+      "states": {
+        "PC": "Member (S,G)"
+      }
+    },
+    {
+      "note": "232.1.1.1 is in the SSM range",
+      "over": [
+        "R4"
+      ],
+      "text": "R4 sees a group in 232/8, so it doesn't look up an RP at all. It already knows the source, so it can join toward it directly.",
+      "states": {
+        "R4": "(S,G)"
+      }
+    },
+    {
+      "from": "R4",
+      "to": "R3",
+      "label": "PIM (S,G) Join",
+      "text": "R4 sends the Join toward 10.5.5.10, following its unicast route (the same path the RPF check will use).",
+      "detail": "toward 10.5.5.10",
+      "states": {
+        "R3": "(S,G)"
+      }
+    },
+    {
+      "from": "R3",
+      "to": "R1",
+      "label": "PIM (S,G) Join",
+      "text": "R3 builds state and passes the Join on, hop by hop, until it reaches the router next to the source.",
+      "detail": "toward 10.5.5.10",
+      "states": {
+        "R1": "(S,G)"
+      }
+    },
+    {
+      "from": "SRC",
+      "to": "R1",
+      "label": "Data to 232.1.1.1",
+      "text": "The source sends as usual. R1 now has an outgoing interface for this (S,G), so it forwards. There is no Register and no shared tree.",
+      "detail": "from 10.5.5.10"
+    },
+    {
+      "from": "R1",
+      "to": "R4",
+      "label": "Data along the source tree (via R3)",
+      "text": "Native multicast flows down the shortest path from day one. No SPT switchover is needed, because the first tree built was already the shortest-path tree.",
+      "detail": "Every hop passes RPF for 10.5.5.10",
+      "tone": "good"
+    },
+    {
+      "from": "R4",
+      "to": "PC",
+      "label": "Data to 232.1.1.1",
+      "text": "If another machine, say 10.9.9.9, sends to 232.1.1.1, nobody has joined (10.9.9.9, 232.1.1.1), so it goes nowhere. The subscription names the source.",
+      "tone": "good"
+    }
+  ]
+}
+```
+
 **Why is SSM increasingly the default for one-to-many services (IPTV, market data)?** Because the RP is the most complex and fragile part of PIM-SM. It's a single meeting point you have to place, make redundant and keep reachable. SSM removes it entirely. As a bonus, a host can't receive a stream from an unexpected source sending to the same group, because the subscription names the source.
 
 ### Bidirectional PIM (Bidir)
@@ -8144,6 +9948,95 @@ Each PIM-SM domain has its own RP, so a receiver in domain A can't discover a so
 4. Traffic flows into domain B and down RP-B's shared tree. Receivers' LHRs can then switch to the SPT as usual.
 
 Without step 2, RP-B would never learn the source exists, and domain B's receivers would get nothing.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "MSDP: an RP tells another RP about a source",
+  "caption": "Domain A: RP-A 10.0.0.1, source 10.5.5.10. Domain B: RP-B 172.16.0.1, with a receiver for 239.1.1.1. RP-A and RP-B are MSDP peers over TCP 639.",
+  "actors": [
+    {
+      "id": "FHR",
+      "kind": "router",
+      "label": "FHR (dom A)"
+    },
+    {
+      "id": "RPA",
+      "kind": "router",
+      "label": "RP-A"
+    },
+    {
+      "id": "RPB",
+      "kind": "router",
+      "label": "RP-B"
+    },
+    {
+      "id": "LHR",
+      "kind": "router",
+      "label": "LHR (dom B)"
+    }
+  ],
+  "messages": [
+    {
+      "from": "LHR",
+      "to": "RPB",
+      "label": "(*,G) Join",
+      "text": "A receiver in domain B joined earlier, so RP-B has (\\*, 239.1.1.1) state. But RP-B only knows sources that register with **it**.",
+      "states": {
+        "RPB": "(*,G)"
+      }
+    },
+    {
+      "from": "FHR",
+      "to": "RPA",
+      "label": "Register (S,G)",
+      "text": "The source in domain A starts. Its FHR registers with domain A's RP, as in normal PIM-SM. RP-B hears nothing about it.",
+      "detail": "Unicast to 10.0.0.1",
+      "states": {
+        "RPA": "(S,G) known"
+      },
+      "tone": "purple"
+    },
+    {
+      "from": "RPA",
+      "to": "RPB",
+      "label": "MSDP Source-Active",
+      "text": "RP-A tells its MSDP peer: \"source 10.5.5.10 is active for 239.1.1.1, and I'm its RP\". Without this message, domain B's receivers would get nothing.",
+      "detail": "S, G, origin RP 10.0.0.1"
+    },
+    {
+      "from": "RPB",
+      "to": "FHR",
+      "label": "PIM (S,G) Join toward 10.5.5.10",
+      "text": "RP-B has receivers for that group, so it joins toward the source, hop by hop across the domain boundary, using its unicast route to 10.5.5.10.",
+      "states": {
+        "RPB": "(*,G) (S,G)"
+      }
+    },
+    {
+      "from": "FHR",
+      "to": "RPB",
+      "label": "Native multicast (S,G)",
+      "text": "Traffic now crosses into domain B.",
+      "tone": "good"
+    },
+    {
+      "from": "RPB",
+      "to": "LHR",
+      "label": "Shared tree",
+      "text": "RP-B forwards it down domain B's shared tree to the receiver's LHR.",
+      "tone": "good"
+    },
+    {
+      "from": "LHR",
+      "to": "FHR",
+      "label": "PIM (S,G) Join (SPT switchover)",
+      "text": "As usual, the LHR now knows the source and joins the shortest-path tree directly. **Anycast RP** uses the same SA mechanism inside one domain: several RPs share 10.0.0.1, and MSDP between their unique loopbacks keeps their source lists in sync.",
+      "detail": "Then (S,G,rpt) Prune toward RP-B"
+    }
+  ]
+}
+```
 
 Its other big use is inside **one** domain: **Anycast RP**. Several routers share the same RP address (a /32 loopback), so sources and receivers reach the *nearest* one through normal unicast routing. MSDP between those RPs makes sure each one learns sources that registered with the others. *That gives you RP redundancy and load sharing, built from ordinary routing.*
 
@@ -8352,6 +10245,211 @@ The trust boundary is the point where you start believing markings. Everything o
 2. The PC behind the phone sends a file upload marked EF, perhaps by misbehaving software. The phone's built-in switch **re-marks the PC's frames to CoS 0** before passing them on (Cisco phones don't trust the attached PC by default), so a switch that trusts CoS on this port sees 0, not 5. If the port trusts DSCP instead, the PC's DSCP passes through the phone unchanged, which is why many designs classify PC traffic with an ingress policy (11.3) rather than trusting it.
 3. Someone unplugs the phone and plugs a laptop straight into the port. CDP no longer sees a phone, so the switch **stops trusting**, and the laptop's markings are not believed.
 
+```diagram
+{
+  "type": "topology",
+  "title": "Where the trust boundary sits",
+  "caption": "Gi1/0/10 on ASW uses conditional trust (`trust device cisco-phone`). Inside the shaded zone, every device believes the markings the edge has set.",
+  "nodes": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "PC",
+      "sub": "behind phone"
+    },
+    {
+      "id": "Phone",
+      "kind": "phone",
+      "x": 1.2,
+      "y": 0,
+      "label": "IP phone"
+    },
+    {
+      "id": "Laptop",
+      "kind": "host",
+      "x": 1.2,
+      "y": 1.6,
+      "label": "Laptop",
+      "sub": "plugged in later"
+    },
+    {
+      "id": "ASW",
+      "kind": "switch",
+      "x": 2.6,
+      "y": 0.8,
+      "label": "ASW",
+      "sub": "Gi1/0/10"
+    },
+    {
+      "id": "DSW",
+      "kind": "l3switch",
+      "x": 3.9,
+      "y": 0.8,
+      "label": "DSW"
+    },
+    {
+      "id": "WAN",
+      "kind": "router",
+      "x": 5.1,
+      "y": 0.8,
+      "label": "WAN edge"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC",
+      "b": "Phone"
+    },
+    {
+      "a": "Phone",
+      "b": "ASW"
+    },
+    {
+      "a": "Laptop",
+      "b": "ASW",
+      "style": "dashed"
+    },
+    {
+      "a": "ASW",
+      "b": "DSW",
+      "label": "trusted uplink"
+    },
+    {
+      "a": "DSW",
+      "b": "WAN"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Trusted",
+      "nodes": [
+        "ASW",
+        "DSW",
+        "WAN"
+      ],
+      "tone": "good"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The phone's voice is believed",
+      "text": "The phone marks its voice **EF (46)** and CoS 5. ASW sees a Cisco phone via CDP, so the conditional trust kicks in and the marking is kept. From here on every hop just reads DSCP 46 and puts the packet in the priority queue.",
+      "nodes": {
+        "Laptop": {
+          "state": "dim"
+        },
+        "ASW": {
+          "badge": "Trust: phone",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "Laptop-ASW": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "Phone",
+            "ASW",
+            "DSW",
+            "WAN"
+          ],
+          "label": "EF 46, CoS 5",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. The PC behind the phone claims EF",
+      "text": "Misbehaving software on the PC marks a file upload EF. The phone's built-in switch **re-marks the PC's frames to CoS 0**, so a port that trusts CoS sees 0. But DSCP rides inside the IP header and passes through the phone unchanged, so a port that trusts DSCP would believe the PC's 46.",
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "Phone",
+            "ASW"
+          ],
+          "label": "DSCP 46, CoS 0",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. An ingress policy re-colours it",
+      "text": "That's why the access port also runs an input policy such as MARK-ACCESS-IN (11.3). The upload matches no voice or video class, lands in `class-default`, and `set dscp default` wipes it to 0 before it can reach the priority queue upstream.",
+      "packets": [
+        {
+          "path": [
+            "ASW",
+            "DSW",
+            "WAN"
+          ],
+          "label": "DSCP 0",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "4. Phone unplugged, laptop plugged in",
+      "text": "CDP no longer sees a phone on Gi1/0/10, so the switch **stops trusting**. The laptop's self-marked EF is not believed and is reset. The boundary moved because the trusted device left.",
+      "nodes": {
+        "Phone": {
+          "state": "dim"
+        },
+        "PC": {
+          "state": "dim"
+        },
+        "Laptop": null,
+        "ASW": {
+          "badge": "Untrusted",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "PC-Phone": "dim",
+        "Phone-ASW": "dim",
+        "Laptop-ASW": null
+      },
+      "packets": [
+        {
+          "path": [
+            "Laptop",
+            "ASW",
+            "DSW"
+          ],
+          "label": "EF → reset to 0",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Inside the boundary: trust",
+      "text": "Uplinks between your own switches and routers trust DSCP, because the edge already did the classification work once. Re-classifying at every hop would waste effort and might give different answers. Internet and partner links are the other boundary: never trust them.",
+      "focus": [
+        "ASW",
+        "DSW",
+        "WAN",
+        "ASW-DSW",
+        "DSW-WAN"
+      ],
+      "packets": [
+        {
+          "path": [
+            "ASW",
+            "DSW",
+            "WAN"
+          ],
+          "label": "DSCP read, not reset",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 The goal in every case: only the real phone's voice reaches the priority queue. **Platform note:** older Catalyst switches with `mls qos` enabled treat every port as untrusted until you say otherwise. Catalyst 9000 switches preserve (trust) incoming markings by default, so on those you must *explicitly* remark untrusted ports.
 
 ```diagram
@@ -8479,6 +10577,187 @@ interface GigabitEthernet1/0/10
 
 **Reading it:** a Webex packet the PC marked EF is re-marked to AF41, because the policy classifies by **application** and ignores what the PC claimed. An unknown packet marked EF is reset to 0 by `class-default`. *An ingress marking policy is how an untrusted port is "re-colored" to match your design.*
 
+```diagram
+{
+  "type": "topology",
+  "title": "One packet's trip through MQC: classify and mark in, queue out",
+  "caption": "Input policy MARK-ACCESS-IN on the user port; trusted uplinks; output policy WAN-SHAPER (with the child WAN-QUEUING from 11.7) on the WAN edge.",
+  "nodes": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 0,
+      "y": 0.5,
+      "label": "PC",
+      "sub": "softphone + Webex"
+    },
+    {
+      "id": "ASW",
+      "kind": "switch",
+      "x": 1.4,
+      "y": 0.5,
+      "label": "ASW",
+      "sub": "in: MARK-ACCESS-IN"
+    },
+    {
+      "id": "DSW",
+      "kind": "l3switch",
+      "x": 2.8,
+      "y": 0.5,
+      "label": "DSW",
+      "sub": "trust DSCP"
+    },
+    {
+      "id": "WAN",
+      "kind": "router",
+      "x": 4.2,
+      "y": 0.5,
+      "label": "WAN edge",
+      "sub": "out: WAN-SHAPER"
+    },
+    {
+      "id": "ISP",
+      "kind": "cloud",
+      "x": 5.4,
+      "y": 0.5,
+      "label": "50M circuit"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC",
+      "b": "ASW",
+      "bLabel": "Gi1/0/10"
+    },
+    {
+      "a": "ASW",
+      "b": "DSW"
+    },
+    {
+      "a": "DSW",
+      "b": "WAN"
+    },
+    {
+      "a": "WAN",
+      "b": "ISP",
+      "aLabel": "Gi0/0/1"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. A Webex packet that the PC marked EF",
+      "text": "It arrives inbound on Gi1/0/10. **Classification** checks the class-maps top to bottom: VOICE-IN (`match protocol rtp audio`)? No. WEBEX-IN (`match protocol webex-meeting`)? **Yes**, so checking stops: first match wins.",
+      "nodes": {
+        "ASW": {
+          "badge": "WEBEX-IN",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ASW"
+          ],
+          "label": "Webex, DSCP 46",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "2. Marking: set dscp af41",
+      "text": "The WEBEX-IN class's action is `set dscp af41`, so the packet leaves ASW as **AF41 (34)**. The PC's claim of EF is ignored, because the policy classified by **application**, not by what the PC wrote.",
+      "packets": [
+        {
+          "path": [
+            "ASW",
+            "DSW",
+            "WAN"
+          ],
+          "label": "DSCP 34 (AF41)",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. Queuing at the WAN edge",
+      "text": "The output policy matches `match dscp af41 af42 af43` and puts the packet in the **VIDEO** queue: `bandwidth percent 30`, which is 15 Mbps of the 50 Mbps shaped rate. The parent shaper creates the congestion, so the child's guarantees actually apply.",
+      "nodes": {
+        "WAN": {
+          "badge": "VIDEO 30%",
+          "tone": "accent"
+        },
+        "ASW": null
+      },
+      "packets": [
+        {
+          "path": [
+            "WAN",
+            "ISP"
+          ],
+          "label": "AF41 via VIDEO queue",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "4. RTP audio from the softphone, marked 0",
+      "text": "VOICE-IN matches first (NBAR recognises the RTP audio), so `set dscp ef` marks it **EF**. At the WAN edge it matches VOICE and goes into the **priority queue** (LLQ, capped at 10% = 5 Mbps).",
+      "nodes": {
+        "ASW": {
+          "badge": "VOICE-IN",
+          "tone": "good"
+        },
+        "WAN": {
+          "badge": "LLQ",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ASW",
+            "DSW",
+            "WAN",
+            "ISP"
+          ],
+          "label": "EF 46",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. Web browsing that the PC marked EF",
+      "text": "No class matches, so it falls into `class-default`, whose action is `set dscp default`: reset to **0**. At the WAN edge it lands in class-default too: `bandwidth percent 25` with `fair-queue`. The honour system has been enforced at the edge, once.",
+      "nodes": {
+        "ASW": {
+          "badge": "class-default",
+          "tone": "muted"
+        },
+        "WAN": {
+          "badge": "default 25%",
+          "tone": "muted"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ASW",
+            "DSW",
+            "WAN",
+            "ISP"
+          ],
+          "label": "DSCP 0",
+          "tone": "muted"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 11.3**
 
 **Q1.** Refer to the exhibit. Which traffic does class VOICE-AND-SIGNALING match?
@@ -8593,6 +10872,82 @@ Both tools use a **token bucket**. Tokens drip in at the **CIR** (committed info
 
 Why Bc = 312,500 bytes? It equals 2.5 Mbit, which is **250 ms** worth of traffic at 10 Mbps (2.5 ÷ 10). That's the comment on the config line.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "A single-rate three-colour policer meets a 700,000-byte burst",
+  "caption": "`police cir 10000000 bc 312500 be 312500` (bc and be in **bytes**). Both buckets start full; refill is ignored during the instant of the burst.",
+  "actors": [
+    {
+      "id": "SND",
+      "kind": "host",
+      "label": "Guest VLAN"
+    },
+    {
+      "id": "POL",
+      "kind": "router",
+      "label": "R1 policer"
+    },
+    {
+      "id": "NEXT",
+      "kind": "router",
+      "label": "Next hop"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SND",
+      "to": "POL",
+      "label": "Burst: 700,000 bytes",
+      "text": "Guests send far more than the contract in one go. A policer never buffers, so every byte is judged the moment it arrives.",
+      "states": {
+        "POL": "Bc full, Be full"
+      }
+    },
+    {
+      "from": "POL",
+      "to": "NEXT",
+      "label": "312,500 B conform: send",
+      "text": "These bytes find tokens in the **Bc** bucket. They conform, so they're sent untouched.",
+      "detail": "Bc bucket now empty",
+      "states": {
+        "POL": "Bc 0, Be 312.5K"
+      },
+      "tone": "good"
+    },
+    {
+      "from": "POL",
+      "to": "NEXT",
+      "label": "312,500 B exceed: AF13",
+      "text": "Bc is empty, so these take tokens from the **Be** bucket. They exceed, and `exceed-action set-dscp-transmit af13` sends them re-marked. If a queue downstream fills, they're the first to be dropped.",
+      "detail": "Be bucket now empty",
+      "states": {
+        "POL": "Bc 0, Be 0"
+      },
+      "tone": "warn"
+    },
+    {
+      "from": "POL",
+      "to": "NEXT",
+      "label": "75,000 B violate: drop",
+      "text": "No tokens anywhere. `violate-action drop` discards them. Nothing is delayed; the excess is simply lost, and TCP will have to retransmit.",
+      "tone": "bad",
+      "drop": true
+    },
+    {
+      "note": "Refill at the CIR",
+      "over": [
+        "POL"
+      ],
+      "text": "Tokens drip back at 10 Mbps = **1,250,000 bytes per second** into Bc. Only tokens that overflow a full Bc spill into Be, so the policer allows a big burst again only after a quiet spell.",
+      "states": {
+        "POL": "Refilling"
+      }
+    }
+  ]
+}
+```
+
 ### Policer Flavors
 
 | Policer | Rates / buckets | Results |
@@ -8620,6 +10975,159 @@ policy-map POLICE-GUEST
 | Voice/video | Neither on the voice itself, beyond the LLQ's built-in policer | Shaping adds delay. Voice is protected by the priority queue instead |
 
 **Why does shaping only work outbound?** Because buffering means *holding packets you haven't sent yet*, and you can only hold what's waiting to leave. Traffic arriving inbound has already crossed the wire. You can drop or remark it, but you can't make it arrive later.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Why you shape before the ISP polices",
+  "caption": "R1's Gi0/0/1 is a 1 Gbps port, but the circuit is 50 Mbps. The ISP's PE polices inbound at 50 Mbps.",
+  "nodes": [
+    {
+      "id": "LAN",
+      "kind": "l3switch",
+      "x": 0,
+      "y": 1,
+      "label": "Campus"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.6,
+      "y": 1,
+      "label": "R1",
+      "sub": "Gi0/0/1 1G"
+    },
+    {
+      "id": "PE",
+      "kind": "router",
+      "x": 3.4,
+      "y": 1,
+      "label": "ISP PE",
+      "sub": "police 50M in"
+    },
+    {
+      "id": "HQ",
+      "kind": "cloud",
+      "x": 5,
+      "y": 1,
+      "label": "MPLS WAN"
+    }
+  ],
+  "links": [
+    {
+      "a": "LAN",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "PE",
+      "label": "1G port, 50M contract",
+      "aLabel": "Gi0/0/1"
+    },
+    {
+      "a": "PE",
+      "b": "HQ"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. No shaper: R1 sends at line rate",
+      "text": "An 80 Mbps burst (voice, video and a backup) arrives. R1's 1 Gbps port never congests, so its queuing policy **never activates**. Everything leaves at 1 Gbps line rate.",
+      "nodes": {
+        "R1": {
+          "badge": "no congestion",
+          "tone": "muted"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "PE"
+          ],
+          "label": "80 Mbps burst",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "2. The ISP's policer drops blindly",
+      "text": "The PE polices at 50 Mbps. It doesn't know or care which packets are voice, so 30 Mbps of excess is dropped from **all** classes. Voice packets die alongside backup packets.",
+      "nodes": {
+        "PE": {
+          "badge": "drop 30 Mbps",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "PE",
+            "HQ"
+          ],
+          "label": "50 Mbps, voice lost",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. Shape to 50 Mbps on R1",
+      "text": "`shape average 50000000` holds the excess in R1's **shaping queue** and releases Bc bits every Tc (200,000 bits every 4 ms). Shaping costs **delay** instead of loss, and it only works **outbound**, where R1 still holds the packets.",
+      "nodes": {
+        "R1": {
+          "badge": "shape 50M",
+          "tone": "accent"
+        },
+        "PE": null
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R1"
+          ],
+          "label": "80 Mbps in",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "R1",
+            "PE"
+          ],
+          "label": "50 Mbps out",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "4. Now the congestion is yours to manage",
+      "text": "Because R1 creates congestion at 50 Mbps, its child queuing policy decides who waits: voice through the priority queue, video and data by their guarantees, scavenger last. The PE's policer sees conforming traffic and passes all of it. That's **hierarchical QoS** (11.7).",
+      "nodes": {
+        "R1": {
+          "badge": "HQoS",
+          "tone": "good"
+        },
+        "PE": {
+          "badge": "all conform",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "PE",
+            "HQ"
+          ],
+          "label": "50 Mbps, voice first",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 11.4**
 
@@ -8697,6 +11205,113 @@ Queuing only matters during **congestion**, when the interface's hardware transm
 3. If the priority queue is empty, the scheduler serves the other queues in proportion to their `bandwidth` guarantees.
 4. If voice exceeds its cap while the link is congested, the extra voice packets are **dropped**, not queued.
 5. A voice packet therefore waits only for the packet already being transmitted (and any voice packets ahead of it), never for the backlog in the other queues. That's why LLQ voice delay stays tiny.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "LLQ on a congested link: the scheduler always looks at the priority queue first",
+  "caption": "The WAN-QUEUING child policy inside a 50 Mbps shaper: VOICE `priority percent 10` (5 Mbps), VIDEO `bandwidth percent 30`, CRITICAL-DATA 25%, class-default 25%.",
+  "actors": [
+    {
+      "id": "PQ",
+      "kind": "phone",
+      "label": "Voice PQ"
+    },
+    {
+      "id": "VID",
+      "kind": "server",
+      "label": "VIDEO 30%"
+    },
+    {
+      "id": "DATA",
+      "kind": "server",
+      "label": "CRIT-DATA 25%"
+    },
+    {
+      "id": "DEF",
+      "kind": "host",
+      "label": "default 25%"
+    },
+    {
+      "id": "TX",
+      "kind": "router",
+      "label": "Gi0/0/1 tx"
+    }
+  ],
+  "messages": [
+    {
+      "note": "Congestion: every queue has packets waiting",
+      "over": [
+        "PQ",
+        "VID",
+        "DATA",
+        "DEF"
+      ],
+      "text": "Queuing only matters now, when packets wait in software queues because the shaper (or the interface) can't send them all at once.",
+      "states": {
+        "PQ": "2 waiting",
+        "VID": "busy",
+        "DATA": "busy",
+        "DEF": "busy"
+      }
+    },
+    {
+      "from": "PQ",
+      "to": "TX",
+      "label": "Voice packet: priority queue first",
+      "text": "The scheduler always checks the **priority queue** first. A voice packet is waiting and voice is within its 5 Mbps cap, so it goes next.",
+      "states": {
+        "PQ": "1 waiting"
+      },
+      "tone": "good"
+    },
+    {
+      "from": "PQ",
+      "to": "TX",
+      "label": "Voice packet",
+      "text": "Still voice waiting, still under the cap: served again. The PQ is emptied before anything else is considered.",
+      "states": {
+        "PQ": "empty"
+      },
+      "tone": "good"
+    },
+    {
+      "from": "VID",
+      "to": "TX",
+      "label": "Video packet (weight 30)",
+      "text": "The PQ is empty, so the CBWFQ scheduler serves the other queues **in proportion to their bandwidth guarantees**: video gets the largest share.",
+      "tone": "purple"
+    },
+    {
+      "from": "PQ",
+      "to": "TX",
+      "label": "New voice packet jumps the line",
+      "text": "A new voice packet arrives. It waits only for the packet already being transmitted, never for the backlog in the other queues. That's why LLQ delay and jitter stay tiny.",
+      "tone": "good"
+    },
+    {
+      "from": "DATA",
+      "to": "TX",
+      "label": "Critical-data packet (weight 25)",
+      "text": "Back to weighted sharing. During congestion each class gets **at least** its guarantee; spare capacity is shared."
+    },
+    {
+      "from": "DEF",
+      "to": "TX",
+      "label": "Default (25%)",
+      "text": "class-default gets its 25% too, with `fair-queue` sharing it fairly among the flows inside it."
+    },
+    {
+      "from": "PQ",
+      "to": "TX",
+      "label": "Voice beyond 5 Mbps: dropped",
+      "text": "If voice offers 7 Mbps during congestion, the LLQ's **implicit policer** drops the extra 2 Mbps rather than queuing it. Otherwise a strict-priority queue could starve every other class. `b/w exceed drops` counts these.",
+      "tone": "bad",
+      "drop": true
+    }
+  ]
+}
+```
 
 | Mechanism | How it works | Problem it solves / leaves |
 |-----------|--------------|----------------------------|
@@ -8852,6 +11467,91 @@ When a queue fills, new packets are **tail-dropped**. Tail drop hits every TCP f
 | above 40 | 100%: tail drop | 100%: tail drop |
 
 Between the two thresholds the drop chance climbs in a straight line from 0 to the mark probability. WRED uses the **average** queue depth, not the instantaneous one (the `Exp-weight-constant` in the output sets how fast that average moves), so a short burst doesn't trigger drops on its own.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "WRED: dropping a few early so everyone doesn't drop at once",
+  "caption": "CRITICAL-DATA with `random-detect dscp-based`: AF21 minimum 32, AF23 minimum 24, both maximum 40, mark probability 1/10. Depths are the **average** queue depth.",
+  "actors": [
+    {
+      "id": "A",
+      "kind": "host",
+      "label": "Flow A (AF21)"
+    },
+    {
+      "id": "B",
+      "kind": "host",
+      "label": "Flow B (AF23)"
+    },
+    {
+      "id": "Q",
+      "kind": "router",
+      "label": "CRIT-DATA queue"
+    }
+  ],
+  "messages": [
+    {
+      "from": "A",
+      "to": "Q",
+      "label": "AF21 packet",
+      "text": "Average depth 20: below both minimum thresholds, so nothing is dropped. WRED does nothing while the queue is shallow.",
+      "states": {
+        "Q": "avg 20"
+      }
+    },
+    {
+      "from": "B",
+      "to": "Q",
+      "label": "AF23 packet (dropped)",
+      "text": "Average depth 32. AF23's minimum is 24, so it's in the random zone: (32 − 24) ÷ (40 − 24) × 10% = **5%**. This one was unlucky. AF21 (minimum 32) is still at 0%.",
+      "states": {
+        "Q": "avg 32"
+      },
+      "tone": "warn",
+      "drop": true
+    },
+    {
+      "note": "Flow B's TCP backs off",
+      "over": [
+        "B"
+      ],
+      "text": "Flow B notices the missing segment and slows down. Only **one** flow slowed, at a time of WRED's choosing, so the queue eases off without every flow collapsing together.",
+      "states": {
+        "B": "cwnd reduced"
+      }
+    },
+    {
+      "from": "A",
+      "to": "Q",
+      "label": "AF21 packet",
+      "text": "Average depth 36. AF21 now drops at (36 − 32) ÷ 8 × 10% = **5%**, AF23 at (36 − 24) ÷ 16 × 10% = **7.5%**. Same queue, but the higher drop precedence always loses first.",
+      "states": {
+        "Q": "avg 36"
+      }
+    },
+    {
+      "from": "B",
+      "to": "Q",
+      "label": "AF23 + ECN: marked CE",
+      "text": "With `random-detect ecn`, and if both TCP endpoints support ECN, WRED sets the ECN bits to **CE** instead of dropping. The receiver echoes it and the sender slows down: the same signal, no lost packet.",
+      "detail": "ECN bits 01/10 → 11 (CE)",
+      "tone": "purple"
+    },
+    {
+      "from": "A",
+      "to": "Q",
+      "label": "Above the maximum: tail drop",
+      "text": "Average depth over 40: every arriving packet is dropped, whatever its marking. WRED's job is to keep the queue from getting here, which avoids **TCP global synchronization**.",
+      "states": {
+        "Q": "avg > 40"
+      },
+      "tone": "bad",
+      "drop": true
+    }
+  ]
+}
+```
 
 **ECN** lets WRED **mark** packets (set the ECN bits to "congestion experienced") instead of dropping them, *if* both endpoints support ECN. The receiver echoes the signal and the sender slows down. The result is the same signal with no lost packet (`random-detect ecn`).
 
@@ -9273,6 +11973,184 @@ Each VM runs its **own guest OS** with its own kernel. That's the key difference
 5. Host B sends a frame from `0050.56aa.0001` out its uplink (VMware sends a RARP frame for exactly this purpose). Every physical switch updates its MAC table: that MAC now lives on Host B's port.
 6. Users typically notice nothing, or lose a packet or two during the pause. WEB01 still has `10.20.0.15` and its default gateway, because VLAN 20 exists on Host B's trunk too.
 
+```diagram
+{
+  "type": "topology",
+  "title": "Live migration of WEB01, and the VLAN that breaks it",
+  "caption": "WEB01 is 10.20.0.15, MAC `0050.56aa.0001`, VLAN 20. Its virtual disk sits on shared storage both hosts can reach.",
+  "nodes": [
+    {
+      "id": "SW",
+      "kind": "l3switch",
+      "x": 2,
+      "y": 0,
+      "label": "Core switch",
+      "sub": "gw 10.20.0.1"
+    },
+    {
+      "id": "HostA",
+      "kind": "server",
+      "x": 0.6,
+      "y": 1.6,
+      "label": "Host A",
+      "sub": "ESXi, vmnic0 trunk"
+    },
+    {
+      "id": "HostB",
+      "kind": "server",
+      "x": 3.4,
+      "y": 1.6,
+      "label": "Host B",
+      "sub": "ESXi, vmnic0 trunk"
+    },
+    {
+      "id": "SAN",
+      "kind": "server",
+      "x": 2,
+      "y": 3,
+      "label": "Shared storage",
+      "sub": "WEB01.vmdk"
+    }
+  ],
+  "links": [
+    {
+      "a": "SW",
+      "b": "HostA",
+      "label": "trunk 10,20,30",
+      "bLabel": "vmnic0"
+    },
+    {
+      "a": "SW",
+      "b": "HostB",
+      "label": "trunk 10,20,30",
+      "bLabel": "vmnic0"
+    },
+    {
+      "a": "HostA",
+      "b": "HostB",
+      "label": "vMotion net",
+      "style": "dashed"
+    },
+    {
+      "a": "HostA",
+      "b": "SAN"
+    },
+    {
+      "a": "HostB",
+      "b": "SAN"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. WEB01 runs on Host A",
+      "text": "Users reach 10.20.0.15 through the core switch, which has learned `0050.56aa.0001` on Host A's trunk port. Host B reserves matching vCPU and vRAM. The disk doesn't move: both hosts can already reach it on shared storage.",
+      "nodes": {
+        "HostA": {
+          "badge": "WEB01",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SW",
+            "HostA"
+          ],
+          "label": "to 10.20.0.15",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. Memory is copied while WEB01 keeps running",
+      "text": "Host A copies WEB01's memory pages to Host B over the separate migration network. Pages that change during the copy are sent again, in ever-smaller rounds.",
+      "links": {
+        "HostA-HostB": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "HostA",
+            "HostB"
+          ],
+          "label": "memory pages",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "3. A pause of milliseconds, then resume on B",
+      "text": "When the remaining changes are tiny, Host A pauses WEB01, sends the last pages and the CPU state, and Host B resumes it. WEB01 keeps its IP, its MAC and its default gateway: it is *just state*.",
+      "nodes": {
+        "HostA": null,
+        "HostB": {
+          "badge": "WEB01",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "HostA",
+            "HostB"
+          ],
+          "label": "last pages + CPU",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. A RARP frame moves the MAC",
+      "text": "Host B sends a frame (VMware uses RARP) from `0050.56aa.0001` in VLAN 20 out its uplink. The core switch updates its MAC table: that MAC now lives on Host B's port, and traffic follows it.",
+      "links": {
+        "HostA-HostB": null
+      },
+      "packets": [
+        {
+          "path": [
+            "HostB",
+            "SW"
+          ],
+          "label": "RARP from WEB01 MAC",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "SW",
+            "HostB"
+          ],
+          "label": "to 10.20.0.15",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "5. The failure: VLAN 20 not allowed to Host B",
+      "text": "Now replay it with Host B's trunk allowing only VLANs 10 and 30. Steps 1-3 still succeed, because they use the migration network, so the server team sees \"migration complete\". But the RARP frame in VLAN 20 is dropped at the switch port. WEB01 is running and unreachable. Fix it on the switch: `switchport trunk allowed vlan add 20`.",
+      "nodes": {
+        "HostB": {
+          "badge": "isolated",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "SW-HostB": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "HostB",
+            "SW"
+          ],
+          "label": "VLAN 20 dropped",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Worked example — what breaks if VLAN 20 is missing:** Host B's uplink trunk only allows VLANs 10 and 30. The migration in steps 1–4 still succeeds (it uses the separate migration network), so the server team sees "migration complete". But the frame in step 5 is dropped at the physical switch port, because VLAN 20 isn't allowed there. WEB01 is running and unreachable. `show interfaces trunk` on the switch shows VLAN 20 missing from the "allowed" list for Host B's port. The fix is on your switch, not the server: `switchport trunk allowed vlan add 20`.
 
 *Live migration is one of the main reasons data centers wanted Layer 2 stretched everywhere — and one of the main reasons VXLAN exists (Chapter 13).*
@@ -9332,6 +12210,160 @@ Every vNIC plugs into a **virtual switch (vSwitch)**: a software Layer 2 switch 
 1. FIN01 sends a frame to FIN02's MAC. The vSwitch looks up its MAC table, finds FIN02 on a local virtual port, and delivers it in software. **The frame never leaves the host**, so the physical switch never sees it, and a SPAN session on the physical switch won't capture it.
 2. FIN01 sends a frame to the gateway's MAC. The vSwitch doesn't have that MAC on a local port, so it sends the frame out an uplink, **adding an 802.1Q tag of 20** because the port group is VLAN 20.
 3. The physical switch receives a tagged frame on a trunk, exactly as it would from another switch, and forwards it to the gateway in VLAN 20.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Inside the host: how a vSwitch forwards",
+  "caption": "Host A's vSwitch has port group \"VLAN 20 – Finance\" and two uplinks: vmnic0 to SW1 and vmnic1 to SW2, both 802.1Q trunks. SW1 and SW2 are trunked together.",
+  "nodes": [
+    {
+      "id": "FIN01",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "FIN01",
+      "sub": "10.20.0.11"
+    },
+    {
+      "id": "FIN02",
+      "kind": "host",
+      "x": 0,
+      "y": 1.6,
+      "label": "FIN02",
+      "sub": "10.20.0.12"
+    },
+    {
+      "id": "VSW",
+      "kind": "switch",
+      "x": 1.6,
+      "y": 0.8,
+      "label": "vSwitch",
+      "sub": "port group VLAN 20"
+    },
+    {
+      "id": "SW1",
+      "kind": "l3switch",
+      "x": 3.6,
+      "y": 0,
+      "label": "SW1",
+      "sub": "gw 10.20.0.1"
+    },
+    {
+      "id": "SW2",
+      "kind": "switch",
+      "x": 3.6,
+      "y": 1.6,
+      "label": "SW2"
+    }
+  ],
+  "links": [
+    {
+      "a": "FIN01",
+      "b": "VSW",
+      "label": "vNIC"
+    },
+    {
+      "a": "FIN02",
+      "b": "VSW",
+      "label": "vNIC"
+    },
+    {
+      "a": "VSW",
+      "b": "SW1",
+      "aLabel": "vmnic0"
+    },
+    {
+      "a": "VSW",
+      "b": "SW2",
+      "aLabel": "vmnic1"
+    },
+    {
+      "a": "SW1",
+      "b": "SW2",
+      "label": "trunk",
+      "style": "thick"
+    }
+  ],
+  "zones": [
+    {
+      "label": "Host A",
+      "nodes": [
+        "FIN01",
+        "FIN02",
+        "VSW"
+      ],
+      "tone": "accent"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. VM to VM on the same host",
+      "text": "FIN01 sends to FIN02's MAC. The vSwitch finds that MAC on a local virtual port and delivers the frame in software. **It never leaves the host**, so the physical switches never see it, and a SPAN session on them won't capture it.",
+      "packets": [
+        {
+          "path": [
+            "FIN01",
+            "VSW",
+            "FIN02"
+          ],
+          "label": "untagged, in software",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. VM to the gateway: out an uplink, tagged 20",
+      "text": "FIN01 sends to the gateway's MAC, which isn't on a local port. The vSwitch sends the frame out an uplink and **adds an 802.1Q tag of 20**, because the port group is VLAN 20. SW1 sees an ordinary tagged frame on a trunk, exactly as if another switch had sent it.",
+      "packets": [
+        {
+          "path": [
+            "FIN01",
+            "VSW",
+            "SW1"
+          ],
+          "label": "802.1Q tag 20",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "3. No STP, yet no loop",
+      "text": "Two uplinks plus the SW1-SW2 trunk form a triangle. A broadcast from SW1 arrives on vmnic0. The vSwitch doesn't run STP with your switches. Instead it **never forwards a frame that came in one uplink out another uplink**: the broadcast goes to the VMs only, never back out vmnic1 toward SW2, so the triangle can't loop.",
+      "focus": [
+        "SW1",
+        "VSW",
+        "FIN01",
+        "FIN02",
+        "SW2",
+        "SW1-VSW",
+        "FIN01-VSW",
+        "FIN02-VSW"
+      ],
+      "packets": [
+        {
+          "path": [
+            "SW1",
+            "VSW",
+            "FIN02"
+          ],
+          "label": "broadcast in vmnic0",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "SW1",
+            "VSW",
+            "FIN01"
+          ],
+          "label": "broadcast in vmnic0",
+          "tone": "warn"
+        }
+      ]
+    }
+  ]
+}
+```
 
 *That's the whole mental model:* a vSwitch is an access switch for the VMs and a trunk neighbour for your physical switch. (One difference: a VMware vSwitch doesn't run STP with your switch. It avoids loops a simpler way: it never forwards a frame that came in one uplink back out of another uplink.)
 
@@ -9425,6 +12457,211 @@ Device virtualization splits a *server*. **VRF (Virtual Routing and Forwarding)*
 | Gi0/2 | CUST-B | CUST-B only | none | Dropped, even though CUST-A has a route |
 
 Same destination, same router, two different answers. That's the isolation.
+
+```diagram
+{
+  "type": "topology",
+  "title": "Two customers, one router, the same 10.1.1.0/24",
+  "caption": "R1: Gi0/1 in VRF CUST-A and Gi0/2 in VRF CUST-B, both `10.1.1.1/24`. VRF-Lite to R2 uses one 802.1Q subinterface per VRF, both `172.16.100.1/30`.",
+  "nodes": [
+    {
+      "id": "A",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "Cust A host",
+      "sub": "10.1.1.10"
+    },
+    {
+      "id": "B",
+      "kind": "host",
+      "x": 0,
+      "y": 2,
+      "label": "Cust B host",
+      "sub": "10.1.1.10"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.8,
+      "y": 1,
+      "label": "R1",
+      "sub": "Gi0/3: .100 A, .200 B"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 3.8,
+      "y": 1,
+      "label": "R2"
+    },
+    {
+      "id": "NET",
+      "kind": "server",
+      "x": 5.2,
+      "y": 1,
+      "label": "10.9.9.9",
+      "sub": "in CUST-A only"
+    }
+  ],
+  "links": [
+    {
+      "a": "A",
+      "b": "R1",
+      "bLabel": "Gi0/1"
+    },
+    {
+      "a": "B",
+      "b": "R1",
+      "bLabel": "Gi0/2"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "id": "v100"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "id": "v200"
+    },
+    {
+      "a": "R2",
+      "b": "NET"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The interface picks the table",
+      "text": "R1 holds **three** routing tables: global, CUST-A and CUST-B. `10.1.1.0/24` is a connected route in both customer tables, which is legal because they are different tables. What decides which table a packet uses is the **interface it arrives on**, never its addresses.",
+      "focus": [
+        "R1",
+        "A",
+        "B",
+        "A-R1",
+        "B-R1"
+      ],
+      "nodes": {
+        "R1": {
+          "badge": "3 tables",
+          "tone": "accent"
+        }
+      }
+    },
+    {
+      "title": "2. Customer A sends to 10.9.9.9",
+      "text": "The packet arrives on Gi0/1, so R1 looks only in **CUST-A**. It finds `10.9.9.0/24 via 172.16.100.2`, learned by `router ospf 10 vrf CUST-A`, and forwards it out Gi0/3.100. R2 receives it on its .100 subinterface, which is also in CUST-A, so it stays in that VRF.",
+      "nodes": {
+        "R1": {
+          "badge": "CUST-A table",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "v100": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "A",
+            "R1",
+            "R2",
+            "NET"
+          ],
+          "label": "10.1.1.10 → 10.9.9.9",
+          "tone": "good",
+          "via": [
+            null,
+            "v100",
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "title": "3. Customer B sends to the same address",
+      "text": "Same destination, same router. But the packet arrives on Gi0/2, so R1 consults **CUST-B only**. There's no route for 10.9.9.9 there, so it's dropped. R1 does **not** fall back to the global table or to CUST-A. Same router, two different answers: that's the isolation.",
+      "nodes": {
+        "R1": {
+          "badge": "no route: drop",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "v100": null
+      },
+      "packets": [
+        {
+          "path": [
+            "B",
+            "R1"
+          ],
+          "label": "10.1.1.10 → 10.9.9.9",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. VRF-Lite: one logical link per VRF",
+      "text": "A VRF only exists inside one box. To carry both to R2 without MPLS, each VRF gets its own 802.1Q subinterface, its own address (the same `172.16.100.1/30` twice) and its own OSPF process. Every VRF needs this on **every** hop, which is the scaling problem MPLS L3VPN solves.",
+      "nodes": {
+        "R1": null
+      },
+      "links": {
+        "v100": "active",
+        "v200": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "OSPF 10 (CUST-A)",
+          "tone": "good",
+          "via": [
+            "v100"
+          ]
+        },
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "OSPF 20 (CUST-B)",
+          "tone": "purple",
+          "via": [
+            "v200"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "5. Verifying: always name the VRF",
+      "text": "`ping 10.1.1.10` on R1 with no VRF keyword uses the **global** table, where 10.1.1.0/24 doesn't exist, so it fails and the network looks broken. `ping vrf CUST-A 10.1.1.10` succeeds. The same goes for `show ip route vrf`, `traceroute vrf` and `show ip arp vrf`.",
+      "focus": [
+        "R1",
+        "A",
+        "A-R1"
+      ],
+      "links": {
+        "v100": null,
+        "v200": null
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "A"
+          ],
+          "label": "ping vrf CUST-A",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **Why use VRFs?**
 
@@ -9640,6 +12877,185 @@ interface GigabitEthernet0/3.200
 
 Notice that R1 does **two** routing lookups to send one packet into the tunnel (inner destination, then outer destination). That's the root of the recursive-routing trap below.
 
+```diagram
+{
+  "type": "topology",
+  "title": "A packet inside a packet: crossing a GRE tunnel",
+  "caption": "The tunnel's inside is 172.16.0.1/30 (R1) and .2 (R2). OSPF runs over Tunnel0, so R1 knows `10.2.0.0/16 via 172.16.0.2, Tunnel0`.",
+  "nodes": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 0,
+      "y": 1.4,
+      "label": "PC",
+      "sub": "10.1.0.10"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.3,
+      "y": 1.4,
+      "label": "R1",
+      "sub": "198.51.100.1"
+    },
+    {
+      "id": "NET",
+      "kind": "cloud",
+      "x": 2.75,
+      "y": 0,
+      "label": "Internet"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 4.2,
+      "y": 1.4,
+      "label": "R2",
+      "sub": "203.0.113.2"
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 5.5,
+      "y": 1.4,
+      "label": "Server",
+      "sub": "10.2.0.20/16"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "NET",
+      "aLabel": "Gi0/0"
+    },
+    {
+      "a": "NET",
+      "b": "R2",
+      "bLabel": "Gi0/0"
+    },
+    {
+      "a": "R2",
+      "b": "SRV"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "id": "t0",
+      "label": "Tunnel0 172.16.0.0/30",
+      "style": "tunnel"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Lookup one: the inner destination",
+      "text": "R1 receives `10.1.0.10 → 10.2.0.20`. Its routing table says `10.2.0.0/16 via 172.16.0.2, Tunnel0`. To R1, the far site is one hop away over a point-to-point link.",
+      "nodes": {
+        "R1": {
+          "badge": "lookup 1",
+          "tone": "accent"
+        }
+      },
+      "links": {
+        "t0": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1"
+          ],
+          "label": "10.1.0.10 → 10.2.0.20",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. Encapsulate: +24 bytes",
+      "text": "Tunnel0 adds a **4-byte GRE header** (protocol type `0x0800`, \"IPv4 inside\") and a new **20-byte outer IP header** `198.51.100.1 → 203.0.113.2` with protocol **47**. That's why the tunnel's default IP MTU is 1476.",
+      "nodes": {
+        "R1": {
+          "badge": "+GRE +IP",
+          "tone": "purple"
+        }
+      }
+    },
+    {
+      "title": "3. Lookup two: the outer destination",
+      "text": "R1 now routes the *outer* packet. It looks up `203.0.113.2` and sends it out Gi0/0 via its default route. Two lookups for one packet: remember this for the recursive routing trap.",
+      "nodes": {
+        "R1": {
+          "badge": "lookup 2",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "NET"
+          ],
+          "label": "198.51.100.1→203.0.113.2",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. The internet reads only the outer header",
+      "text": "To every internet router this is an ordinary protocol-47 packet between two public addresses. None of them has heard of 10.0.0.0/8, and none needs to. Note that GRE hides nothing: anyone on this path can read the inner packet.",
+      "nodes": {
+        "R1": null
+      },
+      "packets": [
+        {
+          "path": [
+            "NET",
+            "R2"
+          ],
+          "label": "IP proto 47 (GRE)",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "5. R2 strips the envelope",
+      "text": "R2 receives a protocol-47 packet addressed to itself from `198.51.100.1`, its configured tunnel destination, so it belongs to Tunnel0. R2 removes the outer IP and GRE headers and finds `10.1.0.10 → 10.2.0.20` inside.",
+      "nodes": {
+        "R2": {
+          "badge": "decapsulate",
+          "tone": "purple"
+        }
+      }
+    },
+    {
+      "title": "6. Routed as if directly connected",
+      "text": "R2 routes the inner packet to its LAN as though it had arrived on a directly connected link. The PC and the server never knew a tunnel existed.",
+      "nodes": {
+        "R2": null,
+        "SRV": {
+          "badge": "arrived",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "SRV"
+          ],
+          "label": "10.1.0.10 → 10.2.0.20",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### The Cost: 24 Bytes
 
 GRE adds a **new IP header (20 bytes) + a GRE header (4 bytes minimum)** = **24 bytes**. The tunnel interface's default IP MTU is therefore **1476** (1500 − 24).
@@ -9690,6 +13106,190 @@ This happens when the router learns the route **to the tunnel destination throug
 3. R1 installs `O 203.0.113.0/24 via 172.16.0.2, Tunnel0`. A /24 is **more specific** than the /0 default, so longest match picks the OSPF route, even though OSPF's AD (110) is worse than the static's (1). AD only compares routes for the *same* prefix.
 4. To send any tunnel packet, R1 looks up `203.0.113.2` and gets "out Tunnel0". Loop. `%TUN-5-RECURDOWN` is logged and Tunnel0 goes down.
 5. With the tunnel down, OSPF loses the neighbour and the /24 disappears. The default route is used again, the tunnel comes up, and you're back at step 2. The tunnel flaps every minute or so.
+
+```diagram
+{
+  "type": "topology",
+  "title": "The recursive routing trap: %TUN-5-RECURDOWN",
+  "caption": "R1 reaches 203.0.113.2 with a static default route out Gi0/0. R2 mistakenly has `network 203.0.113.0 0.0.0.255 area 0` in the OSPF process that runs over the tunnel.",
+  "nodes": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 0,
+      "y": 1.4,
+      "label": "PC",
+      "sub": "10.1.0.10"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.3,
+      "y": 1.4,
+      "label": "R1",
+      "sub": "198.51.100.1"
+    },
+    {
+      "id": "NET",
+      "kind": "cloud",
+      "x": 2.75,
+      "y": 0,
+      "label": "Internet"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 4.2,
+      "y": 1.4,
+      "label": "R2",
+      "sub": "203.0.113.2"
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 5.5,
+      "y": 1.4,
+      "label": "Server",
+      "sub": "10.2.0.20/16"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "NET",
+      "aLabel": "Gi0/0"
+    },
+    {
+      "a": "NET",
+      "b": "R2",
+      "bLabel": "Gi0/0"
+    },
+    {
+      "a": "R2",
+      "b": "SRV"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "id": "t0",
+      "label": "Tunnel0 172.16.0.0/30",
+      "style": "tunnel"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The tunnel comes up over the underlay",
+      "text": "R1 looks up the tunnel destination 203.0.113.2, matches `S* 0.0.0.0/0` out Gi0/0, and the outer packets flow through the internet. Tunnel0 is up/up.",
+      "links": {
+        "t0": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "NET",
+            "R2"
+          ],
+          "label": "outer: to 203.0.113.2",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. OSPF over the tunnel advertises the endpoint",
+      "text": "OSPF forms over Tunnel0. R2 advertises `203.0.113.0/24` into it, so R1 installs `O 203.0.113.0/24 via 172.16.0.2, Tunnel0`.",
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "R1"
+          ],
+          "label": "LSA: 203.0.113.0/24",
+          "tone": "warn",
+          "via": [
+            "t0"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "3. Longest match picks the tunnel",
+      "text": "The /24 is **more specific** than the /0 default, so longest match picks the OSPF route, even though OSPF's AD (110) is worse than the static's (1). AD only compares routes for the *same* prefix. Now the route to the tunnel destination points into the tunnel itself.",
+      "nodes": {
+        "R1": {
+          "badge": "loop!",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "R2"
+          ],
+          "label": "to 203.0.113.2 via Tu0?",
+          "tone": "bad",
+          "via": [
+            "t0"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "4. The router shuts the tunnel",
+      "text": "To send a tunnel packet R1 needs a tunnel packet. It detects the loop, logs `%TUN-5-RECURDOWN: Tunnel0 temporarily disabled due to recursive routing` and brings Tunnel0 down. OSPF loses its neighbour, the /24 disappears, the default route is used again, the tunnel comes up... and it flaps every minute or so.",
+      "nodes": {
+        "R1": {
+          "badge": "RECURDOWN",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "t0": "down"
+      }
+    },
+    {
+      "title": "5. The fix: keep underlay out of the overlay",
+      "text": "Remove 203.0.113.0/24 from R2's OSPF and advertise only the inside networks (10.2.0.0/16) over the tunnel. R1 keeps reaching 203.0.113.2 through the underlay default route, and the tunnel stays up for good.",
+      "nodes": {
+        "R1": {
+          "badge": "stable",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "t0": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "NET",
+            "R2"
+          ],
+          "label": "outer via Gi0/0",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "R2",
+            "R1"
+          ],
+          "label": "LSA: 10.2.0.0/16 only",
+          "tone": "good",
+          "via": [
+            "t0"
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
 
 **The fix:** never advertise the tunnel endpoints (the public/transport addresses) into the routing protocol that runs over the tunnel. Reach them through the underlay (a static or default route out the physical interface) and advertise only the inside networks. *Underlay addresses go in the underlay; overlay routes go in the overlay. Mixing them is how the tunnel ends up routing through itself.*
 
@@ -9821,6 +13421,97 @@ Before any data is encrypted, the peers use **IKE (Internet Key Exchange, UDP 50
 5. Result: one IKE SA (`show crypto ikev2 sa` → READY) and a pair of IPsec SAs, one inbound and one outbound, each with its own SPI (`show crypto ipsec sa`). Data now flows as ESP, IP protocol 50.
 
 If step 2 fails you'll see `NO_PROPOSAL_CHOSEN` (no common proposal). If step 4 fails it's usually `AUTH_FAILED` (wrong key or identity). That's why knowing the four messages makes debugs readable.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "IKEv2: four messages to a working tunnel",
+  "caption": "R1 198.51.100.1 initiates to R2 203.0.113.2. Pre-shared keys, proposal AES-CBC-256 / SHA-256 / DH group 19.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 initiator"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2 responder"
+    }
+  ],
+  "messages": [
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "IKE_SA_INIT request",
+      "text": "R1 offers its proposals (AES-CBC-256, SHA-256, DH group 19), its Diffie-Hellman public value (KEi) and a random nonce. Nothing is encrypted yet, because no keys exist. It also sends NAT-detection hashes of its addresses and ports.",
+      "detail": "UDP 500: SAi1, KEi, Ni, NAT_DETECTION",
+      "states": {
+        "R1": "INIT sent"
+      }
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "IKE_SA_INIT response",
+      "text": "R2 picks one proposal it also has and returns its own DH value and nonce. Both sides now compute the **same DH secret** without ever sending it, and derive the keys for the IKE SA. If no proposal matches, R2 answers `NO_PROPOSAL_CHOSEN` instead and stops here.",
+      "detail": "UDP 500: SAr1, KEr, Nr",
+      "states": {
+        "R1": "keys derived",
+        "R2": "keys derived"
+      },
+      "dashed": true
+    },
+    {
+      "note": "Everything from here is encrypted",
+      "over": [
+        "R1",
+        "R2"
+      ],
+      "text": "If the NAT-detection hashes showed a NAT in the path, both peers move from UDP 500 to **UDP 4500** now, and ESP will be wrapped in UDP 4500 too (NAT-T)."
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "IKE_AUTH request",
+      "text": "R1 proves who it is (IDi, and an AUTH value computed with the pre-shared key) and proposes the first **Child SA**: the ESP transform set and the traffic selectors it should cover (for a VTI, any to any).",
+      "detail": "Encrypted: IDi, AUTH, SAi2, TSi, TSr",
+      "states": {
+        "R1": "AUTH sent"
+      }
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "IKE_AUTH response",
+      "text": "R2 checks R1's AUTH. A wrong key or identity gives `AUTH_FAILED` here. Otherwise R2 sends its own proof and accepts the Child SA. That's IKEv2's whole exchange: two round trips, versus nine messages in IKEv1 (Main Mode plus Quick Mode).",
+      "detail": "Encrypted: IDr, AUTH, SAr2, TSi, TSr",
+      "states": {
+        "R1": "READY",
+        "R2": "READY"
+      },
+      "dashed": true,
+      "tone": "good"
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "ESP data (IP protocol 50)",
+      "text": "One IKE SA (`show crypto ikev2 sa` → **READY**) and a pair of IPsec SAs, one per direction, each with its own SPI. Data now flows as ESP. `show crypto ipsec sa` shows the encaps and decaps counters climbing.",
+      "detail": "SPI 0x8C4F21A3 inbound; a separate SPI outbound",
+      "tone": "good"
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "ESP data (IP protocol 50)",
+      "text": "Traffic in the other direction uses R2's outbound SA, which is R1's inbound SA. SAs are one-way, so a working tunnel always has at least two.",
+      "dashed": true,
+      "tone": "good"
+    }
+  ]
+}
+```
 
 **Why did IKEv2 replace IKEv1?** Four messages instead of nine; built-in NAT-T, dead peer detection and EAP support; asymmetric authentication (each side can use a different method); and far fewer ambiguous options, so interoperability is better. *IKEv2 is the default choice for anything new, and FlexVPN on IOS XE is built on it.*
 
@@ -10031,6 +13722,159 @@ interface Tunnel1
 2. GRE wraps it: new IP header `198.51.100.1 → 203.0.113.2`, protocol 47.
 3. IPsec in **transport mode** encrypts everything after that outer header (GRE header plus original packet) and inserts an ESP header. The outer IP header stays, its protocol field now says **50** (ESP).
 4. The internet sees only ESP between two public addresses. It can't even tell that GRE is inside.
+
+```diagram
+{
+  "type": "topology",
+  "title": "GRE over IPsec: how the headers stack",
+  "caption": "Tunnel0 keeps its default GRE mode; `tunnel protection ipsec profile GRE-PROT` adds ESP in **transport mode**.",
+  "nodes": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 0,
+      "y": 1.4,
+      "label": "PC",
+      "sub": "10.1.0.10"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.3,
+      "y": 1.4,
+      "label": "R1",
+      "sub": "198.51.100.1"
+    },
+    {
+      "id": "NET",
+      "kind": "cloud",
+      "x": 2.75,
+      "y": 0,
+      "label": "Internet"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "x": 4.2,
+      "y": 1.4,
+      "label": "R2",
+      "sub": "203.0.113.2"
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 5.5,
+      "y": 1.4,
+      "label": "Server",
+      "sub": "10.2.0.20/16"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "NET",
+      "aLabel": "Gi0/0"
+    },
+    {
+      "a": "NET",
+      "b": "R2",
+      "bLabel": "Gi0/0"
+    },
+    {
+      "a": "R2",
+      "b": "SRV"
+    },
+    {
+      "a": "R1",
+      "b": "R2",
+      "id": "t0",
+      "label": "Tunnel0 172.16.0.0/30",
+      "style": "tunnel"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. The original packet",
+      "text": "PC 10.1.0.10 sends to 10.2.0.20. The inner IP header is the only one so far: `[IP 10.1.0.10 → 10.2.0.20][data]`.",
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "R1"
+          ],
+          "label": "10.1.0.10 → 10.2.0.20",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. GRE wraps it",
+      "text": "Tunnel0 adds the GRE header and a new outer IP header between the public addresses: `[IP 198.51.100.1 → 203.0.113.2, proto 47][GRE][inner IP][data]`. Routing protocols and multicast can ride inside, because GRE carries anything.",
+      "nodes": {
+        "R1": {
+          "badge": "GRE: proto 47",
+          "tone": "purple"
+        }
+      }
+    },
+    {
+      "title": "3. IPsec transport mode encrypts behind the outer header",
+      "text": "Transport mode keeps that outer header, inserts an **ESP header** after it, and encrypts everything behind it (the GRE header and the whole original packet). The outer header's protocol field changes to **50**: `[IP proto 50][ESP][encrypted: GRE + inner IP + data][ESP trailer + ICV]`. Tunnel mode would add yet another 20-byte IP header, which GRE has already supplied.",
+      "nodes": {
+        "R1": {
+          "badge": "ESP: proto 50",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "t0": "active"
+      }
+    },
+    {
+      "title": "4. The internet sees only ESP",
+      "text": "Every router in between sees an ESP packet between two public addresses. It can't read the inner addresses and can't even tell that GRE is inside.",
+      "nodes": {
+        "R1": null
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "NET",
+            "R2"
+          ],
+          "label": "IP proto 50 (ESP)",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. R2 decrypts, then de-encapsulates",
+      "text": "R2 matches the SPI to its inbound SA, checks integrity and decrypts, revealing a GRE packet. Tunnel0 then strips the GRE and outer headers and routes the original packet to the server.",
+      "nodes": {
+        "R2": {
+          "badge": "ESP → GRE → IP",
+          "tone": "purple"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R2",
+            "SRV"
+          ],
+          "label": "10.1.0.10 → 10.2.0.20",
+          "tone": "accent"
+        }
+      ]
+    }
+  ]
+}
+```
 
 Why put GRE inside IPsec when a VTI already supports routing? Because GRE can carry things a pure IPsec VTI can't: **non-IP protocols, multiple protocols over one tunnel**, and it's the basis for **mGRE in DMVPN** (Chapter 30). The config is the same, except the tunnel stays in its default GRE mode, and transport mode saves 20 bytes:
 
@@ -10402,6 +14246,126 @@ The underlay only routes **RLOCs**. It never needs to know any EID. EID-to-RLOC 
 
 **Why have proxy roles at all?** Because most of the world doesn't speak LISP. The internet has no idea that `10.2.0.0/16` sits behind RLOC `198.51.100.2`. The PxTR stands at the border and translates: traffic coming in from the non-LISP world is encapsulated toward the right RLOC (PITR), and traffic going out is decapsulated and routed normally (PETR).
 
+```diagram
+{
+  "type": "topology",
+  "title": "LISP roles: click each box",
+  "caption": "Two LISP sites, a combined Map Server/Map Resolver, and a PxTR at the border with the non-LISP internet. The underlay only routes the RLOCs (198.51.100.0/24 here).",
+  "nodes": [
+    {
+      "id": "H1",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "Host A",
+      "sub": "EID 10.1.0.5",
+      "info": "An **EID** (Endpoint Identifier): *who* the host is. Host A keeps 10.1.0.5 wherever it goes. It doesn't run LISP and has no idea LISP exists."
+    },
+    {
+      "id": "XA",
+      "kind": "router",
+      "x": 1.3,
+      "y": 0,
+      "label": "xTR-A",
+      "sub": "RLOC 198.51.100.1",
+      "info": "An **xTR**: the **ITR** for traffic leaving site A (look up the destination EID, encapsulate in UDP 4341 to the RLOC) and the **ETR** for traffic arriving (decapsulate, and register site A's EID prefix 10.1.0.0/16 with the Map Server every 60 s or so)."
+    },
+    {
+      "id": "MS",
+      "kind": "server",
+      "x": 2.6,
+      "y": -1.9,
+      "label": "MS/MR",
+      "sub": "198.51.100.100",
+      "info": "**Map Server** (accepts Map-Registers from ETRs and holds the authoritative EID-to-RLOC database) and **Map Resolver** (accepts Map-Requests from ITRs and forwards them toward the ETR that registered the prefix). Usually on one box. In SD-Access this is the **control plane node**."
+    },
+    {
+      "id": "U",
+      "kind": "cloud",
+      "x": 2.6,
+      "y": 0.4,
+      "label": "Underlay",
+      "sub": "routes RLOCs only",
+      "info": "The **underlay** routes only RLOCs, the xTRs' own addresses. It never carries a route for 10.1.0.0/16 or 10.2.0.0/16, which is why EID prefixes can move without any underlay change."
+    },
+    {
+      "id": "XB",
+      "kind": "router",
+      "x": 3.9,
+      "y": 0,
+      "label": "xTR-B",
+      "sub": "RLOC 198.51.100.2",
+      "info": "Site B's xTR. As ETR it registers **10.2.0.0/16 → 198.51.100.2** with the Map Server and answers Map-Requests for that prefix itself, with priority and weight for each of its RLOCs."
+    },
+    {
+      "id": "H2",
+      "kind": "host",
+      "x": 5.2,
+      "y": 0,
+      "label": "Host B",
+      "sub": "EID 10.2.3.4",
+      "info": "An EID at site B. Anyone wanting to reach 10.2.3.4 asks the mapping system *where* it is, not the routing table."
+    },
+    {
+      "id": "PX",
+      "kind": "router",
+      "x": 2.6,
+      "y": 1.9,
+      "label": "PxTR",
+      "sub": "proxy ITR + ETR",
+      "info": "**PITR**: advertises the EID prefixes toward the non-LISP world, attracts that traffic and encapsulates it to the right RLOC. **PETR**: receives LISP-encapsulated traffic heading for non-LISP destinations, decapsulates it and routes it normally. Together: the bridge between the LISP and non-LISP worlds."
+    },
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 4.1,
+      "y": 1.9,
+      "label": "Non-LISP internet"
+    }
+  ],
+  "links": [
+    {
+      "a": "H1",
+      "b": "XA"
+    },
+    {
+      "a": "XA",
+      "b": "U"
+    },
+    {
+      "a": "U",
+      "b": "XB"
+    },
+    {
+      "a": "XB",
+      "b": "H2"
+    },
+    {
+      "a": "U",
+      "b": "MS",
+      "label": "UDP 4342",
+      "style": "dashed",
+      "info": "LISP **control plane**: Map-Register, Map-Notify, Map-Request and Map-Reply all use **UDP 4342**."
+    },
+    {
+      "a": "U",
+      "b": "PX"
+    },
+    {
+      "a": "PX",
+      "b": "INET"
+    },
+    {
+      "a": "XB",
+      "b": "XA",
+      "label": "UDP 4341",
+      "style": "tunnel",
+      "info": "LISP **data plane**: the original IP packet inside outer IP (20 B) + UDP 4341 (8 B) + LISP header (8 B, carrying the 24-bit Instance ID) = **36 bytes** of overhead for IPv4."
+    }
+  ]
+}
+```
+
 ### The Conversation, Step by Step
 
 ![LISP map-register, map-request and map-reply flow](images/c13_lisp_flow.png)
@@ -10411,6 +14375,110 @@ The underlay only routes **RLOCs**. It never needs to know any EID. EID-to-RLOC 
 2. **Forwarding.** The MR/MS finds which ETR registered that prefix and **forwards the request to that ETR**. (Alternatively, the MS can be configured to answer on the ETR's behalf — *proxy reply*.)
 3. **Map-Reply.** The ETR replies **directly to the ITR** with the mapping: EID prefix, RLOC(s), plus a **priority and weight** for each RLOC (used for multihoming and load sharing) and a TTL.
 4. **Data.** The ITR caches the mapping in its **map-cache** and encapsulates packets to the RLOC. Every later packet to that prefix uses the cache with no further lookups until the TTL expires. The default map-cache TTL in a Map-Reply is **24 hours** (1,440 minutes); mobility events refresh entries long before that (see below).
+
+```diagram
+{
+  "type": "sequence",
+  "title": "LISP: register, request, reply, then encapsulate",
+  "caption": "Site A's xTR (RLOC 198.51.100.1) is the ITR; site B's xTR (RLOC 198.51.100.2) is the ETR for 10.2.0.0/16. Instance ID 0.",
+  "actors": [
+    {
+      "id": "H1",
+      "kind": "host",
+      "label": "Host A"
+    },
+    {
+      "id": "ITR",
+      "kind": "router",
+      "label": "xTR-A (ITR)"
+    },
+    {
+      "id": "MS",
+      "kind": "server",
+      "label": "MS/MR"
+    },
+    {
+      "id": "ETR",
+      "kind": "router",
+      "label": "xTR-B (ETR)"
+    },
+    {
+      "id": "H2",
+      "kind": "host",
+      "label": "10.2.3.4"
+    }
+  ],
+  "messages": [
+    {
+      "from": "ETR",
+      "to": "MS",
+      "label": "Map-Register",
+      "text": "Before anyone asks, each ETR tells the Map Server which EID prefixes sit behind it. It repeats this about every **60 s**, authenticated with a shared key.",
+      "detail": "10.2.0.0/16 → .100.2",
+      "states": {
+        "MS": "10.2/16 → .2"
+      }
+    },
+    {
+      "from": "MS",
+      "to": "ETR",
+      "label": "Map-Notify",
+      "text": "Because the ETR asked for it, the Map Server acknowledges the registration, so the ETR knows it was accepted.",
+      "dashed": true
+    },
+    {
+      "from": "H1",
+      "to": "ITR",
+      "label": "Packet to 10.2.3.4",
+      "text": "Host A sends an ordinary IP packet. The ITR's map-cache has no entry covering 10.2.3.4, only the `0.0.0.0/0` negative entry whose action is *send-map-request*.",
+      "states": {
+        "ITR": "cache miss"
+      }
+    },
+    {
+      "from": "ITR",
+      "to": "MS",
+      "label": "Map-Request",
+      "text": "The ITR asks the **Map Resolver**. It doesn't need to know where the answer lives.",
+      "detail": "UDP 4342 to the MR"
+    },
+    {
+      "from": "MS",
+      "to": "ETR",
+      "label": "Map-Request (fwd)",
+      "text": "The Map Server finds that xTR-B registered 10.2.0.0/16 and **forwards the request to that ETR**, which is the authority on its own site. (With *proxy reply* configured, the MS would answer itself.)",
+      "detail": "to ETR 198.51.100.2"
+    },
+    {
+      "from": "ETR",
+      "to": "ITR",
+      "label": "Map-Reply",
+      "text": "The ETR replies **directly** to the ITR with the EID prefix, its RLOC(s), a priority and weight for each, and a TTL (default **24 hours**). The ITR stores it in its map-cache.",
+      "detail": "RLOC .100.2, pri 1/wgt 100, TTL 24 h",
+      "states": {
+        "ITR": "cached"
+      },
+      "dashed": true,
+      "tone": "good"
+    },
+    {
+      "from": "ITR",
+      "to": "ETR",
+      "label": "LISP data: 198.51.100.1 → .100.2",
+      "text": "The ITR wraps the original packet: outer IP `198.51.100.1 → 198.51.100.2`, **UDP 4341**, an 8-byte LISP header with IID 0. Every later packet to 10.2.0.0/16 uses the cache: no more lookups until the TTL expires.",
+      "detail": "Outer IP + UDP 4341 + LISP = 36 bytes",
+      "tone": "purple"
+    },
+    {
+      "from": "ETR",
+      "to": "H2",
+      "label": "Original packet",
+      "text": "xTR-B strips the 36 bytes and delivers the original packet. Neither host knew LISP was involved, and the underlay never saw an EID.",
+      "tone": "good"
+    }
+  ]
+}
+```
 
 **Worked example.** Site A's xTR (RLOC `198.51.100.1`) has just sent its first packet to `10.2.3.4` and received a Map-Reply from Site B's xTR. Its map-cache (output trimmed) now shows:
 
@@ -10455,6 +14523,258 @@ A LISP EID is really a pair: **(Instance ID, EID prefix)**. The **Instance ID (I
 5. Edge 3 sends a fresh Map-Request, gets `→ 192.168.255.2`, updates its cache and sends to Edge 2 from then on.
 
 The laptop kept `10.50.1.25`, its TCP sessions survived, and no underlay route changed. Only one directory entry and one cache entry did.
+
+```diagram
+{
+  "type": "topology",
+  "title": "LISP mobility: a laptop roams and keeps its address",
+  "caption": "Laptop 10.50.1.25/32 moves from Edge 1 (RLOC 192.168.255.1) to Edge 2 (192.168.255.2). A printer behind Edge 3 (192.168.255.3) is talking to it.",
+  "nodes": [
+    {
+      "id": "CP",
+      "kind": "server",
+      "x": 2,
+      "y": 0,
+      "label": "MS/MR",
+      "sub": "control plane"
+    },
+    {
+      "id": "E1",
+      "kind": "l3switch",
+      "x": 0.4,
+      "y": 1.5,
+      "label": "Edge 1",
+      "sub": "192.168.255.1"
+    },
+    {
+      "id": "E2",
+      "kind": "l3switch",
+      "x": 2,
+      "y": 1.5,
+      "label": "Edge 2",
+      "sub": "192.168.255.2"
+    },
+    {
+      "id": "E3",
+      "kind": "l3switch",
+      "x": 3.6,
+      "y": 1.5,
+      "label": "Edge 3",
+      "sub": "192.168.255.3"
+    },
+    {
+      "id": "LAP",
+      "kind": "host",
+      "x": 1.2,
+      "y": 3,
+      "label": "Laptop",
+      "sub": "10.50.1.25"
+    },
+    {
+      "id": "PRN",
+      "kind": "host",
+      "x": 3.6,
+      "y": 3,
+      "label": "Printer"
+    }
+  ],
+  "links": [
+    {
+      "a": "CP",
+      "b": "E1",
+      "style": "dashed"
+    },
+    {
+      "a": "CP",
+      "b": "E2",
+      "style": "dashed"
+    },
+    {
+      "a": "CP",
+      "b": "E3",
+      "style": "dashed"
+    },
+    {
+      "a": "E1",
+      "b": "E2"
+    },
+    {
+      "a": "E2",
+      "b": "E3"
+    },
+    {
+      "a": "E1",
+      "b": "E3",
+      "id": "t13",
+      "style": "tunnel"
+    },
+    {
+      "a": "E1",
+      "b": "LAP",
+      "id": "old",
+      "style": "wireless"
+    },
+    {
+      "a": "E2",
+      "b": "LAP",
+      "id": "new",
+      "style": "wireless"
+    },
+    {
+      "a": "E3",
+      "b": "PRN"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Before the move",
+      "text": "The Map Server holds `10.50.1.25/32 → 192.168.255.1`. Edge 3 has that mapping cached, so it encapsulates the printer's packets to Edge 1.",
+      "links": {
+        "new": "dim",
+        "t13": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PRN",
+            "E3",
+            "E1",
+            "LAP"
+          ],
+          "label": "to 10.50.1.25",
+          "tone": "accent",
+          "via": [
+            null,
+            "t13",
+            "old"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "2. The laptop roams; Edge 2 registers it",
+      "text": "Edge 2 sees traffic from 10.50.1.25 on a local port and sends a **Map-Register**: `10.50.1.25/32 → 192.168.255.2`. The laptop keeps its IP address.",
+      "nodes": {
+        "E2": {
+          "badge": "registers",
+          "tone": "accent"
+        }
+      },
+      "links": {
+        "old": "dim",
+        "new": null,
+        "t13": null
+      },
+      "packets": [
+        {
+          "path": [
+            "E2",
+            "CP"
+          ],
+          "label": "Map-Register",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. Map-Notify to the old edge",
+      "text": "The Map Server overwrites the old entry and sends a **Map-Notify** to Edge 1: \"this EID has left you\".",
+      "nodes": {
+        "E2": null,
+        "CP": {
+          "badge": ".25 → Edge 2",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "CP",
+            "E1"
+          ],
+          "label": "Map-Notify",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "4. Edge 3 is still using a stale cache",
+      "text": "Edge 3 hasn't been told anything. It keeps encapsulating the printer's packets to Edge 1, using its cached mapping.",
+      "nodes": {
+        "E3": {
+          "badge": "stale",
+          "tone": "warn"
+        }
+      },
+      "links": {
+        "t13": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "PRN",
+            "E3",
+            "E1"
+          ],
+          "label": "to 10.50.1.25",
+          "tone": "warn",
+          "via": [
+            null,
+            "t13"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "5. Solicit-Map-Request",
+      "text": "Edge 1 sees the EID is no longer local and sends Edge 3 a **Solicit-Map-Request (SMR)**: \"your cache is stale, ask again\".",
+      "packets": [
+        {
+          "path": [
+            "E1",
+            "E3"
+          ],
+          "label": "SMR",
+          "tone": "warn",
+          "via": [
+            "t13"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "6. Fresh Map-Request, new path",
+      "text": "Edge 3 sends a new Map-Request, learns `→ 192.168.255.2`, updates its cache and sends to Edge 2 from then on. The laptop's TCP sessions survived, and no underlay route changed: only one directory entry and one cache entry did.",
+      "nodes": {
+        "E3": {
+          "badge": "fresh",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "t13": null
+      },
+      "packets": [
+        {
+          "path": [
+            "PRN",
+            "E3",
+            "E2",
+            "LAP"
+          ],
+          "label": "to 10.50.1.25",
+          "tone": "good",
+          "via": [
+            null,
+            null,
+            "new"
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 13.3**
 
@@ -10564,6 +14884,195 @@ A **VTEP (VXLAN Tunnel Endpoint)** encapsulates and decapsulates. It has a local
 4. The spine switches route the outer packet using the underlay routing table (OSPF or IS-IS learned the two loopbacks), picking one of several equal-cost paths from the UDP source-port hash.
 5. Leaf 2 sees UDP 4789 to its own VTEP address, strips the outer headers, reads VNI 10010, maps it to its *local* VLAN for that VNI, and delivers the original frame to VM-B. VM-B can't tell it ever left the switch.
 
+```diagram
+{
+  "type": "topology",
+  "title": "A frame crosses the VXLAN fabric",
+  "caption": "VLAN 10 maps to VNI 10010 on both leaves. OSPF in the underlay advertises the VTEP loopbacks. Leaf 1 already knows VM-B's MAC is behind 10.0.0.12.",
+  "nodes": [
+    {
+      "id": "S1",
+      "kind": "l3switch",
+      "x": 1.2,
+      "y": 0,
+      "label": "Spine 1"
+    },
+    {
+      "id": "S2",
+      "kind": "l3switch",
+      "x": 3.2,
+      "y": 0,
+      "label": "Spine 2"
+    },
+    {
+      "id": "L1",
+      "kind": "l3switch",
+      "x": 0.6,
+      "y": 1.6,
+      "label": "Leaf 1",
+      "sub": "VTEP 10.0.0.11"
+    },
+    {
+      "id": "L2",
+      "kind": "l3switch",
+      "x": 3.8,
+      "y": 1.6,
+      "label": "Leaf 2",
+      "sub": "VTEP 10.0.0.12"
+    },
+    {
+      "id": "VA",
+      "kind": "host",
+      "x": 0.6,
+      "y": 3,
+      "label": "VM-A",
+      "sub": "10.10.0.11"
+    },
+    {
+      "id": "VB",
+      "kind": "host",
+      "x": 3.8,
+      "y": 3,
+      "label": "VM-B",
+      "sub": "10.10.0.12"
+    }
+  ],
+  "links": [
+    {
+      "a": "L1",
+      "b": "S1"
+    },
+    {
+      "a": "L1",
+      "b": "S2"
+    },
+    {
+      "a": "L2",
+      "b": "S1"
+    },
+    {
+      "a": "L2",
+      "b": "S2"
+    },
+    {
+      "a": "L1",
+      "b": "VA",
+      "label": "VLAN 10"
+    },
+    {
+      "a": "L2",
+      "b": "VB",
+      "label": "VLAN 10"
+    },
+    {
+      "a": "L1",
+      "b": "L2",
+      "id": "vx",
+      "label": "VNI 10010",
+      "style": "tunnel"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. An ordinary frame into Leaf 1",
+      "text": "VM-A sends a normal 1500-byte Ethernet frame, `00aa.bb01.0001 → 00aa.bb01.0002`, in VLAN 10. It has no idea a fabric exists.",
+      "packets": [
+        {
+          "path": [
+            "VA",
+            "L1"
+          ],
+          "label": "dst 00aa.bb01.0002",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. VLAN → VNI, MAC → VTEP",
+      "text": "Leaf 1 maps VLAN 10 to **VNI 10010**, then looks up the destination MAC *in that VNI*: \"behind VTEP 10.0.0.12\".",
+      "nodes": {
+        "L1": {
+          "badge": "VNI 10010",
+          "tone": "accent"
+        }
+      },
+      "links": {
+        "vx": "active"
+      }
+    },
+    {
+      "title": "3. Encapsulate: +50 bytes",
+      "text": "Leaf 1 adds a VXLAN header (8 B, VNI 10010), UDP (8 B, destination **4789**, source port from a hash of the inner frame), outer IP `10.0.0.11 → 10.0.0.12` (20 B) and a new outer Ethernet header (14 B). The 802.1Q tag isn't carried: the VNI replaces it.",
+      "nodes": {
+        "L1": {
+          "badge": "+50 bytes",
+          "tone": "purple"
+        }
+      }
+    },
+    {
+      "title": "4. The spines route on the outer header",
+      "text": "Spines see a UDP packet between two loopbacks and route it with the underlay table, choosing one of the equal-cost paths by hashing the 5-tuple. Because the UDP source port varies per inner flow, different flows spread over both spines, while one flow stays in order on one path.",
+      "nodes": {
+        "L1": null
+      },
+      "packets": [
+        {
+          "path": [
+            "L1",
+            "S2",
+            "L2"
+          ],
+          "label": "UDP 4789 to 10.0.0.12",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "5. Leaf 2 decapsulates",
+      "text": "Leaf 2 sees UDP 4789 to its own VTEP address, strips the outer headers, reads VNI 10010, maps it to its *local* VLAN for that VNI and delivers the original frame. VM-B can't tell it ever left the switch.",
+      "nodes": {
+        "L2": {
+          "badge": "decap",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "L2",
+            "VB"
+          ],
+          "label": "original frame",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "6. Forget the jumbo MTU and big frames die",
+      "text": "The encapsulated packet is 1500 + 14 + 8 + 8 + 20 = **1550 bytes** of IP. A spine link left at MTU 1500 can't carry it, and VTEPs must not fragment VXLAN, so it's dropped. Small pings work, big transfers fail. Set 9000 or 9216 on every underlay link.",
+      "nodes": {
+        "L2": null,
+        "S1": {
+          "badge": "MTU 1500",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "L1",
+            "S1"
+          ],
+          "label": "1550 B: dropped",
+          "tone": "bad"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Worked example — the MTU sum.** The frame from step 1 is 1514 bytes on the wire (1500 payload + 14 Ethernet header). After step 3 the outer IP packet is 1500 (inner payload) + 14 (inner Ethernet) + 8 (VXLAN) + 8 (UDP) + 20 (outer IP) = **1550 bytes**. A spine link left at the default 1500 MTU can't carry it. VTEPs must not fragment VXLAN packets (RFC 7348), and switch hardware drops oversize packets rather than fragmenting them, so the frame is lost. Small pings work and big transfers fail, the same symptom as GRE in Chapter 12. Hence jumbo MTU on every underlay link.
 
 ### The Control-Plane Question: How Does a VTEP Learn Where MACs Are?
@@ -10586,6 +15095,238 @@ VXLAN itself only defines the encapsulation. A VTEP still needs to know *"MAC 00
 5. When VM-A ARPs for `10.10.0.12`, Leaf 1 already knows the answer and replies itself (ARP suppression), so the broadcast never crosses the fabric.
 
 With flood-and-learn, step 4 only happens after a frame from VM-B has actually reached Leaf 1 through the tunnel, typically the reply to an ARP that Leaf 1 first flooded to every VTEP in VNI 10010.
+
+```diagram
+{
+  "type": "topology",
+  "title": "How a VTEP learns MACs: flood-and-learn vs BGP EVPN",
+  "caption": "Three leaves share VNI 10010. Flood-and-learn uses ingress replication here. With EVPN the spine is also the BGP route reflector.",
+  "nodes": [
+    {
+      "id": "SP",
+      "kind": "l3switch",
+      "x": 2,
+      "y": 0,
+      "label": "Spine",
+      "sub": "BGP RR"
+    },
+    {
+      "id": "L1",
+      "kind": "l3switch",
+      "x": 0.4,
+      "y": 1.5,
+      "label": "Leaf 1",
+      "sub": "VTEP 10.0.0.11"
+    },
+    {
+      "id": "L2",
+      "kind": "l3switch",
+      "x": 2,
+      "y": 1.5,
+      "label": "Leaf 2",
+      "sub": "VTEP 10.0.0.12"
+    },
+    {
+      "id": "L3",
+      "kind": "l3switch",
+      "x": 3.6,
+      "y": 1.5,
+      "label": "Leaf 3",
+      "sub": "VTEP 10.0.0.13"
+    },
+    {
+      "id": "VA",
+      "kind": "host",
+      "x": 0.4,
+      "y": 3,
+      "label": "VM-A",
+      "sub": "10.10.0.11"
+    },
+    {
+      "id": "VB",
+      "kind": "host",
+      "x": 2,
+      "y": 3,
+      "label": "VM-B",
+      "sub": "10.10.0.12"
+    }
+  ],
+  "links": [
+    {
+      "a": "SP",
+      "b": "L1"
+    },
+    {
+      "a": "SP",
+      "b": "L2"
+    },
+    {
+      "a": "SP",
+      "b": "L3"
+    },
+    {
+      "a": "L1",
+      "b": "VA"
+    },
+    {
+      "a": "L2",
+      "b": "VB"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Flood-and-learn: VM-A ARPs for 10.10.0.12",
+      "text": "Leaf 1 has no idea where 10.10.0.12 lives. The ARP is a broadcast (BUM traffic), so with ingress replication Leaf 1 unicasts a VXLAN copy to **every** VTEP in VNI 10010's list.",
+      "packets": [
+        {
+          "path": [
+            "VA",
+            "L1",
+            "SP",
+            "L2"
+          ],
+          "label": "ARP copy to .12",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "VA",
+            "L1",
+            "SP",
+            "L3"
+          ],
+          "label": "ARP copy to .13",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "2. Remote leaves learn from the data plane",
+      "text": "Leaf 2 and Leaf 3 both decapsulate the ARP and learn \"`00aa.bb01.0001` is behind VTEP 10.0.0.11\", exactly as a switch learns a source MAC on a port. Leaf 3 had no use for this broadcast at all.",
+      "nodes": {
+        "L2": {
+          "badge": "MAC A",
+          "tone": "muted"
+        },
+        "L3": {
+          "badge": "MAC A",
+          "tone": "muted"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "L2",
+            "VB"
+          ],
+          "label": "ARP broadcast",
+          "tone": "warn"
+        }
+      ]
+    },
+    {
+      "title": "3. The reply teaches Leaf 1",
+      "text": "VM-B answers with a unicast ARP reply, which Leaf 2 can tunnel straight to 10.0.0.11. Only now does Leaf 1 learn where VM-B's MAC is. Every VTEP has to *see* traffic before it knows anything.",
+      "nodes": {
+        "L1": {
+          "badge": "MAC B",
+          "tone": "muted"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "VB",
+            "L2",
+            "SP",
+            "L1",
+            "VA"
+          ],
+          "label": "ARP reply",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "4. EVPN: VM-B boots and Leaf 2 advertises it",
+      "text": "Start again with BGP EVPN. VM-B sends a gratuitous ARP when it boots, and Leaf 2 learns `00aa.bb01.0002 / 10.10.0.12` locally. It immediately advertises an **EVPN route type 2**: MAC, IP, VNI 10010, next hop 10.0.0.12.",
+      "nodes": {
+        "L1": null,
+        "L2": {
+          "badge": "RT-2 sent",
+          "tone": "accent"
+        },
+        "L3": null
+      },
+      "packets": [
+        {
+          "path": [
+            "L2",
+            "SP"
+          ],
+          "label": "BGP EVPN type 2",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "5. The route reflector tells every leaf",
+      "text": "The spine reflects the route to Leaf 1 and Leaf 3. Leaf 1 installs VM-B's MAC and IP against VTEP 10.0.0.12 **before VM-A has sent a single frame** to it.",
+      "nodes": {
+        "L1": {
+          "badge": "RT-2: B",
+          "tone": "good"
+        },
+        "L3": {
+          "badge": "RT-2: B",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SP",
+            "L1"
+          ],
+          "label": "type 2 reflected",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "SP",
+            "L3"
+          ],
+          "label": "type 2 reflected",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "6. ARP suppression: the broadcast never leaves",
+      "text": "VM-A ARPs for 10.10.0.12. Leaf 1 already knows the answer, so it replies itself. Nothing floods across the fabric. *Control-plane learning replaces guessing with knowing*, which is why EVPN is the data-center standard.",
+      "focus": [
+        "VA",
+        "L1",
+        "L1-VA"
+      ],
+      "nodes": {
+        "L2": null
+      },
+      "packets": [
+        {
+          "path": [
+            "VA",
+            "L1",
+            "VA"
+          ],
+          "label": "ARP → local reply",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **Why is BGP EVPN preferred over flood-and-learn?** Because flood-and-learn repeats the oldest Layer 2 behaviour (flood to everyone until you learn) across a whole fabric, and it needs every VTEP to observe traffic before it knows anything. EVPN **tells** every VTEP where every MAC and IP is as soon as it appears, so unknown-unicast flooding mostly disappears, VTEPs can answer ARP locally (**ARP suppression**), and the same default gateway can exist on every leaf (**anycast gateway**). *Control-plane learning replaces guessing with knowing.*
 
@@ -10752,6 +15493,133 @@ The classic enterprise WAN was **MPLS** circuits from one provider to every bran
 | **SD-WAN Controller** (vSmart) | **Control** | The routing brain. Runs **OMP** with every WAN Edge, acting like a BGP route reflector: receives routes and TLOCs, applies **centralized control policy**, and redistributes them. Also distributes data-plane encryption keys |
 | **WAN Edge** (cEdge — Catalyst 8000/8300/8500, ISR 1000/4000 on IOS XE; vEdge on legacy Viptela OS) | **Data** | The branch/DC routers. Build IPsec tunnels to each other, forward traffic, enforce data policy, measure paths |
 
+```diagram
+{
+  "type": "topology",
+  "title": "Catalyst SD-WAN: click each component",
+  "caption": "Dashed lines are control connections (DTLS or TLS, certificate-authenticated) that every WAN Edge builds across its transports. Solid lines are transports. Data-plane IPsec tunnels run edge to edge over the transports.",
+  "nodes": [
+    {
+      "id": "MGR",
+      "kind": "server",
+      "x": 0.6,
+      "y": 0,
+      "label": "SD-WAN Manager",
+      "sub": "was vManage",
+      "info": "**Management plane.** The single GUI and REST API: configuration groups and templates, policy authoring, monitoring, certificates and software upgrades. It pushes device configuration to the WAN Edges over **NETCONF** and hands centralized policy to the Controllers. It holds no routes."
+    },
+    {
+      "id": "CTRL",
+      "kind": "controller",
+      "x": 2.4,
+      "y": 0,
+      "label": "SD-WAN Controller",
+      "sub": "was vSmart",
+      "info": "**Control plane.** Runs **OMP** with every WAN Edge, acting like a BGP route reflector: it receives OMP routes, TLOC routes and encryption keys, applies **centralized control policy**, and reflects the results to the edges that should have them. OMP never runs edge to edge."
+    },
+    {
+      "id": "VAL",
+      "kind": "server",
+      "x": 4.2,
+      "y": 0,
+      "label": "SD-WAN Validator",
+      "sub": "was vBond",
+      "info": "**Orchestration plane.** The first point of contact. It authenticates every joining device by certificate and serial number, tells it where the Controllers and Managers are, and sees each device's public, post-NAT address to help with **NAT traversal**. Needs a public IP. Its connection to a WAN Edge is **transient**: torn down once onboarding is done."
+    },
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 1.5,
+      "y": 1.6,
+      "label": "Internet",
+      "sub": "color biz-internet"
+    },
+    {
+      "id": "MPLS",
+      "kind": "cloud",
+      "x": 3.3,
+      "y": 1.6,
+      "label": "MPLS",
+      "sub": "color mpls"
+    },
+    {
+      "id": "E1",
+      "kind": "router",
+      "x": 0.6,
+      "y": 3,
+      "label": "WAN Edge",
+      "sub": "Branch 20",
+      "info": "**Data plane.** A Catalyst 8000/8300/8500 or ISR on IOS XE (a *cEdge*). Builds IPsec tunnels directly to other edges, forwards and encrypts traffic, enforces data policy, and runs **BFD** in every tunnel to measure loss, latency and jitter."
+    },
+    {
+      "id": "E2",
+      "kind": "router",
+      "x": 4.2,
+      "y": 3,
+      "label": "WAN Edge",
+      "sub": "Data center"
+    }
+  ],
+  "links": [
+    {
+      "a": "MGR",
+      "b": "CTRL",
+      "style": "dashed"
+    },
+    {
+      "a": "CTRL",
+      "b": "VAL",
+      "style": "dashed"
+    },
+    {
+      "a": "E1",
+      "b": "INET"
+    },
+    {
+      "a": "E1",
+      "b": "MPLS"
+    },
+    {
+      "a": "E2",
+      "b": "INET"
+    },
+    {
+      "a": "E2",
+      "b": "MPLS"
+    },
+    {
+      "a": "INET",
+      "b": "MGR",
+      "label": "NETCONF",
+      "style": "dashed",
+      "info": "Each WAN Edge keeps a **permanent** control connection to the Manager (inside DTLS or TLS). The Manager pushes configuration over **NETCONF** through it and collects statistics."
+    },
+    {
+      "a": "INET",
+      "b": "CTRL",
+      "label": "OMP / DTLS",
+      "style": "dashed",
+      "info": "A **permanent** control connection inside **DTLS** (UDP, default base port **12346**, with port hopping if it's blocked) or TLS. OMP routes, TLOC routes and data-plane keys travel here."
+    },
+    {
+      "a": "INET",
+      "b": "VAL",
+      "label": "onboarding",
+      "style": "dashed",
+      "info": "The connection to the Validator is **transient**: used to authenticate the edge and learn where the Controllers and Manager are, then torn down."
+    },
+    {
+      "a": "E1",
+      "b": "E2",
+      "id": "ipsec",
+      "label": "IPsec + BFD",
+      "style": "tunnel",
+      "info": "A data-plane **IPsec** tunnel between two TLOCs. Keys come from the Controller over OMP, not from pairwise IKE. **BFD** inside (1 s hello, multiplier 7) detects failure and measures path quality for application-aware routing."
+    }
+  ]
+}
+```
+
 **Story Time 📖 (the four roles):** think of an airline. The **Validator** is the passport desk at the entrance: it checks your identity and tells you which gate to go to, and you only go back to it if you have to rejoin. The **Controller** is air traffic control: it knows where every plane is and tells each pilot which routes are open. The **Manager** is head office: it writes the timetable and the rules, and watches the dashboards. The **WAN Edges** are the planes: they actually carry the passengers. If air traffic control's radio goes quiet for a while, planes already in the air keep flying their filed routes (graceful restart, 14.4), but no new routes can be issued.
 
 **Why split it into four roles?** Each one has a different scaling and security need. The Validator must sit on the public internet so devices behind NAT can reach it, but it holds no routes. The Controllers need to be highly available and scale with the number of edges. The Manager is a heavyweight database and GUI that people log in to. Separating them means a busy GUI never slows routing, and an exposed orchestrator never holds the routing table. *Separate planes, separate failure domains.*
@@ -10765,6 +15633,109 @@ The classic enterprise WAN was **MPLS** circuits from one provider to every bran
 3. The Validator authenticates the device by **certificate and serial number** (it must be on the authorised device list uploaded from Cisco's Plug and Play portal), then tells it the addresses of the **Controllers** and **Manager**.
 4. The edge builds **permanent control connections** to the Controllers and Manager. The connection to the Validator is torn down once onboarding is done (it's transient).
 5. The Manager pushes the device's configuration; the Controller starts sending routes and policy via OMP.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Zero-touch: a new WAN Edge joins the overlay",
+  "caption": "The router ships with no configuration. Its serial number is on the authorised device list, and every component uses the same organization name.",
+  "actors": [
+    {
+      "id": "E",
+      "kind": "router",
+      "label": "New WAN Edge"
+    },
+    {
+      "id": "PNP",
+      "kind": "cloud",
+      "label": "PnP Connect"
+    },
+    {
+      "id": "VAL",
+      "kind": "cloud",
+      "label": "Validator"
+    },
+    {
+      "id": "CTRL",
+      "kind": "controller",
+      "label": "Controller"
+    },
+    {
+      "id": "MGR",
+      "kind": "server",
+      "label": "Manager"
+    }
+  ],
+  "messages": [
+    {
+      "from": "E",
+      "to": "PNP",
+      "label": "Where do I go?",
+      "text": "The router boots empty, gets an address by DHCP on its WAN port and contacts Cisco's **PnP Connect** cloud service (or a Validator address it was given).",
+      "detail": "after DHCP on WAN",
+      "states": {
+        "E": "No config"
+      }
+    },
+    {
+      "from": "PNP",
+      "to": "E",
+      "label": "Redirect",
+      "text": "PnP Connect knows which organisation bought this serial number and points the router at that organisation's **Validator**.",
+      "dashed": true
+    },
+    {
+      "from": "E",
+      "to": "VAL",
+      "label": "DTLS: certificate + serial number",
+      "text": "The Validator checks the device certificate against the trusted root CA chain, checks the serial is on the authorised WAN Edge list, and checks the organization name embedded in the certificate. An unknown serial or a mismatched org name is rejected here.",
+      "detail": "UDP 12346 (port hopping if blocked)",
+      "states": {
+        "VAL": "authenticating"
+      }
+    },
+    {
+      "from": "VAL",
+      "to": "E",
+      "label": "Controller and Manager addresses",
+      "text": "Authenticated. The Validator tells the edge where the Controllers and Managers are, and the public (post-NAT) address it saw the edge come from.",
+      "states": {
+        "VAL": "done"
+      },
+      "dashed": true,
+      "tone": "good"
+    },
+    {
+      "from": "E",
+      "to": "CTRL",
+      "label": "Permanent DTLS control connection",
+      "text": "The edge builds permanent, certificate-authenticated control connections to the Controllers and the Manager. The connection to the Validator is torn down: it was **transient**.",
+      "states": {
+        "E": "Controllers up"
+      }
+    },
+    {
+      "from": "MGR",
+      "to": "E",
+      "label": "NETCONF: device configuration",
+      "text": "The Manager pushes the configuration assigned to this device (system IP, site ID, VPNs, interfaces).",
+      "detail": "Configuration group / template",
+      "dashed": true
+    },
+    {
+      "from": "CTRL",
+      "to": "E",
+      "label": "OMP: routes, TLOCs, keys, policy",
+      "text": "The Controller starts reflecting OMP routes, TLOC routes and encryption keys. Tunnels to other edges come up and the site is part of the overlay.",
+      "states": {
+        "E": "In the overlay"
+      },
+      "dashed": true,
+      "tone": "good"
+    }
+  ]
+}
+```
 
 **Onboarding prerequisites, the usual reasons a device never joins:**
 
@@ -10923,6 +15894,236 @@ By default each TLOC tries to build an IPsec tunnel to every remote TLOC, so Bra
 | 09:50 | 0.1% loss, 36 ms, 5 ms jitter | 0.4% loss, 71 ms, 13 ms jitter | biz-internet again |
 
 Meanwhile email (no strict SLA) can stay on biz-internet the whole time. Note the time scale. AAR acts on **averages over polling windows** (several minutes by default), so it moves traffic away from a path that is *degrading*. A path that dies outright is caught much faster by BFD (about 7 seconds), and traffic simply fails over to the remaining tunnels.
+
+```diagram
+{
+  "type": "topology",
+  "title": "OMP, TLOCs and application-aware routing",
+  "caption": "Branch 20 (system IP 1.1.1.20) has TLOCs `mpls` and `biz-internet`. Branch 30 (1.1.1.30) has `biz-internet` and `lte`. The `mpls` color is configured with `restrict`.",
+  "nodes": [
+    {
+      "id": "CTRL",
+      "kind": "controller",
+      "x": 2.2,
+      "y": 0,
+      "label": "Controller",
+      "sub": "OMP route reflector"
+    },
+    {
+      "id": "B20",
+      "kind": "router",
+      "x": 0,
+      "y": 1.5,
+      "label": "Branch 20",
+      "sub": "system-ip 1.1.1.20"
+    },
+    {
+      "id": "B30",
+      "kind": "router",
+      "x": 4.4,
+      "y": 1.5,
+      "label": "Branch 30",
+      "sub": "system-ip 1.1.1.30"
+    },
+    {
+      "id": "MPLS",
+      "kind": "cloud",
+      "x": 0.9,
+      "y": 3,
+      "label": "MPLS",
+      "sub": "172.31.20.2"
+    },
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 2.2,
+      "y": 1.6,
+      "label": "Internet"
+    },
+    {
+      "id": "LTE",
+      "kind": "cloud",
+      "x": 3.5,
+      "y": 3,
+      "label": "LTE",
+      "sub": "100.64.7.9"
+    }
+  ],
+  "links": [
+    {
+      "a": "CTRL",
+      "b": "INET",
+      "label": "DTLS",
+      "style": "dashed"
+    },
+    {
+      "a": "B20",
+      "b": "MPLS",
+      "label": "mpls"
+    },
+    {
+      "a": "B20",
+      "b": "INET",
+      "label": "biz-internet"
+    },
+    {
+      "a": "B30",
+      "b": "INET",
+      "label": "biz-internet"
+    },
+    {
+      "a": "B30",
+      "b": "LTE",
+      "label": "lte"
+    },
+    {
+      "a": "LTE",
+      "b": "INET"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Branch 20 advertises its LAN and its TLOCs",
+      "text": "Branch 20 redistributes `10.20.0.0/16` from its LAN-side OSPF (service VPN 1) into OMP and sends the Controller an **OMP route**: \"VPN 1, 10.20.0.0/16, via TLOCs {1.1.1.20, mpls, ipsec} and {1.1.1.20, biz-internet, ipsec}\". It also sends **TLOC routes** (each TLOC's public and private addresses) and its encryption keys.",
+      "packets": [
+        {
+          "path": [
+            "B20",
+            "INET",
+            "CTRL"
+          ],
+          "label": "OMP route + TLOCs",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. The Controller reflects them",
+      "text": "The Controller applies any centralized control policy, then reflects the routes, TLOCs and keys to Branch 30. OMP runs only between edges and Controllers, never edge to edge.",
+      "nodes": {
+        "CTRL": {
+          "badge": "policy applied",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "CTRL",
+            "INET",
+            "B30"
+          ],
+          "label": "OMP routes + keys",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. Tunnels and BFD between allowed TLOCs",
+      "text": "Branch 30 tries a tunnel to every remote TLOC its colors allow. biz-internet↔biz-internet and lte↔biz-internet come up, and **BFD** (1 s hello, multiplier 7) starts measuring each. Branch 20's `mpls` TLOC is private and `restrict`ed, so no tunnel is attempted to it.",
+      "nodes": {
+        "CTRL": null
+      },
+      "links": {
+        "B20-MPLS": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "B30",
+            "INET",
+            "B20"
+          ],
+          "label": "BFD biz↔biz",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "B30",
+            "LTE",
+            "INET",
+            "B20"
+          ],
+          "label": "BFD lte↔biz",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. User traffic: encrypted, VPN 1 carried inside",
+      "text": "A Branch 30 user sends to 10.20.5.5. Branch 30 installed `10.20.0.0/16` in VPN 1 with the BFD-up TLOCs as next hops. It encrypts with Branch 20's key (learned via the Controller, not IKE) and sends it through the biz-internet tunnel. The VPN ID travels in the packet, so Branch 20 delivers it into VPN 1 only.",
+      "packets": [
+        {
+          "path": [
+            "B30",
+            "INET",
+            "B20"
+          ],
+          "label": "ESP, VPN 1",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "5. AAR: biz-internet breaks the voice SLA",
+      "text": "At 09:20 BFD measures 3% loss on biz-internet. The voice SLA class is loss < 1%, latency < 150 ms, jitter < 30 ms. LTE still meets it (0.3%, 72 ms, 11 ms), so **application-aware routing** moves voice to the LTE tunnel. Email, with no strict SLA, stays on biz-internet.",
+      "nodes": {
+        "B30": {
+          "badge": "SLA miss",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "B30",
+            "LTE",
+            "INET",
+            "B20"
+          ],
+          "label": "voice via LTE",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "B30",
+            "INET",
+            "B20"
+          ],
+          "label": "email via biz",
+          "tone": "muted"
+        }
+      ]
+    },
+    {
+      "title": "6. The Controller goes away: forwarding continues",
+      "text": "If the Controllers become unreachable, OMP **graceful restart** lets the edges keep their last-known routes and keys (by default for up to 12 hours). Tunnels and traffic keep flowing; only changes have to wait.",
+      "nodes": {
+        "B30": null,
+        "CTRL": {
+          "badge": "unreachable",
+          "tone": "bad",
+          "state": "down"
+        }
+      },
+      "links": {
+        "CTRL-INET": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "B30",
+            "INET",
+            "B20"
+          ],
+          "label": "still forwarding",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **Segmentation:** VPNs in SD-WAN are VRFs. **VPN 0** is the transport (underlay) VPN facing the WAN; **VPN 512** is out-of-band management; **service VPNs** (e.g. 1–511) carry user traffic. The VPN ID travels in the data packets, so segments stay separate end to end.
 
@@ -11109,6 +16310,130 @@ Traditional campus networks segment with VLANs and ACLs: every new group means n
 | **Fabric WLC** | Wireless controller integrated with the fabric. It handles the **control plane** for wireless clients (registering them with the control plane node), while AP **data** traffic is VXLAN-encapsulated straight to the edge switch. Wireless and wired then share the same policy model |
 | **Extended node** | A small Layer 2 switch (e.g. Catalyst IE or compact switches) hanging off an edge, extending the fabric to places like factory floors |
 
+```diagram
+{
+  "type": "topology",
+  "title": "SD-Access fabric roles: click each switch",
+  "caption": "One fabric site. The underlay is routed IS-IS between loopbacks; the overlay is LISP (control) plus VXLAN-GPO (data); ISE supplies the groups.",
+  "nodes": [
+    {
+      "id": "FUS",
+      "kind": "router",
+      "x": 0,
+      "y": 0,
+      "label": "Fusion router",
+      "sub": "shared services",
+      "info": "Outside the fabric. Receives each VN as a separate VRF from the border (802.1Q + eBGP per VRF) and **leaks routes** between those VRFs and shared services (DHCP, DNS, ISE, Catalyst Center), so isolated VNs can still reach them. Often a firewall instead."
+    },
+    {
+      "id": "BN",
+      "kind": "l3switch",
+      "x": 1.6,
+      "y": 0,
+      "label": "Border + CP",
+      "sub": "LISP MS/MR",
+      "info": "**Border node**: the fabric's door to everything outside (DC, WAN, internet, legacy). **Control plane node**: the LISP Map Server/Map Resolver holding the *host tracking database*, which records every endpoint and the edge it's behind. Co-locating the two is common."
+    },
+    {
+      "id": "CC",
+      "kind": "server",
+      "x": 3.4,
+      "y": 0,
+      "label": "Catalyst Center",
+      "sub": "+ ISE",
+      "info": "**Catalyst Center** is the management plane (the *controller*): it designs, automates and monitors the fabric. **ISE** authenticates endpoints and assigns VN and SGT. *Exam trap:* the control plane node is a switch running LISP, not Catalyst Center."
+    },
+    {
+      "id": "INT",
+      "kind": "l3switch",
+      "x": 1.6,
+      "y": 1.5,
+      "label": "Intermediate",
+      "info": "Any underlay switch between edges and borders. It just routes IP (IS-IS) and **knows nothing about the overlay**: it only sees VXLAN packets between loopbacks."
+    },
+    {
+      "id": "WLC",
+      "kind": "wlc",
+      "x": 3.4,
+      "y": 1.5,
+      "label": "Fabric WLC",
+      "info": "Handles the wireless **control plane**: it registers wireless clients with the control plane node. Client **data** doesn't go through it: the AP sends it in VXLAN straight to its edge switch."
+    },
+    {
+      "id": "E1",
+      "kind": "l3switch",
+      "x": 0.4,
+      "y": 3,
+      "label": "Edge 1",
+      "sub": "RLOC .255.1",
+      "info": "**Edge node**: where endpoints connect. A LISP xTR and VXLAN VTEP. It authenticates endpoints (802.1X/MAB), registers them with the control plane node, and is the **anycast gateway**: the same gateway IP and MAC for each subnet on every edge."
+    },
+    {
+      "id": "E2",
+      "kind": "l3switch",
+      "x": 2.8,
+      "y": 3,
+      "label": "Edge 2",
+      "sub": "RLOC .255.2"
+    },
+    {
+      "id": "AP",
+      "kind": "ap",
+      "x": 2.8,
+      "y": 4.4,
+      "label": "Fabric AP",
+      "sub": "INFRA_VN",
+      "info": "Local-mode AP connected to an edge node. It sits in the **INFRA_VN** (global table) to reach the WLC. Client frames are VXLAN-encapsulated to the edge, so wireless clients get the same VN, SGT and anycast gateway as wired ones."
+    },
+    {
+      "id": "EXT",
+      "kind": "switch",
+      "x": 0.4,
+      "y": 4.4,
+      "label": "Extended node",
+      "info": "A small Layer 2 switch (for example a Catalyst IE) hanging off an edge node to reach factory floors or outdoor areas. It **can't enforce SGACLs**; the edge enforces for it. A *policy* extended node can."
+    }
+  ],
+  "links": [
+    {
+      "a": "FUS",
+      "b": "BN",
+      "label": "VRF-Lite + eBGP"
+    },
+    {
+      "a": "BN",
+      "b": "INT"
+    },
+    {
+      "a": "INT",
+      "b": "E1"
+    },
+    {
+      "a": "INT",
+      "b": "E2"
+    },
+    {
+      "a": "CC",
+      "b": "BN",
+      "style": "dashed"
+    },
+    {
+      "a": "WLC",
+      "b": "INT"
+    },
+    {
+      "a": "E2",
+      "b": "AP",
+      "label": "VXLAN"
+    },
+    {
+      "a": "E1",
+      "b": "EXT"
+    }
+  ]
+}
+```
+
 **Story Time 📖 (anycast gateway):** imagine a company where every floor of every building has a reception desk with the *same* phone extension, 1000. Wherever you sit, dialling 1000 reaches the desk on your floor. You never need to learn a new number when you move desks. The anycast gateway is that: the same gateway IP and MAC (say `10.10.5.1`) on every edge switch, answered locally.
 
 **How a packet crosses the fabric, step by step.** A laptop plugs into Edge 1 (RLOC loopback `192.168.255.1`) and sends to a printer on Edge 2 (RLOC `192.168.255.2`):
@@ -11122,6 +16447,267 @@ Traditional campus networks segment with VLANs and ACLs: every new group means n
 7. **Enforce.** Edge 2 decapsulates, reads SGT 10, sees the destination is SGT 20, and checks the SGACL for *Employees → Printers* that it downloaded from ISE. Permit, so the printer receives the packet. Had the source been SGT 30 (*Guests*) with a deny rule, Edge 2 would drop it right there.
 
 Nowhere in those steps did anyone write an ACL with an IP address in it.
+
+```diagram
+{
+  "type": "topology",
+  "title": "A packet crosses the SD-Access fabric",
+  "caption": "The laptop plugs into Edge 1 (RLOC loopback 192.168.255.1). The printer 10.10.7.40 is on Edge 2 (192.168.255.2) and already has SGT 20 (*Printers*).",
+  "nodes": [
+    {
+      "id": "ISE",
+      "kind": "server",
+      "x": 0,
+      "y": 0,
+      "label": "ISE"
+    },
+    {
+      "id": "CP",
+      "kind": "l3switch",
+      "x": 2.2,
+      "y": 0,
+      "label": "Control plane node",
+      "sub": "LISP MS/MR"
+    },
+    {
+      "id": "E1",
+      "kind": "l3switch",
+      "x": 0.6,
+      "y": 1.6,
+      "label": "Edge 1",
+      "sub": "192.168.255.1"
+    },
+    {
+      "id": "I1",
+      "kind": "l3switch",
+      "x": 2.2,
+      "y": 1.6,
+      "label": "Intermediate"
+    },
+    {
+      "id": "E2",
+      "kind": "l3switch",
+      "x": 3.8,
+      "y": 1.6,
+      "label": "Edge 2",
+      "sub": "192.168.255.2"
+    },
+    {
+      "id": "LAP",
+      "kind": "host",
+      "x": 0.6,
+      "y": 3,
+      "label": "Laptop",
+      "sub": "10.10.5.25"
+    },
+    {
+      "id": "PRN",
+      "kind": "host",
+      "x": 3.8,
+      "y": 3,
+      "label": "Printer",
+      "sub": "10.10.7.40"
+    }
+  ],
+  "links": [
+    {
+      "a": "ISE",
+      "b": "E1",
+      "style": "dashed"
+    },
+    {
+      "a": "CP",
+      "b": "I1"
+    },
+    {
+      "a": "E1",
+      "b": "I1"
+    },
+    {
+      "a": "I1",
+      "b": "E2"
+    },
+    {
+      "a": "E1",
+      "b": "LAP"
+    },
+    {
+      "a": "E2",
+      "b": "PRN"
+    },
+    {
+      "a": "E1",
+      "b": "E2",
+      "id": "vx",
+      "label": "VXLAN-GPO",
+      "style": "tunnel"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Authenticate: identity decides VN and group",
+      "text": "The laptop does 802.1X. ISE checks the user and returns **VN Corporate** and **SGT 10** (*Employees*). Edge 1 places the port in the matching VLAN/VN. Nothing about the switch port decided this: the identity did.",
+      "nodes": {
+        "LAP": {
+          "badge": "SGT 10",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "LAP",
+            "E1",
+            "ISE"
+          ],
+          "label": "802.1X",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "ISE",
+            "E1"
+          ],
+          "label": "VN Corporate, SGT 10",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. DHCP and the anycast gateway",
+      "text": "The laptop gets 10.10.5.25/24. Its gateway, **10.10.5.1**, is answered by Edge 1 itself. Every edge owns the same gateway IP and MAC for this subnet, so wherever the laptop lands, its gateway is one hop away.",
+      "nodes": {
+        "E1": {
+          "badge": "gw 10.10.5.1",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "LAP",
+            "E1"
+          ],
+          "label": "ARP for 10.10.5.1",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "3. Register with the control plane node",
+      "text": "Edge 1 sends a LISP **Map-Register**: \"10.10.5.25/32, in the Corporate VN's instance ID, is behind 192.168.255.1\".",
+      "nodes": {
+        "E1": null,
+        "CP": {
+          "badge": "host DB",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "E1",
+            "I1",
+            "CP"
+          ],
+          "label": "Map-Register",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "4. Look up the printer",
+      "text": "The laptop sends to 10.10.7.40. Edge 1 has no map-cache entry, so it asks the control plane node, which answers \"behind 192.168.255.2\". Edge 1 doesn't need to know the printer's SGT: Edge 2 does.",
+      "packets": [
+        {
+          "path": [
+            "E1",
+            "I1",
+            "CP"
+          ],
+          "label": "Map-Request",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "CP",
+            "I1",
+            "E1"
+          ],
+          "label": "→ 192.168.255.2",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. Encapsulate in VXLAN-GPO",
+      "text": "Edge 1 wraps the packet: the Corporate **VNI** (macro segment), **source SGT 10** (micro segment) in the GPO bits, and outer IP `192.168.255.1 → 192.168.255.2`.",
+      "nodes": {
+        "E1": {
+          "badge": "VNI + SGT 10",
+          "tone": "purple"
+        }
+      },
+      "links": {
+        "vx": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "LAP",
+            "E1"
+          ],
+          "label": "to 10.10.7.40",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "6. The intermediate node just routes",
+      "text": "The intermediate switch routes on the outer header using IS-IS routes to the loopbacks. It knows nothing about the laptop, the printer, VNs or groups.",
+      "nodes": {
+        "E1": null,
+        "I1": {
+          "badge": "IS-IS only",
+          "tone": "muted"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "E1",
+            "I1",
+            "E2"
+          ],
+          "label": "VXLAN to .255.2",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "7. Enforce at the egress edge",
+      "text": "Edge 2 decapsulates, reads source SGT 10, sees the destination is SGT 20, and checks the **SGACL** *Employees → Printers* it downloaded from ISE. Permit: the printer receives it. Had the source been SGT 30 (*Guests*) with a deny, Edge 2 would drop it here. Nowhere did anyone write an ACL with an IP address in it.",
+      "nodes": {
+        "I1": null,
+        "E2": {
+          "badge": "permit",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "E2",
+            "PRN"
+          ],
+          "label": "permitted",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 **Why the anycast gateway?** Because in a traditional campus, a user's gateway lives on one distribution switch (with HSRP, Chapter 9). Roam to a different building and the subnet, and possibly the IP address, changes. In SD-Access, **every edge node owns the same gateway** for every subnet, so wherever an endpoint lands, its gateway is one hop away and its address stays valid. LISP tells the fabric where that endpoint now lives. *Mobility without stretching VLANs.*
 
@@ -11210,6 +16796,198 @@ Very few organisations rip out the whole campus at once. The blueprint asks how 
 2. The border's Corporate VRF has a route to `10.99.0.0/24` only because the fusion router leaked that prefix into its own Corporate VRF and advertised it to the border over eBGP. So the border sends the packet out its Corporate subinterface (VLAN 3001) to the fusion router.
 3. The fusion router has leaked `10.99.0.0/24` into its Corporate VRF and `10.10.5.0/24` into the global table, so it routes the request across to the DHCP server and the reply back again.
 4. A laptop in the *Guest* VN gets DHCP through the same fusion router, but its VRF has no leaked route to the Corporate subnets, so Guests still can't reach Corporate users.
+
+```diagram
+{
+  "type": "topology",
+  "title": "The fusion router: isolated VNs, shared DHCP",
+  "caption": "The border hands each VN to the fusion router as its own VRF over an 802.1Q subinterface with eBGP (Corporate on VLAN 3001, Guest on VLAN 3002). The DHCP server 10.99.0.10 is in the global table.",
+  "nodes": [
+    {
+      "id": "CL",
+      "kind": "host",
+      "x": 0,
+      "y": 0,
+      "label": "Corp laptop",
+      "sub": "10.10.5.25"
+    },
+    {
+      "id": "GL",
+      "kind": "host",
+      "x": 0,
+      "y": 2,
+      "label": "Guest laptop",
+      "sub": "10.20.5.31"
+    },
+    {
+      "id": "E1",
+      "kind": "l3switch",
+      "x": 1.2,
+      "y": 1,
+      "label": "Edge 1",
+      "sub": "DHCP relay"
+    },
+    {
+      "id": "BN",
+      "kind": "l3switch",
+      "x": 2.6,
+      "y": 1,
+      "label": "Border"
+    },
+    {
+      "id": "FUS",
+      "kind": "router",
+      "x": 4,
+      "y": 1,
+      "label": "Fusion",
+      "sub": "route leaking"
+    },
+    {
+      "id": "DHCP",
+      "kind": "server",
+      "x": 5.2,
+      "y": 1,
+      "label": "DHCP",
+      "sub": "10.99.0.10"
+    }
+  ],
+  "links": [
+    {
+      "a": "CL",
+      "b": "E1"
+    },
+    {
+      "a": "GL",
+      "b": "E1"
+    },
+    {
+      "a": "E1",
+      "b": "BN",
+      "style": "tunnel"
+    },
+    {
+      "a": "BN",
+      "b": "FUS",
+      "id": "corp",
+      "label": "VLAN 3001"
+    },
+    {
+      "a": "BN",
+      "b": "FUS",
+      "id": "guest"
+    },
+    {
+      "a": "FUS",
+      "b": "DHCP",
+      "label": "global"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. DHCPDISCOVER, relayed inside the Corporate VRF",
+      "text": "The Corporate laptop broadcasts DHCPDISCOVER. Edge 1, acting as DHCP relay, unicasts it toward 10.99.0.10 **inside the Corporate VRF**.",
+      "packets": [
+        {
+          "path": [
+            "CL",
+            "E1",
+            "BN"
+          ],
+          "label": "relay → 10.99.0.10",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. The border only knows 10.99.0.0/24 because it was leaked",
+      "text": "The border's Corporate VRF has a route to 10.99.0.0/24 only because the fusion router leaked that prefix into its own Corporate VRF and advertised it over the VLAN 3001 eBGP session. So the border sends the request out its Corporate subinterface.",
+      "links": {
+        "corp": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "BN",
+            "FUS"
+          ],
+          "label": "Corporate VRF",
+          "tone": "accent",
+          "via": [
+            "corp"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "3. The fusion router crosses the VRF boundary",
+      "text": "The fusion router has leaked 10.99.0.0/24 into Corporate and 10.10.5.0/24 into the global table, so it routes the request to the DHCP server and the offer back again. One controlled point where separate worlds meet: that's the *fusion*.",
+      "nodes": {
+        "FUS": {
+          "badge": "leak",
+          "tone": "purple"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "FUS",
+            "DHCP"
+          ],
+          "label": "DISCOVER",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "DHCP",
+            "FUS",
+            "BN",
+            "E1",
+            "CL"
+          ],
+          "label": "OFFER",
+          "tone": "good",
+          "via": [
+            null,
+            "corp",
+            null,
+            null
+          ]
+        }
+      ]
+    },
+    {
+      "title": "4. Guests get DHCP, but still can't reach Corporate",
+      "text": "The Guest laptop's request goes through the same fusion router over VLAN 3002 and also gets an address. But the Guest VRF has no leaked route to the Corporate subnets, so Guests still can't reach Corporate users. Isolation inside the fabric, controlled sharing at its edge.",
+      "nodes": {
+        "FUS": null
+      },
+      "links": {
+        "corp": null,
+        "guest": "active"
+      },
+      "packets": [
+        {
+          "path": [
+            "GL",
+            "E1",
+            "BN",
+            "FUS",
+            "DHCP"
+          ],
+          "label": "Guest DHCP",
+          "tone": "purple",
+          "via": [
+            null,
+            null,
+            "guest",
+            null
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
 
 **Why is it called a "fusion" router?** Because the VNs are deliberately isolated, yet they all need **shared services** — DHCP, DNS, ISE, Catalyst Center, the internet. The fusion device **leaks routes between VRFs** (or a firewall routes between them under security policy), *fusing* the separate VNs with the shared-services and global routing tables at one controlled point. *Isolation inside the fabric, controlled sharing at the edge of it.*
 
@@ -11398,6 +17176,86 @@ What the router did, and why: a router on the path had a 1476-byte limit (a 1500
 1. R1 sends three UDP probes with **TTL 1**. R2 lowers TTL to 0, drops them, and replies with ICMP time exceeded from its own address. R1 prints line 1: R2's address and three round-trip times.
 2. R1 sends three probes with **TTL 2**. R2 forwards them (TTL now 1), R3 drops them and replies. Line 2: R3.
 3. TTL 3 reaches 10.3.3.3 itself. Nothing expires; the host finds no application on port 33434+ and replies **port unreachable**. Line 3, and the trace stops.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "Traceroute: one TTL at a time",
+  "caption": "`traceroute 10.3.3.3 source Loopback0` on R1. IOS sends three UDP probes per TTL to high ports starting at 33434; one probe per TTL is shown.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 1.1.1.1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2"
+    },
+    {
+      "id": "R3",
+      "kind": "router",
+      "label": "R3"
+    },
+    {
+      "id": "D",
+      "kind": "server",
+      "label": "10.3.3.3"
+    }
+  ],
+  "messages": [
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "UDP probe, TTL 1",
+      "text": "R1 sends the first probes with **TTL 1**, to a UDP port nobody listens on (33434 and up).",
+      "detail": "dst port 33434"
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "ICMP time exceeded",
+      "text": "R2 lowers the TTL to 0, drops the probe, and sends back **time exceeded** from its own interface address. That source address becomes line 1: `1 10.1.12.2 1 msec 1 msec 1 msec`.",
+      "detail": "from 10.1.12.2",
+      "dashed": true,
+      "tone": "warn"
+    },
+    {
+      "from": "R1",
+      "to": "R3",
+      "label": "UDP probe, TTL 2 (via R2)",
+      "text": "Next probes carry **TTL 2**. R2 forwards them (TTL now 1), and they expire at R3.",
+      "detail": "dst port 33437"
+    },
+    {
+      "from": "R3",
+      "to": "R1",
+      "label": "ICMP time exceeded",
+      "text": "R3 answers in the same way. Line 2: `2 10.1.23.3`. Hop by hop, the postcards draw the route.",
+      "detail": "from 10.1.23.3",
+      "dashed": true,
+      "tone": "warn"
+    },
+    {
+      "from": "R1",
+      "to": "D",
+      "label": "UDP probe, TTL 3",
+      "text": "TTL 3 is enough to reach 10.3.3.3 itself. Nothing expires on the way.",
+      "detail": "dst port 33440"
+    },
+    {
+      "from": "D",
+      "to": "R1",
+      "label": "ICMP port unreachable",
+      "text": "The host has no application on that high port, so it replies **port unreachable**. That *different* reply tells R1 it has arrived: line 3, and the trace stops. If the host filtered UDP or didn't send unreachables, you'd see `* * *` until the 30-hop maximum, even though it is reachable.",
+      "detail": "from 10.3.3.3",
+      "dashed": true,
+      "tone": "good"
+    }
+  ]
+}
+```
 
 ```
 R1# traceroute 10.3.3.3 source Loopback0
@@ -11745,6 +17603,104 @@ Difference: 75,000,000 bytes in 300 s. × 8 bits = 600,000,000 bits ÷ 300 s = *
 
 **Why not always use informs?** Because during a big failure, when hundreds of events fire, the device must hold every unacknowledged inform in memory and keep retransmitting, possibly toward a manager it can no longer reach. Informs are for events you can't afford to lose; traps are fine for high-volume, lower-value ones.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "SNMP: polls on UDP 161, notifications on UDP 162",
+  "caption": "SNMPv2c with read-only community `R3ad0nly`, restricted by ACL 20 to the NMS at 10.0.0.50.",
+  "actors": [
+    {
+      "id": "NMS",
+      "kind": "server",
+      "label": "NMS 10.0.0.50"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 agent"
+    },
+    {
+      "id": "X",
+      "kind": "host",
+      "label": "10.9.9.9"
+    }
+  ],
+  "messages": [
+    {
+      "from": "NMS",
+      "to": "R1",
+      "label": "GetRequest ifInOctets.3",
+      "text": "The NMS asks for one OID: `1.3.6.1.2.1.2.2.1.10.3`, the input-octet counter of interface index 3. The community string travels in clear text in every packet.",
+      "detail": "UDP 161, community R3ad0nly"
+    },
+    {
+      "note": "Community OK? Source permitted by ACL 20?",
+      "over": [
+        "R1"
+      ],
+      "text": "The agent checks the community string, then the source address against the ACL bound to that community. Both pass."
+    },
+    {
+      "from": "R1",
+      "to": "NMS",
+      "label": "GetResponse",
+      "text": "The agent reads the live counter and returns it. Counters only count up, so the NMS subtracts the previous poll (1,000,000,000 five minutes earlier): 75,000,000 bytes × 8 ÷ 300 s = **2 Mbps** average.",
+      "detail": "1,075,000,000",
+      "dashed": true,
+      "tone": "good"
+    },
+    {
+      "from": "X",
+      "to": "R1",
+      "label": "GetRequest (stolen string)",
+      "text": "Someone who captured the community string tries to poll from 10.9.9.9. ACL 20 doesn't permit that source, so the agent **silently drops** the request. The sender just sees a timeout.",
+      "detail": "UDP 161",
+      "tone": "bad",
+      "drop": true
+    },
+    {
+      "from": "R1",
+      "to": "NMS",
+      "label": "Trap: linkDown Gi0/1",
+      "text": "Gi0/1 goes down. The agent sends a trap **once** and forgets it. If this single UDP packet is lost, the NMS never hears about the event, which is why NMSs still poll.",
+      "detail": "UDP 162, unacknowledged",
+      "tone": "warn"
+    },
+    {
+      "from": "R1",
+      "to": "NMS",
+      "label": "Inform: linkDown Gi0/2",
+      "text": "With informs configured, the agent keeps a copy in memory and waits for an acknowledgement. This one is lost on the way.",
+      "detail": "UDP 162, copy kept in memory",
+      "states": {
+        "R1": "1 unacked"
+      },
+      "tone": "warn",
+      "drop": true
+    },
+    {
+      "from": "R1",
+      "to": "NMS",
+      "label": "Inform (retransmitted)",
+      "text": "No Response before the timeout, so the agent sends the same inform again, up to its retry limit.",
+      "detail": "UDP 162",
+      "tone": "warn"
+    },
+    {
+      "from": "NMS",
+      "to": "R1",
+      "label": "Response (acknowledged)",
+      "text": "The NMS acknowledges, and the agent deletes its copy. Reliable, but during a big outage hundreds of unacknowledged informs would sit in memory being retransmitted.",
+      "states": {
+        "R1": "0 unacked"
+      },
+      "dashed": true,
+      "tone": "good"
+    }
+  ]
+}
+```
+
 ### Configuring SNMPv2c (Read-Only, Restricted)
 
 You'll still see v2c on older estates and in exam exhibits. The only protection a community string has is the ACL attached to it:
@@ -12059,6 +18015,247 @@ Many analyzers (Wireshark, commercial probes) can receive and decode ERSPAN dire
 - Mirroring adds load; ERSPAN adds GRE overhead to the network it crosses (so mind the MTU).
 - A port can't be both a source and a destination, and an EtherChannel member can't be a destination.
 
+```diagram
+{
+  "type": "topology",
+  "title": "SPAN, RSPAN and ERSPAN: getting copies to the analyzer",
+  "caption": "The server on SW1 Gi1/0/1 is the source in every case. Copies are only ever **copies**: the original frames are forwarded normally.",
+  "nodes": [
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 0,
+      "y": 0,
+      "label": "Server",
+      "sub": "SW1 Gi1/0/1"
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 1.4,
+      "y": 0,
+      "label": "SW1"
+    },
+    {
+      "id": "A1",
+      "kind": "host",
+      "x": 1.4,
+      "y": 1.5,
+      "label": "Analyzer",
+      "sub": "Gi1/0/24"
+    },
+    {
+      "id": "SWM",
+      "kind": "switch",
+      "x": 2.8,
+      "y": 0,
+      "label": "Middle switch"
+    },
+    {
+      "id": "SW2",
+      "kind": "switch",
+      "x": 4.2,
+      "y": 0,
+      "label": "SW2"
+    },
+    {
+      "id": "A2",
+      "kind": "host",
+      "x": 4.2,
+      "y": 1.5,
+      "label": "Analyzer",
+      "sub": "SW2 Gi1/0/24"
+    },
+    {
+      "id": "CORE",
+      "kind": "cloud",
+      "x": 2.8,
+      "y": 2.6,
+      "label": "Routed core"
+    },
+    {
+      "id": "A3",
+      "kind": "host",
+      "x": 4.2,
+      "y": 3.4,
+      "label": "Analyzer",
+      "sub": "10.9.9.9"
+    }
+  ],
+  "links": [
+    {
+      "a": "SRV",
+      "b": "SW1"
+    },
+    {
+      "a": "SW1",
+      "b": "A1"
+    },
+    {
+      "a": "SW1",
+      "b": "SWM",
+      "label": "trunk"
+    },
+    {
+      "a": "SWM",
+      "b": "SW2",
+      "label": "trunk"
+    },
+    {
+      "a": "SW2",
+      "b": "A2"
+    },
+    {
+      "a": "SW1",
+      "b": "CORE",
+      "label": "routed"
+    },
+    {
+      "a": "CORE",
+      "b": "A3"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Local SPAN: same switch",
+      "text": "`monitor session 1 source interface Gi1/0/1 both` and `destination interface Gi1/0/24`. Every frame received (rx) and sent (tx) on Gi1/0/1 is copied in hardware to Gi1/0/24. The destination port stops being a normal port: no STP, no ordinary forwarding, and it ignores what the analyzer sends.",
+      "focus": [
+        "SRV",
+        "SW1",
+        "A1",
+        "SRV-SW1",
+        "SW1-A1"
+      ],
+      "packets": [
+        {
+          "path": [
+            "SRV",
+            "SW1",
+            "A1"
+          ],
+          "label": "rx + tx copies",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. Oversubscription: copies silently dropped",
+      "text": "The server receives 700 Mbps and sends 600 Mbps. With `both`, that's **1.3 Gbps** of copies into a 1 Gbps destination port. About 300 Mbps of copies are dropped with no error, and Wireshark reports \"previous segment not captured\" for packets that were delivered fine. Mirror one direction, filter VLANs, or use a 10G port.",
+      "focus": [
+        "SRV",
+        "SW1",
+        "A1",
+        "SRV-SW1",
+        "SW1-A1"
+      ],
+      "nodes": {
+        "A1": {
+          "badge": "1.3G into 1G",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SW1",
+            "A1"
+          ],
+          "label": "~300 Mbps lost",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. RSPAN: copies ride VLAN 999",
+      "text": "The analyzer is on SW2. SW1 puts the copies into **VLAN 999**, flagged `remote-span` on every switch, so no switch learns the copies' original MACs on the mirror path. They flood across the trunks to SW2, whose `source remote vlan 999` session delivers them to its Gi1/0/24.",
+      "focus": [
+        "SRV",
+        "SW1",
+        "SWM",
+        "SW2",
+        "A2",
+        "SRV-SW1",
+        "SW1-SWM",
+        "SWM-SW2",
+        "SW2-A2"
+      ],
+      "nodes": {
+        "A1": null
+      },
+      "packets": [
+        {
+          "path": [
+            "SRV",
+            "SW1",
+            "SWM",
+            "SW2",
+            "A2"
+          ],
+          "label": "copies in VLAN 999",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "4. One trunk without VLAN 999",
+      "text": "If any trunk on the way doesn't allow VLAN 999 (`switchport trunk allowed vlan`), the copies stop there and the analyzer sees nothing. RSPAN also can't cross a routed hop: VLAN 999 has to stretch end to end.",
+      "focus": [
+        "SRV",
+        "SW1",
+        "SWM",
+        "SW2",
+        "A2",
+        "SRV-SW1",
+        "SW1-SWM",
+        "SWM-SW2",
+        "SW2-A2"
+      ],
+      "links": {
+        "SWM-SW2": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "SW1",
+            "SWM"
+          ],
+          "label": "VLAN 999 not allowed",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. ERSPAN: GRE across a routed network",
+      "text": "With `monitor session 10 type erspan-source`, SW1 wraps each copy in **GRE** inside an IP packet from origin 10.1.1.1 to 10.9.9.9, with erspan-id 100. Copies are now ordinary routed packets and can reach an analyzer anywhere, even across a WAN. Mind the extra GRE overhead on the MTU.",
+      "focus": [
+        "SRV",
+        "SW1",
+        "CORE",
+        "A3",
+        "SRV-SW1",
+        "SW1-CORE",
+        "CORE-A3"
+      ],
+      "links": {
+        "SWM-SW2": null
+      },
+      "packets": [
+        {
+          "path": [
+            "SRV",
+            "SW1",
+            "CORE",
+            "A3"
+          ],
+          "label": "GRE to 10.9.9.9",
+          "tone": "purple"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **📝 Exam-style questions — 15.6**
 
 **Q1.** SPAN source Gi1/0/1 (both directions) is a 1 Gbps server port receiving 700 Mbps and sending 600 Mbps. The destination Gi1/0/24 is also 1 Gbps. Wireshark reports "previous segment not captured", but the server shows no retransmissions. What explains this?
@@ -12166,6 +18363,72 @@ R1# show ip sla summary
 
 **How a udp-jitter operation runs:** R1 first sends a small **control message** to R2's responder on **UDP 1967**, asking it to listen on UDP 16384 for the next few seconds → the responder opens that port → R1 sends a train of timestamped probes (with `codec g711ulaw`, 1000 packets of 172 bytes, 20 ms apart, by default) → the responder stamps each one with its arrival and departure times and returns it → R1 computes one-way delay, jitter and loss in each direction. One-way delay figures are only accurate if both routers' clocks are synchronized with NTP (Chapter 8).
 
+```diagram
+{
+  "type": "sequence",
+  "title": "udp-jitter: why the far end needs a responder",
+  "caption": "`ip sla 20` on R1: `udp-jitter 10.2.2.2 16384 codec g711ulaw source-ip 10.1.1.1`. R2 runs `ip sla responder`. Both clocks are synchronized by NTP.",
+  "actors": [
+    {
+      "id": "R1",
+      "kind": "router",
+      "label": "R1 10.1.1.1"
+    },
+    {
+      "id": "R2",
+      "kind": "router",
+      "label": "R2 responder"
+    }
+  ],
+  "messages": [
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Control: open UDP 16384",
+      "text": "Before any probe, R1 asks R2's responder, on **UDP 1967**, to open UDP 16384 for the next few seconds.",
+      "detail": "UDP 1967 (IP SLA control)"
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Control OK",
+      "text": "The responder opens the port. Without `ip sla responder` on R2 there's no answer, and every operation ends with return code **Timeout**, even though R2 answers pings.",
+      "states": {
+        "R2": "listening 16384"
+      },
+      "dashed": true
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Probe 1, timestamp T1",
+      "text": "R1 sends a train mimicking a G.711 call: by default 1000 packets of 172 bytes, 20 ms apart. Each carries R1's send time.",
+      "detail": "UDP 16384, 172 bytes"
+    },
+    {
+      "from": "R2",
+      "to": "R1",
+      "label": "Probe 1 + T2, T3 stamps",
+      "text": "The responder stamps when each probe arrived and when it left, so R1 can subtract R2's processing time and see the network alone.",
+      "dashed": true
+    },
+    {
+      "from": "R1",
+      "to": "R2",
+      "label": "Probes 2 … 1000",
+      "text": "With timestamps from both ends, R1 can compute **one-way** delay in each direction, not just the round trip a ping gives."
+    },
+    {
+      "note": "Delay, jitter, loss, MOS",
+      "over": [
+        "R1"
+      ],
+      "text": "R1 computes one-way latency, **jitter** (the variation: delays of 20, 22, 40 and 21 ms mean jumps of 2, 18 and 19 ms) and loss for each direction, plus a MOS and ICPIF voice-quality estimate. One-way numbers are only accurate if NTP keeps both clocks in step."
+    }
+  ]
+}
+```
+
 ### Try It — udp-jitter for Voice Quality
 
 ```
@@ -12230,6 +18493,222 @@ S*    0.0.0.0/0 [10/0] via 203.0.113.254
 ```
 
 Users lost about 10 seconds of connectivity instead of hours. To stop a flapping path bouncing the routes back and forth, add `delay down 5 up 30` under the track: it must stay down 5 s before acting, and stay up 30 s before failing back.
+
+```diagram
+{
+  "type": "topology",
+  "title": "IP SLA + tracking: failing over when the ISP's network dies",
+  "caption": "`ip sla 10`: icmp-echo to 8.8.8.8 from Gi0/0 every 10 s, timeout 1000 ms. `track 1 ip sla 10 reachability`. Primary default via 198.51.100.254 `track 1`; floating default via 203.0.113.254 with AD 10.",
+  "nodes": [
+    {
+      "id": "LAN",
+      "kind": "l3switch",
+      "x": 0,
+      "y": 1,
+      "label": "Branch LAN"
+    },
+    {
+      "id": "R1",
+      "kind": "router",
+      "x": 1.3,
+      "y": 1,
+      "label": "R1"
+    },
+    {
+      "id": "ISP1",
+      "kind": "router",
+      "x": 2.7,
+      "y": 0,
+      "label": "ISP 1 PE",
+      "sub": "198.51.100.254"
+    },
+    {
+      "id": "ISP2",
+      "kind": "router",
+      "x": 2.7,
+      "y": 2,
+      "label": "ISP 2 PE",
+      "sub": "203.0.113.254"
+    },
+    {
+      "id": "INET",
+      "kind": "cloud",
+      "x": 4.1,
+      "y": 1,
+      "label": "Internet"
+    },
+    {
+      "id": "DNS",
+      "kind": "server",
+      "x": 5.3,
+      "y": 1,
+      "label": "8.8.8.8"
+    }
+  ],
+  "links": [
+    {
+      "a": "LAN",
+      "b": "R1"
+    },
+    {
+      "a": "R1",
+      "b": "ISP1",
+      "label": "AD 1, track 1",
+      "aLabel": "Gi0/0"
+    },
+    {
+      "a": "R1",
+      "b": "ISP2",
+      "label": "AD 10",
+      "aLabel": "Gi0/1"
+    },
+    {
+      "a": "ISP1",
+      "b": "INET"
+    },
+    {
+      "a": "ISP2",
+      "b": "INET"
+    },
+    {
+      "a": "INET",
+      "b": "DNS"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Normal: probes OK, primary route in use",
+      "text": "Every 10 s R1 pings 8.8.8.8 out Gi0/0. Replies come back within the 300 ms threshold, so the return code is **OK**, track 1 is **Up**, and `S* 0.0.0.0/0 [1/0] via 198.51.100.254` is in the table. The AD 10 backup waits.",
+      "nodes": {
+        "R1": {
+          "badge": "track 1 Up",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "R1-ISP2": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISP1",
+            "INET",
+            "DNS"
+          ],
+          "label": "IP SLA echo",
+          "tone": "accent"
+        },
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "ISP1",
+            "INET"
+          ],
+          "label": "user traffic",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "2. 10:00:03 — ISP 1's core fails, Gi0/0 stays up/up",
+      "text": "Nothing local changes: the interface is up/up and the static route stays. Users are already cut off. Only a test *through* the ISP can notice.",
+      "links": {
+        "ISP1-INET": "down"
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "ISP1"
+          ],
+          "label": "black-holed",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. 10:00:10 — the probe times out",
+      "text": "The next echo gets no reply within 1000 ms: return code **Timeout**. Track 1 goes **Down** and IOS logs `%TRACK-6-STATE: 1 ip sla 10 reachability Up -> Down`.",
+      "nodes": {
+        "R1": {
+          "badge": "track 1 Down",
+          "tone": "bad"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISP1"
+          ],
+          "label": "echo: Timeout",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "4. The tracked route is withdrawn; the floating route takes over",
+      "text": "The static route tied to `track 1` is removed, so `S* 0.0.0.0/0 [10/0] via 203.0.113.254` is installed. Users lost about 10 seconds instead of hours.",
+      "links": {
+        "R1-ISP2": null,
+        "R1-ISP1": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "ISP2",
+            "INET"
+          ],
+          "label": "user traffic",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "5. ISP 1 recovers: fail back",
+      "text": "The probe still goes out Gi0/0 (it's sourced from that interface), so it notices the recovery. The next OK brings track 1 Up, and the AD 1 route wins again. Add `delay down 5 up 30` under the track so a flapping path must prove itself before traffic moves back.",
+      "nodes": {
+        "R1": {
+          "badge": "track 1 Up",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "ISP1-INET": null,
+        "R1-ISP1": null,
+        "R1-ISP2": "dim"
+      },
+      "packets": [
+        {
+          "path": [
+            "R1",
+            "ISP1",
+            "INET",
+            "DNS"
+          ],
+          "label": "echo: OK",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "LAN",
+            "R1",
+            "ISP1",
+            "INET"
+          ],
+          "label": "user traffic",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
 
 This is how a router fails over when an ISP's *link* stays up but the ISP's *network* is broken, which an interface-down check would never notice. Chapter 9 uses the same tracking to lower HSRP priority, and Chapter 32 covers troubleshooting tracking and jitter operations at ENARSI depth.
 
@@ -12363,6 +18842,223 @@ No debug and no packet capture were needed. *Broad tools found the right place; 
 
 **Why does the "assure" step matter so much?** Because pushing configuration was never the hard part; scripts could already do that. The hard part is knowing whether the network is actually *delivering* what you asked for, right now, for every user. A config that was pushed successfully can still produce terrible voice quality. *IBN closes the loop: intent → config → verification → back to intent.*
 
+```diagram
+{
+  "type": "topology",
+  "title": "The intent loop: intent → configuration → assurance → back",
+  "caption": "One site, *Leeds / Building 1*, with three access switches. The engineer works with Catalyst Center, never with the switches one by one.",
+  "nodes": [
+    {
+      "id": "ENG",
+      "kind": "host",
+      "x": 0,
+      "y": 1,
+      "label": "Engineer"
+    },
+    {
+      "id": "CC",
+      "kind": "controller",
+      "x": 1.6,
+      "y": 1,
+      "label": "Catalyst Center",
+      "sub": "10.10.10.50"
+    },
+    {
+      "id": "SW1",
+      "kind": "switch",
+      "x": 3.6,
+      "y": 0,
+      "label": "LEEDS-AS-01"
+    },
+    {
+      "id": "SW2",
+      "kind": "switch",
+      "x": 3.6,
+      "y": 1,
+      "label": "LEEDS-AS-02"
+    },
+    {
+      "id": "SW3",
+      "kind": "switch",
+      "x": 3.6,
+      "y": 2,
+      "label": "LEEDS-AS-03"
+    }
+  ],
+  "links": [
+    {
+      "a": "ENG",
+      "b": "CC",
+      "label": "GUI / Intent API"
+    },
+    {
+      "a": "CC",
+      "b": "SW1"
+    },
+    {
+      "a": "CC",
+      "b": "SW2"
+    },
+    {
+      "a": "CC",
+      "b": "SW3"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Express the intent",
+      "text": "The engineer states *what* is wanted, not how: in **Policy**, Webex is business-relevant at this site, so voice and video get priority on every access port. No CLI is typed.",
+      "nodes": {
+        "ENG": {
+          "badge": "intent",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "ENG",
+            "CC"
+          ],
+          "label": "Webex: business-relevant",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. Translate and activate",
+      "text": "Catalyst Center works out the per-platform QoS configuration (classification, marking, queuing) and pushes it consistently to every switch at the site, mostly over **SSH/CLI** or **NETCONF**. The same template gives the same result on every box.",
+      "nodes": {
+        "ENG": null,
+        "CC": {
+          "badge": "provision",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "CC",
+            "SW1"
+          ],
+          "label": "config",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "CC",
+            "SW2"
+          ],
+          "label": "config",
+          "tone": "purple"
+        },
+        {
+          "path": [
+            "CC",
+            "SW3"
+          ],
+          "label": "config",
+          "tone": "purple"
+        }
+      ]
+    },
+    {
+      "title": "3. Assure: telemetry flows back",
+      "text": "Pushing config was never the hard part. Now streaming telemetry, SNMP, syslog and NetFlow flow back continuously and are correlated into **health scores** for each device, client and application.",
+      "nodes": {
+        "CC": {
+          "badge": "assurance",
+          "tone": "good"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SW1",
+            "CC"
+          ],
+          "label": "telemetry",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "SW2",
+            "CC"
+          ],
+          "label": "telemetry",
+          "tone": "good"
+        },
+        {
+          "path": [
+            "SW3",
+            "CC"
+          ],
+          "label": "telemetry",
+          "tone": "good"
+        }
+      ]
+    },
+    {
+      "title": "4. Drift from intent becomes an issue",
+      "text": "LEEDS-AS-03's uplink starts dropping packets and application health for Webex falls. Catalyst Center raises an **issue** with what, where, when, how many clients are affected, and suggested actions. The config was pushed successfully, but the network isn't delivering the intent.",
+      "nodes": {
+        "SW3": {
+          "badge": "poor",
+          "tone": "bad"
+        },
+        "CC": {
+          "badge": "issue raised",
+          "tone": "warn"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "SW3",
+            "CC"
+          ],
+          "label": "errors rising",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "5. Back to intent",
+      "text": "The engineer reviews the suggested fix and approves it, Catalyst Center provisions the change, and Assurance confirms health is back to 8-10. *IBN closes the loop: intent → config → verification → back to intent.* Note that the engineer still decides: Catalyst Center mostly suggests.",
+      "nodes": {
+        "SW3": {
+          "badge": "good",
+          "tone": "good"
+        },
+        "CC": null,
+        "ENG": {
+          "badge": "approve",
+          "tone": "accent"
+        }
+      },
+      "packets": [
+        {
+          "path": [
+            "CC",
+            "ENG"
+          ],
+          "label": "suggested action",
+          "tone": "warn"
+        },
+        {
+          "path": [
+            "CC",
+            "SW3"
+          ],
+          "label": "fix provisioned",
+          "tone": "purple"
+        }
+      ]
+    }
+  ]
+}
+```
+
 | Aspect | Traditional CLI management | Catalyst Center (controller-based) |
 |--------|----------------------------|------------------------------------|
 | Unit of work | One device | A site, a group, a policy |
@@ -12456,6 +19152,110 @@ ip dhcp pool PNP-VLAN99
 
 If option 43 is missing, the switch tries the DNS name `pnpserver.<domain>` (using the domain name from DHCP), and then the PnP Connect cloud service.
 
+```diagram
+{
+  "type": "sequence",
+  "title": "Plug and Play: a new switch finds Catalyst Center",
+  "caption": "The switch is cabled to an access port in VLAN 99. The router 10.99.0.1 serves DHCP pool PNP-VLAN99 with `option 43 ascii \"5A1N;B2;K4;I10.10.10.50;J80\"`.",
+  "actors": [
+    {
+      "id": "SW",
+      "kind": "switch",
+      "label": "New switch"
+    },
+    {
+      "id": "DHCP",
+      "kind": "router",
+      "label": "DHCP 10.99.0.1"
+    },
+    {
+      "id": "CC",
+      "kind": "controller",
+      "label": "Catalyst Center"
+    },
+    {
+      "id": "ENG",
+      "kind": "host",
+      "label": "Engineer"
+    }
+  ],
+  "messages": [
+    {
+      "from": "SW",
+      "to": "DHCP",
+      "label": "DHCPDISCOVER",
+      "text": "The switch boots with **no startup configuration**, so the PnP agent starts and asks for an address on its uplink.",
+      "detail": "broadcast, VLAN 99",
+      "states": {
+        "SW": "PnP agent"
+      }
+    },
+    {
+      "from": "DHCP",
+      "to": "SW",
+      "label": "OFFER + option 43",
+      "text": "It gets 10.99.0.x and option 43: `5A1N` = PnP, active, version 1, no debug; `B2` = IPv4 server; `K4` = HTTP; `I10.10.10.50` = Catalyst Center; `J80` = port 80.",
+      "detail": "I10.10.10.50;J80",
+      "dashed": true
+    },
+    {
+      "from": "SW",
+      "to": "CC",
+      "label": "PnP work request (HTTP)",
+      "text": "The switch contacts 10.10.10.50 on port 80 and identifies itself by serial number and platform. Without option 43 it would try DNS `pnpserver.<domain>`, then the PnP Connect cloud.",
+      "detail": "to 10.10.10.50:80"
+    },
+    {
+      "note": "Unclaimed device",
+      "over": [
+        "CC"
+      ],
+      "text": "The switch appears in Catalyst Center's Plug and Play list as **Unclaimed**, identified by its serial number.",
+      "states": {
+        "CC": "Unclaimed"
+      }
+    },
+    {
+      "from": "ENG",
+      "to": "CC",
+      "label": "Claim to a site",
+      "text": "An engineer, or a pre-staged rule matching the serial number, **claims** the device to a site and picks a template and image. The site's Design settings (AAA, NTP, syslog, SNMP) come with it.",
+      "states": {
+        "CC": "Claimed"
+      }
+    },
+    {
+      "from": "CC",
+      "to": "SW",
+      "label": "Golden image (if needed)",
+      "text": "If the switch isn't running the golden image for its family, Catalyst Center upgrades it first.",
+      "dashed": true,
+      "tone": "purple"
+    },
+    {
+      "from": "CC",
+      "to": "SW",
+      "label": "Day-0 configuration",
+      "text": "Then it pushes the Day-0 configuration, rendered from the template with this switch's variables (hostname, management VLAN and IP).",
+      "dashed": true,
+      "tone": "purple"
+    },
+    {
+      "note": "Managed",
+      "over": [
+        "SW",
+        "CC"
+      ],
+      "text": "The switch moves into the Inventory as managed. Nobody consoled in, and it has exactly the same validated configuration as every other site.",
+      "states": {
+        "SW": "Managed",
+        "CC": "In inventory"
+      }
+    }
+  ]
+}
+```
+
 **Worked example — one template, two switches.** A Day-N template written in Velocity:
 
 ```
@@ -12505,6 +19305,143 @@ Catalyst Center continuously collects telemetry — **streaming telemetry**, **S
 - **Sensor tests** — dedicated sensors (or APs in sensor mode) that act as synthetic clients, testing onboarding, DNS, DHCP, web access and more, on a schedule.
 - **Time travel** — scroll health back in time to see the state *when the user complained*, not just now.
 
+```diagram
+{
+  "type": "topology",
+  "title": "Path Trace: the computed path, ACLs included",
+  "caption": "Assurance → Path Trace from client 10.10.5.25 to the ERP server 10.50.1.10 on TCP 443. Catalyst Center computes the path from what it knows about topology, routing and configuration.",
+  "nodes": [
+    {
+      "id": "PC",
+      "kind": "host",
+      "x": 0,
+      "y": 1,
+      "label": "Client",
+      "sub": "10.10.5.25"
+    },
+    {
+      "id": "ASW",
+      "kind": "switch",
+      "x": 1.3,
+      "y": 1,
+      "label": "Access"
+    },
+    {
+      "id": "DSW",
+      "kind": "l3switch",
+      "x": 2.6,
+      "y": 1,
+      "label": "Distribution"
+    },
+    {
+      "id": "CORE",
+      "kind": "l3switch",
+      "x": 3.9,
+      "y": 1,
+      "label": "Core",
+      "sub": "ACL DC-IN"
+    },
+    {
+      "id": "SRV",
+      "kind": "server",
+      "x": 5.2,
+      "y": 1,
+      "label": "ERP",
+      "sub": "10.50.1.10"
+    }
+  ],
+  "links": [
+    {
+      "a": "PC",
+      "b": "ASW",
+      "bLabel": "Gi1/0/12"
+    },
+    {
+      "a": "ASW",
+      "b": "DSW",
+      "label": "VLAN 10"
+    },
+    {
+      "a": "DSW",
+      "b": "CORE",
+      "label": "OSPF"
+    },
+    {
+      "a": "CORE",
+      "b": "SRV",
+      "aLabel": "Gi1/0/1"
+    }
+  ],
+  "steps": [
+    {
+      "title": "1. Hop by hop from the client",
+      "text": "Catalyst Center starts at the client's access port, follows VLAN 10 to the distribution switch (its gateway) and the OSPF route toward 10.50.1.0/24. It's computed from its own knowledge, not by sending test packets.",
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ASW",
+            "DSW",
+            "CORE"
+          ],
+          "label": "TCP 443 → 10.50.1.10",
+          "tone": "accent"
+        }
+      ]
+    },
+    {
+      "title": "2. An ACL in the path",
+      "text": "At the core, the outbound interface Gi1/0/1 has ACL DC-IN applied. Path Trace evaluates it for this flow and finds a matching `deny tcp any host 10.50.1.10 eq 443`. The trace marks the hop where the flow dies.",
+      "nodes": {
+        "CORE": {
+          "badge": "ACL deny",
+          "tone": "bad"
+        }
+      },
+      "links": {
+        "CORE-SRV": "blocked"
+      },
+      "packets": [
+        {
+          "path": [
+            "DSW",
+            "CORE"
+          ],
+          "label": "denied at Gi1/0/1",
+          "tone": "bad"
+        }
+      ]
+    },
+    {
+      "title": "3. Fix and re-run",
+      "text": "Correct the ACL (through a template, so every core gets the same fix) and run Path Trace again: the flow is permitted end to end. Combined with **time travel**, you can also look at how health looked when the user actually complained.",
+      "nodes": {
+        "CORE": {
+          "badge": "permit",
+          "tone": "good"
+        }
+      },
+      "links": {
+        "CORE-SRV": null
+      },
+      "packets": [
+        {
+          "path": [
+            "PC",
+            "ASW",
+            "DSW",
+            "CORE",
+            "SRV"
+          ],
+          "label": "TCP 443 permitted",
+          "tone": "good"
+        }
+      ]
+    }
+  ]
+}
+```
+
 **Why is "time travel" so valuable?** Because most user complaints arrive after the fact: "the Wi-Fi was terrible during the 10 o'clock meeting". With traditional tools you'd see a healthy network at 2 p.m. and close the ticket. With stored, correlated history you can look at that client, AP and moment directly. *Assurance turns "can't reproduce" into evidence.*
 
 ### Platform — Talk to Everything Else
@@ -12526,6 +19463,91 @@ Intent is turned into device changes, and telemetry collected, over ordinary man
 | **HTTPS / RESTCONF and controller APIs** | Talking to wireless controllers, ISE (pxGrid/ERS) and other integrated systems |
 
 *Northbound, Catalyst Center offers the Intent API (REST) to your scripts (Chapter 20). Southbound, it is still mostly SSH and SNMP to the devices, which is why device credentials and reachability are the first things to check when provisioning fails.*
+
+```diagram
+{
+  "type": "topology",
+  "title": "How Catalyst Center talks to everything: click the links",
+  "caption": "Northbound to your scripts and tools, southbound to devices and integrated systems. Most of it is ordinary management protocols.",
+  "nodes": [
+    {
+      "id": "ITSM",
+      "kind": "server",
+      "x": 0,
+      "y": 0,
+      "label": "ITSM / scripts",
+      "sub": "ServiceNow, Python"
+    },
+    {
+      "id": "CC",
+      "kind": "controller",
+      "x": 2,
+      "y": 1,
+      "label": "Catalyst Center"
+    },
+    {
+      "id": "ISE",
+      "kind": "server",
+      "x": 4,
+      "y": 0,
+      "label": "ISE"
+    },
+    {
+      "id": "SW",
+      "kind": "switch",
+      "x": 0,
+      "y": 2.4,
+      "label": "Catalyst 9300"
+    },
+    {
+      "id": "RTR",
+      "kind": "router",
+      "x": 2,
+      "y": 2.6,
+      "label": "ISR / C8000"
+    },
+    {
+      "id": "WLC",
+      "kind": "wlc",
+      "x": 4,
+      "y": 2.4,
+      "label": "C9800 WLC"
+    }
+  ],
+  "links": [
+    {
+      "a": "ITSM",
+      "b": "CC",
+      "label": "Intent API",
+      "info": "**Northbound REST** (the Intent API, Chapter 20). Scripts, orchestrators and ITSM tools such as ServiceNow drive and query Catalyst Center. Events go out by **webhook**, email or syslog."
+    },
+    {
+      "a": "CC",
+      "b": "ISE",
+      "label": "pxGrid / ERS",
+      "info": "**HTTPS APIs** to ISE: pxGrid and ERS, for scalable groups, the policy matrix and endpoint context used by group-based access control."
+    },
+    {
+      "a": "CC",
+      "b": "SW",
+      "label": "SSH, NETCONF",
+      "info": "**SSH/CLI** is the workhorse: pushing templates and provisioning, and running show commands for inventory and compliance. **NETCONF** (SSH, port **830**) for model-driven configuration on IOS XE. Wrong credentials here is the classic *Authentication failed* in Discovery."
+    },
+    {
+      "a": "CC",
+      "b": "RTR",
+      "label": "SNMP, syslog, NetFlow",
+      "info": "**SNMP** polls status and counters for inventory and assurance, and receives traps. **Syslog**, **NetFlow** and **streaming telemetry** feed Assurance with events and flows. An SNMP ACL that doesn't permit Catalyst Center's address stops Discovery."
+    },
+    {
+      "a": "CC",
+      "b": "WLC",
+      "label": "HTTPS / telemetry",
+      "info": "Wireless controllers are managed over SSH/NETCONF plus **HTTPS/RESTCONF** and controller APIs, and they stream client and RF telemetry for client health and Intelligent Capture."
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 16.2**
 
@@ -12677,6 +19699,104 @@ Cisco has added a generative-AI **AI Assistant** to Catalyst Center and other ma
 | Verify | Wait for complaints to stop | Assurance shows client health back to 8–10 the next morning (**time travel** to compare) |
 
 *The point:* the network and the engineer haven't changed. What's changed is how quickly the evidence is assembled, and that the system can see a problem *before* users report it.
+
+```diagram
+{
+  "type": "sequence",
+  "title": "The AI-powered workflow: Leeds Wi-Fi keeps dropping",
+  "caption": "Catalyst Center with AI Network Analytics (Advantage licence, cloud-connected). Compare each step with the traditional column in the table above.",
+  "actors": [
+    {
+      "id": "AP",
+      "kind": "ap",
+      "label": "Leeds APs"
+    },
+    {
+      "id": "CC",
+      "kind": "controller",
+      "label": "Catalyst Center"
+    },
+    {
+      "id": "AI",
+      "kind": "cloud",
+      "label": "AI Analytics"
+    },
+    {
+      "id": "ENG",
+      "kind": "host",
+      "label": "Engineer"
+    }
+  ],
+  "messages": [
+    {
+      "from": "AP",
+      "to": "CC",
+      "label": "Client + RF telemetry",
+      "text": "APs and the WLC stream client and RF data continuously. Nothing has been reported yet.",
+      "detail": "via the WLC"
+    },
+    {
+      "from": "CC",
+      "to": "AI",
+      "label": "Anonymized KPIs",
+      "text": "Catalyst Center sends anonymized telemetry to Cisco's cloud ML service, which has learned a **baseline** for this site, at this time of day and week.",
+      "detail": "Cloud ML service"
+    },
+    {
+      "from": "AI",
+      "to": "CC",
+      "label": "Anomaly at 08:30",
+      "text": "Disconnects at Leeds are far above what's normal for a weekday morning here. A static threshold might have missed it; the baseline flags it **before most tickets arrive**.",
+      "states": {
+        "CC": "Issue raised"
+      },
+      "dashed": true,
+      "tone": "warn"
+    },
+    {
+      "from": "CC",
+      "to": "ENG",
+      "label": "Issue: affected clients, APs, floor",
+      "text": "The **issue** scopes the problem: which clients, which APs, which floor, and client health over time. Peer comparison shows only this building is affected, and insights show co-channel interference rising at the same times.",
+      "tone": "warn"
+    },
+    {
+      "note": "Guided checks / MRE reasoning",
+      "over": [
+        "CC"
+      ],
+      "text": "Guided checks and **Machine Reasoning Engine** workflows encode the steps an expert would take. With the RF data, they point to channel planning on two APs."
+    },
+    {
+      "from": "ENG",
+      "to": "CC",
+      "label": "Apply RF profile change (Design)",
+      "text": "The engineer verifies the suggestion and changes the RF profile in **Design**, then provisions it to the site. The decision to change the network stays with a person.",
+      "states": {
+        "CC": "Provisioning"
+      }
+    },
+    {
+      "from": "CC",
+      "to": "AP",
+      "label": "New channel plan",
+      "text": "Catalyst Center pushes the change through the WLC to the affected APs.",
+      "dashed": true,
+      "tone": "purple"
+    },
+    {
+      "from": "AP",
+      "to": "CC",
+      "label": "Health back to 8–10",
+      "text": "Assurance shows client health back in the good band, and **time travel** lets you compare this morning with yesterday's 09:00 side by side.",
+      "states": {
+        "CC": "Healthy"
+      },
+      "tone": "good"
+    }
+  ]
+}
+```
 
 **📝 Exam-style questions — 16.4**
 
