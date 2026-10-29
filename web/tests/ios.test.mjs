@@ -759,7 +759,7 @@ test("abbreviations are as ambiguous as on IOS", () => {
   assert.match(console_(net, "SW1", "en", "conf t", "int f0/1", "s"), /% Ambiguous command:  "s"/);
   const sw = new Session(net, "SW1");
   for (const l of ["en", "conf t", "int f0/1"]) sw.input(l);
-  assert.equal(sw.help("s"), "shutdown  spanning-tree  speed  switchport");
+  assert.equal(sw.help("s"), "shutdown  spanning-tree  speed  storm-control  switchport");
   for (const cmd of ["sh run", "sh ip int br", "sh vlan br", "sh int trunk", "sh ip ro", "sh cdp nei", "sh mac add", "sh ver", "sh int status",
     "sh spanning-tree", "sh etherchannel sum", "sh port-security", "sh start", "terminal length 0", "wr"]) {
     assert.doesNotMatch(console_(net, "SW1", "en", cmd), /% (Invalid|Ambiguous|Incomplete)/, cmd);
