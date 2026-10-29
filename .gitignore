@@ -13,3 +13,6 @@ web/data/
 web/app/data/
 web/.pytest_cache/
 .env
+
+# Agent worktrees
+.claude/worktrees/

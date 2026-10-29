@@ -75,14 +75,14 @@ export function typing(e) {
 }
 
 function setupChrome() {
-  document.querySelector("[data-theme-toggle]")?.addEventListener("click", () => {
+  document.querySelectorAll("[data-theme-toggle]").forEach((t) => t.addEventListener("click", () => {
     const root = document.documentElement;
     const dark = root.dataset.theme
       ? root.dataset.theme === "dark"
       : matchMedia("(prefers-color-scheme: dark)").matches;
     root.dataset.theme = dark ? "light" : "dark";
     try { localStorage.setItem("netlab-theme", root.dataset.theme); } catch (e) { /* private mode */ }
-  });
+  }));
   document.querySelector("[data-nav-toggle]")?.addEventListener("click", () => {
     document.body.classList.toggle("nav-open");
   });
@@ -92,6 +92,24 @@ function setupChrome() {
   document.querySelector("[data-close-drawers]")?.addEventListener("click", () => {
     document.body.classList.remove("nav-open", "toc-open");
   });
+  // CCNP / CCNA / Both: saved per user, then the page reloads with that track's content.
+  document.addEventListener("click", async (e) => {
+    const choice = e.target.closest("[data-track-choice]");
+    if (!choice || choice.classList.contains("on")) return;
+    const value = choice.dataset.trackChoice;
+    document.querySelectorAll("[data-track-choice]").forEach((b) => {
+      const on = b.dataset.trackChoice === value;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-checked", on ? "true" : "false");
+    });
+    document.documentElement.dataset.track = value;
+    await api("POST", "/api/settings", { track: value });
+    location.reload();
+  });
+  // The account menu closes on an outside click or Escape.
+  document.addEventListener("click", (e) => {
+    document.querySelectorAll("details.user-menu[open]").forEach((m) => { if (!m.contains(e.target)) m.open = false; });
+  });
   // Diagrams in the guides open full size on click.
   document.addEventListener("click", (e) => {
     const img = e.target.closest(".prose img");
@@ -100,9 +118,11 @@ function setupChrome() {
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeLightbox();
+    if (e.key === "Escape") document.querySelectorAll("details.user-menu[open]").forEach((m) => { m.open = false; });
     if (e.key === "Escape") document.body.classList.remove("nav-open", "toc-open");
     if (e.key === "/" && !typing(e) && !e.metaKey && !e.ctrlKey) {
-      const box = document.querySelector("input[type=search]");
+      // The page's own search box if it has one, else the one in the top bar (hidden on phones).
+      const box = [...document.querySelectorAll("input[type=search]")].find((i) => i.offsetParent !== null);
       if (box) { e.preventDefault(); box.focus(); } else if (location.pathname !== "/search") {
         location.href = "/search";
       }

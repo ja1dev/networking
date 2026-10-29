@@ -7,7 +7,9 @@ def test_counts_match_the_kits(content):
     assert s["ccna_bank"] == 152
     assert s["ccnp"] == 814
     assert s["drills"] == 60
-    assert s["cards"] == 299
+    kit_cards = {k: sum(1 for c in content["cards"] if c["kit"] == k) for k in ("ccna", "ccnp")}
+    assert kit_cards == {"ccna": 299, "ccnp": 575}
+    assert s["cards"] == 874
 
 
 def test_every_question_is_well_formed(content):
@@ -76,4 +78,21 @@ def test_labs_have_checklists(content):
 def test_card_ids_are_unique_and_stable(content):
     ids = [c["id"] for c in content["cards"]]
     assert len(ids) == len(set(ids))
-    assert len(content["decks"]) == 15
+    decks = {k: [d for d in content["decks"] if d["kit"] == k] for k in ("ccna", "ccnp")}
+    assert len(decks["ccna"]) == 15 and len(decks["ccnp"]) == 18
+    # CCNA ids predate the CCNP deck and must not move, or existing review history is lost.
+    assert decks["ccna"][0]["id"] == "network-fundamentals"
+    assert all(d["id"].startswith("ccnp-") for d in decks["ccnp"])
+    assert all(c["deck"] in {d["id"] for d in content["decks"] if d["kit"] == c["kit"]} for c in content["cards"])
+
+
+def test_both_workbooks_load(content):
+    labs = content["labs"]["labs"]
+    ccna = [l for l in labs if l["kit"] == "ccna"]
+    ccnp = [l for l in labs if l["kit"] == "ccnp"]
+    assert len(ccna) == 19 and len(ccnp) == 22
+    assert all(l["id"].startswith("ccnp-lab") for l in ccnp)
+    assert all(len(l["items"]) >= 3 for l in ccnp), "every CCNP lab has something to tick"
+    assert set(content["labs"]["intro_html"]) == {"ccna", "ccnp"}
+    ids = [i for l in labs for i in l["items"]]
+    assert len(ids) == len(set(ids)), "checklist item ids are unique across both workbooks"

@@ -1,100 +1,135 @@
 {% from "_icons.html" import icon %}
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
+{% set shown_kits = kits if kits is defined else ["ccna", "ccnp"] %}
+{% set kit_names = KIT_TITLES if KIT_TITLES is defined else {"ccna": "CCNA", "ccnp": "CCNP"} %}
+{% set exams = {"ccnp": ["ENCOR", "ENARSI"], "ccna": ["CCNA"]} %}
+{% set focus = "CCNP" if track == "ccnp" else ("CCNA" if track == "ccna" else "CCNP + CCNA") %}
 {% block content %}
-<div class="page-head spread">
+<div class="hub-head">
   <div>
-    <h1>Dashboard</h1>
-    <p>{% if d.streak %}{{ d.streak }}-day streak · {% endif %}{{ d.today_count }} thing{{ '' if d.today_count == 1 else 's' }} done today</p>
+    <div class="eyebrow">Studying for {{ focus }}</div>
+    <h1>{% if d.today_count %}Nice work today{% else %}What's next{% endif %}</h1>
+    <p class="muted">{{ d.today_count }} thing{{ '' if d.today_count == 1 else 's' }} done today{% if d.streak %} · {{ d.streak }}-day streak{% endif %}</p>
   </div>
-  {% if d.streak %}<span class="pill pill-warn" title="Consecutive days with study activity">{{ icon("flame", 14) }} {{ d.streak }} day{{ '' if d.streak == 1 else 's' }}</span>{% endif %}
+  {% if d.streak %}<span class="streak" title="Consecutive days with study activity">{{ icon("flame", 18) }}<strong>{{ d.streak }}</strong><span>day{{ '' if d.streak == 1 else 's' }}</span></span>{% endif %}
 </div>
 
-<div class="hero">
-  <div class="card resume">
-    {% if d.resume %}
-      <div>
-        <div class="eyebrow">Continue reading · {{ d.resume.doc_title }}</div>
-        <h2>{{ d.resume.page.title }}</h2>
-      </div>
-      <div class="row">
-        <a class="btn btn-primary" href="/read/{{ d.resume.doc }}/{{ d.resume.page.id }}">Pick up where you left off {{ icon("arrow-right", 16) }}</a>
-        {% if d.resume.page.next %}<a class="btn" href="/read/{{ d.resume.doc }}/{{ d.resume.page.next }}">Next page</a>{% endif %}
-      </div>
-    {% else %}
-      <div>
-        <div class="eyebrow">Start here</div>
-        <h2>Read the Study Tips first</h2>
-        <p class="muted small">They set up the daily loop: read a section, drill its flashcards, run the lab, answer the questions.</p>
-      </div>
-      <div class="row">
-        <a class="btn btn-primary" href="/read/tips">Open Study Tips {{ icon("arrow-right", 16) }}</a>
-        <a class="btn" href="/read/ccna">CCNA guide</a>
-        <a class="btn" href="/read/ccnp">CCNP guide</a>
-      </div>
-    {% endif %}
-  </div>
-  <div class="card">
-    <h3>Today</h3>
-    <ul class="todo-list">
-      <li><span>Flashcards due</span>
-        {% if d.cards.due %}<a class="btn btn-sm btn-primary" href="/cards/study">Review {{ d.cards.due }}</a>
-        {% else %}<span class="pill pill-good">{{ icon("check", 12) }} clear</span>{% endif %}</li>
-      <li><span>New cards available</span>
-        {% if d.cards.new_today %}<a class="btn btn-sm" href="/cards">Learn {{ d.cards.new_today }}</a>
-        {% else %}<span class="pill">{{ d.cards.reviews_today }} reviewed</span>{% endif %}</li>
-      <li><span>Subnetting sprint</span><a class="btn btn-sm" href="/subnetting">Drill</a></li>
-      <li><span>Missed questions</span><a class="btn btn-sm" href="/quiz?filter=missed">Retry</a></li>
-    </ul>
-  </div>
+{# One primary call to action: cards due first, then pick up reading, then start the guide. #}
+<section class="next-up card">
+  {% if d.cards.due %}
+    <div class="next-up-body">
+      <div class="eyebrow">Up next</div>
+      <h2>Review {{ d.cards.due }} flashcard{{ '' if d.cards.due == 1 else 's' }}</h2>
+      <p class="muted">They're due now. Spaced repetition only works if reviews happen on time, so these come first.</p>
+    </div>
+    <div class="next-up-actions">
+      <a class="btn btn-primary btn-lg" href="/cards/study">Start review {{ icon("arrow-right", 16) }}</a>
+      {% if d.resume %}<a class="btn" href="/read/{{ d.resume.doc }}/{{ d.resume.page.id }}">Continue reading</a>{% endif %}
+    </div>
+  {% elif d.resume %}
+    <div class="next-up-body">
+      <div class="eyebrow">Continue reading · {{ d.resume.doc_title }}</div>
+      <h2>{{ d.resume.page.title }}</h2>
+      <p class="muted">Pick up where you left off, then quiz the chapter.</p>
+    </div>
+    <div class="next-up-actions">
+      <a class="btn btn-primary btn-lg" href="/read/{{ d.resume.doc }}/{{ d.resume.page.id }}">Continue {{ icon("arrow-right", 16) }}</a>
+      {% if d.resume.page.next %}<a class="btn" href="/read/{{ d.resume.doc }}/{{ d.resume.page.next }}">Next page</a>{% endif %}
+    </div>
+  {% else %}
+    <div class="next-up-body">
+      <div class="eyebrow">Start here</div>
+      {% if "ccnp" in shown_kits %}
+      <h2>Open the CCNP study guide</h2>
+      <p class="muted">ENCOR and ENARSI, taught section by section, with exam-style questions at the end of every section.</p>
+      {% else %}
+      <h2>Read the Study Tips first</h2>
+      <p class="muted">They set up the daily loop: read a section, drill its flashcards, run the lab, answer the questions.</p>
+      {% endif %}
+    </div>
+    <div class="next-up-actions">
+      {% if "ccnp" in shown_kits %}
+      <a class="btn btn-primary btn-lg" href="/read/ccnp">Open the CCNP guide {{ icon("arrow-right", 16) }}</a>
+      {% else %}
+      <a class="btn btn-primary btn-lg" href="/read/tips">Open Study Tips {{ icon("arrow-right", 16) }}</a>
+      <a class="btn" href="/read/ccna">CCNA guide</a>
+      {% endif %}
+    </div>
+  {% endif %}
+</section>
+
+<div class="quick-grid">
+  <a class="quick" href="/cards">
+    <span class="quick-icon">{{ icon("cards", 20) }}</span>
+    <span><strong>Flashcards</strong><span class="muted small">{% if d.cards.due %}{{ d.cards.due }} due{% elif d.cards.new_today %}{{ d.cards.new_today }} new today{% else %}All caught up{% endif %}</span></span>
+  </a>
+  <a class="quick" href="/quiz">
+    <span class="quick-icon">{{ icon("quiz", 20) }}</span>
+    <span><strong>Quiz</strong><span class="muted small">Practice or timed exam</span></span>
+  </a>
+  <a class="quick" href="/terminal">
+    <span class="quick-icon">{{ icon("terminal", 20) }}</span>
+    <span><strong>Terminal labs</strong><span class="muted small">{{ d.terminal.done }} of {{ d.terminal.total }} done</span></span>
+  </a>
+  <a class="quick" href="/quiz?filter=missed">
+    <span class="quick-icon">{{ icon("target", 20) }}</span>
+    <span><strong>Retry misses</strong><span class="muted small">Questions you got wrong</span></span>
+  </a>
 </div>
 
-<div class="grid grid-4" style="margin-bottom:16px">
-  {% for s in d.sources %}
-  <a class="card" href="/quiz?source={{ s.id }}" style="color:inherit;text-decoration:none">
-    <div class="stat-label">{{ s.title }}</div>
-    <div class="stat">{% if s.accuracy is not none %}{{ (s.accuracy * 100)|round|int }}%{% else %}–{% endif %}</div>
-    <div class="muted small">{{ s.answered }} / {{ s.total }} answered</div>
-  </a>
-  {% endfor %}
-  <a class="card" href="/cards" style="color:inherit;text-decoration:none">
-    <div class="stat-label">Flashcards</div>
-    <div class="stat">{{ d.cards.studied }}<span class="muted small"> / {{ d.cards.total }}</span></div>
-    <div class="muted small">{% if d.cards.retention is not none %}{{ (d.cards.retention * 100)|round|int }}% recall (30d){% else %}{{ d.cards.mature }} mature{% endif %}</div>
-  </a>
-  <a class="card" href="/subnetting" style="color:inherit;text-decoration:none">
-    <div class="stat-label">Subnetting (7 days)</div>
-    <div class="stat">{% if d.subnetting.accuracy is not none %}{{ (d.subnetting.accuracy * 100)|round|int }}%{% else %}–{% endif %}</div>
-    <div class="muted small">{{ d.subnetting.n }} solved{% if d.subnetting.avg_seconds %} · {{ d.subnetting.avg_seconds|round(1) }}s avg{% endif %}</div>
-  </a>
-</div>
-
+<h2 class="section-title">Progress</h2>
 <div class="grid grid-2">
-  <div class="card">
-    <h3>Reading progress</h3>
-    {% for r in d.reading %}
+  {% for kit in ["ccnp", "ccna"] if kit in shown_kits %}
+  {% set src = d.sources|selectattr("kit", "equalto", kit)|first %}
+  <section class="card exam-card kit-{{ kit }}">
+    <div class="spread">
+      <h3 style="margin:0"><span class="kit-badge kit-{{ kit }}">{{ kit_names[kit] }}</span> {{ "ENCOR + ENARSI" if kit == "ccnp" else "200-301" }}</h3>
+      {% if src and src.accuracy is not none %}<span class="pill {{ 'pill-good' if src.accuracy >= 0.85 else 'pill-warn' }}" title="Latest answer to each question">{{ (src.accuracy * 100)|round|int }}% correct</span>{% endif %}
+    </div>
+    {% for r in d.reading if r.kit|default('ccnp' if r.id == 'ccnp' else 'ccna') == kit %}
     <div class="meter-row">
       <a href="/read/{{ r.id }}">{{ r.title }}</a>
-      <span class="muted small">{{ r.done }} / {{ r.total }}</span>
+      <span class="muted small">{{ r.done }} / {{ r.total }} pages</span>
       <div class="progress {{ 'good' if r.done == r.total }}"><span style="width: {{ pct(r.done, r.total) }}%"></span></div>
     </div>
     {% endfor %}
+    {% if src %}
     <div class="meter-row">
-      <a href="/terminal">Terminal labs</a>
-      <span class="muted small">{{ d.terminal.done }} / {{ d.terminal.total }}</span>
-      <div class="progress {{ 'good' if d.terminal.done == d.terminal.total }}"><span style="width: {{ pct(d.terminal.done, d.terminal.total) }}%"></span></div>
+      <a href="/quiz?source={{ src.id }}">Questions answered</a>
+      <span class="muted small">{{ src.answered }} / {{ src.total }}</span>
+      <div class="progress"><span style="width: {{ pct(src.answered, src.total) }}%"></span></div>
     </div>
+    {% endif %}
+    {% set by_exam = d.terminal.by_exam if d.terminal.by_exam is defined else {} %}
+    {% for e in exams[kit] if by_exam.get(e) %}{% set t = by_exam[e] %}
     <div class="meter-row">
-      <a href="/labs">Labs</a>
-      <span class="muted small">{{ d.labs.done }} / {{ d.labs.total }}</span>
-      <div class="progress {{ 'good' if d.labs.done == d.labs.total }}"><span style="width: {{ pct(d.labs.done, d.labs.total) }}%"></span></div>
+      <a href="/terminal#{{ e|lower }}">{{ e }} terminal labs</a>
+      <span class="muted small">{{ t.done }} / {{ t.total }}</span>
+      <div class="progress {{ 'good' if t.done == t.total }}"><span style="width: {{ pct(t.done, t.total) }}%"></span></div>
     </div>
-  </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
 
-  <div class="card">
+  <section class="card">
+    <div class="spread"><h3 style="margin:0">Activity</h3><span class="muted small">last 16 weeks</span></div>
+    <div class="heatmap" aria-label="Study activity over the last 16 weeks" style="margin-top:12px">
+      {% for col in d.heatmap %}<div class="heat-col">{% for c in col %}<div class="heat l{{ c.level }}{{ ' future' if c.future }}" title="{{ c.date }}: {{ c.count }}"></div>{% endfor %}</div>{% endfor %}
+    </div>
+    <div class="stat-row">
+      <div><div class="stat">{{ d.cards.studied }}</div><div class="stat-label">cards studied of {{ d.cards.total }}</div></div>
+      <div><div class="stat">{% if d.cards.retention is not none %}{{ (d.cards.retention * 100)|round|int }}%{% else %}–{% endif %}</div><div class="stat-label">card recall (30d)</div></div>
+      {% if "ccna" in shown_kits %}
+      <div><div class="stat">{% if d.subnetting.accuracy is not none %}{{ (d.subnetting.accuracy * 100)|round|int }}%{% else %}–{% endif %}</div><div class="stat-label">subnetting (7d)</div></div>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if d.weak %}
+  <section class="card">
     <h3>Weak spots</h3>
-    {% if d.weak %}
-    <p class="muted small" style="margin-top:-6px">Topics below 85% on your latest answers. Re-read, then retry the misses.</p>
+    <p class="muted small" style="margin-top:-6px">Under 85% on your latest answers. Re-read, then retry the misses.</p>
     <ul class="list">
       {% for g in d.weak %}
       <li class="spread">
@@ -106,20 +141,14 @@
       </li>
       {% endfor %}
     </ul>
-    {% else %}
-    <p class="empty small">Answer at least 3 questions in a topic and anything under 85% shows up here.</p>
-    {% endif %}
-  </div>
+  </section>
+  {% endif %}
+</div>
 
-  <div class="card">
-    <h3>Activity</h3>
-    <div class="heatmap" aria-label="Study activity over the last 16 weeks">
-      {% for col in d.heatmap %}<div class="heat-col">{% for c in col %}<div class="heat l{{ c.level }}{{ ' future' if c.future }}" title="{{ c.date }}: {{ c.count }}"></div>{% endfor %}</div>{% endfor %}
-    </div>
-    <p class="muted tiny" style="margin-bottom:0">Questions, card reviews, drills, pages, lab steps and terminal tasks per day, last 16 weeks.</p>
-  </div>
-
-  <div class="card">
+<details class="card reveal more" style="margin-top:16px">
+  <summary>More: recent quizzes{% if not d.weak %} and weak spots{% endif %}</summary>
+  <div class="reveal-body">
+    {% if not d.weak %}<h3>Weak spots</h3><p class="muted small">None yet. Answer at least 3 questions in a topic and anything under 85% shows up on the dashboard.</p>{% endif %}
     <div class="spread"><h3 style="margin:0">Recent quizzes</h3><a class="btn btn-sm" href="/quiz">New quiz</a></div>
     {% if d.quizzes %}
     <ul class="list">
@@ -132,10 +161,11 @@
       {% endfor %}
     </ul>
     {% else %}
-    <p class="empty small">No quizzes yet. Build one from the practice bank or the CCNP questions.</p>
+    <p class="empty small">No quizzes yet.</p>
     {% endif %}
+    <p class="muted small" style="margin-bottom:0">Workbook labs: {{ d.labs.done }} of {{ d.labs.total }} complete, {{ d.labs.items_checked }} steps ticked. <a href="/labs">Open the workbook</a>.</p>
   </div>
-</div>
+</details>
 {% endblock %}
 {% block scripts %}
 <script type="module">
